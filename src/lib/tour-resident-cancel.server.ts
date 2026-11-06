@@ -149,6 +149,7 @@ export async function cancelResidentTour(
     try {
       await recordResidentProspectInboxMessage(db, {
         participantEmail: email,
+        residentUserId: input.userId,
         subject: outcome === "tour-cancelled" ? "Tour cancelled by the guest" : "Tour request withdrawn",
         body:
           `${guestName} ${outcome === "tour-cancelled" ? "cancelled their tour" : "withdrew their tour request"}` +

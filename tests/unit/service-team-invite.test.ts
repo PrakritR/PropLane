@@ -17,8 +17,10 @@ const NEWCOMER = "bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb";
 const CLIENT_OWNER = "cccccccc-1111-4111-8111-cccccccccccc";
 
 let admins = new Set<string>();
+let strictRoleReadFails = false;
 vi.mock("@/lib/auth/admin-role", () => ({
   userHoldsAdminRole: async (_db: unknown, id: string) => admins.has(id),
+  userHoldsAdminRoleStrict: async (_db: unknown, id: string) => { if (strictRoleReadFails) throw new Error("role read unavailable"); return admins.has(id); },
   listAdminUserIds: async () => [...admins].sort(),
 }));
 vi.mock("@/lib/manager-access-server", () => ({
@@ -117,6 +119,7 @@ async function made(name = "1. Ambika") {
 beforeEach(() => {
   sentEmails.items.length = 0;
   notices.items.length = 0;
+  strictRoleReadFails = false;
   seed();
 });
 
@@ -317,6 +320,13 @@ describe("the Owner role", () => {
     const res = await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-AAAA", ownerOfRecord: true, replaceOwner: true });
     expect(res).toMatchObject({ ok: false, status: 409 });
     expect((res as { code?: string }).code).toBeUndefined();
+  });
+
+  it("refuses owner assignment when the target admin role cannot be read", async () => {
+    const id = await made();
+    strictRoleReadFails = true;
+    expect(await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-CCCC", ownerOfRecord: true })).toMatchObject({ ok: false, status: 503 });
+    expect(db.tables.account_link_invites.some((row) => row.invitee_user_id === CLIENT_OWNER)).toBe(false);
   });
 
   it("a PropLane admin can never be invited as the owner", async () => {

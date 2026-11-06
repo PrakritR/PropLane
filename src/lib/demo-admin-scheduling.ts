@@ -360,7 +360,7 @@ async function flushJsonWrite(key: string): Promise<boolean> {
 
 async function persistPublicPartnerInquiry(
   row: PartnerInquiry,
-): Promise<{ ok: boolean; row?: PartnerInquiry; error?: string; blocked?: string }> {
+): Promise<{ ok: boolean; row?: PartnerInquiry; error?: string; blocked?: string; status?: number }> {
   if (!isBrowser()) return { ok: false, error: "Browser required." };
   const res = await fetch("/api/public/partner-inquiries", {
     method: "POST",
@@ -386,7 +386,7 @@ async function persistPublicPartnerInquiry(
   } catch {
     // Keep the generic message when the response is not JSON.
   }
-  return { ok: false, error, blocked };
+  return { ok: false, error, blocked, status: res.status };
 }
 
 async function writeJsonToServer(
@@ -839,10 +839,10 @@ export function appendPartnerInquiry(payload: Omit<PartnerInquiry, "id" | "statu
 
 export async function appendPartnerInquiryToServer(
   payload: Omit<PartnerInquiry, "id" | "status" | "createdAt">,
-): Promise<{ ok: boolean; row?: PartnerInquiry; error?: string; blocked?: string }> {
+): Promise<{ ok: boolean; row?: PartnerInquiry; error?: string; blocked?: string; status?: number }> {
   const row = buildPartnerInquiry(payload);
   const result = await persistPublicPartnerInquiry(row);
-  if (!result.ok) return { ok: false, error: result.error, blocked: result.blocked };
+  if (!result.ok) return { ok: false, error: result.error, blocked: result.blocked, status: result.status };
   const persistedRow = result.row ?? row;
   insertPartnerInquiryLocally(persistedRow);
   return { ok: true, row: persistedRow };

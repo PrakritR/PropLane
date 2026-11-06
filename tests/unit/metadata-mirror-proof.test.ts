@@ -1,0 +1,82 @@
+import { createHash } from "node:crypto";
+import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import catalog from "../e2e/support/draft-fk-catalog.json";
+import { cleanupMetadataProperty, preflightMetadata, type MetadataMirrorManifest } from "../helpers/metadata-mirror-proof";
+const input = { managerId: "11111111-1111-4111-8111-111111111111", workspaceId: "22222222-2222-4222-8222-222222222222", propertyId: "33333333-3333-4333-8333-333333333333", marker: "metadata-proof-44444444-4444-4444-8444-444444444444", updatedAt: "2026-10-30T00:00:00Z", channelSnapshot: "none", rowDataDigest: createHash("sha256").update(JSON.stringify({ name: "metadata-proof-44444444-4444-4444-8444-444444444444" })).digest("hex") };
+function fixture(opts: { connection?: boolean; descendant?: boolean; wrongOwner?: boolean; post?: string; active?: boolean; postWrongOwner?: boolean } = {}) {
+  return { async query(sql: string) {
+    if (sql.includes("select owner_user_id")) return { rows: [{ owner_user_id: opts.wrongOwner ? input.workspaceId : input.managerId, is_service: false }] };
+    if (sql.includes("to_jsonb(p)::text")) return { rows: opts.post ? [{ snapshot: opts.post, manager_user_id: opts.postWrongOwner ? input.workspaceId : input.managerId, property_id: "demo-prop-fremont", channel: "craigslist", enabled: false, state: opts.active ? "pending" : "off", pending_action: null, external_id: null, content_hash: null, posted_at: null, next_attempt_at: null, attempts: 0, property_exists: false }] : [] };
+    if (sql.includes("listing_channel_connections")) return { rows: [{ count: opts.connection ? 1 : 0 }] };
+    if (sql.includes("select status,manager_user_id")) return { rows: [{ status: "live", manager_user_id: input.managerId, workspace_id: input.workspaceId, updated_at: input.updatedAt, row_data: { name: input.marker } }] };
+    if (sql.includes("pg_constraint")) return { rows: catalog.rows.filter((r) => r.parent_table === "manager_property_records") };
+    if (sql.includes("information_schema.columns")) return { rows: [{ table_name: "listing_channel_posts" }] };
+    return { rows: [{ count: opts.descendant ? 1 : 0 }] };
+  } };
+}
+describe("metadata property proof safety", () => {
+  it("allows only the fixture's metadata-omitting mirror", () => {
+    const source = readFileSync("tests/e2e/metadata-mirror-proof.spec.ts", "utf8");
+    expect(source).toContain('await page.route(/\\/api\\/property-records');
+    expect(source).toContain('expect(blockedPageWrites).toEqual([])');
+    expect(source).toContain('action: "upsert", id: propertyId, managerUserId: managerId');
+    expect(source).toContain('expect("rowData" in partialBody).toBe(false)');
+    expect(source).toContain('page.request.post("/api/property-records", { data: partialBody })');
+    expect(source).toContain('expect(after.data.row_data).toEqual(initial.data.row_data)');
+  });
+  it("accepts exact owned live property with no dependencies", async () => { await expect(preflightMetadata(fixture(), input, "live")).resolves.toBeUndefined(); });
+  it("pins the entire eligible terminal orphan and rejects subsequent drift", async () => {
+    const candidate = { ...input, channelSnapshot: undefined };
+    await preflightMetadata(fixture({ post: "full-row-before" }), candidate, "absent").catch((error: Error) => { if (!/Metadata property ownership/.test(error.message)) throw error; });
+    expect(candidate.channelSnapshot).toMatch(/^[a-f0-9]{64}$/);
+    await preflightMetadata(fixture({ post: "full-row-before" }), candidate, "live");
+    await expect(preflightMetadata(fixture({ post: "full-row-after" }), candidate, "live")).rejects.toThrow(/post changed/);
+    await expect(preflightMetadata(fixture({ post: "full-row-before", active: true }), candidate, "live")).rejects.toThrow(/post state/);
+    await expect(preflightMetadata(fixture({ post: "full-row-before", postWrongOwner: true }), candidate, "live")).rejects.toThrow(/post state/);
+  });
+  it("rejects an unexpected existing channel snapshot", async () => {
+    await expect(preflightMetadata(fixture(), { ...input, channelSnapshot: "changed" }, "live")).rejects.toThrow(/post changed/);
+  });
+  it("denies a connected workspace, a descendant, or owner drift", async () => { for (const options of [{ connection: true }, { descendant: true }, { wrongOwner: true }]) await expect(preflightMetadata(fixture(options), input, "live")).rejects.toThrow(); });
+  it("preflights the live property and deletes only the captured revision", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "metadata-proof-"));
+    try {
+      const manifest: MetadataMirrorManifest = { ...input, state: "saved" };
+      const filters: Array<[string, unknown]> = [];
+      let deleting = false;
+      const query = { select: () => query, eq: (key: string, value: unknown) => { filters.push([key, value]); return query; }, contains: (key: string, value: unknown) => { filters.push([key, value]); return query; }, limit: () => query, delete: () => { deleting = true; return query; }, then: (resolve: (v: unknown) => unknown) => resolve({ data: [{ id: input.propertyId }], error: null }) };
+      const preflight = vi.fn(async (value: unknown, state: "absent" | "live") => { void value; void state; });
+      await cleanupMetadataProperty({ from: () => query } as never, manifest, path.join(dir, "manifest.json"), { serverStopped: true, preflight });
+      expect(preflight.mock.calls.map((args) => args[1])).toEqual(["live", "absent"]);
+      expect(deleting).toBe(true);
+      expect(filters).toContainEqual(["status", "live"]);
+      expect(filters).toContainEqual(["updated_at", input.updatedAt]);
+      expect(manifest.state).toBe("cleaned");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+  it("retains manifest when the captured revision loses the delete race", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "split-b-"));
+    try {
+      const manifest: MetadataMirrorManifest = { ...input, state: "saved" };
+      const filters: Array<[string, unknown]> = [];
+      let deleting = false;
+      const query = { select: () => query, eq: (key: string, value: unknown) => { filters.push([key, value]); return query; }, contains: (key: string, value: unknown) => { filters.push([key, value]); return query; }, limit: () => query, delete: () => { deleting = true; return query; }, then: (resolve: (v: unknown) => unknown) => resolve({ data: deleting ? [] : [{ id: input.propertyId }], error: null }) };
+      const db = { from: () => query };
+      await expect(cleanupMetadataProperty(db as never, manifest, path.join(dir, "manifest.json"), { serverStopped: true, preflight: vi.fn(async () => {}) })).rejects.toThrow(/uncertain/);
+      expect(filters).toContainEqual(["updated_at", input.updatedAt]);
+      expect(manifest.state).toBe("delete_started");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+  it("refuses cleanup while the proof server runs", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "split-b-"));
+    try {
+      const manifest: MetadataMirrorManifest = { ...input, state: "saved" };
+      const preflight = vi.fn();
+      await expect(cleanupMetadataProperty({} as never, manifest, path.join(dir, "manifest.json"), { serverStopped: false, preflight })).rejects.toThrow(/Stopped server/);
+      expect(preflight).not.toHaveBeenCalled();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+});

@@ -14,6 +14,9 @@ import { useSearchParams } from "next/navigation";
 export function ResidentTourScheduleClient() {
   const searchParams = useSearchParams();
   const propertyId = searchParams.get("propertyId")?.trim() ?? "";
+  // A pick that travelled through sign-in (room, day and time chosen on the public tour page).
+  const slotKey = searchParams.get("slot")?.trim() ?? "";
+  const room = searchParams.get("room")?.trim() ?? "";
   const [tick, setTick] = useState(0);
   const navigate = usePortalNavigate();
 
@@ -41,7 +44,11 @@ export function ResidentTourScheduleClient() {
         ) : (
           <div className="px-4 py-4 sm:px-6 sm:py-6">
             <TourScheduleFlow
+              // A different pick is a different flow: the preselected time is read once, on mount.
+              key={`${property.id}:${slotKey}:${room}`}
               property={property}
+              initialSlotKey={slotKey || null}
+              initialRoom={room || null}
               returnAfterAuth="/resident/tour/pending"
               embedded
               onSuccess={notifyResidentToursChanged}

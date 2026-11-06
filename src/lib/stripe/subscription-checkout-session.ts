@@ -1,6 +1,17 @@
 /** Default trial for new manager software subscriptions (card or Apple Pay required). */
 export const MANAGER_SUBSCRIPTION_TRIAL_DAYS = 14;
 
+/**
+ * The marker every manager plan Checkout session carries, stamped here because this builder is the
+ * one place signup (`stripe/manager-checkout.ts`) and the portal upgrade
+ * (`/api/stripe/checkout-portal`) both go through.
+ *
+ * The webhook classifies a manager plan by THIS, never by the absence of a `purpose`
+ * (`stripe/checkout-purpose.ts`): "no purpose" was never unique to a plan purchase, so a resident
+ * card-setup session fell into the plan branch and failed the event.
+ */
+export const MANAGER_PLAN_CHECKOUT_PURPOSE = "manager_plan";
+
 export type ManagerSubscriptionCheckoutDiscount = {
   coupon?: string;
   promotion_code?: string;
@@ -65,12 +76,17 @@ export function buildManagerSubscriptionCheckoutBase(
       ? Math.floor(input.trialPeriodDays)
       : null;
 
+  // The plan marker is stamped here, not at the call sites, so no manager plan session can be
+  // created without it (`MANAGER_PLAN_CHECKOUT_PURPOSE`). An explicit `purpose` from the caller
+  // would be a different session kind and is not overwritten.
+  const metadata = { purpose: MANAGER_PLAN_CHECKOUT_PURPOSE, ...input.metadata };
+
   return {
     mode: "subscription",
     wallet_options: { link: { display: "never" as const } },
     payment_method_types: ["card"],
     line_items: [{ price: input.priceId, quantity: 1 }, ...(input.extraLineItems ?? [])],
-    metadata: input.metadata,
+    metadata,
     ...(input.customerEmail ? { customer_email: input.customerEmail } : {}),
     ...(input.clientReferenceId ? { client_reference_id: input.clientReferenceId } : {}),
     ...(input.discounts?.length ? { discounts: input.discounts } : {}),
@@ -79,7 +95,7 @@ export function buildManagerSubscriptionCheckoutBase(
       ? {
           subscription_data: {
             trial_period_days: trialDays,
-            metadata: input.metadata,
+            metadata,
           },
         }
       : {}),

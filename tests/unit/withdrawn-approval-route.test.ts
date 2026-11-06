@@ -41,7 +41,7 @@ const linkedEditScope = vi.fn();
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 // Admin resolution is not what these tests pin; the guard runs for every
 // manager role. REQUESTOR.role === "admin" already short-circuits in the route.
-vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: async () => false }));
+vi.mock("@/lib/auth/admin-oversight.server", () => ({ resolveAdminOversight: async (req: Request, id: string) => id === "co-manager-2" && new URL(req.url).searchParams.get("oversight") === "admin" }));
 vi.mock("@/lib/application-lifecycle-sms.server", () => ({ notifyApplicantApplicationSms: smsNotify }));
 vi.mock("@/lib/auth/resident-role-access", () => ({ resolveResidentScopedActorRole: resolveActorRole }));
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({
@@ -139,8 +139,8 @@ function makeServiceClient() {
   };
 }
 
-function patch(body: unknown) {
-  return new Request("http://localhost/api/portal/resident-approval", {
+function patch(body: unknown, oversight = false) {
+  return new Request(`http://localhost/api/portal/resident-approval${oversight ? "?oversight=admin" : ""}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -354,8 +354,11 @@ describe("PATCH /api/portal/resident-approval — withdrawn applications are not
     REQUESTOR = { role: "admin", email: "admin@example.com", sms_from_number: null };
     APP_ROWS = [WITHDRAWN_ROW];
     const { PATCH } = await import("@/app/api/portal/resident-approval/route");
+    resolveActorRole.mockResolvedValue("denied");
+    const withoutOversight = await PATCH(patch({ email: "applicant@example.com", approved: true, applicationId: "AXIS-9001" }));
+    expect(withoutOversight.status).toBe(403);
     const res = await PATCH(
-      patch({ email: "applicant@example.com", approved: true, applicationId: "AXIS-9001" }),
+      patch({ email: "applicant@example.com", approved: true, applicationId: "AXIS-9001" }, true),
     );
     expect(res.status).toBe(409);
     expect(PROFILE_UPDATE_CALLS).toBe(0);

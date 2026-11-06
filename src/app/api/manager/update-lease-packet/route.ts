@@ -69,11 +69,8 @@ export async function POST(req: NextRequest) {
     if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
       return NextResponse.json({ error: "Lease access is unavailable for this account." }, { status: 403 });
     }
-    const { data: profile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
-    const role = String(profile?.role ?? "").toLowerCase();
-    if (role !== "manager" && role !== "admin") {
-      return NextResponse.json({ error: "Managers only." }, { status: 403 });
-    }
+    const { data: roleRows, error: roleError } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+    if (roleError || !(roleRows ?? []).some((row) => row.role === "manager" || row.role === "admin")) return NextResponse.json({ error: "Managers only." }, { status: 403 });
 
     const parsed = parseBody(await req.json());
     if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });

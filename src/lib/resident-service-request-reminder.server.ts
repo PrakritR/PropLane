@@ -5,7 +5,7 @@ import {
   resolveManagerRecipientProfiles,
   resolvePropertyScopedManagerRecipientIds,
 } from "@/lib/co-manager-notification-recipients.server";
-import { residentBelongsToManager } from "@/lib/resident-manager-scope";
+import { residentSubjectManagerIds } from "@/lib/auth/resident-subject-evidence.server";
 import { getPropertyById } from "@/lib/rental-application/data";
 import {
   buildResidentServiceRequestReminderEmail,
@@ -55,21 +55,19 @@ export async function deliverResidentServiceRequestReminder(
 
   const { data: record } = await db
     .from("portal_service_request_records")
-    .select("manager_user_id, resident_email, property_id, row_data")
+    .select("manager_user_id, resident_user_id, resident_email, property_id, row_data")
     .eq("id", requestId)
     .maybeSingle();
   if (!record) return { ok: false, error: "Request not found." };
 
-  const recordEmail = String(record.resident_email ?? "").trim().toLowerCase();
-  if (recordEmail !== residentEmail) {
-    return { ok: false, error: "Forbidden." };
-  }
+  const residentSubjectId = record.resident_user_id;
+  if (residentSubjectId !== input.residentUserId) return { ok: false, error: "Forbidden." };
 
   const managerUserId = String(record.manager_user_id ?? "").trim();
   if (!managerUserId) return { ok: false, error: "Request has no manager." };
 
-  const belongs = await residentBelongsToManager(db, { residentEmail, managerUserId });
-  if (!belongs) return { ok: false, error: "Forbidden." };
+  const managers = await residentSubjectManagerIds(db, input.residentUserId, residentEmail);
+  if (!managers.includes(managerUserId)) return { ok: false, error: "Forbidden." };
 
   const rowData = (record.row_data ?? {}) as ServiceRequest;
   if (rowData.status !== "pending") {
@@ -126,6 +124,7 @@ export async function deliverResidentServiceRequestReminder(
     audience: "manager",
   });
 
+  const recordEmail = (record.resident_email ?? "").trim().toLowerCase() || null;
   const nextRow: ServiceRequest = {
     ...rowData,
     residentReminderSentAt: new Date().toISOString(),

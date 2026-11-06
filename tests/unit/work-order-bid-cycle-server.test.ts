@@ -452,3 +452,21 @@ describe("the estimate visit fee", () => {
     expect(locked.ok === false && locked.status).toBe(409);
   });
 });
+
+it("vendor DONE refuses a service changed after its snapshot", async () => {
+  const { markWorkOrderDoneByVendor } = await import("@/lib/work-order-bids.server");
+  const filters: Array<[string, unknown]> = [];
+  const db = { from: () => {
+    const query = {
+      select: () => query,
+      eq: (key: string, value: unknown) => { filters.push([key, value]); return query; },
+      is: () => query,
+      update: () => query,
+      maybeSingle: async () => ({ data: { manager_user_id: "manager", vendor_user_id: "vendor", resident_user_id: "resident", row_revision: 3, row_data: { bucket: "scheduled" } }, error: null }),
+      then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve),
+    }; return query;
+  } };
+  const result = await markWorkOrderDoneByVendor(db as never, { userId: "vendor", role: "vendor", email: "vendor@example.test", fullName: "Vendor", admin: false } as never, { workOrderId: "job" });
+  expect(result).toMatchObject({ ok: false, status: 409 });
+  expect(filters).toContainEqual(["row_revision", 3]);
+});

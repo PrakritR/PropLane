@@ -183,7 +183,7 @@ describe("GET /api/public/service-link/[token]", () => {
     expect(res.headers.get("x-robots-tag")).toMatch(/noindex/);
     expect(res.headers.get("cache-control")).toBe("no-store");
     const body = await res.json();
-    expect(body).toMatchObject({ state: "open", service: { title: "Kitchen sink leak", trade: "Plumbing", area: "Seattle", postedBy: "Alder Property Co" } });
+    expect(body).toMatchObject({ state: "open", service: { title: "Kitchen sink leak", trade: "Plumbing", area: "Seattle, WA", postedBy: "Alder Property Co" } });
     expect(JSON.stringify(body)).not.toMatch(/1420|Alder St|98115|4B|wo-1|mgr-1/);
   });
 

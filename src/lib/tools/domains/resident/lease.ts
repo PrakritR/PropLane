@@ -20,7 +20,7 @@ import {
   redactMoveInDetails,
   maskUnrevealedCheckIn,
 } from "@/lib/resident-move-in-resolve";
-import { loadResidentEmailRows, untrustedText } from "./load-resident-rows";
+import { loadResidentSubjectRows, untrustedText } from "./load-resident-rows";
 import { applicationPropertyId } from "./property-research-application";
 
 /**
@@ -54,7 +54,7 @@ export const getMyLeaseTool = defineTool({
   kind: "read",
   inputSchema: z.object({}).strict(),
   handler: async (ctx: ResidentAgentContext) => {
-    const rows = (await loadResidentEmailRows(ctx, "portal_lease_pipeline_records", (rd) => rd as LeasePipelineRow))
+    const rows = (await loadResidentSubjectRows(ctx, "portal_lease_pipeline_records", (rd) => rd as LeasePipelineRow))
       .filter((row) => row && row.status !== "Voided")
       .sort((a, b) => String(b.updatedAtIso ?? "").localeCompare(String(a.updatedAtIso ?? "")));
     // Prefer the active (fully signed) lease; otherwise the most recent draft.
@@ -71,11 +71,11 @@ export const getMyApplicationStatusTool = defineTool({
   inputSchema: z.object({}).strict(),
   handler: async (ctx: ResidentAgentContext) => {
     const rows: { id: string; row_data: DemoApplicantRow; property_id: string | null; assigned_property_id: string | null }[] = [];
-    if (ctx.email?.trim()) {
+    if (ctx.userId) {
       for (let from = 0; ; from += 1000) {
         let query = ctx.db.from("manager_application_records")
           .select("id, row_data, property_id, assigned_property_id")
-          .eq("resident_email", ctx.email);
+          .eq("row_data->>residentUserId", ctx.userId);
         if (ctx.activeManagerId) query = query.eq("manager_user_id", ctx.activeManagerId);
         const { data, error } = await query.order("id", { ascending: true }).range(from, from + 999);
         if (error) throw new Error(error.message);
@@ -108,11 +108,11 @@ export const getMoveInInfoTool = defineTool({
   inputSchema: z.object({}).strict(),
   handler: async (ctx: ResidentAgentContext) => {
     // Mirrors loadResidentMoveInForEmail but runs on ctx.db so the scope filter
-    // is the context's own email (and the fake test client can observe it).
+    // uses the authenticated subject rather than mailbox ownership.
     let applicationQuery = ctx.db
       .from("manager_application_records")
       .select("row_data, updated_at")
-      .eq("resident_email", ctx.email);
+      .eq("row_data->>residentUserId", ctx.userId);
     if (ctx.activeManagerId) {
       applicationQuery = applicationQuery.eq("manager_user_id", ctx.activeManagerId);
     }
@@ -122,7 +122,7 @@ export const getMoveInInfoTool = defineTool({
       .map((record: { row_data: unknown }) => asObject(record.row_data))
       .filter((row): row is Record<string, unknown> => Boolean(row))
       .map((row) => row as unknown as DemoApplicantRow)
-      .map((row) => ({ ...row, email: row.email?.trim().toLowerCase() || ctx.email }));
+      .map((row) => ({ ...row, email: ctx.email }));
 
     const bestRow = resolveBestResidentRow(ctx.email, applications);
     if (!bestRow) return { moveIn: null };
@@ -169,7 +169,7 @@ export const getMoveInInfoTool = defineTool({
     // in `resolved` at all (`houseInfoWithoutInternal`), so no question can surface it.
     const leaseUnlocked = ctx.phase === "approved";
     const reveal = leaseUnlocked
-      ? await residentCheckInReveal(ctx.db, ctx.email, { managerUserId: ctx.activeManagerId, leaseUnlocked })
+      ? await residentCheckInReveal(ctx.db, ctx.email, { managerUserId: ctx.activeManagerId, residentUserId: ctx.userId, leaseUnlocked })
       : null;
     const houseAccessUnlocked = leaseUnlocked && Boolean(reveal?.revealed);
     const resolved = houseAccessUnlocked || moveInDetailsLocked ? redacted : maskUnrevealedCheckIn(redacted);

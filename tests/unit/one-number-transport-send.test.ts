@@ -131,7 +131,7 @@ describe("shared-line transport through the work-number dispatcher", () => {
     expect(mocks.sendSms).toHaveBeenCalledTimes(1);
     const [, , from, opts] = mocks.sendSms.mock.calls[0];
     expect(from).toBe(WORK);
-    expect(opts).toEqual({ skipOptOutCheck: true, creditReservationKey: "sms_outbound:outbox-1" });
+    expect(opts).toEqual({ skipOptOutCheck: true, creditReservationKey: "sms_outbound:outbox-1", expectedPayerUserId: "manager-1" });
     expect(f.outbox.provider_from_phone).toBe(WORK);
   });
 

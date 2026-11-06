@@ -20,6 +20,33 @@ answer; `portal_work_order_records.row_data` only carries the lightweight
 (`DemoManagerWorkOrderRow` fields) plus the existing `vendorId` / `vendorName` /
 `cost` fields that already model final vendor assignment.
 
+## A resident's service belongs to an Auth subject, never an address
+
+`portal_work_order_records` and `portal_service_request_records` both carry
+`resident_user_id` (plus `row_revision` and `resident_subject_was_bound`), added by
+`20261030144600_resident_service_subjects.sql`. Every resident read of either table scopes on that
+subject — one loader, `loadResidentSubjectRows` (AGENTS.md § AI Agent & Tool Layer). A reused email
+address is never ownership.
+
+- **The subject is set at INSERT and is then immutable.** The `resident_service_subject` trigger
+  refuses assigning a subject to an existing unbound row (`23514`) and refuses changing or clearing a
+  bound one; only the FK's `on delete set null`, running as a nested trigger after the Auth row is
+  gone, may null it. `row_data.residentUserId` is a mirror the trigger writes — never an input.
+- **A resident filing one supplies no identity.** `resolveResidentFilingScope` derives the manager and
+  the house from residencies already bound to that subject, preferring an approved one over a
+  leftover pending application, and `applicationPropertyId` is the ONE precedence that decides which
+  house an application names (`assigned_property_id`, then `property_id`, then the payload's
+  `assignedPropertyId`, `propertyId`, nested `application.propertyId`; first non-empty wins). Do not
+  union those sources — a stale intake payload naming another house would widen the scope.
+- **A manager filing for a resident binds from their OWN roster.**
+  `boundResidentSubjectForManagerHouse` takes the subject from an application's bound
+  `row_data.residentUserId` or a lease's `resident_user_id`, under the same manager and the same
+  property; the email only selects among that roster. No bound residency, a foreign house, or two
+  candidate subjects binds nothing.
+- **A pre-release row with no bound subject stays manager-only, by design.** There is no backfill: an
+  address cannot prove who owns an old row, so it is reachable by its manager and not by any
+  resident session.
+
 ## The property Services page is services offered, by stay (property-term-split-1005)
 
 A property record's Services section lists the services **offered** there (`serviceRequestOptions`), under
@@ -264,8 +291,28 @@ the request), what the resident is billed, and any vendor price already recorded
 gone before the response is written, and `propertyName` becomes the general area
 (`workOrderGeneralArea`). The last one matters on a service re-offered after its hired vendor went
 silent: those fields still hold THAT vendor's approved figure, and the competitors now bidding have
-no business reading it. The vendor panel's own `vendorCanSeeFullWorkOrderSite` redaction is
-presentation on top of this projection, never instead of it.
+no business reading it. It also drops the hired vendor's identity (`vendorId`,
+`vendorAssignedAt`, `assignee`) and the ids that would re-identify the site
+(`propertyId` / `assignedPropertyId` / `workspaceId`), and the area it computed travels as
+`offeredGeneralArea` — `vendorVisibleGeneralArea` is what any surface reads, so a client
+never recomputes it from an address it was not given. The vendor panel's own
+`vendorCanSeeFullWorkOrderSite` redaction is presentation on top of this projection, never
+instead of it.
+
+**Neither projection carries an Auth subject.** Both run `withoutAuthSubjects` over the whole
+stored payload, at every depth: the resident / manager / vendor subject columns and their JSON
+mirrors, `resident_email`, the `dispatch` and `candidates` branches (competing-vendor
+reasoning), and the SMS-test provenance family — read from
+`SMS_TEST_PROVENANCE_ROW_KEYS` rather than re-typed, so a new accepted spelling cannot leak
+past a stale copy of the list. The vendor's own direct SELECT policy on
+`portal_work_order_records` is gone (`20261030144700`), so this projection is the only vendor
+read.
+
+**A hired vendor never loses their own job.** When the viewer holds the job but their
+directory id cannot be resolved under its manager — the roster row was removed mid-job, or
+there are two — `withheldAssignedVendorIdentity` serves the record whole and withholds only
+the identity it could not verify (`vendorId` and the assignee id), because an unverified value
+there may be an Auth subject rather than a directory record.
 
 **A hired vendor keeps the site but not the manager's books.** They hold the job, so the address stays,
 but `projectWorkOrderForHiredVendor` strips the manager's billing of the RESIDENT from every row
@@ -275,10 +322,11 @@ but `projectWorkOrderForHiredVendor` strips the manager's billing of the RESIDEN
 gets is decided by the portal it came from (`profile_roles` + the active-portal cookie), never
 `profiles.role`, so a manager+vendor account reads its own vendor jobs and still cannot write one.
 
-**The general area is never a street address.** A property NAMED after its address ("123 Main St,
-Seattle, WA") used to publish that name as the area, because the old rule simply took the text before
-the first comma. `workOrderGeneralArea` now drops any part that reads as a street line, keeps the
-city, and answers "Nearby" when nothing left is safe to show.
+**The general area is the city, derived from the ADDRESS only.** `workOrderGeneralArea` drops a
+trailing country, keeps a trailing state beside the city (the ZIP goes — it narrows the area to a
+few blocks), rejects any part that reads as a street line or unit designator, and answers "Nearby"
+when nothing left is safe to show. `propertyName` is never a fallback: a distinctive house name
+identifies the property as surely as its street.
 
 **The offer notification carries the same projection.** `sendWorkOrderVendorOffers` emits the
 vendors' copy with the general area and no unit, and the manager's own copy as a SEPARATE event that

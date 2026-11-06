@@ -86,19 +86,16 @@ describe("manager Applications — incomplete detail reminder", () => {
     ];
     render(<ManagerApplications bucket="pending" applicationId="PROPLANE-E2E86A70" />);
 
-    expect(screen.getAllByRole("button", { name: "Remind" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Send reminder" }).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
-    expect(screen.getAllByRole("button", { name: "Decline" }).length).toBeGreaterThan(0);
+    // An unsent application offers a reminder and Delete only: there is nothing to decline.
+    expect(screen.queryByRole("button", { name: "Decline" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Delete" }).length).toBeGreaterThan(0);
     // The download control is no longer on the detail body: 3c23cfc2 set
     // `showDownload={false}` there and folded it into the footer's combined
     // download menu, which opens on click. This test is about Send reminder and
     // the absence of Approve, so it no longer asserts a download affordance.
 
-    const sendReminder = screen.getAllByRole("button", { name: "Remind" })[0]!;
-    const reject = screen.getAllByRole("button", { name: "Decline" })[0]!;
-    expect(
-      sendReminder.compareDocumentPosition(reject) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
   });
 
   it("offers Send reminder when legacy stage is stored as Incomplete", () => {
@@ -115,7 +112,7 @@ describe("manager Applications — incomplete detail reminder", () => {
       },
     ];
     render(<ManagerApplications bucket="pending" applicationId="PROPLANE-LEGACY" />);
-    expect(screen.getAllByRole("button", { name: "Remind" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Send reminder" }).length).toBeGreaterThan(0);
   });
 
   it("does not offer Send reminder on the Incomplete tab list", () => {

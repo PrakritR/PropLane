@@ -116,6 +116,7 @@ function makeDb() {
           return Promise.resolve({ data: null, error: null });
         },
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
+          if (table === "profile_roles") return Promise.resolve({ data: PROFILE?.role ? [{ role: PROFILE?.role }] : [], error: null }).then(resolve);
           return Promise.resolve({ data: rowsFor(), error: null }).then(resolve);
         },
       };
@@ -164,7 +165,7 @@ function incompleteDraft(): StoredRecord {
 }
 
 function signInAs(userId: string) {
-  getUser.mockResolvedValue({ data: { user: { id: userId, email: "caller@test.proplane.local", user_metadata: {} } }, error: null });
+  getUser.mockResolvedValue({ data: { user: { id: userId, email: "caller@test.proplane.local", email_confirmed_at: "confirmed", user_metadata: {} } }, error: null });
 }
 
 beforeEach(() => {

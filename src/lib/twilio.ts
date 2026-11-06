@@ -15,6 +15,48 @@ import { captureE2eSms } from "@/lib/sms/e2e-transport.server";
  */
 export { normalizeE164 };
 
+type CreditHold = { manager_user_id: string; meter: string; quantity: number | string; credit_state: string };
+
+/**
+ * The reserved hold behind a send, from whichever ledger took the reservation: the workspace wallet / messaging-credit
+ * pool (`manager_comms_usage_events`) or, for a Free manager on the PropLane Number add-on, the subscription's own
+ * ledger (`number_credit_usage_events`, owner column `owner_user_id`). `reserveCommsCredit` (wallet.server.ts:264, called by the
+ * dispatcher at owner-sms-dispatcher.server.ts:1088) decides the ledger, so
+ * verification must look in both or every add-on send is refused as "could not be verified". A failed read is retried
+ * once (a blip must not drop a transactional notice) and then reported as an error, never as "no hold".
+ */
+async function readCreditHold(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  key: string,
+): Promise<{ hold: CreditHold | null; error: boolean }> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const wallet = await db.from("manager_comms_usage_events")
+      .select("manager_user_id,meter,quantity,credit_state").eq("idempotency_key", key).maybeSingle();
+    if (wallet.error) {
+      // Logged so a fail-closed refusal is diagnosable: without the code, "could not be verified" says
+      // nothing about which ledger answered how.
+      console.warn("comms credit ledger read failed", wallet.error.code ?? "unknown");
+      continue;
+    }
+    if (wallet.data) return { hold: wallet.data as CreditHold, error: false };
+    const number = await db.from("number_credit_usage_events")
+      .select("owner_user_id,meter,quantity,credit_state").eq("idempotency_key", key).maybeSingle();
+    if (number.error) {
+      // A database that predates the number ledger has no such table — and one whose columns this code
+      // does not know is just as absent here: "no hold there", not a read failure. The send is still
+      // refused unless the wallet ledger above holds the reservation.
+      if (number.error.code === "42P01" || number.error.code === "PGRST205" || number.error.code === "42703") {
+        return { hold: null, error: false };
+      }
+      console.warn("number credit ledger read failed", number.error.code ?? "unknown");
+      continue;
+    }
+    const row = number.data as { owner_user_id: string; meter: string; quantity: number | string; credit_state: string } | null;
+    return { hold: row ? { manager_user_id: row.owner_user_id, meter: row.meter, quantity: row.quantity, credit_state: row.credit_state } : null, error: false };
+  }
+  return { hold: null, error: true };
+}
+
 /**
  * Send an SMS via Twilio. Silently skips if env vars aren't configured
  * or if either phone number can't be normalized to E.164.
@@ -33,6 +75,13 @@ export async function sendSms(
     mediaUrls?: string[];
     creditReservationKey?: string;
     /**
+     * The workspace the dispatcher is sending FOR (the outbox row's `manager_user_id`). From the configured
+     * shared number the reserved hold alone proves whose wallet pays, so it must belong to THIS workspace:
+     * a reservation key is not a bearer token for another workspace's credit. Required on the shared number;
+     * absent = refused.
+     */
+    expectedPayerUserId?: string;
+    /**
      * `phone_verification`: the authenticated OTP route. `platform_lead`: a text from PropLane
      * itself on the shared number to a lead that has no workspace yet (no wallet to hold credit
      * from); it is valid ONLY from the configured shared number and keeps the shield, the
@@ -48,6 +97,8 @@ export async function sendSms(
     messagingServiceSid?: string | null;
     /** Trusted actor identity for delayed/provider calls outside SMS ALS. */
     actorUserId?: string;
+    /** Server-created opaque correlation callback for a durable platform reply. */
+    statusCallbackUrl?: string;
   },
 ): Promise<{ sent: boolean; sid?: string; error?: string; providerAttempted?: boolean }> {
   if (captureSmsTestDelivery({
@@ -109,14 +160,22 @@ export async function sendSms(
     const db = createSupabaseServiceRoleClient();
     const { data: number, error: numberError } = await db.from("manager_sms_numbers").select("manager_user_id")
       .eq("phone_number", fromNorm).neq("provision_state", "released").maybeSingle();
-    const { data: hold, error: creditError } = await db.from("manager_comms_usage_events")
-      .select("manager_user_id,meter,quantity,credit_state").eq("idempotency_key", opts.creditReservationKey).maybeSingle();
-    // The one shared PropLane number is configured on the platform, not owned by
-    // a manager row: it is a valid `from` only when it IS the configured shared
-    // number, and then the reserved hold alone proves whose wallet pays.
-    const sharedFrom = !number && !numberError && await isConfiguredSharedNumber(db, fromNorm);
+    const holdRead = await readCreditHold(db, opts.creditReservationKey);
+    const hold = holdRead.hold;
+    const creditError = holdRead.error;
+    // The configured shared PropLane number is a valid `from` for any workspace on the line, and then the reserved hold
+    // alone proves whose wallet pays. It is decided FIRST and regardless of any `manager_sms_numbers` row: the platform
+    // owner also holds that number as a manager row, and comparing the hold to THAT owner refused every notice of a
+    // PropLane-managed workspace owned by anyone else (prod, Oct 26 - Nov 3). Only a non-shared number is owned by its
+    // numbers row. An unreadable shared config reads as "not the shared number" (fail closed).
+    const sharedFrom = await isConfiguredSharedNumber(db, fromNorm).catch(() => false);
     const holdOwner = sharedFrom ? hold?.manager_user_id : number?.manager_user_id;
-    if (numberError || creditError || (!number && !sharedFrom) || !hold || !holdOwner || hold.manager_user_id !== holdOwner || hold.meter !== "sms_outbound_segment"
+    const expectedPayer = String(opts.expectedPayerUserId ?? "").trim();
+    // On the shared number the hold's owner must be the workspace being sent for; no stated payer fails closed.
+    if (sharedFrom && (!expectedPayer || (hold && hold.manager_user_id !== expectedPayer))) {
+      return { sent: false, providerAttempted: false, error: "Communication credit could not be verified." };
+    }
+    if ((!sharedFrom && numberError) || creditError || (!number && !sharedFrom) || !hold || !holdOwner || hold.manager_user_id !== holdOwner || hold.meter !== "sms_outbound_segment"
       || hold.credit_state !== "reserved" || Number(hold.quantity) !== estimateSmsSegments(body).segmentCount) {
       return { sent: false, providerAttempted: false, error: "Communication credit could not be verified." };
     }
@@ -130,7 +189,9 @@ export async function sendSms(
   const messagingServiceSid = opts?.messagingServiceSid !== undefined
     ? opts.messagingServiceSid?.trim()
     : process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
-  const statusCallback = process.env.TWILIO_STATUS_CALLBACK_URL?.trim();
+  const statusCallback = opts?.purpose === "platform_lead" && opts.statusCallbackUrl
+    ? opts.statusCallbackUrl
+    : process.env.TWILIO_STATUS_CALLBACK_URL?.trim();
 
   try {
     const message = await client.messages.create({

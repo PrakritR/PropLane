@@ -34,6 +34,13 @@ When a manager opts in (`proposeTourConfirmations`, default OFF, on
 to confirm it into the first matching open slot. It NEVER auto-books or emails —
 the proposal is a gated pending action the manager approves. Invariants:
 
+- **The inquiry id is server-minted, always.** `createTourInquiry` deletes any `id` in the incoming
+  payload and uses `crypto.randomUUID()`. The id is what binds a tour to its resident
+  (`resident_tour_links.inquiry_id`), and this route is public (a tour needs a session; see "Enforced server-side" below), so honouring a
+  caller's id let anyone name an existing linked inquiry, overwrite its manager, property and time
+  in the shared payload, and receive that resident's notices for the tour they had just replaced. A
+  row already present under the fresh id is a UUID collision and refuses the write rather than
+  inheriting its link.
 - **One booking core.** `confirmTourInquiry` (`src/lib/tour-inquiry-confirm.server.ts`)
   is the single implementation behind both the manual accept route and the
   auto-tour tool — `resolveConfirmedEnd`, plannedEvent creation, competing-inquiry
@@ -131,6 +138,24 @@ the web channel, see [`public-journey.md`](public-journey.md)) only when no publ
 later — `tourAvailabilityHasUpcoming` — because a grid whose every slot has passed looks
 identical to an empty one. A FAILED availability read is still never rendered as either
 (see the doc comment in `tour-schedule-flow.tsx`).
+
+## Times first, account at "Your details" (Nov 3)
+
+`/rent/tours-contact` shows a signed-out prospect the room dropdown (default "not sure yet"), days and times at once; there is no up-front
+`ProspectGuestAccountGate` on the Tour tab (Message keeps it). The flow is two steps, Date & time then Your details
+(`TourScheduleFlow`). Your details for a signed-out visitor is `TourAccountStep` (Apple / Google / email / sign in), carrying
+`next=/resident/tour/schedule?propertyId=&slot=<slotKey>&room=<roomId|any>` (`tourSchedulePath`, `src/lib/tour-schedule-link.ts`).
+**Nothing is written before sign-in**: no hold, no inquiry. `/resident/tour/schedule` reads `slot` + `room` as a PREFILL
+(`initialSlotKey` / `initialRoom`), opens on Your details with the account's name/email/phone filled, one "Request tour". The server
+re-checks everything; a slot or room in a URL is never trusted. A refusal (duplicate, rate limit, slot taken) renders inline on the step
+(`TourRefusal`) with the pick kept; a taken slot lists the next four open times. The email path preserves the pick on the server-decided
+signup handoff: `email_onboarding_handoffs.tour_slot_key` (+ `property_id`, `listing_room_id`) -> `/api/auth/email-onboarding/continue`
+-> `/auth/continue` rebuilds the fixed `/resident/tour/schedule` path.
+**Enforced server-side (captain, Nov 3: no anonymous booking).** `POST /api/public/partner-inquiries` refuses ANY `kind: "tour"` row
+(slot-mode and requested-time) without a signed-in session: 401 `sign_in_required`, before anything is read or written, failing closed when
+the session cannot be read; the body's `email` is never an identity. The only anonymous use left is `kind: "partner"` (the partner-meeting
+scheduler, no tour). Server callers do not use this route: the assistant's tour tools and the leasing SMS agent call `createTourInquiry`
+directly. Guards: `tests/unit/partner-inquiry-sms-consent.test.ts`, `tests/unit/tour-application-gate-routes.test.ts`.
 
 ## Requested time: a house with no open slot (`requestKind: "requested_time"`)
 
@@ -447,6 +472,25 @@ come from the resident's own linked tour, never the request; no stored thread op
 compose prefill. `inbox-recipient-scope.ts` `managerIdsFromResidentTours` still authorizes the resident's send. Tests:
 `tests/unit/{tour-host-team-thread,resident-tour-thread-open,portal-inbox-thread-reply}.test.ts`.
 
+**A resident inbox copy needs the exact inquiry binding, and a skip is reported.** `linkedTourNoticeOwner`
+writes the in-app copy only for a `resident_tour_links` row bound to BOTH this inquiry id AND the property
+the inquiry currently sits at — never a profile or email match. The three outcomes are now distinct: an
+unreadable binding is an **error** and fails the notice; a guest with no link, or a link bound to a
+different property, is a **reason** the manager reads while the notice still succeeds on its other
+channels. Collapsing them meant moving an inquiry from one house to another silently stopped every later
+confirm / reschedule / cancel from reaching the resident's inbox while the manager saw a clean send. A
+readable owner profile with no usable address is likewise an absence, not a failure. A notice whose every
+requested channel came back deliberately skipped is `skipped`, not a failure; a notice asked for with no
+channel at all still fails.
+
+**The tour sign-up capability rides the EMAIL only.** `tourRequestNotificationContexts` returns a clean
+context for the inbox and SMS copies and appends `#tour_token=…` to the account link for the outbound
+email alone — a persisted or manager-readable copy never carries the invitation secret. The token is a
+`tour_signup_capabilities` row (migrations `20261030144000`–`144200`) stored as its digest, bound to one
+inquiry id, recipient email, manager and property; redeeming it goes through
+`/api/auth/email-onboarding/start` with intent `tour`, which reserves the exact tour context before Auth
+can mint an OTP and retries only the same still-pending handoff.
+
 ## Tour tools, and who may do what
 
 | Tool | Registries | What it does |
@@ -557,8 +601,8 @@ one-line heading each inline blocked state shows, with no sentence under it). Th
 and their saved setting, then the caller's `manager_application_records` (scoped on the
 `resident_email` column). `createTourInquiry` is the one enforcement point (web form, resident
 assistant, leasing SMS), and it trusts only `verifiedApplicantEmail`: the signed-in session's email
-from `POST /api/public/partner-inquiries`, the account email for the resident tool, and nothing for
-an anonymous guest or an SMS prospect (a body's `email` proves nothing). The refusal is a 403
+from `POST /api/public/partner-inquiries` (which since Nov 3 refuses a tour without one), the account
+email for the resident tool, and nothing for an SMS prospect (a body's `email` proves nothing). The refusal is a 403
 `application_required` with a clear message. Manager-scheduled tours (`createManualPlannedTour`,
 `book_tour`, accepting an inquiry) never pass through it. The page half: the public projection
 stamps `applicationBeforeTour: true` (only when Required), `buildProspectTourHref` sends a visitor

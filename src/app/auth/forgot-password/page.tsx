@@ -6,11 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { requestPasswordReset } from "@/lib/auth/request-password-reset";
 import Link from "next/link";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 
-export default function ForgotPasswordPage() {
+function ForgotPasswordInner() {
   const { showToast } = useAppUi();
-  const [email, setEmail] = useState("");
+  const searchParams = useSearchParams();
+  const [email, setEmail] = useState(() => searchParams.get("email")?.trim() ?? "");
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
 
@@ -83,5 +85,19 @@ export default function ForgotPasswordPage() {
         ← Back to sign in
       </Link>
     </AuthCard>
+  );
+}
+
+export default function ForgotPasswordPage() {
+  return (
+    <Suspense
+      fallback={
+        <AuthCard>
+          <p className="text-center text-sm text-muted">Loading…</p>
+        </AuthCard>
+      }
+    >
+      <ForgotPasswordInner />
+    </Suspense>
   );
 }

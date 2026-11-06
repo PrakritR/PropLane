@@ -15,6 +15,8 @@ beforeAll(async () => {
     create table audit_log(id uuid primary key,actor_user_id uuid not null);
     create table manager_application_records(id text primary key,manager_user_id uuid,resident_email text);
     create table child_records(id text primary key,application_id text references manager_application_records(id) on delete cascade);
+    create table portal_work_order_records(id text primary key,row_data jsonb not null);
+    create table portal_service_request_records(id text primary key,row_data jsonb not null);
     create table screening_orders(id text primary key,application_id text);
     create table cosigner_submission_records(id text primary key,signer_app_id text);`);
   for (const table of ["ledger_entries", "security_deposit_ledger", "manager_payment_plans", "portal_household_charge_records", "portal_lease_pipeline_records"]) {
@@ -27,6 +29,8 @@ beforeAll(async () => {
     "20260907231000_account_recovery_financial_access_keys.sql", "20260907232000_account_recovery_restore.sql",
     "20260907233000_account_recovery_finish_archival.sql",
   ]) await db.exec(readFileSync(`supabase/migrations/${file}`, "utf8"));
+  await db.exec(readFileSync("supabase/migrations/20261030144600_resident_service_subjects.sql", "utf8"));
+  await db.exec(readFileSync("supabase/migrations/20261030145000_recovery_stored_roles_only.sql", "utf8"));
 }, 30_000);
 afterAll(async () => { await db?.close(); });
 
@@ -255,4 +259,40 @@ it("scrubs terminal recovery identity and redundant live snapshots", async () =>
   await db.query("select account_recovery_compact_terminal()");
   expect((await db.query("select user_id,email,profile_data,plan from account_recovery_requests where id=$1", [a.id])).rows[0]).toEqual({ user_id: null, email: "", profile_data: null, plan: {} });
   expect((await db.query("select payload from account_recovery_records where id=$1", [record.id])).rows[0]).toEqual({ payload: null });
+});
+
+
+it("blocks late bound services during recovery and restores the exact subject", async () => {
+  const resident = await user("resident");
+  await db.query("insert into portal_work_order_records(id,resident_user_id,row_data) values($1,$2,'{}')", ["service-owned",resident.id]);
+  const plan = { rules: [{table:"portal_work_order_records",ids:["resident_user_id"],recover:true,phase:2}], recoverableTables:["portal_work_order_records"] };
+  const { rows: [request] } = await db.query<{id:string}>("select account_recovery_begin($1,'resident',$2,'{}') id", [resident.id,plan]);
+  await expect(db.query("insert into portal_work_order_records(id,resident_user_id,row_data) values($1,$2,'{}')", ["service-late",resident.id])).rejects.toThrow(/recovery decision/);
+  await db.query("delete from portal_work_order_records where id='service-owned'");
+  await expect(db.query("insert into portal_work_order_records(id,resident_user_id,row_data) values($1,$2,'{}')", ["service-owned",resident.id])).rejects.toThrow(/Retained record/);
+  const claim = crypto.randomUUID();
+  await db.query("update account_recovery_requests set state='recovering', decision='recover', claim_id=$2 where id=$1", [request.id,claim]);
+  await db.query("update account_recovery_holds set decision='recover' where request_id=$1", [request.id]);
+  await db.query("select account_recovery_restore_available($1,$2)", [request.id,claim]);
+  const {rows} = await db.query<{resident_user_id:string}>("select resident_user_id from portal_work_order_records where id='service-owned'");
+  expect(rows[0]?.resident_user_id).toBe(resident.id);
+});
+
+
+it.each([
+  { name: "revoked admin", legacy: "admin", roles: ["manager"], remaining: [] },
+  { name: "genuine admin", legacy: "admin", roles: ["admin", "manager"], remaining: ["admin"] },
+  { name: "last resident role", legacy: "resident", roles: ["resident"], remaining: [] },
+  { name: "legacy-only resident", legacy: "resident", roles: [], remaining: [] },
+])("retains only stored roles when finishing $name deletion", async ({ legacy, roles, remaining }) => {
+  const resident = await user(legacy);
+  for (const role of roles) await db.query("insert into profile_roles(user_id,role) values($1,$2)", [resident.id, role]);
+  const portal = roles.includes("manager") ? "manager" : "resident";
+  const plan = { rules: [], recoverableTables: [], complete: remaining.length === 0 };
+  const { rows: [request] } = await db.query<{id:string}>("select account_recovery_begin($1,$2,$3,'{}') id", [resident.id, portal, plan]);
+  await db.query("select account_recovery_finish_archival($1)", [request.id]);
+  const { rows: stored } = await db.query<{role:string}>("select role from profile_roles where user_id=$1 order by role", [resident.id]);
+  expect(stored.map((row) => row.role)).toEqual(remaining);
+  const { rows: profiles } = await db.query<{role:string}>("select role from profiles where id=$1", [resident.id]);
+  expect(profiles.map((row) => row.role)).toEqual(remaining);
 });

@@ -50,7 +50,8 @@ function checkoutDb() {
     not: vi.fn(() => query),
     limit: vi.fn(() => query),
     maybeSingle: vi.fn(async () => ({ data: null, error: null })),
-    upsert: vi.fn(async () => ({ error: null })),
+    // Insert-if-absent reservation: `.upsert(row, { ignoreDuplicates: true }).select("id")` returns the inserted row.
+    upsert: vi.fn(() => ({ select: vi.fn(async () => ({ data: [{ id: "purchase-new" }], error: null })) })),
     // Per-door billing (step 3) resolves the account's live door count as
     // part of checkout for a paid tier — the same `.select().eq().in(...)`
     // chain `loadManagerDoorCount` issues against `manager_property_records`.
@@ -129,7 +130,7 @@ describe("test-workspace manager checkout boundary", () => {
         email: "manager@example.com",
         user_id: "normal-owner",
       }),
-      { onConflict: "manager_id" },
+      { onConflict: "manager_id", ignoreDuplicates: true },
     );
   });
 });

@@ -6,9 +6,8 @@
  * `resident-work-order-reminder.server.ts`, the same server code the panel's
  * routes run, so chat can never do something the portal would refuse.
  *
- * `portal_work_order_records` carries ONLY `resident_email` (no
- * `resident_user_id`), so every lookup here scopes on that column via
- * `loadResidentOwnWorkOrder`; the id the model passes is a target, never proof.
+ * `loadResidentOwnWorkOrder` scopes each lookup to the authenticated
+ * `resident_user_id`; the id the model passes is a target, never proof.
  */
 import { z } from "zod";
 import { defineWriteTool } from "../../registry";
@@ -40,6 +39,7 @@ async function requireOwnWorkOrder(ctx: ResidentAgentContext, workOrderId: strin
   const record = await loadResidentOwnWorkOrder(ctx.db, {
     workOrderId,
     residentEmail: ctx.email,
+    residentUserId: ctx.userId,
     activeManagerId: ctx.activeManagerId,
   });
   if (!record) throw new Error(NOT_YOURS);
@@ -193,7 +193,8 @@ export const updateWorkOrderTool = defineWriteTool({
 
     const result = await updateResidentWorkOrder(
       ctx.db,
-      { workOrderId, residentEmail: ctx.email, activeManagerId: ctx.activeManagerId },
+      { workOrderId, residentEmail: ctx.email,
+    residentUserId: ctx.userId, activeManagerId: ctx.activeManagerId },
       patch,
     );
     if (!result.ok) {
@@ -262,6 +263,7 @@ export const cancelWorkOrderTool = defineWriteTool({
     const result = await cancelResidentWorkOrder(ctx.db, {
       workOrderId,
       residentEmail: ctx.email,
+    residentUserId: ctx.userId,
       activeManagerId: ctx.activeManagerId,
     });
     if (!result.ok) {

@@ -6,9 +6,8 @@ import {
   prospectHandoffSuccessResponse,
 } from "@/lib/auth/complete-prospect-handoff.server";
 import {
-  consumeResidentSetupTokenOnApplication,
+  hashResidentSetupToken,
   findApplicationForResidentSetup,
-  relinkResidentSetupApplicationEmail,
 } from "@/lib/auth/resident-setup-token";
 import { provisionResidentAccountByEmail } from "@/lib/auth/provision-resident-account";
 import { scheduleResidentSetupLinkEmail } from "@/lib/auth/schedule-resident-setup-link";
@@ -72,6 +71,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Sign in with Google or Apple first." }, { status: 401 });
     }
 
+    if (!user.email_confirmed_at) return NextResponse.json({ error: "Verify your email and sign in before continuing.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
     const service = createSupabaseServiceRoleClient();
     const recovery = await recoverySetupRedirect(service, user.id);
     if (recovery) return NextResponse.json({ ok: true, recoveryRequired: true, redirectTo: recovery });
@@ -116,7 +116,8 @@ export async function POST(req: Request) {
         userId: user.id,
         email: oauthEmail,
         fullName,
-        inheritFromApplication: false,
+        emailProven: true,
+      inheritFromApplication: false,
       });
       if (!result.ok) {
         return NextResponse.json({ error: result.error }, { status: result.status });
@@ -136,19 +137,19 @@ export async function POST(req: Request) {
       });
     }
 
-    const lookup = await findApplicationForResidentSetup(service, { token, axisId });
+    const lookup = await findApplicationForResidentSetup(service, { token, axisId, consumedByUserId: user.id });
     if (!lookup.ok) {
       return NextResponse.json({ error: lookup.error }, { status: lookup.status });
     }
-
-    // A valid setup token already authorizes this handoff, so a Google email that
-    // differs from the one on the application is not an error — the applicant just
-    // chose a different Google account. Relink the application onto the account
-    // they actually control instead of rejecting them.
-    let applicationRow = lookup.row;
-    if (oauthEmail !== lookup.email) {
-      applicationRow = await relinkResidentSetupApplicationEmail(service, lookup.row, oauthEmail);
+    // Draft setup tokens can be returned to the browser and do not prove
+    // control of the original applicant's email. OAuth proves only its own email.
+    if (oauthEmail !== lookup.email || !user.email_confirmed_at) {
+      return NextResponse.json({ error: "Sign in with the verified email used on the application.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
     }
+
+    const binding = await service.rpc("bind_resident_setup_subject", { p_application: lookup.axisId, p_user: user.id, p_digest: hashResidentSetupToken(token) });
+    if (binding.error) return NextResponse.json({ error: "Could not complete account setup." }, { status: 503 });
+    if (binding.data !== true) return NextResponse.json({ error: "This setup link is invalid or has expired." }, { status: 403 });
 
     const fullName = oauthFullName(user.user_metadata) ?? lookup.name;
 
@@ -159,6 +160,8 @@ export async function POST(req: Request) {
       phone: lookup.phone,
       // OAuth + setup token authorize this flow — email control is proven, so
       // inherit the matching application's identity/approval (default-deny opt-in).
+      emailProven: true,
+      applicationId: lookup.axisId,
       inheritFromApplication: true,
     });
     if (!result.ok) {
@@ -166,13 +169,11 @@ export async function POST(req: Request) {
     }
 
     await service.from("profiles").update({ manager_id: lookup.axisId }).eq("id", user.id);
-    await consumeResidentSetupTokenOnApplication(service, applicationRow);
 
     return NextResponse.json({
       ok: true,
       axisId: lookup.axisId,
       linkedApplication: true,
-      relinkedEmail: oauthEmail !== lookup.email ? oauthEmail : undefined,
       redirectTo: "/resident/applications",
     });
   } catch (e) {

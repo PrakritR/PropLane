@@ -343,7 +343,8 @@ export function ToursPanel({ story }: { story?: DemoStory } = {}) {
 
 /* ───────────────────────────── Applications ───────────────────────────── */
 
-/** The real Applications tabs (pro-applications.tsx): Pending · Approved · Declined. */
+/** This mock's Applications tabs: Pending · Approved · Declined. The real list (pro-applications.tsx)
+ *  now leads with Incomplete; the mock has not caught up. */
 const APPLICATION_TABS: { id: DemoApplicationTab; label: string }[] = [
   { id: "pending", label: "Pending" },
   { id: "approved", label: "Approved" },
@@ -353,7 +354,8 @@ const APPLICATION_TABS: { id: DemoApplicationTab; label: string }[] = [
 type ApplicationPopup = { kind: "send" } | { kind: "add" };
 
 /**
- * The real Applications page: Pending · Approved · Declined, a Filter popover (Property), "Send application link"
+ * The Applications page as this mock draws it: Pending · Approved · Declined (the real one leads with
+ * Incomplete), a Filter popover (Property), "Send application link"
  * and the round +. A row opens the application's record (Application · Background check · Communication); its
  * ⋯ is Approve · Download · Move to pending · Decline · Delete (declined only).
  */

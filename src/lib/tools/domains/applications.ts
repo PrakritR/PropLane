@@ -1,3 +1,7 @@
+import {
+  isUnsubmittedDraftApplicationRow,
+  UNSUBMITTED_APPROVAL_BLOCKED_MESSAGE,
+} from "@/lib/rental-application/draft-shape";
 import { sealApplicantRow } from "@/lib/security/applicant-identity";
 import { z } from "zod";
 import { defineTool, defineWriteTool } from "../registry";
@@ -185,6 +189,9 @@ export const updateApplicationBucketTool = defineWriteTool({
     if (r.bucket === input.bucket) {
       throw new Error(`This application is already ${input.bucket} — nothing to change.`);
     }
+    if (input.bucket === "approved" && isUnsubmittedDraftApplicationRow(r)) {
+      throw new Error(UNSUBMITTED_APPROVAL_BLOCKED_MESSAGE);
+    }
     const email = (r.email || rec.resident_email || "").trim().toLowerCase();
     const lines = [
       { label: "Applicant", value: r.name ? `${r.name}${email ? ` <${email}>` : ""}` : rec.id },
@@ -221,6 +228,9 @@ export const updateApplicationBucketTool = defineWriteTool({
       return { reply: `This application is already ${input.bucket}.` };
     }
 
+    if (input.bucket === "approved" && isUnsubmittedDraftApplicationRow(r)) {
+      throw new Error(UNSUBMITTED_APPROVAL_BLOCKED_MESSAGE);
+    }
     // A form sent with "Blocks: Approval" has to be submitted before the application can be approved.
     if (input.bucket === "approved") {
       const ids = [...new Set([rec.id, String(r.id ?? "")].map((id) => id.trim()).filter(Boolean))];

@@ -37,10 +37,10 @@ function stubSingleWorkspace(workspaceId: string) {
   loadWorkspaces.mockResolvedValue([{ id: workspaceId, name: "My workspace", ownerUserId: "manager_1", owned: true, isDefault: true, propertyIds: [] }]);
 }
 
-function dbForRole(role: string | null) {
+function dbForRole(role: string | null, legacyRole: string | null = role, roleError: boolean = false) {
   return {
     from(table: string) {
-      const row = table === "profiles" ? { email: "manager@example.com", role } : null;
+      const row = table === "profiles" ? { email: "manager@example.com", role: legacyRole } : null;
       const rows = table === "profile_roles" && role ? [{ role }] : [];
       return {
         select() {
@@ -50,7 +50,7 @@ function dbForRole(role: string | null) {
           return this;
         },
         maybeSingle: async () => ({ data: row }),
-        then: (resolve: (value: { data: unknown[] }) => unknown) => Promise.resolve({ data: rows }).then(resolve),
+        then: (resolve: (value: { data: unknown[]; error?: unknown }) => unknown) => Promise.resolve({ data: rows, error: roleError && table === "profile_roles" ? { message: "unavailable" } : null }).then(resolve),
       };
     },
   };
@@ -95,6 +95,15 @@ describe("MCP API-key credential resolution", () => {
     expect(touchApiKey).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects legacy profile authority and failed role reads but accepts stored admin", async () => {
+    const req = () => new Request("https://example.test", { headers: { Authorization: "Bearer pl_live_x" } });
+    createSupabaseServiceRoleClient.mockReturnValue(dbForRole(null, "manager"));
+    expect(await resolveApiKeyContext(req())).toMatchObject({ ok: false, status: 403 });
+    createSupabaseServiceRoleClient.mockReturnValue(dbForRole("manager", "manager", true));
+    expect(await resolveApiKeyContext(req())).toMatchObject({ ok: false, status: 403 });
+    createSupabaseServiceRoleClient.mockReturnValue(dbForRole("admin"));
+    expect(await resolveApiKeyContext(req())).toMatchObject({ ok: true, ctx: { isAdmin: true } });
+  });
   it("refuses a future non-manager portal key before it can reach the manager registry", async () => {
     findLiveApiKey.mockResolvedValueOnce({
       id: "key_2",

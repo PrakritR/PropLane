@@ -107,7 +107,7 @@ function readArrangementFee(
  *   the placement's OWN value (a room / bundle / whole-house override)
  *   -> the TEMPLATE's fee for that lease type (the application's Application fee, the lease's Lease fee)
  *   -> the long-term / whole-house inheritance a stay already followed
- *   -> (the callers' listing-level / account / legacy fallbacks).
+ *   -> (the callers' listing-level / account fallbacks, then free).
  * A template that sets no fee is skipped, so a property with no template fee resolves exactly as it did.
  */
 export function placementStandardFeeRaw(

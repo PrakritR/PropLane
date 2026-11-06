@@ -205,3 +205,31 @@ export async function loadPropertyPortalWorkspaceId(db: SupabaseClient, userId: 
     return null;
   }
 }
+
+/**
+ * The two work-email questions the MANAGER side asks about a PropLane-managed workspace, answered through this
+ * one reviewed bridge (docs/agents/admin-service.md § Service mode) rather than by importing the Service layer
+ * into a manager route: may this staff viewer change the workspace's work email, and set it to `local`.
+ *
+ * Both are thin pass-throughs with no decision of their own — the Service layer re-derives the operator's
+ * standing from the workspace row every time, and the request's ids stay names, never grants. The module is
+ * loaded lazily so an ordinary Property-portal request never pulls it in, and the verdict handed back is the
+ * bare `ok`: like the rest of this bridge, it tells a manager route nothing about the service owner or its settings.
+ */
+export async function authorizeServiceWorkEmailEditForManagerRoute(
+  db: SupabaseClient,
+  operatorUserId: string,
+  workspaceId: string,
+): Promise<{ ok: boolean }> {
+  const { authorizeServiceWorkEmailEdit } = await import("@/lib/service/service-workspaces.server");
+  return { ok: (await authorizeServiceWorkEmailEdit(db, operatorUserId, workspaceId)).ok };
+}
+
+export async function setServiceWorkspaceWorkEmailForManagerRoute(
+  db: SupabaseClient,
+  operatorUserId: string,
+  input: { workspaceId: string; local: string },
+) {
+  const { setServiceWorkspaceWorkEmail } = await import("@/lib/service/service-workspaces.server");
+  return setServiceWorkspaceWorkEmail(db, operatorUserId, input);
+}

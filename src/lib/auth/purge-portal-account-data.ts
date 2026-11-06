@@ -154,8 +154,6 @@ function residentJsonWrites(db: ServiceDb, email: string, complete = true): Writ
   if (email) {
     ops.push(
       db.from("portal_recurring_rent_profile_records").delete().filter("row_data->>residentEmail", "ilike", literalEmail(email)),
-      db.from("portal_work_order_records").delete().filter("row_data->>residentEmail", "ilike", literalEmail(email)),
-      db.from("portal_service_request_records").delete().filter("row_data->>residentEmail", "ilike", literalEmail(email)),
       db.from("portal_resident_lease_upload_records").delete().filter("row_data->>residentEmail", "ilike", literalEmail(email)),
       inbox().filter("row_data->>email", "ilike", literalEmail(email)),
       inbox().filter("row_data->>fromEmail", "ilike", literalEmail(email)),

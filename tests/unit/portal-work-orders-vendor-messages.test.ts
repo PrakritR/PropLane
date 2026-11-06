@@ -34,6 +34,7 @@ vi.mock("@/lib/auth/co-manager-module-scope", async (importOriginal) => ({
 vi.mock("@/lib/auth/resident-role-access", () => ({
   resolveResidentScopedActorRole: (...a: unknown[]) => resolveResidentScopedActorRole(...(a as [])),
 }));
+vi.mock("@/lib/auth/resident-subject-evidence.server", () => ({ residentSubjectHasHouse: async () => true }));
 vi.mock("@/lib/resident-manager-scope", () => ({
   resolveResidentFilingScope: async () => ({ managerUserId: "mgr-1", propertyId: "prop-a" }),
 }));
@@ -69,7 +70,12 @@ function makeDb() {
         select: vi.fn(() => builder),
         eq: vi.fn(() => builder),
         limit: async () => ({ data: [], error: null }),
-        upsert: vi.fn(() => Promise.resolve({ error: null })),
+        insert: vi.fn(() => Promise.resolve({ error: null })),
+        update: vi.fn(() => {
+          const write = { eq: vi.fn(), select: async () => ({ data: [{ id: "saved" }], error: null }) };
+          write.eq.mockReturnValue(write);
+          return write;
+        }),
       };
       if (table === "profiles") {
         builder.maybeSingle = async () => ({ data: { email: "caller@test.proplane.local", role: "manager" }, error: null });
@@ -186,7 +192,7 @@ describe("a resident files a service", () => {
   });
 
   it("a resident edit of an existing service offers nothing", async () => {
-    STORED_ROW = { manager_user_id: "mgr-1", resident_email: "alex@resident.test", dispatch: undefined, row_data: filed };
+    STORED_ROW = { manager_user_id: "mgr-1", resident_email: "alex@resident.test", dispatch: undefined, row_data: { ...filed, residentUserId: "res-1" } };
     await post({ ...filed, title: "Leaking sink!" });
     await flush();
     expect(offerNewService).not.toHaveBeenCalled();

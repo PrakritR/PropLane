@@ -36,6 +36,9 @@ export type PortalInboxThreadScopeOptions = {
    * invited them. Resident / vendor / admin scopes keep the plain match.
    */
   participantOnlyWhenUnowned?: boolean;
+  /** Resident history belongs to the Auth subject, never a recycled email. */
+  ownerOnly?: boolean;
+  excludeResidentEmail?: boolean;
 };
 
 /** PostgREST OR filter for inbox row ownership (matches GET visibility). */
@@ -51,15 +54,14 @@ export function portalInboxThreadScopeFilter(
     ownerIds.length <= 1
       ? [`owner_user_id.eq.${ownerIds[0] ?? user.id}`]
       : [`owner_user_id.in.(${ownerIds.join(",")})`];
-  if (user.email) {
+  if (user.email && !(options.ownerOnly ?? user.role === "resident")) {
     const email = postgrestFilterValue(user.email);
-    clauses.push(
-      options.participantOnlyWhenUnowned
+    const emailClause = options.participantOnlyWhenUnowned
         ? `and(owner_user_id.is.null,participant_email.eq.${email})`
-        : `participant_email.eq.${email}`,
-    );
+        : `participant_email.eq.${email}`;
+    clauses.push(options.excludeResidentEmail ? `and(scope.neq.${RESIDENT_INBOX_SCOPE},${emailClause})` : emailClause);
   }
-  if (user.role === "admin") clauses.push(`scope.eq.${ADMIN_INBOX_SCOPE}`);
+  if (user.role === "admin" && !options.ownerOnly) clauses.push(`scope.eq.${ADMIN_INBOX_SCOPE}`);
   return clauses.join(",");
 }
 
@@ -99,9 +101,15 @@ export async function resolveInboxScopeUser(scope: string): Promise<{
   if (!admin && scope === MANAGER_INBOX_SCOPE && (await withholdManagerSurface(db, authUser.id))) return null;
 
   let actorId = authUser.id;
-  let actorEmail = (profile?.email ?? authUser.email ?? "").trim().toLowerCase() || null;
+  const authEmail = authUser.email?.trim().toLowerCase() ?? "";
+  const profileEmail = profile?.email?.trim().toLowerCase() ?? "";
+  let actorEmail = authUser.email_confirmed_at && authEmail && (!profileEmail || profileEmail === authEmail) ? authEmail : null;
   let actorName = String(profile?.full_name ?? "").trim() || null;
-  const role = admin ? "admin" : String(profile?.role ?? authUser.user_metadata?.role ?? "").toLowerCase();
+  const { data: storedRoles, error: storedRoleError } = await db.from("profile_roles").select("role").eq("user_id", authUser.id);
+  if (storedRoleError) return null;
+  const scopeRole = portalForScope(scope);
+  const roles = normalizePortalRoles(storedRoles, null);
+  const role = admin ? "admin" : scopeRole && roles.includes(scopeRole) ? scopeRole : "";
 
   if (admin && scope !== ADMIN_INBOX_SCOPE) {
     const portal = portalForScope(scope);
@@ -119,7 +127,10 @@ export async function resolveInboxScopeUser(scope: string): Promise<{
           .select("email, full_name")
           .eq("id", effectiveId)
           .maybeSingle();
-        actorEmail = (effectiveProfile?.email ?? "").trim().toLowerCase() || null;
+        const { data: effectiveAuth, error: effectiveError } = await db.auth.admin.getUserById(effectiveId);
+        const effectiveEmail = effectiveAuth.user?.email?.trim().toLowerCase() ?? "";
+        const effectiveProfileEmail = effectiveProfile?.email?.trim().toLowerCase() ?? "";
+        actorEmail = !effectiveError && effectiveAuth.user?.email_confirmed_at && effectiveEmail && (!effectiveProfileEmail || effectiveProfileEmail === effectiveEmail) ? effectiveEmail : null;
         actorName = String(effectiveProfile?.full_name ?? "").trim() || null;
       }
     }
@@ -134,7 +145,7 @@ export async function resolveInboxScopeUser(scope: string): Promise<{
 /**
  * May this caller WRITE a row into `scope`? A scope names whose inbox a row
  * lands in, so it has to match a portal the caller really holds (profile_roles,
- * legacy profiles.role as the fallback) - and the admin inbox is admin-only.
+ * and no legacy profile fallback) - and the admin inbox is admin-only.
  * Everything else is refused, so an unknown scope string never reaches the table.
  */
 export async function callerMayWriteInboxScope(
@@ -146,7 +157,8 @@ export async function callerMayWriteInboxScope(
   const portal = portalForScope(scope);
   if (!portal) return false;
   if (user.role === "admin") return true;
-  const { data } = await db.from("profile_roles").select("role").eq("user_id", user.id);
-  const roles = normalizePortalRoles((data ?? []) as { role: string }[], user.role);
+  const { data, error } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+  if (error) return false;
+  const roles = normalizePortalRoles((data ?? []) as { role: string }[], null);
   return roles.includes(portal);
 }

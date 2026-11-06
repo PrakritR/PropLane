@@ -137,15 +137,15 @@ export async function resolveAgentContext(): Promise<AgentContext | null> {
   const db = createSupabaseServiceRoleClient();
   const businessAccess = await resolveAuthenticatedBusinessAccess(user.id, db);
   if (businessAccess.kind === "denied") return null;
-  const [{ data: profile }, { data: roleRows }] = await Promise.all([
+  const [{ data: profile }, { data: roleRows, error: roleError }] = await Promise.all([
     db.from("profiles").select("email, role").eq("id", user.id).maybeSingle(),
     db.from("profile_roles").select("role").eq("user_id", user.id),
   ]);
 
   const isAdmin = await isAdminUser(user.id);
+  if (roleError) return null;
   const roleList = (roleRows ?? []).map((r) => String(r.role).toLowerCase());
-  const legacyRole = String(profile?.role ?? "").toLowerCase();
-  const roles = roleList.length > 0 ? roleList : legacyRole ? [legacyRole] : [];
+  const roles = roleList;
   const isManagerOrOwner = roles.some((r) => r === "manager" || r === "owner");
   if (!isAdmin && !isManagerOrOwner) return null;
   // A Property owner holds the manager role row only to host /portal/owner;

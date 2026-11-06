@@ -199,13 +199,14 @@ describe("R1 /api/vendor/profile authorizes through profile_roles", () => {
   });
 });
 
-const oauth = vi.hoisted(() => ({ provision: vi.fn(), claim: vi.fn(), release: vi.fn(), find: vi.fn() }));
+const oauth = vi.hoisted(() => ({ provision: vi.fn(), claim: vi.fn(), release: vi.fn(), find: vi.fn(), user: vi.fn() }));
 describe("O2 OAuth path claims the invite", () => {
   beforeEach(() => {
     vi.resetModules();
     oauth.claim.mockReset();
     oauth.release.mockReset();
     oauth.provision.mockReset();
+    oauth.user.mockResolvedValue({ data: { user: { id: "u1", email: "v@x.com", email_confirmed_at: "2026-01-01", user_metadata: {} } } });
     oauth.find.mockResolvedValue({ id: "inv", manager_user_id: "mgrA", vendor_directory_id: "v1", vendor_email: "v@x.com", vendor_name: "V" });
   });
   async function load() {
@@ -219,12 +220,20 @@ describe("O2 OAuth path claims the invite", () => {
       vendorUnlinkedNotice: () => null,
     }));
     vi.doMock("@/lib/supabase/server", () => ({
-      createSupabaseServerClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: "u1", email: "v@x.com", user_metadata: {} } } }) } }),
+      createSupabaseServerClient: async () => ({ auth: { getUser: oauth.user } }),
     }));
     vi.doMock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({}) }));
     return import("@/app/api/auth/register-vendor-oauth/route");
   }
   const req = () => new Request("http://x.test", { method: "POST", body: JSON.stringify({ token: "tok" }) });
+
+  it("refuses a session with an unconfirmed email", async () => {
+    oauth.user.mockResolvedValue({ data: { user: { id: "u1", email: "v@x.com", email_confirmed_at: null } } });
+    const { POST } = await load();
+    expect((await POST(req())).status).toBe(401);
+    expect(oauth.claim).not.toHaveBeenCalled();
+    expect(oauth.provision).not.toHaveBeenCalled();
+  });
 
   it("claims before provisioning", async () => {
     oauth.claim.mockResolvedValue(true);

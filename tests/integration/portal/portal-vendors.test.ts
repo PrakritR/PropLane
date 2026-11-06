@@ -29,6 +29,10 @@ vi.mock("@/lib/property-owner/access.server", () => ({
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { GET, POST } from "@/app/api/portal-vendors/route";
+import { profileRolesTable } from "../../helpers/profile-roles-fake";
+
+// Roles each actor genuinely holds in the stored `profile_roles` table.
+const STORED_ROLES: Record<string, string[]> = { "mgr-a": ["manager"], "mgr-b": ["manager"] };
 
 function noAcceptedLinks() {
   return {
@@ -87,6 +91,7 @@ describe("/api/portal-vendors", () => {
     let vendorQuery = 0;
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
       from: vi.fn((table: string) => {
+        if (table === "profile_roles") return profileRolesTable(STORED_ROLES);
         if (table === "profiles") return profileChain;
         if (table === "account_link_invites") return noAcceptedLinks();
         if (table === "manager_vendor_records") {
@@ -165,6 +170,7 @@ describe("/api/portal-vendors", () => {
     let profileQuery = 0;
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
       from: vi.fn((table: string) => {
+        if (table === "profile_roles") return profileRolesTable(STORED_ROLES);
         if (table === "profiles") {
           profileQuery += 1;
           return profileQuery === 1 ? profileChain : emailChain;
@@ -233,6 +239,7 @@ describe("/api/portal-vendors", () => {
     let vendorQuery = 0;
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
       from: vi.fn((table: string) => {
+        if (table === "profile_roles") return profileRolesTable(STORED_ROLES);
         if (table === "profiles") {
           profileQuery += 1;
           return profileQuery === 1 ? profileChain : emailChain;
@@ -275,6 +282,7 @@ describe("/api/portal-vendors", () => {
     };
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
       from: vi.fn((table: string) => {
+        if (table === "profile_roles") return profileRolesTable(STORED_ROLES);
         if (table === "profiles") return profileChain;
         if (table === "account_link_invites") return acceptedLinks;
         if (table === "manager_vendor_records") return ownerLookup;
@@ -319,6 +327,7 @@ describe("/api/portal-vendors", () => {
     };
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
       from: vi.fn((table: string) => {
+        if (table === "profile_roles") return profileRolesTable(STORED_ROLES);
         if (table === "profiles") return profileChain;
         if (table === "account_link_invites") return noAcceptedLinks();
         if (table === "manager_vendor_records")

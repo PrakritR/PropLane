@@ -12,6 +12,7 @@ import { InboxScheduledCard, InboxScheduledThreadList } from "@/components/porta
 import { useScheduledPaymentMessages, patchScheduledMessage } from "@/components/portal/payment-schedule-ui";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { DEMO_UNAVAILABLE_MESSAGE, sendScheduledItemNow } from "@/components/portal/portal-inbox-selection";
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import { automationChannelDefaultsFromSettings, scheduledItemsForRecipient, type ThreadScheduledItem } from "@/lib/inbox-scheduled-thread";
 import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
@@ -102,7 +103,7 @@ export function useThreadScheduledCards({
   const reloadManual = useCallback(async () => {
     if (!live()) return;
     try {
-      const res = await fetch("/api/portal/scheduled-inbox-messages", { credentials: "include", cache: "no-store" });
+      const res = await fetch(adminOversightUrl("/api/portal/scheduled-inbox-messages"), { credentials: "include", cache: "no-store" });
       if (!res.ok) return;
       const body = (await res.json()) as { messages?: ScheduledInboxMessageRecord[] };
       setManual(Array.isArray(body.messages) ? body.messages : []);
@@ -135,7 +136,7 @@ export function useThreadScheduledCards({
       setBusyId(item.id);
       try {
         if (item.source === "manual") {
-          const res = await fetch(`/api/portal/scheduled-inbox-messages/${encodeURIComponent(item.id)}`, {
+          const res = await fetch(adminOversightUrl(`/api/portal/scheduled-inbox-messages/${encodeURIComponent(item.id)}`), {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
@@ -176,7 +177,7 @@ export function useThreadScheduledCards({
       if (!enabled) return;
       if (item.source === "manual") {
         if (!live()) throw new Error(DEMO_UNAVAILABLE_MESSAGE);
-        const res = await fetch(`/api/portal/scheduled-inbox-messages/${encodeURIComponent(item.id)}`, {
+        const res = await fetch(adminOversightUrl(`/api/portal/scheduled-inbox-messages/${encodeURIComponent(item.id)}`), {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           credentials: "include",

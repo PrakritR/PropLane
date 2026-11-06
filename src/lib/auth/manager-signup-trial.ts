@@ -1,6 +1,6 @@
 import { after } from "next/server";
 import { completeFreeManagerTierForUser } from "@/lib/auth/manager-pricing-selection";
-import { finalizePendingManagerFreeTier } from "@/lib/auth/manager-onboarding";
+import { finalizePendingManagerFreeTier, MANAGER_CHECKOUT_IN_PROGRESS_ERROR } from "@/lib/auth/manager-onboarding";
 import { markGoogleServicesOnboardingPending } from "@/lib/auth/manager-google-services-onboarding.server";
 import { maybeSendManagerPropLaneAssistantIntro } from "@/lib/claw-onboarding-sms.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -31,13 +31,15 @@ export async function completeManagerSignupTrial(
       billing: "free",
     }));
   } else {
-    ({ managerId } = await finalizePendingManagerFreeTier(supabase, {
+    const finalized = await finalizePendingManagerFreeTier(supabase, {
       userId: opts.userId,
       email: opts.email,
       fullName: opts.fullName,
       tier: opts.tier,
       billing: "trial",
-    }));
+    });
+    if (finalized.status === "skipped") throw new Error(MANAGER_CHECKOUT_IN_PROGRESS_ERROR);
+    managerId = finalized.managerId;
   }
 
   // Best-effort PropLane intro. Messaging uses the manager's own registered number.

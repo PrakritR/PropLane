@@ -1,3 +1,4 @@
+import { verifiedSessionEmail } from "@/lib/auth/verified-session-email";
 /**
  * ResidentAgentContext is resolved server-side from the authenticated Supabase
  * session (admin preview supported via the same effective-session helper the
@@ -10,7 +11,7 @@ import { getEffectiveSessionForPortal } from "@/lib/auth/effective-session";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { isTestWorkspaceActorAllowed } from "@/lib/test-workspaces/index.server";
-import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
+import { residentSubjectManagerIds } from "@/lib/auth/resident-subject-evidence.server";
 import { loadResidentPortalAccessState } from "@/lib/resident-portal-access";
 import { getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-server";
 import type { ManagerSubscriptionTier } from "@/lib/manager-access";
@@ -76,8 +77,9 @@ export type ResidentAgentContext = {
   chatPhotos?: ResidentChatPhotoRef[];
   /**
    * Service-role client. It bypasses RLS, so every query built from it MUST
-   * scope by resident identity: `.or("resident_user_id.eq.<uid>,resident_email.eq.<email>")`
-   * or `.eq("resident_email", email)` — matching the corresponding API routes.
+   * scope by the resident's Auth subject: `.eq("resident_user_id", ctx.userId)`,
+   * which is what the one loader `loadResidentSubjectRows` does. An email address
+   * is not ownership, so it is never a scope column here.
    */
   db: ReturnType<typeof createSupabaseServiceRoleClient>;
 };
@@ -128,18 +130,18 @@ export async function resolveResidentAgentContext(): Promise<ResidentAgentContex
 
   const db = createSupabaseServiceRoleClient();
   if (!(await isTestWorkspaceActorAllowed(user.id, db))) return null;
-  const { data: roleRows } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+  const { data: roleRows, error: roleError } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+  if (roleError) return null;
   const roleList = (roleRows ?? []).map((r) => String(r.role).toLowerCase());
-  const legacyRole = String(profile?.role ?? "").toLowerCase();
-  const roles = roleList.length > 0 ? roleList : legacyRole ? [legacyRole] : [];
+  const roles = roleList;
   if (!roles.includes("resident")) return null;
 
-  const email = String(profile?.email ?? user.email ?? "").trim().toLowerCase();
-  if (!email) return null;
+  const { data: authData, error: authError } = await db.auth.admin.getUserById(user.id);
+  const email = authError || !authData.user ? "" : verifiedSessionEmail(authData.user, profile?.email);
 
   const managerId = String(profile?.manager_id ?? "").trim();
   const [managerIds, managerTier, access] = await Promise.all([
-    managerIdsOwningResident(db, email),
+    residentSubjectManagerIds(db, user.id, email),
     managerId ? getManagerSubscriptionTierByManagerId(managerId) : Promise.resolve(null),
     loadResidentPortalAccessState({
       userId: user.id,

@@ -52,6 +52,8 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
   { table: "resident_identity_manual_reviews", phase: 1, resident: { ids: ["resident_user_id"] } },
   { table: "resident_identity_inquiries", phase: 2, resident: { ids: ["resident_user_id"] } },
   { table: "resident_identity_subjects", phase: 3, resident: { ids: ["resident_user_id"] } },
+  { table: "tour_signup_capabilities", phase: 1, resident: { ids: ["consumed_user_id"], emails: ["recipient_email"] }, manager: { ids: ["manager_user_id"] } },
+  { table: "email_onboarding_handoffs", phase: 1, resident: { ids: ["user_id"] }, manager: { ids: ["user_id"] }, vendor: { ids: ["user_id"] } },
   {
     table: "sms_projection_ambiguous_aliases",
     phase: 1,
@@ -969,7 +971,7 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     table: "portal_service_request_records",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
-    resident: { emails: ["resident_email"] },
+    resident: { ids: ["resident_user_id"] },
   },
   {
     table: "portal_schedule_records",
@@ -1357,7 +1359,7 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     table: "portal_work_order_records",
     phase: 3,
     manager: { ids: ["manager_user_id"] },
-    resident: { emails: ["resident_email"] },
+    resident: { ids: ["resident_user_id"] },
     // Dispatch history belongs to the manager; only the vendor pointer clears.
     vendor: { detachIds: ["vendor_user_id"] },
   },
@@ -1406,6 +1408,9 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
  */
 export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   security_deposit_unmatched_refunds: "Provider refund evidence retains source identifiers for reconciliation.",
+  sms_ingress_envelopes: "Owner-neutral provider receipts have no Auth owner. Runtime-fenced transport audit expires after 24h and is purged after 30 days by purge_sms_ingress_retention; never used as an account identity grant.",
+  sms_platform_replies: "Owner-neutral reply evidence cascades with its ingress receipt after at most 30 days; no client account owner or wallet is fabricated.",
+  tour_subject_bindings: "Retained inquiry/group keys and hashed resident subject prevent historical tour reassignment after resident or manager deletion; no raw Auth IDs are stored.",
   manager_promo_code_policies: "Global promo-code expiry decisions (a code and when it stops working); not per-user and holds no account data. updated_by only names the staff member who set it and is nulled if that login is deleted.",
   channel_stay_details: "Child of external_calendar_connections: the guest name and note a manager typed for an imported channel stay. The connection is purged by manager_user_id and this row is deleted by cascade with it; updated_by only records which teammate typed it.",
   resident_charge_payment_slots: "Identity-free child of a charge, checkout attempt, or autopay run; those account-owned parents delete it by cascade.",
@@ -1525,6 +1530,8 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
  * does.
  */
 export const NON_OWNERSHIP_COLUMNS: Readonly<Record<string, string>> = {
+  "portal_work_order_records.resident_email": "Contact address; resident ownership is resident_user_id.",
+  "portal_service_request_records.resident_email": "Contact address; resident ownership is resident_user_id.",
   "workspace_work_number_recipients.email": "Contact address of an \"Also notify\" person on the owner's list, not a PropLane login; the row goes with the owner.",
   "manager_payees.email": "Contact address of a payee the manager pays (lender, utility), not a PropLane login.",
   "manager_property_owners.owner_email": "Contact address for a third-party property owner, not a PropLane login.",

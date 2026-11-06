@@ -1,16 +1,10 @@
 import "server-only";
 
-import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 type ServiceRoleDb = ReturnType<typeof createSupabaseServiceRoleClient>;
 
 export type InboxPortalKind = "manager" | "resident" | "vendor";
-
-function isManagerLikeRole(role: string | null): boolean {
-  const r = String(role ?? "").trim().toLowerCase();
-  return r === "manager" || r === "owner" || r === "pro" || r === "admin";
-}
 
 /**
  * Resolve which inbox scope a portal send/compose should use. Multi-role accounts
@@ -28,23 +22,11 @@ export async function resolveInboxSenderRoleForPortal(
 ): Promise<string | null> {
   if (params.isAdmin) return "admin";
 
-  const legacy = String(params.legacyRole ?? "").trim().toLowerCase() || null;
-  const [isResident, roleRows] = await Promise.all([
-    authorizeResidentRole(db, { userId: params.userId, legacyRole: legacy }),
-    db.from("profile_roles").select("role").eq("user_id", params.userId),
-  ]);
-  const roles = (roleRows.data ?? []).map((row) => String(row.role ?? "").trim().toLowerCase()).filter(Boolean);
-  const isManager =
-    roles.some((role) => role === "manager" || role === "admin") || isManagerLikeRole(legacy);
-  const isVendor = roles.includes("vendor") || legacy === "vendor";
-
-  if (params.portal === "resident" && isResident) return "resident";
-  if (params.portal === "vendor" && isVendor) return "vendor";
-  if (params.portal === "manager" && isManager) return legacy === "admin" || roles.includes("admin") ? "admin" : "manager";
-
-  if (isManager && isResident) return params.portal === "resident" ? "resident" : "manager";
-  if (isManager) return legacy === "admin" || roles.includes("admin") ? "admin" : "manager";
-  if (isResident) return "resident";
-  if (isVendor) return "vendor";
-  return legacy;
+  const { data, error } = await db.from("profile_roles").select("role").eq("user_id", params.userId);
+  if (error) return null;
+  const roles = (data ?? []).map((row) => String(row.role ?? "").trim().toLowerCase());
+  if (params.portal === "resident" && roles.includes("resident")) return "resident";
+  if (params.portal === "vendor" && roles.includes("vendor")) return "vendor";
+  if (params.portal === "manager" && roles.includes("manager")) return "manager";
+  return null;
 }

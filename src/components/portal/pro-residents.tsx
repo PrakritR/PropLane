@@ -1367,6 +1367,16 @@ export function ManagerResidents({
     [residentDirectoryRows, activeResidentId],
   );
 
+  // `?edit=1` (the Send lease screen's ✎) opens this resident's Edit resident once the record is loaded.
+  const editParam = searchParams.get("edit");
+  const editOpenedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (editParam !== "1" || !selected || editOpenedForRef.current === selected.id) return;
+    editOpenedForRef.current = selected.id;
+    openEditResidentModal(selected.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editParam, selected]);
+
   if (activeResidentId !== prevSelectedId) {
     setPrevSelectedId(activeResidentId);
     if (activeResidentId) {
@@ -4626,6 +4636,10 @@ export function ManagerResidents({
         applicationId={sendLeaseTarget?.applicationId}
         managerUserId={userId ?? null}
         onClose={() => setSendLeaseTarget(null)}
+        onEditResident={(applicationId) => {
+          setSendLeaseTarget(null);
+          openEditResidentModal(applicationId);
+        }}
         onSent={() => {
           setLeaseTick((n) => n + 1);
           setHcTick((n) => n + 1);

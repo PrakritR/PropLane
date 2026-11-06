@@ -41,6 +41,7 @@ const { PATCH, DELETE } = await import("@/app/api/portal/vendor-dispatch/rules/[
 
 function seed(): Record<string, Row[]> {
   return {
+    profile_roles: [{ user_id: OWNER, role: "manager" }, { user_id: CO, role: "manager" }],
     profiles: [
       { id: OWNER, role: "manager" },
       { id: CO, role: "manager" },

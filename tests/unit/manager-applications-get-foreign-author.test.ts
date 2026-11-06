@@ -64,6 +64,7 @@ function makeDb() {
         limit: () => builder,
         maybeSingle: () => Promise.resolve({ data: table === "profiles" ? { role: "manager", email: "o@test.local" } : null, error: null }),
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
+          if (table === "profile_roles") return Promise.resolve({ data: [{ role: "manager" }], error: null }).then(resolve);
           return Promise.resolve({ data: rowsFor(), error: null }).then(resolve);
         },
       };
@@ -95,7 +96,7 @@ async function ids() {
 beforeEach(() => {
   vi.resetModules();
   LINKS = [{ inviter_user_id: OWNER, invitee_user_id: TEAMMATE, assigned_property_ids: [HOUSE], team_role: "leasing" }];
-  getUser.mockResolvedValue({ data: { user: { id: OWNER, email: "o@test.local", user_metadata: {} } }, error: null });
+  getUser.mockResolvedValue({ data: { user: { id: OWNER, email: "o@test.local", email_confirmed_at: "confirmed", user_metadata: {} } }, error: null });
 });
 
 describe("GET /api/manager-applications resident slots", () => {

@@ -46,6 +46,7 @@ vi.mock("@/lib/stripe-application-fee", () => ({
 
 vi.mock("@/lib/stripe-household-charge", () => ({
   markHouseholdChargePaidFromStripeSession: vi.fn().mockResolvedValue({ ok: true }),
+  HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE: "household_charge",
 }));
 
 vi.mock("@/lib/stripe-webhook-financials", async (importOriginal) => ({
@@ -60,19 +61,24 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 import { POST as webhook } from "@/app/api/stripe/webhook/route";
 
-function legacyPurchaseDb(row: { user_id: string | null; manager_id: string; email: string }) {
-  let matchColumn = "";
+type PurchaseRow = { user_id: string | null; manager_id: string; email: string; stripe_checkout_session_id?: string | null };
+
+/** A `manager_purchases` stand-in that honors the filters the resolver sends, as PostgREST would. */
+function purchaseDb(row: PurchaseRow) {
+  const filters: Array<[string, unknown]> = [];
   const query = {
     select: vi.fn(),
-    eq: vi.fn((column: string) => {
-      matchColumn = column;
+    eq: vi.fn((column: string, value: unknown) => {
+      filters.push([column, value]);
       return query;
     }),
     or: vi.fn(() => query),
-    maybeSingle: vi.fn(async () => ({
-      data: matchColumn === "stripe_checkout_session_id" ? null : { id: "purchase-legacy", ...row },
-      error: null,
-    })),
+    maybeSingle: vi.fn(async () => {
+      const full = { id: "purchase-1", stripe_checkout_session_id: null, ...row } as Record<string, unknown>;
+      const matches = filters.every(([column, value]) => full[column] === value);
+      filters.length = 0;
+      return { data: matches ? full : null, error: null };
+    }),
   };
   query.select.mockReturnValue(query);
   return { from: vi.fn(() => query) };
@@ -148,8 +154,9 @@ describe("POST /api/stripe/webhook", () => {
         metadata: { tier: "pro", manager_id: "MGR-A", userId: "owner-a" },
       }),
     ).data.object;
-    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(legacyPurchaseDb({
-      user_id: "owner-a", manager_id: "MGR-A", email: "owner@example.com",
+    // The stored reservation names this exact session.
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(purchaseDb({
+      user_id: "owner-a", manager_id: "MGR-A", email: "owner@example.com", stripe_checkout_session_id: "cs_test",
     }) as never);
     vi.mocked(getStripe).mockReturnValue({
       webhooks: {
@@ -170,14 +177,14 @@ describe("POST /api/stripe/webhook", () => {
     expect(recordPaidManagerCheckoutSession).toHaveBeenCalled();
   });
 
-  it("runs the real webhook owner gate for a hosted legacy session without a reservation", async () => {
+  it("fulfills a hosted session whose stored reservation is exactly that session", async () => {
     const session = mockCheckoutSession({
-      id: "cs_legacy_auth",
+      id: "cs_reserved_auth",
       customer_email: "owner@example.com",
       metadata: { tier: "pro", manager_id: "MGR-A", userId: "owner-a" },
     });
-    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(legacyPurchaseDb({
-      user_id: "owner-a", manager_id: "MGR-A", email: "owner@example.com",
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(purchaseDb({
+      user_id: "owner-a", manager_id: "MGR-A", email: "owner@example.com", stripe_checkout_session_id: "cs_reserved_auth",
     }) as never);
     vi.mocked(getStripe).mockReturnValue({
       webhooks: { constructEvent: vi.fn().mockReturnValue(mockCheckoutSessionCompletedEvent(session)) },
@@ -189,13 +196,33 @@ describe("POST /api/stripe/webhook", () => {
     expect(recordPaidManagerCheckoutSession).toHaveBeenCalledWith(session);
   });
 
-  it("runs the real webhook owner gate for a guest legacy session without a reservation", async () => {
+  it("answers 500 with no write for a PAID hosted legacy session that has no reservation", async () => {
+    const session = mockCheckoutSession({
+      id: "cs_legacy_auth",
+      customer_email: "owner@example.com",
+      metadata: { tier: "pro", manager_id: "MGR-A", userId: "owner-a" },
+    });
+    // The pending row exists but was reserved for a DIFFERENT session (a replaced checkout).
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(purchaseDb({
+      user_id: "owner-a", manager_id: "MGR-A", email: "owner@example.com", stripe_checkout_session_id: "cs_replacement",
+    }) as never);
+    vi.mocked(getStripe).mockReturnValue({
+      webhooks: { constructEvent: vi.fn().mockReturnValue(mockCheckoutSessionCompletedEvent(session)) },
+    } as never);
+
+    const res = await webhook(checkoutRequest());
+
+    expect(res.status).toBe(500);
+    expect(recordPaidManagerCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("answers 500 with no write for a PAID guest legacy session that has no reservation", async () => {
     const session = mockCheckoutSession({
       id: "cs_legacy_guest",
       customer_email: "guest@example.com",
       metadata: { tier: "pro", manager_id: "MGR-G" },
     });
-    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(legacyPurchaseDb({
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(purchaseDb({
       user_id: null, manager_id: "MGR-G", email: "guest@example.com",
     }) as never);
     vi.mocked(getStripe).mockReturnValue({
@@ -204,8 +231,32 @@ describe("POST /api/stripe/webhook", () => {
 
     const res = await webhook(checkoutRequest());
 
-    expect(res.status).toBe(200);
-    expect(recordPaidManagerCheckoutSession).toHaveBeenCalledWith(session);
+    expect(res.status).toBe(500);
+    expect(recordPaidManagerCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("acknowledges an UNPAID session with no write, whether or not a reservation exists", async () => {
+    for (const reservation of ["cs_unpaid", null]) {
+      vi.clearAllMocks();
+      const session = mockCheckoutSession({
+        id: "cs_unpaid",
+        status: "complete",
+        payment_status: "unpaid",
+        customer_email: "owner@example.com",
+        metadata: { tier: "pro", manager_id: "MGR-A", userId: "owner-a" },
+      });
+      vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(purchaseDb({
+        user_id: "owner-a", manager_id: "MGR-A", email: "owner@example.com", stripe_checkout_session_id: reservation,
+      }) as never);
+      vi.mocked(getStripe).mockReturnValue({
+        webhooks: { constructEvent: vi.fn().mockReturnValue(mockCheckoutSessionCompletedEvent(session)) },
+      } as never);
+
+      const res = await webhook(checkoutRequest());
+
+      expect(res.status, `reservation=${reservation}`).toBe(200);
+      expect(recordPaidManagerCheckoutSession).not.toHaveBeenCalled();
+    }
   });
 
   it("returns a retryable failure for an unmatched lost dispute without fetching its charge", async () => {

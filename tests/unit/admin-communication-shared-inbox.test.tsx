@@ -268,11 +268,13 @@ describe("scheduled sends render inline in the conversation, with a reachable ca
     fireEvent.click(within(container.querySelector('[data-attr="inbox-scheduled-bar"]') as HTMLElement).getByText(/Maintenance window/));
     fireEvent.click(await screen.findByRole("button", { name: /Cancel send/ }));
 
+    // Admin pages ask for the all-owners surface, so the manager route is called through
+    // `adminOversightUrl` - the path is the contract, `?oversight=admin` rides along.
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some(
           ([url, init]) =>
-            String(url) === "/api/portal/scheduled-inbox-messages/sch-1" &&
+            String(url).split("?")[0] === "/api/portal/scheduled-inbox-messages/sch-1" &&
             (init as RequestInit | undefined)?.method === "PATCH" &&
             String((init as RequestInit).body).includes('"cancelled":true'),
         ),

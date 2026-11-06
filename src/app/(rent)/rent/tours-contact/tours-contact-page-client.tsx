@@ -191,22 +191,15 @@ export function ToursContactPageClient({ signedInNonResident = false }: { signed
                     propertyId={linkedProperty.id}
                     propertyTitle={linkedProperty.title}
                   />
-                ) : tourGate.gateView !== "action" ? (
-                  tourGate.gateView === "signed-in-create-resident" ? (
-                    <ProspectSignedInResidentGate
-                      action="tour"
-                      returnPath={tourGate.portalReturn}
-                      propertyTitle={linkedProperty.title}
-                    />
-                  ) : (
-                    <ProspectGuestAccountGate
-                      action="tour"
-                      gateKey={tourGate.gateKey}
-                      returnPath={tourGate.portalReturn}
-                      propertyTitle={linkedProperty.title}
-                    />
-                  )
+                ) : tourGate.gateView === "signed-in-create-resident" ? (
+                  <ProspectSignedInResidentGate
+                    action="tour"
+                    returnPath={tourGate.portalReturn}
+                    propertyTitle={linkedProperty.title}
+                  />
                 ) : (
+                  // A signed-out prospect sees the room, days and times straight away. The account is asked
+                  // for at "Your details", after the time is chosen; nothing is written before sign-in.
                   <TourScheduleFlow
                     property={linkedProperty}
                     returnAfterAuth={returnAfterAuth}

@@ -108,6 +108,10 @@ import {
   shouldAutoComputeLeaseEnd,
 } from "@/lib/rental-application/lease-dates";
 import { RENTAL_WIZARD_STEP_COUNT } from "@/lib/rental-application/types";
+import {
+  wizardSubmitBlockersFromFieldErrors,
+  type WizardSubmitBlocker,
+} from "@/lib/rental-application/submit-blockers";
 import { normalizePersistedWizardStep } from "@/lib/rental-application/wizard-step-schema";
 import { normalizeCustomApplicationFields, normalizeManagerListingSubmissionV1, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
@@ -131,6 +135,7 @@ import {
   scrollToFirstWizardFieldError,
 } from "@/lib/wizard-field-errors";
 import {
+  APPLICATION_ID_ADOPTED_EVENT,
   APPLICATION_SAVE_STATUS_EVENT,
   getApplicationSetupToken,
   rememberApplicationSetupToken,
@@ -564,6 +569,12 @@ function RentalApplicationWizardInner({
   // resolves, so the questions are never skipped on the one path that has nowhere else to get them.
   const guestApplicant = mode === "public" && !templatePreview && !feeStepUserId && !isDemoModeActive();
   const [reviewReturnStep, setReviewReturnStep] = useState<number | null>(null);
+  // Every reason a submit is refused, listed above the Submit button with a Fix link to the step that
+  // owns it. A refusal is never only a toast: a toast is gone before the applicant has read it.
+  const [submitBlockers, setSubmitBlockers] = useState<WizardSubmitBlocker[]>([]);
+  useEffect(() => {
+    setSubmitBlockers([]);
+  }, [step]);
   const [postSubmit, setPostSubmit] = useState<{
     axisId: string;
     email: string;
@@ -852,6 +863,36 @@ function RentalApplicationWizardInner({
     };
     window.addEventListener(APPLICATION_SAVE_STATUS_EVENT, on as EventListener);
     return () => window.removeEventListener(APPLICATION_SAVE_STATUS_EVENT, on as EventListener);
+  }, []);
+
+  // The server folds a second draft for the same person and house into the application they already
+  // have and answers with its id. Adopt it - every later save and the submit go to that one row - and
+  // fill any answer still blank here from the kept row, never overwriting what was just typed.
+  useEffect(() => {
+    const onAdopted = (e: Event) => {
+      const detail = (e as CustomEvent<{ from?: string; to?: string; row?: DemoApplicantRow | null }>).detail;
+      const to = detail?.to?.trim();
+      if (!to) return;
+      saveRentalWizardDraftAxisId(to);
+      setApplicationAxisId(to);
+      const kept = detail?.row?.application;
+      if (!kept) return;
+      setForm((prev) => {
+        const next: Record<string, unknown> = { ...prev };
+        let changed = false;
+        for (const [key, value] of Object.entries(kept)) {
+          const current = next[key];
+          const blank = current === undefined || current === null || current === "" || (Array.isArray(current) && current.length === 0);
+          if (blank && value !== undefined && value !== null && value !== "" && !(Array.isArray(value) && value.length === 0)) {
+            next[key] = value;
+            changed = true;
+          }
+        }
+        return changed ? (next as RentalWizardFormState) : prev;
+      });
+    };
+    window.addEventListener(APPLICATION_ID_ADOPTED_EVENT, onAdopted as EventListener);
+    return () => window.removeEventListener(APPLICATION_ID_ADOPTED_EVENT, onAdopted as EventListener);
   }, []);
 
   useEffect(() => {
@@ -1669,7 +1710,13 @@ function RentalApplicationWizardInner({
         variantRestoreRef.current = "";
         if (!wasRestoring) rememberRentalVariantDraft(f);
         const restored = loadRentalVariantDraft(merged.propertyId, String(p.rentalType));
-        const axisId = restored?.axisId ?? makeNewApplicationId();
+        // One application per person per house: switching the stay type on the SAME house keeps the
+        // application's id (the pin and answers change, the row does not). Only a different house mints.
+        const sameHouseId =
+          f.propertyId.trim() && f.propertyId.trim() === merged.propertyId.trim()
+            ? loadRentalWizardDraftAxisId()?.trim()
+            : "";
+        const axisId = restored?.axisId ?? (sameHouseId || makeNewApplicationId());
         rememberRentalVariantAxisId(merged.propertyId, String(p.rentalType), axisId);
         queueMicrotask(() => setApplicationAxisId(axisId));
         merged.customFieldAnswers = restored?.customFieldAnswers ?? [];
@@ -1822,7 +1869,6 @@ function RentalApplicationWizardInner({
 
     const validationStep = result.step ?? 1;
     setErrors(result.fieldErrors);
-    setStep(validationStep);
     const bedTaken = result.fieldErrors.roomChoice1?.toLowerCase().includes("bed is taken");
     if (bedTaken && form.propertyId.trim()) {
       const options = firstChoiceRoomOptions(form.propertyId, {
@@ -1838,18 +1884,26 @@ function RentalApplicationWizardInner({
           nextRoomChoice: next.value,
           nextLabel: next.label.split(" · ")[0] ?? next.label,
         });
+        setStep(validationStep);
         return false;
       }
     }
-    showToast("Please review the highlighted fields before submitting.");
-    queueMicrotask(() =>
-      scrollToFirstWizardFieldError(
-        RENTAL_WIZARD_STEP_FIELD_ORDER[validationStep] ?? [],
-        result.fieldErrors,
-      ),
-    );
+    if (mode === "manager") {
+      // A manager filling the form for someone is sent to the step that refused it.
+      setStep(validationStep);
+      showToast("Please review the highlighted fields before submitting.");
+      queueMicrotask(() =>
+        scrollToFirstWizardFieldError(
+          RENTAL_WIZARD_STEP_FIELD_ORDER[validationStep] ?? [],
+          result.fieldErrors,
+        ),
+      );
+      return false;
+    }
+    // An applicant stays on the review step and reads every reason above Submit, each with a Fix link.
+    setSubmitBlockers(wizardSubmitBlockersFromFieldErrors(result.fieldErrors, validationStep));
     return false;
-  }, [form, setStep, showToast, templatePreview, templatePreviewSubmission]);
+  }, [form, mode, setStep, showToast, templatePreview, templatePreviewSubmission]);
 
   // The card form on the last step opens only once every answer and the signature would pass the submit
   // gate: a fee paid for an application the server then refuses has to be refunded by hand.
@@ -2045,7 +2099,7 @@ function RentalApplicationWizardInner({
         roomChoice1: form.roomChoice1,
       });
       if (block.blocked) {
-        showToast(block.reason ?? "You cannot submit another application for this listing.");
+        setSubmitBlockers([{ message: block.reason ?? "You cannot submit another application for this listing." }]);
         return { ok: false };
       }
       setSubmitting(true);
@@ -2065,7 +2119,7 @@ function RentalApplicationWizardInner({
         if (!preview.ok) {
           unmarkApplicationSubmitInitiated(axisId);
           setSubmitting(false);
-          showToast(preview.message);
+          setSubmitBlockers([{ message: preview.message, step: 1 }]);
           return { ok: false };
         }
         formForGroup = {
@@ -2187,7 +2241,12 @@ function RentalApplicationWizardInner({
         // retry, instead of clearing them behind an "Application submitted" panel.
         unmarkApplicationSubmitInitiated(axisId);
         setSubmitting(false);
-        showToast(sync.error ?? "Your application could not be submitted. Please try again.");
+        if (sync.fieldErrors && Object.keys(sync.fieldErrors).length > 0) {
+          setErrors((previous) => ({ ...previous, ...sync.fieldErrors }));
+          setSubmitBlockers(wizardSubmitBlockersFromFieldErrors(sync.fieldErrors, sync.step ?? 1));
+        } else {
+          setSubmitBlockers([{ message: sync.error ?? "Your application could not be submitted. Please try again." }]);
+        }
         return { ok: false as const };
       }
       replaceManagerApplicationRowInCache(sync.row ?? applicationRow);
@@ -2657,6 +2716,7 @@ function RentalApplicationWizardInner({
       return;
     }
     if (step === RENTAL_WIZARD_STEP_COUNT && mode !== "manager") {
+      setSubmitBlockers([]);
       if (!validateAllPrior()) return;
       if (applicationFeeGate.listingUnavailable || applicationFeeGate.feePreviewFailed) return;
       void (async () => {
@@ -2700,13 +2760,11 @@ function RentalApplicationWizardInner({
             residentEmail: emailTrim,
           });
           if (feeResult.propertyNotFound) {
-            const msg = "This listing is no longer available. Choose another property or contact the manager.";
-            showToast(msg);
+            setSubmitBlockers([{ message: "This listing is no longer available. Choose another property or contact the manager." }]);
             return;
           }
           if (!feeResult.preview) {
-            const msg = "We couldn't confirm the application fee. Check your connection and try again.";
-            showToast(msg);
+            setSubmitBlockers([{ message: "We couldn't confirm the application fee. Check your connection and try again." }]);
             return;
           }
           feePreview = feeResult.preview;
@@ -2745,10 +2803,10 @@ function RentalApplicationWizardInner({
           }
           const managerUserId = resolvedManagerUserId.trim();
           if (!managerUserId) {
-            showToast("This listing cannot take card payments yet. Contact the manager before submitting.");
+            setSubmitBlockers([{ message: "This listing cannot take card payments yet. Contact the manager before submitting." }]);
             return;
           }
-          showToast("Complete the card payment above to submit your application.");
+          setSubmitBlockers([{ message: "Complete the card payment above to submit your application." }]);
           return;
         }
 
@@ -3088,6 +3146,33 @@ function RentalApplicationWizardInner({
                   ? "We couldn't save your latest changes — that's a problem on our side, not yours. Your progress is kept on this device: keep this tab open and continue, and we'll retry as you edit. If it keeps happening, contact the property manager."
                   : "We couldn't save your latest changes. Your progress is kept on this device — keep this tab open and continue; we'll retry as you edit. If this keeps happening, check your connection."}
               </p>
+            ) : null}
+
+            {step === RENTAL_WIZARD_STEP_COUNT && submitBlockers.length > 0 ? (
+              <div
+                role="alert"
+                className="mt-6 rounded-xl border px-4 py-3 text-sm portal-banner-pending"
+                data-attr="rental-wizard-submit-blockers"
+              >
+                <p className="font-semibold">Can&apos;t submit yet</p>
+                <ul className="mt-2 space-y-1.5">
+                  {submitBlockers.map((blocker, index) => (
+                    <li key={`${index}-${blocker.message}`} className="flex items-start justify-between gap-3">
+                      <span>{blocker.message}</span>
+                      {blocker.step && blocker.step < RENTAL_WIZARD_STEP_COUNT ? (
+                        <button
+                          type="button"
+                          className="shrink-0 font-semibold text-primary underline-offset-2 hover:underline"
+                          data-attr="rental-wizard-submit-blocker-fix"
+                          onClick={() => editFromReview(blocker.step!)}
+                        >
+                          Fix
+                        </button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ) : null}
 
             <div

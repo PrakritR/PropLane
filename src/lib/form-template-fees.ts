@@ -6,7 +6,7 @@
  * This file only PICKS the template and turns its stored cents into the money string the one fee
  * resolver (`listing-placement-standard-fees.ts`) chains on. It never decides a charge:
  *
- *   room override -> THIS template fee -> listing-level / account / legacy fallbacks
+ *   room override -> THIS template fee -> listing-level / account fallbacks -> free
  *
  * Storage (no migration, nothing destructive):
  *  - Application: `PropertyApplicationTemplate.feeCentsOverride` (cents; absent/null = no template fee,

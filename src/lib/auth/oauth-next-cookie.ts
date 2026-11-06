@@ -155,8 +155,10 @@ export function readOAuthNextPathFromRequest(request: NextRequest): string | nul
   const raw = request.cookies.get(OAUTH_NEXT_COOKIE)?.value;
   if (!raw) return null;
   try {
-    const decoded = decodeURIComponent(raw);
-    return decoded.startsWith("/") ? decoded : null;
+    // NextRequest already decodes cookie values. Decoding twice corrupts an
+    // encoded nested `next` query and loses listing selections.
+    const decoded = raw.startsWith("/") ? raw : decodeURIComponent(raw);
+    return decoded.startsWith("/") ? normalizePostAuthPath(decoded) : null;
   } catch {
     return null;
   }

@@ -77,10 +77,15 @@ six-step workspace.
 **Invites are server-issued and always expire.** A link minted for a directory row (Add vendor) carries that row's id, and redemption links THAT row instead of inserting a second one; previewing an invite reuses the unexpired pending token. `vendor_invites` is
 `SELECT`-only for `anon`/`authenticated` (owner-scoped read;
 `20260722123000_lock_role_grant_surface.sql`) — only the service-role issuing
-route writes one. Redemption turns an invite into a **pre-confirmed** account on
-its `vendor_email`, so both lookup paths in `provision-vendor-account.ts` (by
-token and by email) go through `redeemableInvite`, which fails closed on a
-missing/unparseable/elapsed `expires_at`. `expires_at` is `NOT NULL` and
+route writes one. **An invite authorizes the vendor relationship, not ownership of
+its mailbox:** it no longer pre-confirms an account. The invite page renders
+`VendorInviteEmailSignup`, which sends the emailed verification link
+(`/api/auth/email-onboarding/start`, intent `vendor_invite`) for that invite's
+address, and `/api/auth/vendor-register` refuses anything but a confirmed session on
+that exact address (403 `EMAIL_VERIFICATION_REQUIRED`). Both lookup paths in
+`provision-vendor-account.ts` (by token and by email) still go through
+`redeemableInvite`, which fails closed on a missing/unparseable/elapsed
+`expires_at`. `expires_at` is `NOT NULL` and
 is stamped at 72 hours (`VENDOR_INVITE_TTL_MS`) by the issuing code; the column's
 7-day default is only a backstop. Never reintroduce an expiry-optional path — a NULL expiry
 previously skipped the TTL check entirely. Coverage:
@@ -90,9 +95,7 @@ previously skipped the TTL check entirely. Coverage:
 Dashboard banner no longer depends on a notice having been queued during this
 particular signup: `vendor-dashboard.tsx` fetches `/api/vendor/profile` on
 every load and shows the banner whenever `linked === false`, regardless of
-entry path (password, Google/Apple, invite, or the email-confirmation link
-that previously left `registerSelfServe`'s `confirmed === false` branch
-queuing nothing). `pending-notice.ts` — the sessionStorage queue, its TTL and
+entry path (the emailed verification link, Google/Apple, or an invite). `pending-notice.ts` — the sessionStorage queue, its TTL and
 destination guard — is now supplementary only: when a specific reason
 (`"invite_expired"` | `"invite_revoked"`) was queued, it supplies that reason's
 copy; otherwise the banner falls back to a generic "waiting on a manager"
@@ -160,9 +163,14 @@ non-linking `ensureCatalogVendorOnRoster`.
 
 **Row-level isolation (original foundation).** `manager_vendor_records`,
 `portal_work_order_records`, and `vendor_tax_profiles` all gained a nullable
-`vendor_user_id` column populated once the vendor signs up. Work orders and tax
-profiles retain vendor-scoped SELECT policies; the directory policy was removed
-as described above because its rows contain manager-private fields.
+`vendor_user_id` column populated once the vendor signs up. Tax profiles retain a
+vendor-scoped SELECT policy; the work-order one was removed by
+`20261030144700_vendor_service_subject_privacy.sql` (the row carries a resident Auth
+subject in a column and in its JSON mirror) and the directory one earlier, because
+its rows carry manager-private fields. A vendor therefore reads work orders ONLY
+through the authorized service-role route, which serves the redacted projection —
+see [`services-system.md`](services-system.md) § An offered vendor is served a
+projected row.
 `/api/portal-work-orders` resolves `vendorId` (a
 `manager_vendor_records.id` string) → `vendor_user_id` via
 `resolveVendorUserId()` scoped to the work order's owning manager (never

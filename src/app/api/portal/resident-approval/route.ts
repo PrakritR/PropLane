@@ -1,8 +1,12 @@
+import {
+  isUnsubmittedDraftApplicationRow,
+  UNSUBMITTED_APPROVAL_BLOCKED_MESSAGE,
+} from "@/lib/rental-application/draft-shape";
 import { NextResponse } from "next/server";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { track } from "@/lib/analytics/posthog";
 import { notifyApplicantApplicationSms } from "@/lib/application-lifecycle-sms.server";
-import { isAdminUser } from "@/lib/auth/admin-preview";
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { linkedOwnerScopeForModule, linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import {
   managerCanAccessApplicationRecord,
@@ -106,9 +110,10 @@ export async function PATCH(req: Request) {
       userId: user.id,
       legacyRole: requestor.role,
     });
-    const actorIsResident = actorRole === "resident";
-    const actorCanManage = canManageResidentApproval(actorRole);
-    const actorIsAdmin = actorRole === "admin" || (await isAdminUser(user.id));
+    const actorIsAdmin = await resolveAdminOversight(req, user.id);
+    if (actorRole === "denied" && !actorIsAdmin) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    const actorIsResident = !actorIsAdmin && actorRole === "resident";
+    const actorCanManage = actorIsAdmin || canManageResidentApproval(actorRole);
 
     const requestorEmail = normalizeEmail(requestor.email);
     if (actorIsResident) {
@@ -281,6 +286,21 @@ export async function PATCH(req: Request) {
           {
             error: "This application was withdrawn by the applicant and can no longer be approved.",
             blocked: "withdrawn",
+            blockedApplicationId: lookup.storedId || null,
+            matchedBy: lookup.matchedBy,
+          },
+          { status: 409 },
+        );
+      }
+      // An application the person never sent cannot be approved — on EITHER match, like the withdrawn
+      // guard above: the email fallback is what the caller is approving when the body names no id, so
+      // exempting it is the same production defect. The refusal names the row it matched and how, so a
+      // client can only treat the stamp as THIS application's when the id lookup is what matched.
+      if (isUnsubmittedDraftApplicationRow(lookup.stored)) {
+        return NextResponse.json(
+          {
+            error: UNSUBMITTED_APPROVAL_BLOCKED_MESSAGE,
+            blocked: "draft",
             blockedApplicationId: lookup.storedId || null,
             matchedBy: lookup.matchedBy,
           },

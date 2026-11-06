@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+vi.mock("@/lib/auth/resident-subject-evidence.server", () => ({ residentSubjectManagerIds: async (_db: unknown, _id: string, email: string) => email === "me@example.com" ? ["mgr_1"] : [] }));
 import { filterRecipientsBySenderScope, listEligibleInboxContacts } from "@/lib/inbox-recipient-scope";
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 import { parseOrFilterClauses } from "@/lib/supabase/or-filter";
@@ -142,7 +143,7 @@ describe("filterRecipientsBySenderScope", () => {
         {
           manager_user_id: "mgr_1",
           resident_email: "me@example.com",
-          row_data: { bucket: "approved", assignedPropertyId: "prop_1", name: "Me" },
+          row_data: { bucket: "approved", assignedPropertyId: "prop_1", residentUserId: "res_1", name: "Me" },
         },
         {
           manager_user_id: "mgr_1",

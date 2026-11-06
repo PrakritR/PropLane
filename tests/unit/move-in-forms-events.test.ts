@@ -9,6 +9,12 @@ const resend = vi.hoisted(() => ({ calls: [] as Record<string, unknown>[] }));
 vi.mock("@/lib/resend-delivery.server", () => ({
   postResendEmail: vi.fn(async (args: Record<string, unknown>) => { resend.calls.push(args); return { ok: true }; }),
 }));
+const setup = vi.hoisted(() => ({ calls: [] as unknown[] }));
+vi.mock("@/lib/auth/resident-setup-token", () => ({
+  ensureResidentSetupTokenForApplication: vi.fn(async (...args: unknown[]) => { setup.calls.push(args); return { ok: false }; }),
+  attachResidentSetupToken: vi.fn(() => { setup.calls.push("attach"); throw new Error("must not mint"); }),
+  residentSetupAccountUrl: vi.fn(() => { setup.calls.push("url"); throw new Error("must not build"); }),
+}));
 
 import { emailManagerOfMoveInFormSubmission, emitMoveInFormEvent } from "@/lib/move-in-forms/move-in-form-events.server";
 
@@ -21,6 +27,7 @@ const db = { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () 
 beforeEach(() => {
   bus.calls = [];
   resend.calls = [];
+  setup.calls = [];
   process.env.RESEND_API_KEY = "test-key";
 });
 
@@ -29,6 +36,38 @@ describe("move-in form events", () => {
     await emitMoveInFormEvent(db, { row, event: "sent" });
     const recipients = bus.calls[0]!.recipients as { rendered: { text: string } }[];
     expect(recipients[0]!.rendered.text).toContain("https://app.example/resident/forms/r1");
+  });
+
+  /**
+   * A bus copy is persisted in `action_event_deliveries`, appended to the portal inbox thread the
+   * manager reads, and under `partyFacing: "draft"` queued for a manager to edit. An account-binding
+   * setup token must never ride on it, and the notice must never mint or rotate one.
+   */
+  it.each(["sent", "reminder"] as const)("never carries a setup capability on a %s notice, bound or not", async (event) => {
+    for (const residentUserId of ["res-a", null]) {
+      bus.calls = [];
+      await emitMoveInFormEvent(db, { row: { ...row, resident_user_id: residentUserId }, event, nonce: "n1" });
+      const call = bus.calls[0]!;
+      const serialized = JSON.stringify(call);
+      expect(serialized).not.toMatch(/token/i);
+      expect(serialized).not.toContain("resident-setup");
+      const recipients = call.recipients as { rendered: { text: string } }[];
+      expect(recipients[0]!.rendered.text).toContain("https://app.example/resident/forms/r1");
+      expect((call.templateContext as { url: string }).url).toBe("https://app.example/resident/forms/r1");
+    }
+    expect(setup.calls).toEqual([]);
+  });
+
+  it("addresses a guest intake notice to the confirmed login without letting it decide the link", async () => {
+    await emitMoveInFormEvent(db, {
+      row: { ...row, resident_user_id: null },
+      event: "sent",
+      noticeAccount: { id: "confirmed-login", email: "a@example.test" },
+    });
+    const recipients = bus.calls[0]!.recipients as { audience: string; userId?: string; rendered: { text: string } }[];
+    expect(recipients[0]).toMatchObject({ audience: "resident", userId: "confirmed-login" });
+    expect(recipients[0]!.rendered.text).toContain("https://app.example/resident/forms/r1");
+    expect(setup.calls).toEqual([]);
   });
 
   it("sends the submitted notice as the manager, so it lands as an Assistant notice with no email of its own", async () => {

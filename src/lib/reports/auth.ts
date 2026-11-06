@@ -1,5 +1,4 @@
 import { withholdManagerSurface } from "@/lib/property-owner/access.server";
-import { isAdminUser } from "@/lib/auth/admin-preview";
 import { managerSectionAllowedForTier } from "@/lib/manager-access";
 import { getManagerSubscriptionTier } from "@/lib/manager-access-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -35,7 +34,7 @@ export type ReportsAuthContext =
 export type ReportsPreferRole = "manager" | "resident" | "vendor";
 
 function hasManagerRole(roles: string[]): boolean {
-  return roles.some((r) => r === "manager" || r === "owner" || r === "pro");
+  return roles.includes("manager");
 }
 
 function hasResidentRole(roles: string[]): boolean {
@@ -57,19 +56,18 @@ export async function getReportsAuthContext(options?: {
 
   const db = createSupabaseServiceRoleClient();
   if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return null;
-  const admin = await isAdminUser(user.id);
-  const { data: profile } = await db
+  const { data: profile, error: profileError } = await db
     .from("profiles")
-    .select("email, role")
+    .select("email")
     .eq("id", user.id)
     .maybeSingle();
-  const { data: roleRows } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+  const { data: roleRows, error: roleError } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+  if (profileError || roleError) return null;
   const roles = (roleRows ?? []).map((r) => String(r.role).toLowerCase());
-  const legacyRole = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-  const allRoles = roles.length > 0 ? roles : legacyRole ? [legacyRole] : [];
+  const allRoles = roles;
   const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
 
-  if (admin) {
+  if (roles.includes("admin")) {
     return { role: "admin", userId: user.id, email, db };
   }
 
@@ -97,7 +95,7 @@ export async function getReportsAuthContext(options?: {
   if (hasVendorRole(allRoles) && !hasResidentRole(allRoles)) {
     return { role: "vendor", userId: user.id, email, db };
   }
-  return { role: "resident", userId: user.id, email, db };
+  return hasResidentRole(allRoles) ? { role: "resident", userId: user.id, email, db } : null;
 }
 
 export async function assertManagerFinancialsAccess(ctx: ReportsAuthContext): Promise<{ ok: true } | { ok: false; status: number; error: string }> {

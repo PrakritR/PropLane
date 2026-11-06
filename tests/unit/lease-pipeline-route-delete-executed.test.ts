@@ -48,6 +48,7 @@ function makeQuery(table: string) {
 
 const db = {
   from: (table: string) => {
+    if (table === "profile_roles") return { select: () => ({ eq: async () => ({ data: state.profile?.role ? [{ role: state.profile.role }] : [], error: null }) }) };
     if (table === "profiles") {
       return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: state.profile }) }) }) };
     }

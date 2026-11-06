@@ -118,7 +118,7 @@ export function CreateAccountRoleGateway() {
     );
   }
 
-  if (isCreateRoleParam(role)) {
+  if (role === "generic" || isCreateRoleParam(role)) {
     return <PortalAuthForm />;
   }
 

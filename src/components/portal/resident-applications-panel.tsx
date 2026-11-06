@@ -23,7 +23,8 @@ import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/por
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { CalendarDays, Home, Undo2 } from "lucide-react";
+import { CalendarDays, Clock, Home, Undo2 } from "lucide-react";
+import { RENTAL_WIZARD_STEP_COUNT } from "@/lib/rental-application/types";
 import { ResidentApplyKindMenu } from "@/components/portal/resident-apply-kind-menu";
 import { ResidentStayApplicationRows, useResidentGuestStays } from "@/components/portal/resident-stay-application-rows";
 import {
@@ -122,6 +123,8 @@ import {
 } from "@/lib/rental-application/in-progress-application";
 import {
   canResidentWithdrawApplication,
+  collapseDuplicateResidentDrafts,
+  draftStepProgress,
   isWithdrawnApplicationRow,
   sortResidentApplicationRows,
 } from "@/lib/rental-application/resident-application-list";
@@ -432,11 +435,16 @@ export function ResidentApplicationsPanel({
     void tick;
     if (!residentEmail) return [];
     // A withdrawn application leaves the resident's active list (the manager keeps it).
+    // One row per house: duplicate unsent drafts the person left for one house show once.
     return sortResidentApplicationRows(
-      readManagerApplicationRows().filter(
-        (row) =>
-          residentOwnsApplicationRow(row, { email: residentEmail, userId: sessionUserId }) &&
-          !isWithdrawnApplicationRow(row),
+      collapseDuplicateResidentDrafts(
+        readManagerApplicationRows().filter(
+          (row) =>
+            residentOwnsApplicationRow(row, { email: residentEmail, userId: sessionUserId }) &&
+            !isWithdrawnApplicationRow(row),
+        ),
+        isInProgressApplicationRow,
+        RENTAL_WIZARD_STEP_COUNT,
       ),
     );
   }, [residentEmail, sessionUserId, tick]);
@@ -489,7 +497,8 @@ export function ResidentApplicationsPanel({
   // Long-term / short-term is a fact on each row now, not a tab: the entry link only picks which
   // kind the Apply picker offers.
   const term = parseResidentTermParam(searchParams.get("term")) ?? (rentalType === "short_term" ? "short_term" : "long_term");
-  // The page's three sections: Sent | Approved | Denied (an unfinished draft is a Sent row that reads "Started …").
+  // The page's three sections: Sent | Approved | Denied (an unfinished draft is a Sent row reading
+  // "Not sent yet · n of N steps", with Continue; one row per house, see `collapseDuplicateResidentDrafts`).
   // Short stays are rows of the same three sections (no Stays tab): pending -> Sent, confirmed -> Approved, the rest Denied.
   const guestStays = useResidentGuestStays({ enabled: !demoMode && !applyMode });
   const staysToday = pacificTodayKey();
@@ -1151,6 +1160,8 @@ export function ResidentApplicationsPanel({
       {listRows.map((row) => {
         const room = displayRoomForRow(row);
         const when = applicationSubmittedShort(row);
+        const unsent = isInProgressApplicationRow(row);
+        const progress = unsent ? draftStepProgress(row, RENTAL_WIZARD_STEP_COUNT) : null;
         return (
           <PortalApplicantRecordRow
             key={row.id}
@@ -1158,15 +1169,40 @@ export function ResidentApplicationsPanel({
             tileIcon={Home}
             address={residentApplicationRowPlaceLine(room, RESIDENT_TERM_LABELS[residentTermOfRecord(row)])}
             facts={
-              when ? (
-                <PortalRowFact icon={CalendarDays} srLabel="Date">
-                  {applicationDateVerb(row)} {when}
-                </PortalRowFact>
+              progress || when ? (
+                <>
+                  {progress ? (
+                    <PortalRowFact icon={Clock} srLabel="Progress">
+                      Not sent yet · {progress.done} of {progress.total} steps
+                    </PortalRowFact>
+                  ) : null}
+                  {when ? (
+                    <PortalRowFact icon={CalendarDays} srLabel="Date">
+                      {applicationDateVerb(row)} {when}
+                    </PortalRowFact>
+                  ) : null}
+                </>
+              ) : undefined
+            }
+            actions={
+              unsent ? (
+                <Button
+                  type="button"
+                  variant="primary"
+                  className={PORTAL_DETAIL_BTN}
+                  data-attr="resident-application-continue"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    portalNavigate(continueApplicationPath(row));
+                  }}
+                >
+                  Continue
+                </Button>
               ) : undefined
             }
             checked={selectedIds.has(row.id)}
             onSelectedChange={sessionReady ? () => toggleSelected(row.id) : undefined}
-            onOpen={() => openApplicationRow(row)}
+            onOpen={() => (unsent ? portalNavigate(continueApplicationPath(row)) : openApplicationRow(row))}
             dataAttr="resident-application-row"
           />
         );

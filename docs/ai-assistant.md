@@ -65,7 +65,7 @@ POST back to the SAME chat endpoint  { confirmActionId } | { denyActionId }
 | Portal | Resolver | Scope rule every tool must apply |
 |---|---|---|
 | manager | `resolveAgentContext` (`src/lib/tools/context.ts`) | `.eq("manager_user_id", ctx.landlordId)` |
-| resident | `resolveResidentAgentContext` (`src/lib/tools/resident-context.ts`) | `.or("resident_user_id.eq.<uid>,resident_email.eq.<email>")` or `.eq("resident_email", …)` |
+| resident | `resolveResidentAgentContext` (`src/lib/tools/resident-context.ts`) | `.eq("resident_user_id", ctx.userId)` — the one loader `loadResidentSubjectRows`; a reused address is never ownership |
 | vendor | `resolveVendorAgentContext` (`src/lib/tools/vendor-context.ts`) | `.eq("vendor_user_id", ctx.userId)` |
 | admin | `resolveAdminAgentContext` (`src/lib/tools/admin/context.ts`) | none to apply: platform reads only, no `landlordId`, no manager workspace |
 

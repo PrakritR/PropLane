@@ -25,20 +25,20 @@ export type StoredApplicationOwnership = {
   propertyId: string | null;
   assignedPropertyId: string | null;
   residentEmail: string | null;
+  residentUserId?: string | null;
 };
 
 /**
  * Who is asking. `manager` carries the exact set of property ids they may reach
- * today (own + co-manager-linked). `resident`/`guest` carry an email that must
- * match the application's stored applicant email. Reads never accept `guest`.
+ * today (own + co-manager-linked). A resident must match the stored Auth subject.
+ * Guests cannot read photos and may write only with the pending setup token.
  */
 export type ApplicationPhotoActor =
   | { kind: "admin" }
   | { kind: "manager"; userId: string; accessiblePropertyIds: ReadonlySet<string> }
-  | { kind: "resident"; email: string }
+  | { kind: "resident"; email: string; userId: string }
   | { kind: "guest"; email: string };
 
-const norm = (value: string | null | undefined): string => (value ?? "").trim().toLowerCase();
 
 /**
  * The single security decision: may this actor touch this application's photos?
@@ -52,9 +52,9 @@ export function canActorAccessApplicationPhoto(
 ): boolean {
   if (actor.kind === "admin") return true;
 
-  if (actor.kind === "resident" || actor.kind === "guest") {
-    const applicantEmail = norm(app.residentEmail);
-    return applicantEmail.length > 0 && applicantEmail === norm(actor.email);
+  if (actor.kind === "guest") return false;
+  if (actor.kind === "resident") {
+    return Boolean(actor.userId && app.residentUserId === actor.userId);
   }
 
   // manager / owner / pro
@@ -164,13 +164,13 @@ export type ApplicationPhotoWriteTarget = {
  * - A guest is authorized ONLY by the row's unguessable resident-setup token,
  *   never by a claimed email — an id + email probe must learn nothing.
  * - A signed-in actor authorizes by session: manager property access, or the
- *   authenticated email matching the stored applicant email (multi-role logins).
+ *   exact resident subject bound to the application (including multi-role logins).
  */
 export function authorizeApplicationPhotoWrite(params: {
   actor: ApplicationPhotoActor;
   row: ApplicationPhotoWriteTarget | null;
   setupToken?: string | null;
-  sessionEmail?: string | null;
+  applicantActor?: Extract<ApplicationPhotoActor, { kind: "resident" }> | null;
 }): boolean {
   const { actor, row } = params;
   if (!row) return false;
@@ -183,9 +183,7 @@ export function authorizeApplicationPhotoWrite(params: {
     return isResidentSetupTokenValid(row, token);
   }
   if (canActorAccessApplicationPhoto(actor, row.ownership)) return true;
-  const email = (params.sessionEmail ?? "").trim();
-  if (!email) return false;
-  return canActorAccessApplicationPhoto({ kind: "resident", email }, row.ownership);
+  return params.applicantActor ? canActorAccessApplicationPhoto(params.applicantActor, row.ownership) : false;
 }
 
 /** Content-type for a downloaded object based on its extension. */

@@ -37,6 +37,7 @@ type Rows = Record<string, Record<string, unknown>[]>;
 /** A memory db whose policy table answers like `policy` says: rows, a hard failure, or a missing relation. */
 function dbWith(rows: Rows, policy: "ok" | "error" | "missing" = "ok"): MemoryDb {
   const base = createMemoryDb(rows);
+  Object.assign(base, { auth: { admin: { getUserById: async () => ({ data: { user: { email: "m@example.com", email_confirmed_at: "confirmed" } }, error: null }) } } });
   if (policy === "ok") return base;
   const original = base.from.bind(base);
   base.from = ((table: string) => {

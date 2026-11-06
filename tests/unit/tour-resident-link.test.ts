@@ -8,6 +8,7 @@ import {
 function makeInquiryDb(inquiries: Record<string, unknown>[]) {
   const links: Record<string, unknown>[] = [];
   return {
+    rpc: vi.fn(async (_name: string, args: Record<string, unknown>) => { links.push(args); return { data: true, error: null }; }),
     from: vi.fn((table: string) => {
       if (table === "portal_schedule_records") {
         return {

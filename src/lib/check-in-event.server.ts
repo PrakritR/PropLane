@@ -36,13 +36,14 @@ export type RecordCheckInResult =
   | { ok: true; checkedInAt: string; alreadyCheckedIn: boolean }
   | { ok: false; status: number; error: string };
 
-type StampTarget = { table: "portal_schedule_records" | "manager_application_records"; id: string; path: "stayDetails" | "root" };
+type StampTarget = { subjectId?: string; table: "portal_schedule_records" | "manager_application_records"; id: string; path: "stayDetails" | "root" };
 
 /** Compare-and-set `checkedInAt`: true only for the tap that wrote it. */
 async function stampCheckedIn(db: SupabaseClient, target: StampTarget, atIso: string): Promise<{ stamped: boolean; existing: string | null }> {
   const { data, error } = await db.from(target.table).select("row_data").eq("id", target.id).maybeSingle();
   if (error || !data) throw new Error("Could not read the stay.");
   const rowData = ((data as { row_data?: unknown }).row_data ?? {}) as Record<string, unknown>;
+  if (target.subjectId && rowData.residentUserId !== target.subjectId) throw new Error("Move-in no longer belongs to this account.");
   const details = (target.path === "stayDetails" ? rowData.stayDetails ?? {} : rowData) as Record<string, unknown>;
   const already = typeof details.checkedInAt === "string" && details.checkedInAt.trim() ? details.checkedInAt.trim() : null;
   if (already) return { stamped: false, existing: already };
@@ -51,17 +52,15 @@ async function stampCheckedIn(db: SupabaseClient, target: StampTarget, atIso: st
       ? { ...rowData, stayDetails: { ...(details as Record<string, unknown>), checkedInAt: atIso } }
       : { ...rowData, checkedInAt: atIso };
   const filterColumn = target.path === "stayDetails" ? "row_data->stayDetails->>checkedInAt" : "row_data->>checkedInAt";
-  const { data: updated, error: updateError } = await db
-    .from(target.table)
-    .update({ row_data: next })
-    .eq("id", target.id)
-    .filter(filterColumn, "is", null)
-    .select("id");
+  let update = db.from(target.table).update({ row_data: next }).eq("id", target.id).filter(filterColumn, "is", null);
+  if (target.subjectId) update = update.eq("row_data->>residentUserId", target.subjectId);
+  const { data: updated, error: updateError } = await update.select("id");
   if (updateError) throw new Error("Could not save your check-in.");
   if ((updated ?? []).length === 0) {
     // Someone else's tap won the race: read what they wrote.
     const { data: again } = await db.from(target.table).select("row_data").eq("id", target.id).maybeSingle();
     const raw = ((again as { row_data?: Record<string, unknown> } | null)?.row_data ?? {}) as Record<string, unknown>;
+    if (target.subjectId && raw.residentUserId !== target.subjectId) throw new Error("Move-in no longer belongs to this account.");
     const source = (target.path === "stayDetails" ? raw.stayDetails ?? {} : raw) as Record<string, unknown>;
     return { stamped: false, existing: typeof source.checkedInAt === "string" ? source.checkedInAt : atIso };
   }
@@ -72,6 +71,7 @@ async function unstamp(db: SupabaseClient, target: StampTarget, atIso: string): 
   try {
     const { data } = await db.from(target.table).select("row_data").eq("id", target.id).maybeSingle();
     const rowData = ((data as { row_data?: unknown } | null)?.row_data ?? {}) as Record<string, unknown>;
+    if (target.subjectId && rowData.residentUserId !== target.subjectId) return;
     if (target.path === "stayDetails") {
       const details = { ...((rowData.stayDetails ?? {}) as Record<string, unknown>) };
       if (details.checkedInAt !== atIso) return;
@@ -114,21 +114,21 @@ export async function recordResidentCheckIn(
     roomLabel = stay.roomLabel;
     target = { table: "portal_schedule_records", id: input.key.id, path: "stayDetails" };
   } else {
-    const context = await loadTenancyCheckInContext(db, input.email);
+    const context = await loadTenancyCheckInContext(db, input.email, { residentUserId: input.userId });
     if (!context || context.recordId !== input.key.id) return { ok: false, status: 404, error: "Move-in not found." };
     const leaseUnlocked =
-      (await loadResidentLeaseSignedStatus(input.email, context.managerUserId)) ||
-      (await loadResidentManagerAttestedTenancy(input.email, context.managerUserId));
+      (await loadResidentLeaseSignedStatus(input.email, context.managerUserId, input.userId)) ||
+      (await loadResidentManagerAttestedTenancy(input.email, context.managerUserId, input.userId));
     const reveal = tenancyReveal(context, leaseUnlocked, now);
     if (!reveal.revealed) return { ok: false, status: 403, error: "Check-in opens 24 hours before your move-in." };
     managerUserId = context.managerUserId;
     propertyId = context.propertyId ?? "";
-    const resolved = await loadResidentMoveInForEmail(input.email, { db, managerUserId });
+    const resolved = await loadResidentMoveInForEmail(input.email, { db, managerUserId, residentUserId: input.userId });
     propertyLabel = resolved?.propertyLabel ?? "";
     roomLabel = resolved?.roomLabel && !/^not assigned/i.test(resolved.roomLabel) ? resolved.roomLabel : "";
     const { data: profile } = await db.from("profiles").select("full_name").eq("id", input.userId).maybeSingle();
     residentName = String((profile as { full_name?: unknown } | null)?.full_name ?? "").trim();
-    target = { table: "manager_application_records", id: context.recordId, path: "root" };
+    target = { table: "manager_application_records", id: context.recordId, path: "root", subjectId: input.userId };
   }
 
   const { stamped, existing } = await stampCheckedIn(db, target, nowIso);

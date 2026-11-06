@@ -28,10 +28,12 @@ function fakeDb(purchase: Purchase, updateError: Error | null = null) {
     limit: () => lookup,
     maybeSingle: async () => ({ data: purchase }),
   };
+  const write = { eq: () => write, select: () => write, maybeSingle: async () => ({ data: updateError ? null : { id: purchase.id }, error: updateError }) };
   return {
+    auth: { admin: { getUserById: async () => ({ data: { user: { email: "m@example.com", email_confirmed_at: "now" } }, error: null }) } },
     from: () => ({
-      select: () => lookup,
-      update: () => ({ eq: async () => ({ error: updateError }) }),
+      select: (columns: string) => columns === "id,email,stripe_checkout_session_id" ? { ilike: () => ({ is: () => ({ not: () => ({ like: () => ({ limit: async () => ({ data: [], error: null }) }) }) }) }) } : lookup,
+      update: () => write,
     }),
   } as never;
 }

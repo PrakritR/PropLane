@@ -1,9 +1,10 @@
 import { shortStayPricingBlocker } from "@/lib/short-stay-pricing-gate";
+import { leaseTermsDriftFromApplication } from "@/lib/lease-terms-drift";
 import { loadShortStayPricingSubmission } from "@/lib/short-stay-pricing-gate.server";
 import { residentNoticeChannel } from "@/lib/resident-notice-channel.server";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { createHash } from "node:crypto";
-import { FINISH_FORMS_FIRST_MESSAGE, RESIDENT_FORMS_CHECK_FAILED_MESSAGE, leaseApplicationIds, loadResidentBlockingForms } from "@/lib/move-in-forms/blocking";
+import { FINISH_FORMS_FIRST_MESSAGE, RESIDENT_FORMS_CHECK_FAILED_MESSAGE, leaseApplicationIds, leaseOwnApplicationIds, loadResidentBlockingForms } from "@/lib/move-in-forms/blocking";
 import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
 import { NextResponse } from "next/server";
 import { queueHouseChatSyncForProperty } from "@/lib/house-chat/sync.server";
@@ -52,6 +53,7 @@ import {
   type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
 import { stripIdentityFromLeaseRow } from "@/lib/lease-application-identity";
+import { idVariants } from "@/lib/rental-application/signed-in-application-write.server";
 import { loadLeasingPipeline } from "@/lib/leasing-pipeline-preferences";
 import {
   projectLeasePipelineListRow,
@@ -137,9 +139,10 @@ async function getUserContext(req: Request) {
   // The tiebreak only ever narrows to "resident", so admin keeps the admin portal.
   const scopedRole = await resolveResidentScopedActorRole(db, {
     userId: user.id,
-    legacyRole: profile?.role ?? user.user_metadata?.role,
+    legacyRole: profile?.role,
   });
   const oversight = scopedRole !== "resident" && (await resolveAdminOversight(req, user.id));
+  if (scopedRole === "denied" && !oversight) return null;
   // A legacy `profiles.role` of "admin" must not read as oversight on its own.
   const role = scopedRole === "resident" ? "resident" : oversight ? "admin" : scopedRole === "admin" ? "manager" : scopedRole;
   return {
@@ -169,7 +172,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * Row fields that alone establish an existing tenancy (`loadResidentManagerAttestedTenancy`). Only the server
  * writes them, so a resident-scoped save keeps the stored value and may never supply one.
  */
-export const SERVER_OWNED_TENANCY_FIELDS = ["signedLeaseSnapshots", "managerAttestedTenancyAt"] as const;
+const SERVER_OWNED_TENANCY_FIELDS = ["signedLeaseSnapshots", "managerAttestedTenancyAt"] as const;
 
 /** row_data may carry synthetic/demo ids ("demo-resident") — only uuid-shaped
  *  values may reach the uuid column, else the whole upsert 500s. */
@@ -368,6 +371,39 @@ function rowFromLeaseRecord(record: LeaseScopeRecord): Record<string, unknown> {
     unknown
   >;
   return { ...row, reviewRevision: (record as LeaseScopeRecord & { updated_at?: string | null }).updated_at ?? null };
+}
+
+/**
+ * Whose filed application the lease's terms are measured against: the manager the lease BELONGS to.
+ *
+ * A stored row names its owner. A lease being created names a property instead, and a co-manager
+ * filing it under the owner's house acts FOR that owner — the application lives in the owner's
+ * queue, not the sender's, so reading it under `ctx.user.id` found nothing and the drift check
+ * quietly did not run. The co-manager's grant is re-checked here (the same `leases` edit grant the
+ * write itself requires), so naming someone else's property cannot turn this into a way to probe
+ * their application; an unreadable property answers `null`, and the caller refuses.
+ */
+async function resolveLeaseTermsOwner(
+  ctx: { db: ReturnType<typeof createSupabaseServiceRoleClient>; user: RecordUser },
+  storedOwner: string | null | undefined,
+  namedPropertyId: string | null,
+): Promise<string | null> {
+  const stored = String(storedOwner ?? "").trim();
+  if (stored) return stored;
+  const propertyId = String(namedPropertyId ?? "").trim();
+  if (!propertyId) return ctx.user.id;
+  const { data, error } = await ctx.db
+    .from("manager_property_records")
+    .select("manager_user_id")
+    .eq("id", propertyId)
+    .maybeSingle();
+  if (error) return null;
+  const owner = String((data as { manager_user_id?: string | null } | null)?.manager_user_id ?? "").trim();
+  if (!owner || owner === ctx.user.id) return ctx.user.id;
+  if (ctx.user.role === "admin") return owner;
+  const access = await managerMayFileLeaseUnderProperty(ctx.db, ctx.user.id, propertyId);
+  if (!access.ok) return null;
+  return access.allowed ? owner : ctx.user.id;
 }
 
 async function viewerMayReadLeaseRecord(
@@ -1182,13 +1218,18 @@ export async function POST(req: Request) {
           // the page shows as "Finish your forms first". The lease's stored property id alone never decides
           // which forms count: a form tied to this lease's application blocks it whatever property id either
           // row carries, and a lease that names no application at all is not narrowed by property (every
-          // sent form of this resident blocks).
+          // sent form of this resident blocks). A form with no bound subject is weighed against this
+          // signer's OWN application only, never a joint member's — that one only they can submit.
           const leaseApplicationIdList = leaseApplicationIds(storedRow);
           const formsBlocking = await loadResidentBlockingForms(ctx.db, {
             email: ctx.user.email ?? "",
             userId: ctx.user.id,
             propertyId: leaseApplicationIdList.length > 0 ? (existingRecord?.property_id ?? null) : null,
             applicationIds: leaseApplicationIdList,
+            ownApplicationIds: leaseOwnApplicationIds(
+              { residentUserId: existingRecord?.resident_user_id ?? null, axisId: storedRow?.axisId ?? null },
+              ctx.user.id,
+            ),
           });
           // A read that failed refuses too, but as a retryable 503: there is no form to point them at.
           if (formsBlocking.readFailed) {
@@ -1303,6 +1344,99 @@ export async function POST(req: Request) {
       if (sendingToResident && !(storedRow && rowHasAnySignature(storedRow))) {
         const pricing = shortStayPricingBlocker(nextRow, await loadShortStayPricingSubmission(ctx.db, nextRow, existingRecord?.manager_user_id ?? ctx.user.id));
         if (pricing) return NextResponse.json({ error: pricing, blocked: "stay-pricing" }, { status: 409 });
+      }
+      // The terms on a lease going out are the record's: rent, deposit, start and end are re-read from
+      // the filed application and a body that differs is refused. Only the transition is checked (not
+      // every later write), and an uploaded PDF keeps its own reading/review path.
+      //
+      // The application is read under the lease's WORKSPACE OWNER, not under whoever pressed Send: a
+      // co-manager (or an admin in oversight) sending the owner's lease matched no row under their own
+      // id, so the check silently did not run for exactly the actor it most needs to bind. A record the
+      // send names but that cannot be read under that owner REFUSES — skipping it is how tampered rent
+      // went out unmeasured.
+      //
+      // Which application, like the untrusted-document rule above, is keyed on the STORED row: the link a
+      // lease was made from is not the sender's to drop or swap on the way out, and an empty one skipped
+      // this gate entirely. The stored link is restored onto the row first, so dropping it from `row_data`
+      // can neither detach the record nor silence the check on any later write. Only a row the server has
+      // never held has no stored link, and there the body names it.
+      const storedAxisId = typeof storedRow?.axisId === "string" ? storedRow.axisId.trim() : "";
+      if (storedAxisId && !(typeof nextRow.axisId === "string" && nextRow.axisId.trim())) {
+        nextRow = { ...nextRow, axisId: storedRow!.axisId };
+        normalized = nextRow as unknown as Record<string, unknown>;
+      }
+      const isNewSend = sendingToResident && storedRow?.status !== "Resident Signature Pending";
+      const importedProvenance = storedRow
+        ? Boolean(storedRow.uploadedLeaseParse || storedRow.managerUploadedPdf?.dataUrl || storedRow.templateImportReview)
+        : Boolean(nextRow.managerUploadedPdf?.dataUrl);
+      const leaseDocumentKind: "generated" | "imported" | "legacy-unlabelled" =
+        storedRow && !storedRow.documentMode && !importedProvenance
+          ? "legacy-unlabelled"
+          : effectiveLeaseDocumentMode(storedRow ?? nextRow) !== "proplane-generated" && importedProvenance
+            ? "imported"
+            : "generated";
+      const isUploadedLease = leaseDocumentKind === "imported";
+      const termsAxisId = storedAxisId || (typeof nextRow.axisId === "string" ? nextRow.axisId.trim() : "");
+      // A PropLane lease is GENERATED from the resident record, so one going out with no link to any
+      // application can be measured against nothing: a single create-and-send POST would otherwise
+      // carry arbitrary rent, deposit and dates past this gate. An imported document (an uploaded PDF,
+      // or a reusable converted template placed by hand) stands on its own review receipt instead.
+      //
+      // Which kind it is comes off the STORED row, like the link above: a lease the server already holds is
+      // not re-labelled by its sender, and only a row the server has never held is labelled by its own body.
+      // BOTH gates read the one `leaseDocumentKind` above, so neither can call a lease imported while the
+      // other calls it generated — two separate readings disagreed on exactly the rows that carry no mode.
+      // A claimed mode is believed only with real imported provenance behind it (a parsed source, uploaded
+      // bytes, or a template import review), so a bare `documentMode` in `row_data` excuses nothing.
+      //
+      // `legacy-unlabelled` is the third state those two booleans could not express: a row filed before the
+      // mode was persisted, with no imported document either. It is sent as it always was — never refused
+      // for naming no application — but it is NOT imported, so a link it does name is still measured.
+      //
+      // This is a consistency guard for the lease's own manager, not an authorization boundary: the route
+      // has already authorized this caller for this lease.
+      const needsApplicationLink = leaseDocumentKind === "generated";
+      if (
+        isNewSend &&
+        !termsAxisId &&
+        needsApplicationLink &&
+        !(storedRow && rowHasAnySignature(storedRow))
+      ) {
+        return NextResponse.json(
+          {
+            error: "This lease is not linked to a resident record, so its terms cannot be confirmed. Open the resident, then send the regenerated lease.",
+            blocked: "terms-unlinked",
+          },
+          { status: 409 },
+        );
+      }
+      if (isNewSend && !isUploadedLease && termsAxisId && !(storedRow && rowHasAnySignature(storedRow))) {
+        const termsUnreadable = NextResponse.json(
+          { error: "The resident record could not be read to confirm the lease terms. Try again.", blocked: "terms-unreadable" },
+          { status: 409 },
+        );
+        const termsOwner = await resolveLeaseTermsOwner(
+          ctx,
+          existingRecord?.manager_user_id,
+          clientNamedScopeParts(normalized).property_id ?? existingRecord?.property_id ?? null,
+        );
+        if (!termsOwner) return termsUnreadable;
+        const { data: appRecords, error: appError } = await ctx.db
+          .from("manager_application_records")
+          .select("row_data")
+          .in("id", idVariants(termsAxisId))
+          .eq("manager_user_id", termsOwner)
+          .limit(1);
+        if (appError) return termsUnreadable;
+        const appRow = ((appRecords ?? [])[0]?.row_data ?? null) as { application?: Record<string, string | undefined> } | null;
+        if (!appRow) return termsUnreadable;
+        const drift = leaseTermsDriftFromApplication(nextRow.application, appRow.application);
+        if (drift.length > 0) {
+          return NextResponse.json(
+            { error: `The lease terms (${drift.join(", ")}) differ from the resident record. Edit the resident, then send the regenerated lease.`, blocked: "terms-differ", terms: drift },
+            { status: 409 },
+          );
+        }
       }
       const hasUploadedSource = Boolean(nextRow.managerUploadedPdf?.dataUrl);
       // Both uploaded lease PDFs and converted reusable templates use the

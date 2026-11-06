@@ -69,9 +69,8 @@ function stubOpenSlots() {
 }
 
 async function toDateStep(embedded: boolean) {
+  // No Room step: the flow opens on Date & time and the room defaults.
   render(<TourScheduleFlow property={PROPERTY} returnAfterAuth="/rent" onSuccess={() => {}} embedded={embedded} />);
-  fireEvent.click(await screen.findByText(`${PROPERTY.buildingName} · ${PROPERTY.unitLabel}`));
-  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 }
 
 describe("public tour scheduler look", () => {

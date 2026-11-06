@@ -50,7 +50,7 @@ describe("syncOAuthProfile", () => {
     expect(supabase.update).toHaveBeenCalled();
   });
 
-  it("provisions primary admin when profile is missing, admin role only", async () => {
+  it("records a primary-email OAuth account's own profile row without granting it anything", async () => {
     const supabase = mockSupabase(null);
 
     await syncOAuthProfile(supabase as never, {
@@ -59,12 +59,26 @@ describe("syncOAuthProfile", () => {
       user_metadata: { name: "Prakrit" },
     } as never);
 
-    expect(supabase.upsert).toHaveBeenCalled();
-    // Admin-ONLY: the ops admin must never also receive a manager role row.
-    expect(supabase.profileRolesUpsert).toHaveBeenCalledTimes(1);
+    // No role row: roles come from stored `profile_roles` alone, and nothing here writes one.
+    expect(supabase.profileRolesUpsert).not.toHaveBeenCalled();
+    // But the row itself has to exist: `profiles.email` is what the primary-admin protection in
+    // `holdsAdminOutsideRoleRow` reads, and without it the account has no recorded email or name.
+    expect(supabase.upsert).toHaveBeenCalledTimes(1);
+    // The NOT NULL legacy column gets the default a brand-new profile with no portal chosen gets.
+    // Never a fresh `admin` label: no reader authorizes from `profiles.role`, and the release's own
+    // follow-up on stale legacy admin markers exists to stop this path minting one.
+    expect(supabase.upsert.mock.calls[0]![0]).toEqual({
+      id: "admin-1",
+      email: PRIMARY_ADMIN_EMAIL,
+      full_name: "Prakrit",
+      role: "resident",
+      manager_id: null,
+    });
+    // Never overwrites a row that already exists.
+    expect(supabase.upsert.mock.calls[0]![1]).toMatchObject({ onConflict: "id", ignoreDuplicates: true });
   });
 
-  it("re-asserts admin and skips manager provisioning for an existing primary admin", async () => {
+  it("does not re-grant a revoked admin role on OAuth sign-in", async () => {
     const supabase = mockSupabase({
       id: "admin-1",
       email: PRIMARY_ADMIN_EMAIL,
@@ -81,6 +95,6 @@ describe("syncOAuthProfile", () => {
     } as never);
 
     expect(supabase.update).toHaveBeenCalled();
-    expect(supabase.profileRolesUpsert).toHaveBeenCalledTimes(1);
+    expect(supabase.profileRolesUpsert).not.toHaveBeenCalled();
   });
 });

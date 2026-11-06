@@ -25,6 +25,7 @@ import {
 import { isWaiverGrantedManagerPurchase } from "@/lib/manager-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
+import { createMemoryDb } from "./support/memory-supabase";
 import { mockCheckoutSession } from "../mocks/stripe/events";
 
 describe("manager-purchase-from-session", () => {
@@ -32,6 +33,23 @@ describe("manager-purchase-from-session", () => {
     vi.clearAllMocks();
   });
 
+  it("never overwrites a free/CAS change after a paid session was resolved", async () => {
+    const db = createMemoryDb({ manager_purchases: [{ id: "purchase-race", user_id: "owner-a", manager_id: "MGR-A", email: "a@example.com", tier: null, paid_at: null, stripe_checkout_session_id: "cs_race" }] });
+    const from = db.from;
+    const interleaved = { ...db, from: (table: string) => {
+      const builder = from(table);
+      if (table !== "manager_purchases") return builder;
+      const update = builder.update.bind(builder);
+      builder.update = (...args: Parameters<typeof builder.update>) => {
+        db.__tables.manager_purchases![0]!.stripe_checkout_session_id = "axis_intent_other";
+        return update(...args);
+      };
+      return builder;
+    } };
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(interleaved as never);
+    await expect(recordPaidManagerCheckoutSession(mockCheckoutSession({ id: "cs_race", customer_email: "a@example.com", metadata: { tier: "pro", billing: "monthly", manager_id: "MGR-A", userId: "owner-a" } }))).rejects.toThrow(/reconciliation/);
+    expect(db.__tables.manager_purchases![0]!.stripe_checkout_session_id).toBe("axis_intent_other");
+  });
   it("detects paid checkout sessions", () => {
     expect(checkoutSessionIndicatesPaidPurchase(mockCheckoutSession())).toBe(true);
     expect(checkoutSessionIndicatesPaidPurchase(mockCheckoutSession({ payment_status: "unpaid", status: "open" }))).toBe(
@@ -48,11 +66,11 @@ describe("manager-purchase-from-session", () => {
   });
 
   it("fulfills a durable guest reservation without inventing an auth owner", async () => {
-    const update = vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) }));
+    const update = vi.fn(() => { const q = { eq: () => q, select: () => q, maybeSingle: async () => ({ data: { id: "purchase-1" }, error: null }) }; return q; });
     const query = {
       eq: vi.fn(),
       maybeSingle: vi.fn().mockResolvedValue({
-        data: { id: "purchase-1", user_id: null, manager_id: "MGR-TEST", email: "manager@example.com" },
+        data: { id: "purchase-1", user_id: null, manager_id: "MGR-TEST", email: "manager@example.com", stripe_checkout_session_id: "axis_pending_stub" },
         error: null,
       }),
     };
@@ -79,11 +97,11 @@ describe("manager-purchase-from-session", () => {
     // The managed view-only lock reads this column: a subscription id alone would unlock a managed workspace for the
     // whole trial (hasSelfPaidPlan / managed_read_only_owned_locked_ids).
     const patchFor = async (status: string) => {
-      const update = vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) }));
+      const update = vi.fn(() => { const q = { eq: () => q, select: () => q, maybeSingle: async () => ({ data: { id: "purchase-1" }, error: null }) }; return q; });
       const query = {
         eq: vi.fn(),
         maybeSingle: vi.fn().mockResolvedValue({
-          data: { id: "purchase-1", user_id: null, manager_id: "MGR-TEST", email: "manager@example.com" },
+          data: { id: "purchase-1", user_id: null, manager_id: "MGR-TEST", email: "manager@example.com", stripe_checkout_session_id: "axis_pending_stub" },
           error: null,
         }),
       };
@@ -122,11 +140,11 @@ describe("manager-purchase-from-session", () => {
     const stamped = async (amountTotal: number) => {
       const markEq = vi.fn().mockResolvedValue({ error: null });
       const markIs = vi.fn(() => ({ eq: markEq }));
-      const update = vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }), is: markIs }));
+      const update = vi.fn(() => { const q = { eq: () => q, select: () => q, maybeSingle: async () => ({ data: { id: "purchase-1" }, error: null }), is: markIs }; return q; });
       const query = {
         eq: vi.fn(),
         maybeSingle: vi.fn().mockResolvedValue({
-          data: { id: "purchase-1", user_id: null, manager_id: "MGR-TEST", email: "manager@example.com" },
+          data: { id: "purchase-1", user_id: null, manager_id: "MGR-TEST", email: "manager@example.com", stripe_checkout_session_id: "axis_pending_stub" },
           error: null,
         }),
       };
@@ -157,11 +175,11 @@ describe("manager-purchase-from-session", () => {
   });
 
   it("records a redeemed FREEFIRST in stripe_promotion_code and never in the waiver column", async () => {
-    const update = vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) }));
+    const update = vi.fn(() => { const q = { eq: () => q, select: () => q, maybeSingle: async () => ({ data: { id: "purchase-1" }, error: null }) }; return q; });
     const query = {
       eq: vi.fn(),
       maybeSingle: vi.fn().mockResolvedValue({
-        data: { id: "purchase-1", user_id: null, manager_id: "MGR-TEST", email: "manager@example.com" },
+        data: { id: "purchase-1", user_id: null, manager_id: "MGR-TEST", email: "manager@example.com", stripe_checkout_session_id: "axis_pending_stub" },
         error: null,
       }),
     };
@@ -187,11 +205,11 @@ describe("manager-purchase-from-session", () => {
   });
 
   it("does not file free text from the pricing form as a redeemed promo when no discount applied", async () => {
-    const update = vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) }));
+    const update = vi.fn(() => { const q = { eq: () => q, select: () => q, maybeSingle: async () => ({ data: { id: "purchase-1" }, error: null }) }; return q; });
     const query = {
       eq: vi.fn(),
       maybeSingle: vi.fn().mockResolvedValue({
-        data: { id: "purchase-1", user_id: null, manager_id: "MGR-TEST", email: "manager@example.com" },
+        data: { id: "purchase-1", user_id: null, manager_id: "MGR-TEST", email: "manager@example.com", stripe_checkout_session_id: "axis_pending_stub" },
         error: null,
       }),
     };
@@ -215,11 +233,11 @@ describe("manager-purchase-from-session", () => {
   });
 
   it("does not let signed metadata replace a reservation's auth owner", async () => {
-    const update = vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) }));
+    const update = vi.fn(() => { const q = { eq: () => q, select: () => q, maybeSingle: async () => ({ data: { id: "purchase-1" }, error: null }) }; return q; });
     const query = {
       eq: vi.fn(),
       maybeSingle: vi.fn().mockResolvedValue({
-        data: { id: "purchase-1", user_id: "owner-a", manager_id: "MGR-TEST", email: "manager@example.com" },
+        data: { id: "purchase-1", user_id: "owner-a", manager_id: "MGR-TEST", email: "manager@example.com", stripe_checkout_session_id: "axis_pending_stub" },
         error: null,
       }),
     };
@@ -243,7 +261,7 @@ describe("manager-purchase-from-session", () => {
   it("resolves an authenticated legacy session from its durable pending owner", async () => {
     const responses = [
       { data: null, error: null },
-      { data: { id: "purchase-legacy", user_id: "owner-a", manager_id: "MGR-A", email: "a@example.com" }, error: null },
+      { data: { id: "purchase-legacy", user_id: "owner-a", manager_id: "MGR-A", email: "a@example.com", stripe_checkout_session_id: "axis_pending_stub" }, error: null },
     ];
     const query = {
       select: vi.fn(),
@@ -268,7 +286,7 @@ describe("manager-purchase-from-session", () => {
   it("resolves a guest legacy session only when pending manager and email both match", async () => {
     const responses = [
       { data: null, error: null },
-      { data: { id: "purchase-guest", user_id: null, manager_id: "MGR-G", email: "guest@example.com" }, error: null },
+      { data: { id: "purchase-guest", user_id: null, manager_id: "MGR-G", email: "guest@example.com", stripe_checkout_session_id: "axis_pending_stub" }, error: null },
     ];
     const query = {
       select: vi.fn(),

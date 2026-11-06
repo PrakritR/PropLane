@@ -20,7 +20,7 @@ const application = (email: string, room: string, name: string) => ({
   property_id: scalarPlacement ? "home" : null,
   assigned_property_id: scalarPlacement ? "home" : null,
   row_data: {
-    id: email, email, name, bucket: "approved", propertyId: "home", assignedPropertyId: "home",
+    id: email, email, name, residentUserId: email.startsWith("self") ? "resident-self" : "resident-peer", bucket: "approved", propertyId: "home", assignedPropertyId: "home",
     stage: email.startsWith("self") ? selfStage : peerStage,
     ...(email.startsWith("self") || !peerRoomChoice ? {} : { assignedRoomChoice: peerRoomChoice }),
     manualResidentDetails: {
@@ -109,4 +109,10 @@ it("keeps the room private when the peer did not opt in", async () => {
   const mate = (await loadResidentMoveInForEmail("self@example.test"))?.housemates[0];
   expect(mate?.roomLabel).toBe("");
   expect(mate?.isRoommate).toBe(false);
+});
+
+it("selects the current subject's house and rejects a reused mailbox", async () => {
+  const exact = await loadResidentMoveInForEmail("self@example.test", { residentUserId: "resident-self" });
+  expect(exact?.propertyLabel).toBeTruthy();
+  expect(await loadResidentMoveInForEmail("self@example.test", { residentUserId: "new-subject" })).toBeNull();
 });

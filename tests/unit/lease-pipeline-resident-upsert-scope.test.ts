@@ -88,7 +88,7 @@ vi.mock("@/lib/auth/portal-access", () => ({
   ACTIVE_PORTAL_COOKIE: "axis_active_portal",
   hasRole: (ctx: { roles: string[] }, role: string) => ctx.roles.includes(role),
   getPortalAccessContext: async () => ({
-    user: null,
+    user: (await getUser()).data.user,
     profile: null,
     roles: PORTAL_ROLES,
     effectiveRole: EFFECTIVE_ROLE,
@@ -133,6 +133,7 @@ function makeDb() {
         const forms: Record<string, unknown> = {};
         forms.select = () => forms;
         forms.eq = () => forms;
+        forms.or = () => forms;
         forms.then = (resolve: (value: unknown) => unknown) =>
           Promise.resolve(FORMS_ERROR ? { data: null, error: FORMS_ERROR } : { data: FORMS, error: null }).then(resolve);
         return forms;
@@ -182,6 +183,9 @@ function makeDb() {
           return Promise.resolve({ data: null, error: null });
         },
       };
+      if (table === "profile_roles") {
+        builder.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data: PROFILE_ROLES.map((role) => ({ role })), error: null }).then(resolve);
+      }
       return builder;
     },
   };
@@ -536,9 +540,9 @@ describe("portal-lease-pipeline admin — unchanged", () => {
   beforeEach(() => {
     POST_QUERY = "?oversight=admin";
     PROFILE = { email: "admin@example.com", role: "admin" };
-    PROFILE_ROLES = [];
-    PORTAL_ROLES = ["admin"];
-    EFFECTIVE_ROLE = "admin";
+    PROFILE_ROLES = ["admin", "manager"];
+    PORTAL_ROLES = ["admin", "manager"];
+    EFFECTIVE_ROLE = "manager";
     isAdminUser.mockResolvedValue(true);
     getUser.mockResolvedValue({ data: { user: { id: "admin-user", email: "admin@example.com" } }, error: null });
   });
@@ -1118,6 +1122,22 @@ describe("portal-lease-pipeline resident — signing waits for the at-signing pa
     expect((await sign()).status).toBe(409);
   });
 
+  /**
+   * A form with no bound subject is weighed against this signer's OWN application only. A joint
+   * member's is never in that scope: that form is one only the co-applicant can submit and an
+   * unbound row is never nameable, so refusing here would be a dead end this resident cannot clear.
+   */
+  it("is not gated by a co-applicant's unbound form, but is by its own", async () => {
+    STORED.row_data = { ...awaitingResident, axisId: "AXIS-MINE", jointLeaseMembers: [{ applicationId: "AXIS-THEIRS" }] };
+    FORMS = [{ id: "theirs", form_id: "f1", status: "sent", resident_user_id: null, property_id: "prop-1", application_id: "AXIS-THEIRS", snapshot: { kind: "other", blocks: "lease_signing" } }];
+    expect((await sign()).status).toBe(200);
+
+    FORMS = [{ id: "ours", form_id: "f1", status: "sent", resident_user_id: null, property_id: "prop-1", application_id: "axis-mine", snapshot: { kind: "other", blocks: "lease_signing" } }];
+    const refused = await sign();
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toMatchObject({ code: "FORMS_BLOCK_LEASE_SIGNING", formId: null });
+  });
+
   it("is not blocked by a form that blocks something else, a submitted one, or one tied to another login", async () => {
     FORMS = [
       { id: "a", form_id: "f1", status: "sent", resident_user_id: RESIDENT_ID, snapshot: { kind: "other", blocks: "approval" } },
@@ -1251,14 +1271,14 @@ describe("portal-lease-pipeline CREATE — only a manager may name someone else"
 
   it("refuses a vendor-role account", async () => {
     PROFILE = { email: "vendor@example.com", role: "vendor" };
-    PROFILE_ROLES = [];
+    PROFILE_ROLES = ["vendor"];
     PORTAL_ROLES = ["vendor"];
     EFFECTIVE_ROLE = "vendor";
     getUser.mockResolvedValue({ data: { user: { id: "vendor-user", email: "vendor@example.com" } }, error: null });
 
     const res = await plant();
-    expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "Only a property manager can create a lease record." });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "Unauthorized." });
     expect(upsert).not.toHaveBeenCalled();
   });
 
@@ -1270,7 +1290,7 @@ describe("portal-lease-pipeline CREATE — only a manager may name someone else"
     getUser.mockResolvedValue({ data: { user: { id: "drifter", email: "drifter@example.com" } }, error: null });
 
     const res = await plant();
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
     expect(upsert).not.toHaveBeenCalled();
   });
 
@@ -1295,9 +1315,9 @@ describe("portal-lease-pipeline CREATE — only a manager may name someone else"
   it("leaves admin unchanged", async () => {
     POST_QUERY = "?oversight=admin";
     PROFILE = { email: "admin@example.com", role: "admin" };
-    PROFILE_ROLES = [];
-    PORTAL_ROLES = ["admin"];
-    EFFECTIVE_ROLE = "admin";
+    PROFILE_ROLES = ["admin", "manager"];
+    PORTAL_ROLES = ["admin", "manager"];
+    EFFECTIVE_ROLE = "manager";
     isAdminUser.mockResolvedValue(true);
     getUser.mockResolvedValue({ data: { user: { id: "admin-user", email: "admin@example.com" } }, error: null });
 

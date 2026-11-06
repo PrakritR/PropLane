@@ -44,17 +44,16 @@ beforeEach(() => {
 });
 
 describe("POST /api/public/partner-inquiries — Application before a tour", () => {
-  it("passes no verified email for an anonymous caller, whatever email the body carries", async () => {
-    createTourInquiry.mockResolvedValue({ ok: false, reason: "application_required", error: "Apply first." });
+  it("refuses an anonymous caller with 401 sign_in_required before creating anything, whatever email the body carries", async () => {
     const res = await post({ kind: "tour", propertyId: "prop-1", email: "claimed@example.com" });
-    expect(createTourInquiry.mock.calls[0]![1].verifiedApplicantEmail).toBeNull();
-    expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "Apply first." });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ reason: "sign_in_required" });
+    expect(createTourInquiry).not.toHaveBeenCalled();
   });
 
   it("passes the SESSION's email for a signed-in caller, not the body's", async () => {
     vi.mocked(getPortalAccessContext).mockResolvedValue({
-      user: { id: "user-1", email: "account@example.com" },
+      user: { id: "user-1", email: "account@example.com", email_confirmed_at: "confirmed" },
       profile: { email: "account@example.com" },
       roles: ["resident"],
       effectiveRole: "resident",
@@ -69,7 +68,7 @@ describe("POST /api/public/partner-inquiries — Application before a tour", () 
 describe("GET /api/public/tour-application-gate", () => {
   it("answers required/hasApplication from the caller's own session", async () => {
     vi.mocked(getPortalAccessContext).mockResolvedValue({
-      user: { id: "user-1", email: "Account@Example.com" },
+      user: { id: "user-1", email: "Account@Example.com", email_confirmed_at: "confirmed" },
       profile: null,
       roles: ["resident"],
       effectiveRole: "resident",
@@ -91,6 +90,17 @@ describe("GET /api/public/tour-application-gate", () => {
       signedIn: true,
     });
     expect(resolveApplicationBeforeTour.mock.calls[0]![1]).toEqual({ propertyId: "prop-1", verifiedEmail: "account@example.com" });
+  });
+
+  it.each([
+    { user: { id: "u1", email: "account@example.com" }, profile: { email: "account@example.com" } },
+    { user: { id: "u1", email: "account@example.com", email_confirmed_at: "confirmed" }, profile: { email: "other@example.com" } },
+  ])("does not use unconfirmed or mismatched profile email", async ({ user, profile }) => {
+    vi.mocked(getPortalAccessContext).mockResolvedValue({ user, profile, roles: [], effectiveRole: null } as never);
+    resolveApplicationBeforeTour.mockResolvedValue({ required: true, hasApplication: false, applicationStatus: "none", blocked: "apply_first" });
+    const response = await get("prop-1");
+    expect((await response.json()).signedIn).toBe(false);
+    expect(resolveApplicationBeforeTour).toHaveBeenCalledWith(expect.anything(), { propertyId: "prop-1", verifiedEmail: null });
   });
 
   it("reads not required for a workspace that does not ask, and never leaks the owner", async () => {

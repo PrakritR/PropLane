@@ -144,9 +144,7 @@ type Identity = { resident_email: string; resident_user_id?: string | null; mana
 
 function authorized(actor: MoveInFormActor, scope: Scope, row: Identity): boolean {
   if (actor.role === "resident") {
-    const email = actor.context.email;
-    return Boolean(email) && row.resident_email.trim().toLowerCase() === email &&
-      (!row.resident_user_id || row.resident_user_id === actor.context.userId);
+    return Boolean(actor.context.userId) && row.resident_user_id === actor.context.userId;
   }
   if (!(scope.owners.has(row.manager_user_id) || scope.properties.has(row.property_id))) return false;
   return scope.workspace === null || scope.workspace.has(row.property_id);
@@ -168,7 +166,7 @@ type RowFilters = { id?: string; propertyId?: string; applicationId?: string; st
 
 async function scopedRows(actor: MoveInFormActor, scope: Scope, only: RowFilters = {}): Promise<MoveInFormRow[]> {
   const filters: { column: string; values: string[] }[] = actor.role === "resident"
-    ? [{ column: "resident_email", values: [actor.context.email] }]
+    ? [{ column: "resident_user_id", values: actor.context.userId ? [actor.context.userId] : [] }]
     : [{ column: "manager_user_id", values: [...scope.owners] }, { column: "property_id", values: [...scope.properties] }];
   const rows = new Map<string, MoveInFormRow>();
   for (const filter of filters) {
@@ -258,6 +256,7 @@ const residencyColumns = "id,manager_user_id,property_id,assigned_property_id,re
   + "app_bucket:row_data->>bucket,app_withdrawn_at:row_data->>withdrawnAt,"
   + "app_name:row_data->>name,app_property:row_data->>property,"
   + "app_property_id:row_data->>propertyId,app_assigned_property_id:row_data->>assignedPropertyId,"
+  + "app_nested_property_id:row_data->application->>propertyId,"
   + "app_resident_user_id:row_data->>residentUserId,app_room_choice:row_data->>assignedRoomChoice,"
   + "app_manual_room:row_data->manualResidentDetails->>roomNumber,"
   + "app_manual_move_in:row_data->manualResidentDetails->>moveInDate,"
@@ -308,7 +307,7 @@ function residencyFromRecord(record: Record<string, unknown>): Residency {
     moveInDate: isoDate(text("app_manual_move_in")) || isoDate(text("app_lease_start")),
     identity: {
       manager_user_id: text("manager_user_id"),
-      property_id: text("assigned_property_id") || text("app_assigned_property_id") || text("property_id") || text("app_property_id"),
+      property_id: text("assigned_property_id") || text("app_assigned_property_id") || text("property_id") || text("app_property_id") || text("app_nested_property_id"),
       resident_email: text("resident_email").trim().toLowerCase(),
       resident_user_id: text("app_resident_user_id") || null,
     },
@@ -453,7 +452,7 @@ type NewRow = {
 
 async function insertRow(db: SupabaseClient, input: NewRow): Promise<{ row: MoveInFormRow; created: true } | { row: null; created: false }> {
   const { residency, ownerId, template } = input;
-  const { data, error } = await db.from(TABLE).insert({
+  const { data, error } = await db.rpc("insert_bound_move_in_form", { p_form: {
     application_id: residency.id,
     manager_user_id: ownerId,
     property_id: residency.identity.property_id,
@@ -469,9 +468,21 @@ async function insertRow(db: SupabaseClient, input: NewRow): Promise<{ row: Move
     status: "sent",
     answers: [],
     due_at: input.dueAt,
-  }).select("*").single();
+  } });
   // The partial unique index (one SENT copy per residency and form) makes a concurrent second send a no-op.
   if (error?.code === "23505") return { row: null, created: false };
+  // `insert_bound_move_in_form` raises 23514 when the residency it is asked to bind no longer agrees
+  // with the form: the application's stamped manager or house moved (ownership changed after the
+  // application was stamped), or its bound subject is not the one offered. That is a conflict the
+  // manager can act on, not a server fault.
+  if (error?.code === "23514") {
+    throw new MoveInFormError(
+      /subject mismatch/i.test(error.message ?? "")
+        ? "This resident's application is bound to a different account. Refresh the resident and try again."
+        : "This application no longer matches the property's current owner. Refresh the resident and try again.",
+      409,
+    );
+  }
   if (error || !data) throw new MoveInFormError("Could not send the form.", 500);
   return { row: data as unknown as MoveInFormRow, created: true };
 }
@@ -639,7 +650,7 @@ export async function dispatchMoveInFormsForResidency(
           ? await confirmedAccountFor(db, result.row.resident_email)
           : { id: result.row.resident_user_id, email: result.row.resident_email };
         if (notice) {
-          void emitMoveInFormEvent(db, { row: { ...result.row, resident_user_id: notice.id, resident_email: notice.email }, event: "sent" }).catch(() => undefined);
+          void emitMoveInFormEvent(db, { row: result.row, event: "sent", noticeAccount: { id: notice.id, email: notice.email } }).catch(() => undefined);
         }
       } catch (error) {
         failed++;

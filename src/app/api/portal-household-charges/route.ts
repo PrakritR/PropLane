@@ -1,7 +1,6 @@
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { NextResponse } from "next/server";
 import { isDeepStrictEqual } from "node:util";
-import { isAdminUser } from "@/lib/auth/admin-preview";
 import {
   fetchRowsForManagerWithLinked,
   linkedPropertyIdsForModule,
@@ -70,12 +69,12 @@ async function getUserContext(req?: Request) {
     db.from("profile_roles").select("role").eq("user_id", user.id),
   ]);
   const profile = profileResult.data;
-  const admin = await isAdminUser(user.id);
+  if (profileResult.error || rolesResult.error) return null;
   const roleRows = (rolesResult.data ?? []).map((r) => String(r.role).toLowerCase());
-  const legacyRole = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-  const allRoles = roleRows.length > 0 ? roleRows : (legacyRole ? [legacyRole] : []);
-  const isManagerOrOwner = allRoles.some((r) => r === "manager" || r === "owner");
+  const admin = roleRows.includes("admin");
+  const isManagerOrOwner = roleRows.includes("manager") || roleRows.includes("owner");
   const oversight = req ? await resolveAdminOversight(req, user.id, admin) : false;
+  if (!oversight && !isManagerOrOwner && !roleRows.includes("resident")) return null;
   const resolvedRole = oversight ? "admin" : isManagerOrOwner ? "manager" : "resident";
   return {
     db,
@@ -115,7 +114,7 @@ function incrementalCutoffFromRequest(req: Request | undefined, nowMs: number): 
   return new Date(ms - INCREMENTAL_OVERLAP_MS).toISOString();
 }
 
-export async function GET(req?: Request) {
+export async function GET(req: Request) {
   try {
     const ctx = await getUserContext(req);
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });

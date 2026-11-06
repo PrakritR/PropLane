@@ -98,13 +98,13 @@ type Row = Record<string, unknown>;
 
 const state = vi.hoisted(() => ({
   records: [] as Row[],
-  user: null as { id: string; email?: string; user_metadata?: Record<string, unknown> } | null,
+  user: null as { id: string; email?: string; email_confirmed_at?: string; user_metadata?: Record<string, unknown> } | null,
   profile: null as Row | null,
 }));
 
 function makeFakeDb() {
   function builder(table: string) {
-    const rows = table === "profiles" ? (state.profile ? [state.profile] : []) : state.records;
+    const rows = table === "profiles" ? (state.profile ? [state.profile] : []) : table === "profile_roles" ? (state.profile && state.user ? [{ user_id: state.user.id, role: state.profile.role }] : []) : state.records;
     const filters: Array<(row: Row) => boolean> = [];
     let mode: "select" | "delete" | "update" = "select";
     let pending: Row | null = null;
@@ -244,7 +244,7 @@ describe("a submission whose template has no Full legal name or Email question",
   beforeEach(() => {
     state.records = [];
     feeGuardRows.length = 0;
-    state.user = { id: "resident-1", email: ACCOUNT_EMAIL };
+    state.user = { id: "resident-1", email: ACCOUNT_EMAIL , email_confirmed_at: "confirmed"};
     state.profile = { id: "resident-1", email: ACCOUNT_EMAIL, role: "resident", full_name: "Jane Applicant" };
   });
 
@@ -265,12 +265,12 @@ describe("a submission whose template has no Full legal name or Email question",
 
   it("falls back to the auth user's metadata name, then the email's local part", async () => {
     state.profile = { id: "resident-1", email: ACCOUNT_EMAIL, role: "resident", full_name: null };
-    state.user = { id: "resident-1", email: ACCOUNT_EMAIL, user_metadata: { full_name: "Jane Metadata" } };
+    state.user = { id: "resident-1", email: ACCOUNT_EMAIL, email_confirmed_at: "confirmed", user_metadata: { full_name: "Jane Metadata" } };
     expect((await postUpsert(submittedRow())).status).toBe(200);
     expect(storedRow().name).toBe("Jane Metadata");
 
     state.records = [];
-    state.user = { id: "resident-1", email: ACCOUNT_EMAIL };
+    state.user = { id: "resident-1", email: ACCOUNT_EMAIL , email_confirmed_at: "confirmed"};
     expect((await postUpsert(submittedRow())).status).toBe(200);
     expect(storedRow().name).toBe("jane.applicant");
   });
@@ -297,7 +297,7 @@ describe("a submission whose template has no Full legal name or Email question",
   });
 
   it("a multi-role manager applying for themselves is recorded from their account too", async () => {
-    state.user = { id: "mgr-2", email: "owner@example.com" };
+    state.user = { id: "mgr-2", email: "owner@example.com" , email_confirmed_at: "confirmed"};
     state.profile = { id: "mgr-2", email: "owner@example.com", role: "manager", full_name: "Olive Owner" };
     const res = await postUpsert(submittedRow());
     expect(res.status).toBe(200);
@@ -314,7 +314,7 @@ describe("a submission whose template has no Full legal name or Email question",
         row_data: { ...submittedRow({ name: "Someone Else" }), residentUserId: "resident-9" },
       },
     ];
-    state.user = { id: "mgr-1", email: "mgr@example.com" };
+    state.user = { id: "mgr-1", email: "mgr@example.com" , email_confirmed_at: "confirmed"};
     state.profile = { id: "mgr-1", email: "mgr@example.com", role: "manager", full_name: "Mia Manager" };
     await postUpsert(submittedRow({ name: "Someone Else", detail: "Edited" }));
     expect(storedRow().email).not.toBe("mgr@example.com");
@@ -325,7 +325,7 @@ describe("a submission whose template has no Full legal name or Email question",
 describe("a submission whose template still asks for name and email is untouched", () => {
   beforeEach(() => {
     state.records = [];
-    state.user = { id: "resident-1", email: ACCOUNT_EMAIL };
+    state.user = { id: "resident-1", email: ACCOUNT_EMAIL , email_confirmed_at: "confirmed"};
     state.profile = { id: "resident-1", email: ACCOUNT_EMAIL, role: "resident", full_name: "Account Profile Name" };
   });
 

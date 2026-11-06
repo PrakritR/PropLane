@@ -1,3 +1,4 @@
+import { projectWorkOrderForHiredVendor } from "@/lib/work-order-vendor-privacy";
 import { NextResponse } from "next/server";
 import { resolveSessionActorRole } from "@/lib/auth/vendor-api-access";
 import { isAdminUser } from "@/lib/auth/admin-preview";
@@ -39,7 +40,7 @@ export async function POST(req: Request) {
 
     const result = await setVendorPriceForWorkOrder(db, actor, body);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
-    return NextResponse.json({ ok: true, workOrder: result.workOrder });
+    return NextResponse.json({ ok: true, workOrder: projectWorkOrderForHiredVendor(result.workOrder) });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not save price.";
     return NextResponse.json({ error: message }, { status: 500 });

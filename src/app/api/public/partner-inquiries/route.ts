@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { verifiedSessionEmail } from "@/lib/auth/verified-session-email";
 import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { ensureSignedInResidentAccount } from "@/lib/auth/ensure-signed-in-resident.server";
 import { readListingSource } from "@/lib/listing-channels/lead-source.server";
@@ -11,10 +12,6 @@ export const runtime = "nodejs";
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function normalizeEmail(value: string | null | undefined): string {
-  return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
 /** Each creation failure has one right status; never collapse them to 500. */
@@ -54,23 +51,36 @@ export async function POST(req: Request) {
     }
 
     const incoming = { ...(body.row as Record<string, unknown>) };
+    // Anonymous input never names the row it writes. `createTourInquiry` mints the id too;
+    // dropping it here keeps the public boundary readable about what is server-owned.
+    delete incoming.id;
 
-    let linkingUserId: string | null = null;
+    let linkingUser: { id: string; email?: string | null; email_confirmed_at?: string | null } | null = null;
     let linkingEmail: string | null = null;
     try {
       const ctx = await getPortalAccessContext();
       if (ctx.user) {
-        const accountEmail = normalizeEmail(ctx.profile?.email ?? ctx.user.email);
+        const accountEmail = verifiedSessionEmail(ctx.user, ctx.profile?.email);
         if (accountEmail.includes("@")) {
           if (textValue(incoming.kind) === "tour") {
             incoming.email = accountEmail;
           }
-          linkingUserId = ctx.user.id;
+          linkingUser = ctx.user;
           linkingEmail = accountEmail;
         }
       }
     } catch {
-      /* optional session — public route still accepts anonymous tour requests */
+      /* Optional session: `kind: "partner"` is still anonymous. A tour is not — an unreadable
+         session leaves `linkingUser` null and the refusal below fails closed. */
+    }
+
+    // A tour needs a signed-in account, slot-mode and requested-time alike (captain, Nov 3: no anonymous
+    // booking). Checked HERE, before anything is read or written, and it fails closed: an unreadable
+    // session is an anonymous one. A body's `email` proves nothing. The assistant's tour tools and the
+    // leasing SMS agent call `createTourInquiry` directly, never this route, so they are unaffected. The
+    // one anonymous use left is `kind: "partner"` (the partner-meeting scheduler), which books no tour.
+    if (textValue(incoming.kind) === "tour" && !linkingUser) {
+      return NextResponse.json({ error: "Sign in to request a tour.", reason: "sign_in_required" }, { status: 401 });
     }
 
     const db = createSupabaseServiceRoleClient();
@@ -88,11 +98,11 @@ export async function POST(req: Request) {
       );
     }
 
-    if (linkingUserId && linkingEmail && textValue(created.row.kind) === "tour") {
+    if (linkingUser && linkingEmail && textValue(created.row.kind) === "tour") {
       try {
-        await ensureSignedInResidentAccount(db, { id: linkingUserId, email: linkingEmail });
+        await ensureSignedInResidentAccount(db, linkingUser);
         await linkTourInquiryToResident(db, {
-          userId: linkingUserId,
+          userId: linkingUser.id,
           inquiryId: created.inquiryId,
           email: linkingEmail,
         });

@@ -103,7 +103,7 @@ beforeEach(() => {
   PROFILES = {
     [RESIDENT_ID]: { role: "resident", phone: null },
   };
-  PROFILE_ROLES = {};
+  PROFILE_ROLES = { [RESIDENT_ID]: ["resident"] };
   NOTIFICATION_PREFS = {};
   SMS_CONSENT = {};
   getUser.mockResolvedValue({ data: { user: { id: RESIDENT_ID, email: RESIDENT_EMAIL } }, error: null });
@@ -125,10 +125,11 @@ describe("GET /api/portal/resident-notification-preferences", () => {
     expect(await res.json()).toEqual({ error: "Residents only." });
   });
 
-  it("still allows a legacy resident with no profile_roles row", async () => {
+  it("denies a legacy resident with no profile_roles row", async () => {
     PROFILES[RESIDENT_ID] = { role: "resident" };
+    PROFILE_ROLES[RESIDENT_ID] = [];
     const res = await get();
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
   });
 
   it("answers 401 when unauthenticated", async () => {

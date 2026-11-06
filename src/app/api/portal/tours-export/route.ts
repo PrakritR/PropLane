@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
-import { isAdminUser } from "@/lib/auth/admin-preview";
 import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
@@ -37,21 +36,15 @@ export async function GET(req: Request) {
 
     // The all-owners export is admin oversight: asked for with `?oversight=admin` AND confirmed by the
     // role. An admin in their own manager portal exports exactly what a manager does.
-    const admin = await isAdminUser(portalCtx.user.id);
-    const oversight = await resolveAdminOversight(req, portalCtx.user.id, admin);
-    let role = oversight
-      ? "admin"
-      : String(portalCtx.effectiveRole ?? portalCtx.roles[0] ?? portalCtx.profile?.role ?? "").toLowerCase();
-    let roles = portalCtx.roles;
-    if (!oversight) {
-      // Never read as admin by accident; an admin with the manager role exports as that manager.
-      roles = roles.filter((r) => String(r).toLowerCase() !== "admin");
-      if (role === "admin" && admin) role = "manager";
-      if (role === "manager" && !roles.includes("manager")) roles = [...roles, "manager"];
-    }
-    if (role !== "admin" && role !== "manager") {
+    const { data: roleRows, error: roleError } = await db.from("profile_roles").select("role").eq("user_id", portalCtx.user.id);
+    if (roleError) return NextResponse.json({ error: "Could not confirm account role." }, { status: 503 });
+    let roles = (roleRows ?? []).map((row) => String(row.role).toLowerCase());
+    const oversight = await resolveAdminOversight(req, portalCtx.user.id, roles.includes("admin"));
+    if (!oversight && !roles.includes("manager")) {
       return NextResponse.json({ error: "Tours export is manager-only." }, { status: 403 });
     }
+    const role = oversight ? "admin" : "manager";
+    if (!oversight) roles = roles.filter((r) => r !== "admin");
     const user: ScheduleRecordUser = { id: portalCtx.user.id, role, roles };
 
     const searchParams = new URL(req.url).searchParams;

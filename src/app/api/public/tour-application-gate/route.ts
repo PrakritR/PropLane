@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { verifiedSessionEmail } from "@/lib/auth/verified-session-email";
 import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { resolveApplicationBeforeTour } from "@/lib/application-before-tour.server";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
@@ -24,7 +25,7 @@ export async function GET(req: Request) {
     try {
       const ctx = await getPortalAccessContext();
       if (ctx.user) {
-        const email = (ctx.profile?.email ?? ctx.user.email ?? "").trim().toLowerCase();
+        const email = verifiedSessionEmail(ctx.user, ctx.profile?.email);
         if (email.includes("@")) verifiedEmail = email;
       }
     } catch {

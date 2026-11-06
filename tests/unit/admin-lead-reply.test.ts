@@ -56,6 +56,13 @@ describe("an admin's reply to a lead", () => {
     expect(ADMIN_LEAD_REPLY_NOT_SAVED_ERROR).toBe("Sent, but not saved to the thread.");
   });
 
+  it("returns a retryable refusal without a thread copy when configuration is unreadable", async () => {
+    seed(hoursAgo(1));
+    send.mockResolvedValue({ ok: false, reason: "config_unavailable" });
+    expect(await reply()).toEqual({ ok: false, status: 503, error: "The PropLane line is not available." });
+    expect(world.rows.sms_unassigned_lead_turns).toHaveLength(0);
+  });
+
   it("is saved nowhere when the text itself was refused", async () => {
     seed(hoursAgo(1));
     send.mockResolvedValue({ ok: false, reason: "opted_out" });

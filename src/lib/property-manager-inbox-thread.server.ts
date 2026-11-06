@@ -370,6 +370,7 @@ async function appendResidentPropertyManagerInboxMessageOnce(
   db: Db,
   input: {
     participantEmail: string;
+    residentUserId?: string;
     managerUserId: string;
     propertyId: string;
     propertyTitle: string;
@@ -385,9 +386,8 @@ async function appendResidentPropertyManagerInboxMessageOnce(
 ): Promise<void> {
   const guestEmail = input.participantEmail.trim().toLowerCase();
   if (!guestEmail.includes("@")) return;
-
-  const { data: guestProfile } = await db.from("profiles").select("id").eq("email", guestEmail).maybeSingle();
-  const ownerUserId = (guestProfile?.id as string | null) ?? null;
+  const ownerUserId = input.residentUserId?.trim() ?? "";
+  if (!ownerUserId) return;
   const target = await resolvePropertyManagerThread(db, {
     side: "resident",
     residentEmail: guestEmail,
@@ -536,7 +536,7 @@ export async function findResidentPropertyManagerThreadId(
   input: { residentUserId: string; residentEmail: string; managerUserId: string; managerEmail: string; propertyId: string },
 ): Promise<string | null> {
   const residentEmail = input.residentEmail.trim().toLowerCase();
-  if (!residentEmail.includes("@") || !input.managerUserId.trim() || !input.propertyId.trim()) return null;
+  if (!input.residentUserId.trim() || !input.managerUserId.trim() || !input.propertyId.trim()) return null;
   const target = await resolvePropertyManagerThread(db, {
     side: "resident",
     residentEmail,

@@ -125,7 +125,7 @@ describe("canonical resident-manager thread writes", () => {
   it("stores tour lifecycle messages once under the scoped manager label", async () => {
     const { db, rows } = globalPrimaryKeyDb();
     const notice = {
-      participantEmail: input.residentEmail, managerUserId: input.managerUserId,
+      participantEmail: input.residentEmail, residentUserId: input.residentUserId, managerUserId: input.managerUserId,
       propertyId: input.propertyId, propertyTitle: input.propertyTitle,
       subject: "Tour confirmed", body: "Your tour is confirmed.",
       counterpartyEmail: input.managerEmail, managerName: "Jordan Lee", fromName: "Jordan Lee",
@@ -452,6 +452,7 @@ describe("appendResidentPropertyManagerInboxMessage", () => {
 
     const base = {
       participantEmail: "guest@example.com",
+      residentUserId: "resident-user",
       managerUserId: "mgr-1",
       propertyId: "prop-oak",
       propertyTitle: "Oak House",

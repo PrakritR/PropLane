@@ -538,6 +538,7 @@ export async function handleVendorDispatchReply(
     if ((input.mediaCount ?? 0) > 0) await attachRunMedia(db, first, input.messageSid).catch(() => 0);
     const outcome = await recordVendorDone(db, { ownerUserId, attemptId: first.attempt.id, note: parsed.note, now });
     if (outcome === "marked_done") await tell(first, `Thanks, #${first.run.handle} is marked done. Reply INVOICE $amount to bill it`, "done");
+    else if (outcome === "retry") await tell(first, `Could not finish #${first.run.handle}. Try DONE again.`, "done-retry");
   } else {
     const outcome = await recordVendorInvoice(db, { ownerUserId, attemptId: first.attempt.id, amountCents: parsed.amountCents, now });
     await tell(
@@ -549,14 +550,20 @@ export async function handleVendorDispatchReply(
   return { handled: true, vendorUserId: first.contact.vendorUserId };
 }
 
-/** A resident's bare YES / NO while a finished job waits on "Is it fixed?". */
+/**
+ * A resident's bare YES / NO while a finished job waits on "Is it fixed?".
+ *
+ * `residentEmail` is the inbound pipeline's own identification of the sender and is NOT a lookup
+ * key here: the candidate runs are found through the job's bound `resident_user_id`
+ * (`handleResidentFixedReply`), never through the address snapshotted onto the run.
+ */
 export async function handleResidentDispatchReply(
   db: SupabaseClient,
-  input: { ownerUserId: string; residentEmail: string; body: string; now?: Date },
+  input: { ownerUserId: string; residentUserId: string; residentEmail: string; body: string; now?: Date },
 ): Promise<InboundHandled> {
   const verdict = parseResidentFixedReply(input.body);
   if (!verdict) return { handled: false };
-  const result = await handleResidentFixedReply(db, { ownerUserId: input.ownerUserId, residentEmail: input.residentEmail, verdict, now: input.now }).catch(
+  const result = await handleResidentFixedReply(db, { ownerUserId: input.ownerUserId, residentUserId: input.residentUserId, verdict, now: input.now }).catch(
     () => ({ handled: false as const }),
   );
   return result.handled ? { handled: true, reply: result.reply } : { handled: false };

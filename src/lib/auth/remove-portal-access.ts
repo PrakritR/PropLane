@@ -1,3 +1,4 @@
+import { heldPortalRoles } from "@/lib/auth/held-portal-roles";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type PortalRole = "admin" | "manager" | "resident" | "pro" | "vendor";
@@ -22,23 +23,13 @@ export async function removePortalAccess(
     .eq("user_id", userId);
   if (rolesErr) throw new Error(rolesErr.message);
 
-  const currentRoles = (rolesRows ?? [])
-    .map((row) => String(row.role ?? "").toLowerCase())
-    .filter(Boolean);
-
-  // `profile_roles` is the multi-role source of truth, but an account created before it
-  // existed — or one whose backfill never ran — carries its only role on `profiles.role`.
-  // Reading `profile_roles` alone reported "no_role" for those accounts, so a delete
-  // purged the data and then left the login and profile standing, and the same email
-  // could not be reused. Merge the legacy role in so it is a role that can be removed.
   const { data: profileRow, error: profileReadErr } = await svc
     .from("profiles")
     .select("role")
     .eq("id", userId)
     .maybeSingle();
   if (profileReadErr) throw new Error(profileReadErr.message);
-  const legacyRole = String(profileRow?.role ?? "").toLowerCase();
-  if (legacyRole && !currentRoles.includes(legacyRole)) currentRoles.push(legacyRole);
+  const currentRoles = heldPortalRoles(rolesRows, profileRow?.role);
 
   const removedRoles = roleToRemove === "manager" ? ["manager", "owner", "pro"] : [roleToRemove];
   if (!currentRoles.some(role => removedRoles.includes(role))) {

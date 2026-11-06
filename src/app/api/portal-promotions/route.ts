@@ -1,3 +1,4 @@
+import { userHoldsManagerRole } from "@/lib/manager-route-guard.server";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { NextResponse } from "next/server";
 import {
@@ -6,7 +7,6 @@ import {
   type ManagerPromotionRow,
 } from "@/lib/promotion-flyer";
 import { type PromotionTextEntry } from "@/lib/promotion-text";
-import { isAdminUser } from "@/lib/auth/admin-preview";
 import {
   linkedOwnerForProperty,
   linkedOwnerScopeForModule,
@@ -25,6 +25,13 @@ async function sessionUser() {
     data: { user },
   } = await supabase.auth.getUser();
   return user;
+}
+
+async function hasStoredAdminRole(db: ReturnType<typeof createSupabaseServiceRoleClient>, userId: string): Promise<boolean> {
+  try {
+    const { data, error } = await db.from("profile_roles").select("role").eq("user_id", userId).eq("role", "admin").maybeSingle();
+    return !error && Boolean(data);
+  } catch { return false; }
 }
 
 function normalizeRow(row: ManagerPromotionRow, managerUserId: string): ManagerPromotionRow {
@@ -67,14 +74,12 @@ export async function GET(req: Request) {
     if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
       return NextResponse.json({ error: "Promotion access is unavailable for this account." }, { status: 403 });
     }
-    const admin = await isAdminUser(user.id);
+    const admin = await hasStoredAdminRole(db, user.id);
     // The all-owners read is admin oversight: asked for with `?oversight=admin` AND confirmed by the
     // role. An admin in their own manager portal reads exactly what a manager does.
     const oversight = await resolveAdminOversight(req, user.id, admin);
-    const { data: profile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
-    const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
 
-    if (!admin && role !== "manager" && role !== "pro") {
+    if (!admin && !(await userHoldsManagerRole(db, user.id))) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
@@ -133,11 +138,9 @@ export async function POST(req: Request) {
     if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
       return NextResponse.json({ error: "Promotion access is unavailable for this account." }, { status: 403 });
     }
-    const { data: profile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
-    const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-    const admin = await isAdminUser(user.id);
+    const admin = await hasStoredAdminRole(db, user.id);
 
-    if (!admin && role !== "manager" && role !== "pro") {
+    if (!admin && !(await userHoldsManagerRole(db, user.id))) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
     // An admin's write from their own manager portal is a manager's write: it can never re-own or

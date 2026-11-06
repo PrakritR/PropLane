@@ -44,14 +44,14 @@ describe("resolvePortalApiActorRole", () => {
     ).toBe("vendor");
   });
 
-  it("falls back to profiles.role when multiple roles and no active portal", () => {
+  it("denies ambiguous multiple roles without an active portal", () => {
     expect(
       resolvePortalApiActorRole({
         effectiveRole: null,
         roles: ["manager", "vendor"],
         profile: { role: "manager" } as { role: string | null },
       }),
-    ).toBe("manager");
+    ).toBe("");
   });
 });
 

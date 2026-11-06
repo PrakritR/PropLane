@@ -115,7 +115,43 @@ describe("managerServiceWorkflow", () => {
       propertyAddress: "5257 Brooklyn Ave NE, Seattle, WA",
       biddingOpen: true,
     });
-    expect(workOrderGeneralArea(row)).toBe("Seattle");
+    // The city — and the state when the address names one — is what a vendor browsing leads needs
+    // to bid at all. The ZIP is dropped (it narrows the area to a few blocks), the street never
+    // appears, and `propertyName` is never a fallback (a distinctive house name identifies the
+    // property as surely as its street).
+    expect(workOrderGeneralArea(row)).toBe("Seattle, WA");
+    expect(workOrderGeneralArea({ propertyAddress: "123 Main St, Seattle, WA 98105", propertyName: "Proof House" })).toBe("Seattle, WA");
+    // A trailing country is dropped before the city is read, and two parts are enough.
+    expect(workOrderGeneralArea({ propertyAddress: "123 Main St, Seattle, WA 98101, USA", propertyName: "Proof House" })).toBe("Seattle, WA");
+    expect(workOrderGeneralArea({ propertyAddress: "123 Main St, Seattle", propertyName: "Proof House" })).toBe("Seattle");
+    expect(workOrderGeneralArea({ propertyAddress: "123 Main St, Unit A, Seattle", propertyName: "Proof House" })).toBe("Seattle");
+    // Real city names keep their punctuation; "Main St" is still rejected as a street.
+    expect(workOrderGeneralArea({ propertyAddress: "123 Main St, St. Louis, MO 63101", propertyName: "Proof House" })).toBe("St. Louis, MO");
+    expect(workOrderGeneralArea({ propertyAddress: "99 Oak Rd, Winston-Salem, NC", propertyName: "Proof House" })).toBe("Winston-Salem, NC");
+    // No derivable city is "Nearby": one part, a street line where the city belongs, and a unit
+    // designator are all refused rather than guessed at.
+    expect(workOrderGeneralArea({ propertyAddress: "123 Main St", propertyName: "Proof House" })).toBe("Nearby");
+    expect(workOrderGeneralArea({ propertyAddress: "123 Main St, WA", propertyName: "Proof House" })).toBe("Nearby");
+    expect(workOrderGeneralArea({ propertyAddress: "123 Main St, Unit A, WA", propertyName: "Proof House" })).toBe("Nearby");
+    expect(workOrderGeneralArea({ propertyAddress: "", propertyName: "Proof House" })).toBe("Nearby");
+    const forgedHint = { propertyAddress: "123 Main St", propertyName: "Proof House", offeredGeneralArea: "Proof House" };
+    expect(workOrderGeneralArea(forgedHint)).toBe("Nearby");
+    // A house name sitting where the street belongs leaks nothing: only the city travels.
+    expect(workOrderGeneralArea({ propertyAddress: "Proof House, Seattle", propertyName: "Proof House" })).toBe("Seattle");
+    // A SECONDARY address line is an address line, never a city: on a two-part address the last
+    // part would otherwise be read as the city and shipped as the area.
+    for (const secondary of ["Building C", "Bldg C", "Penthouse", "Lot A", "Space B", "Trailer C", "Basement", "Dept B"]) {
+      expect(workOrderGeneralArea({ propertyAddress: `123 Main St, ${secondary}`, propertyName: "Proof House" })).toBe("Nearby");
+    }
+    // Real cities whose names carry one of those words stay cities.
+    for (const [address, area] of [
+      ["123 Main St, Ste. Genevieve, MO", "Ste. Genevieve, MO"],
+      ["123 Main St, Upper Darby, PA", "Upper Darby, PA"],
+      ["123 Main St, Front Royal, VA", "Front Royal, VA"],
+      ["123 Main St, Key West, FL", "Key West, FL"],
+    ] as const) {
+      expect(workOrderGeneralArea({ propertyAddress: address, propertyName: "Proof House" })).toBe(area);
+    }
     expect(vendorCanSeeFullWorkOrderSite(row, null)).toBe(false);
     expect(
       vendorCanSeeFullWorkOrderSite(row, {

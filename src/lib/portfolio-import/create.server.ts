@@ -251,6 +251,12 @@ async function createResident(
   row.detail = `Imported from ${fileName}.`;
   row.manualResidentDetails = { ...row.manualResidentDetails, importedAt: new Date().toISOString() };
 
+  // No account before mailbox proof: the imported resident gets their rows now and reaches them
+  // through the emailed email-proof setup link. Any other refusal is a real failure.
+  const provision = await provisionApprovedResidentAccount(db, row, { mode: "silent_migration" });
+  if (!provision.ok && provision.reason !== "invitation_required") throw new Error(provision.error);
+  const residentUserId = provision.ok ? provision.userId : null;
+
   const sealed = sealApplicantRow(row, row.id, actor.userId);
   const { error: upsertError } = await db.from("manager_application_records").upsert(
     {
@@ -266,13 +272,10 @@ async function createResident(
   );
   if (upsertError) throw new Error(upsertError.message);
 
-  const provision = await provisionApprovedResidentAccount(db, row, { mode: "silent_migration" });
-  if (!provision.ok) throw new Error(provision.error);
-
   const onboarding = await runExistingResidentOnboarding(db, actor, row, { sendWelcomeEmail: opts.sendInvites });
   if (!onboarding.ok) throw new Error(onboarding.error);
 
-  return { applicationId: row.id, leaseId: onboarding.leaseId, email, residentUserId: provision.userId, welcomeSent: onboarding.welcomeEmailSent };
+  return { applicationId: row.id, leaseId: onboarding.leaseId, email, residentUserId, welcomeSent: onboarding.welcomeEmailSent };
 }
 
 async function createCharge(

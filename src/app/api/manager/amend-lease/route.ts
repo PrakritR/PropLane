@@ -1,3 +1,4 @@
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { NextRequest, NextResponse, after } from "next/server";
 import { syncHouseGroupForProperty } from "@/lib/house-groups/manager.server";
 import { syncHouseChatForPropertyId } from "@/lib/house-chat/sync.server";
@@ -30,11 +31,9 @@ export async function POST(req: NextRequest) {
     if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
       return NextResponse.json({ error: "Lease access is unavailable for this account." }, { status: 403 });
     }
-    const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
-    const role = String(profile?.role ?? "").toLowerCase();
-    if (role !== "manager" && role !== "admin") {
-      return NextResponse.json({ error: "Managers only." }, { status: 403 });
-    }
+    const { data: roleRows, error: roleError } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+    if (roleError || !(roleRows ?? []).some((row) => row.role === "manager" || row.role === "admin")) return NextResponse.json({ error: "Managers only." }, { status: 403 });
+    const oversight = await resolveAdminOversight(req, user.id, (roleRows ?? []).some((row) => row.role === "admin"));
 
     const body = (await req.json()) as {
       leaseId?: string;
@@ -71,7 +70,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     if (!leaseRecord) return NextResponse.json({ error: "Lease not found." }, { status: 404 });
 
-    if (role === "manager" && leaseRecord.manager_user_id && leaseRecord.manager_user_id !== user.id) {
+    if (!oversight && leaseRecord.manager_user_id !== user.id) {
       return NextResponse.json({ error: "You do not have access to this lease." }, { status: 403 });
     }
 
@@ -135,11 +134,9 @@ export async function PUT(req: NextRequest) {
     if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
       return NextResponse.json({ error: "Lease access is unavailable for this account." }, { status: 403 });
     }
-    const { data: profile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
-    const role = String(profile?.role ?? "").toLowerCase();
-    if (role !== "manager" && role !== "admin") {
-      return NextResponse.json({ error: "Managers only." }, { status: 403 });
-    }
+    const { data: roleRows, error: roleError } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+    if (roleError || !(roleRows ?? []).some((row) => row.role === "manager" || row.role === "admin")) return NextResponse.json({ error: "Managers only." }, { status: 403 });
+    const oversight = await resolveAdminOversight(req, user.id, (roleRows ?? []).some((row) => row.role === "admin"));
 
     const body = (await req.json()) as { leaseId?: string; newLeaseEnd?: string };
     const leaseId = (body.leaseId ?? "").trim();
@@ -154,7 +151,7 @@ export async function PUT(req: NextRequest) {
       .eq("id", leaseId)
       .maybeSingle();
     if (!leaseRecord) return NextResponse.json({ error: "Lease not found." }, { status: 404 });
-    if (role === "manager" && leaseRecord.manager_user_id && leaseRecord.manager_user_id !== user.id) {
+    if (!oversight && leaseRecord.manager_user_id !== user.id) {
       return NextResponse.json({ error: "You do not have access to this lease." }, { status: 403 });
     }
 

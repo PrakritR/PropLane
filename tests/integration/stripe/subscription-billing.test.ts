@@ -23,13 +23,15 @@ vi.mock("@/lib/manager-stripe-customer.server", async (importOriginal) => ({
   ensureManagerBillingCustomer: vi.fn(),
 }));
 
-vi.mock("@/lib/manager-purchase-from-session", () => ({
+vi.mock("@/lib/manager-purchase-from-session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/manager-purchase-from-session")>()),
   recordPaidManagerCheckoutSession: vi.fn().mockResolvedValue(undefined),
   resolveManagerCheckoutPurchase: vi.fn().mockResolvedValue({
-    row: { id: "purchase_1", user_id: "user_1", manager_id: "MGR-123", email: "mgr@example.com" },
+    id: "purchase_1",
     userId: "user_1",
-    expectedManagerId: "MGR-123",
-    expectedEmail: "mgr@example.com",
+    managerId: "MGR-123",
+    email: "mgr@example.com",
+    sourceSessionId: "cs_test_123",
   }),
 }));
 
@@ -45,6 +47,7 @@ vi.mock("@/lib/stripe-application-fee", () => ({
 
 vi.mock("@/lib/stripe-household-charge", () => ({
   markHouseholdChargePaidFromStripeSession: vi.fn().mockResolvedValue({ ok: true }),
+  HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE: "household_charge",
 }));
 
 vi.mock("@/lib/supabase/service", () => ({
@@ -107,9 +110,9 @@ function serviceRoleDbMock(opts: { user_id?: string | null; update?: ReturnType<
   };
 }
 
-function billingIdentityDbMock(opts: { reserveFails?: boolean; tier?: string; sessionId?: string } = {}) {
+function billingIdentityDbMock(opts: { reserveFails?: boolean; tier?: string; sessionId?: string; userId?: string | null } = {}) {
   const purchase = {
-    id: "purchase_1", user_id: "user_1", email: "mgr@example.com", manager_id: "MGR-123",
+    id: "purchase_1", user_id: opts.userId === undefined ? "user_1" : opts.userId, email: "mgr@example.com", manager_id: "MGR-123",
     tier: opts.tier ?? "free", stripe_subscription_id: null, stripe_checkout_session_id: opts.sessionId ?? "axis_intent_initial",
   };
   return {
@@ -170,6 +173,8 @@ describe("Stripe subscription billing", () => {
   });
 
   it("POST /api/stripe/checkout creates embedded subscription session for Pro monthly", async () => {
+    // A guest signup (no login in the request) may only replace a reservation that has no login bound.
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(billingIdentityDbMock({ userId: null }) as never);
     const create = vi.fn().mockResolvedValue({
       id: "cs_test_embedded",
       client_secret: "cs_test_secret",

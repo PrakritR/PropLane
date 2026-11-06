@@ -13,7 +13,7 @@ const sent = vi.hoisted(() => ({
   vendor: [] as Array<{ vendorDirectoryId: string; phone: string; text: string; ownerUserId: string }>,
   keys: new Set<string>(),
   team: [] as Array<{ memberUserId: string; text: string; ownerUserId: string }>,
-  resident: [] as Array<{ residentEmail: string; text: string }>,
+  resident: [] as Array<{ residentUserId: string; text: string }>,
   workOrderEvents: [] as Array<{ event: string; recipients: unknown[] }>,
   unreachable: new Set<string>(),
   optedOut: new Set<string>(),
@@ -34,8 +34,8 @@ vi.mock("@/lib/vendor-dispatch/send.server", () => ({
     sent.team.push({ memberUserId: input.memberUserId, text: input.text, ownerUserId: input.ownerUserId });
     return { ok: true, outboxId: null };
   },
-  sendResidentDispatchText: async (_db: unknown, input: { residentEmail: string; text: string }) => {
-    sent.resident.push({ residentEmail: input.residentEmail, text: input.text });
+  sendResidentDispatchText: async (_db: unknown, input: { residentUserId: string; text: string }) => {
+    sent.resident.push({ residentUserId: input.residentUserId, text: input.text });
     return { ok: true, outboxId: null };
   },
 }));
@@ -68,7 +68,7 @@ vi.mock("@/lib/work-order-events.server", () => ({
 vi.mock("@/lib/google-calendar/sync.server", () => ({ syncWorkOrderToGoogleCalendar: async (_db: unknown, _owner: string, row: unknown) => row }));
 vi.mock("@/lib/agent-notify.server", () => ({ notifyManagerFromAgent: async () => undefined }));
 vi.mock("@/lib/work-order-resident-confirmation.server", () => ({
-  requestResidentConfirmation: async () => null,
+  requestResidentConfirmation: async () => null, prepareResidentConfirmation: async () => null,
   resolveResidentConfirmationBySms: async () => null,
 }));
 vi.mock("@/lib/work-order-vendor-invoice.server", () => ({ ensureSubmittedVendorInvoiceForMarkedDone: async () => undefined }));
@@ -177,7 +177,7 @@ function world(options: { rules?: Row[]; vendors?: Row[]; extra?: Record<string,
       { rule_id: "r1", vendor_directory_id: "v2", position: 1 },
       { rule_id: "r1", vendor_directory_id: "v3", position: 2 },
     ],
-    portal_work_order_records: [{ id: "wo-1", manager_user_id: OWNER, vendor_user_id: null, row_data: workOrderRow() }],
+    portal_work_order_records: [{ id: "wo-1", manager_user_id: OWNER, resident_user_id: "resident-1", vendor_user_id: null, row_data: workOrderRow() }],
     profiles: [{ id: "owner-1", email: "owner@example.com", full_name: "Olive Owner" }],
     ...options.extra,
   });
@@ -457,6 +457,17 @@ describe("the vendor's answer", () => {
     expect(attemptsOf(db, run.id).find((a) => a.vendor_directory_id === "v1")!.busy_until).toBeTruthy();
   });
 
+  it("does not send acceptance to an unbound same-email replacement", async () => {
+    const db = world();
+    rows(db, "portal_work_order_records")[0]!.resident_user_id = null;
+    const run = await newRun(db);
+    await approve(db, run.id);
+    await recordVendorYes(db as never, { ownerUserId: OWNER, attemptId: String(attemptsOf(db, run.id)[0]!.id), timeText: "2:30pm", rawText: "YES", now: T0 });
+    expect(sent.resident).toEqual([]);
+    expect(sent.workOrderEvents.some((event) => event.event === "scheduled")).toBe(true);
+    expect(sent.workOrderEvents.flatMap((event) => event.recipients)).not.toContainEqual(expect.objectContaining({ audience: "resident" }));
+  });
+
   it("a YES with a time accepts, assigns the service as Scheduled and tells everyone", async () => {
     const db = world();
     const run = await newRun(db);
@@ -468,7 +479,7 @@ describe("the vendor's answer", () => {
     const wo = rows(db, "portal_work_order_records")[0]!;
     expect(wo.row_data).toMatchObject({ vendorId: "v1", vendorName: "Sam Locksmith", bucket: "scheduled", status: "Scheduled", scheduledAtIso: "2026-10-19T21:30:00.000Z", selfAssigned: false });
     expect(sent.team.at(-1)!.text).toBe("Sam accepted, ~2:30pm #1");
-    expect(sent.resident.at(-1)!.text).toBe("Sam (locksmith) is coming around 2:30pm.");
+    expect(sent.resident.at(-1)).toEqual({ residentUserId: "resident-1", text: "Sam (locksmith) is coming around 2:30pm." });
     const confirm = sent.vendor.at(-1)!.text;
     expect(confirm).toContain("5259 Brooklyn Ave NE");
     expect(confirm).not.toMatch(/555-0142|@/);
@@ -710,21 +721,88 @@ describe("after the accept", () => {
     return { db, run };
   }
 
+  it("completes an unbound service without prompting an email replacement", async () => {
+    const { db, run } = await accepted();
+    rows(db, "portal_work_order_records")[0]!.resident_user_id = null;
+    sent.resident.length = 0;
+    expect(await recordVendorDone(db as never, { ownerUserId: OWNER, attemptId: String(attemptsOf(db, run.id)[0]!.id), now: T0 })).toBe("marked_done");
+    expect(sent.resident).toEqual([]);
+    expect(runById(db, run.id)).toMatchObject({ status: "completed", completion_state: "confirmed" });
+    expect(rows(db, "portal_work_order_records")[0]!.row_data).toMatchObject({ bucket: "scheduled", status: "Scheduled", automationStatus: "vendor_marked_done" });
+  });
+
+  it("does not notify or claim success when the prepared service revision is stale", async () => {
+    const { db, run } = await accepted();
+    const original = db.rpc;
+    db.rpc = async (name, args) => name === "record_vendor_dispatch_done"
+      ? { data: { outcome: "stale" }, error: null }
+      : original(name, args);
+    sent.resident.length = 0;
+    sent.workOrderEvents.length = 0;
+    expect(await recordVendorDone(db as never, { ownerUserId: OWNER, attemptId: String(attemptsOf(db, run.id)[0]!.id), now: T0 })).toBe("retry");
+    expect(sent.resident).toEqual([]);
+    expect(sent.workOrderEvents).toEqual([]);
+  });
+
+  it("does not ask the resident when the job completes immediately after DONE", async () => {
+    const { db, run } = await accepted();
+    const original = db.rpc;
+    db.rpc = async (name, args) => {
+      const result = await original(name, args);
+      if (name === "record_vendor_dispatch_done") {
+        const job = rows(db, "portal_work_order_records")[0]!;
+        job.row_data = { ...(job.row_data as Row), bucket: "completed", status: "Completed" };
+      }
+      return result;
+    };
+    sent.resident.length = 0;
+    expect(await recordVendorDone(db as never, { ownerUserId: OWNER, attemptId: String(attemptsOf(db, run.id)[0]!.id), now: T0 })).toBe("marked_done");
+    expect(sent.resident).toEqual([]);
+  });
+
   it("DONE asks the resident; YES completes the service; the run is completed", async () => {
     const { db, run } = await accepted();
     const attempt = attemptsOf(db, run.id)[0]!;
     expect(await recordVendorDone(db as never, { ownerUserId: OWNER, attemptId: String(attempt.id), now: T0 })).toBe("marked_done");
     expect(runById(db, run.id)).toMatchObject({ status: "accepted", completion_state: "awaiting_resident" });
-    expect(sent.resident.at(-1)!.text).toBe("Your service is done. Is it fixed? Reply YES or NO");
+    expect(sent.resident.at(-1)).toEqual({ residentUserId: "resident-1", text: "Your service is done. Is it fixed? Reply YES or NO" });
     expect(rows(db, "portal_work_order_records")[0]!.row_data).toMatchObject({ automationStatus: "vendor_marked_done" });
     expect(await recordVendorDone(db as never, { ownerUserId: OWNER, attemptId: String(attempt.id), now: T0 })).toBe("already");
 
-    const stranger = await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentEmail: "someone@else.com", body: "YES", now: T0 });
+    const stranger = await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentUserId: "other", residentEmail: "someone@else.com", body: "YES", now: T0 });
     expect(stranger).toEqual({ handled: false });
-    const fixed = await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentEmail: "dana@example.com", body: "YES", now: T0 });
+    const noticesBefore = sent.team.length;
+    const replacement = await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentUserId: "replacement", residentEmail: "dana@example.com", body: "YES", now: T0 });
+    expect(replacement).toEqual({ handled: false });
+    expect(runById(db, run.id)).toMatchObject({ status: "accepted", completion_state: "awaiting_resident" });
+    expect(sent.team).toHaveLength(noticesBefore);
+    const fixed = await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentUserId: "resident-1", residentEmail: "dana@example.com", body: "YES", now: T0 });
     expect(fixed).toMatchObject({ handled: true });
     expect(runById(db, run.id)).toMatchObject({ status: "completed", completion_state: "confirmed" });
     expect(rows(db, "portal_work_order_records")[0]!.row_data).toMatchObject({ bucket: "completed", status: "Completed" });
+  });
+
+  it("skips a newer run whose job is bound to another resident", async () => {
+    const { db, run } = await accepted();
+    await recordVendorDone(db as never, { ownerUserId: OWNER, attemptId: String(attemptsOf(db, run.id)[0]!.id), now: T0 });
+    const existing = runById(db, run.id)!;
+    db.__tables.vendor_dispatch_runs!.push({ ...existing, id: "foreign-run", source_id: "foreign-job", created_at: "2099-01-01T00:00:00Z" });
+    db.__tables.portal_work_order_records!.push({ id: "foreign-job", manager_user_id: OWNER, resident_user_id: "replacement", row_data: workOrderRow() });
+    const answer = await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentUserId: "resident-1", residentEmail: "dana@example.com", body: "YES", now: T0 });
+    expect(answer).toMatchObject({ handled: true });
+    expect(runById(db, run.id)).toMatchObject({ status: "completed" });
+    expect(runById(db, "foreign-run")).toMatchObject({ status: "accepted", completion_state: "awaiting_resident" });
+  });
+
+  it("does not fall through after a committed reply when a notice read fails", async () => {
+    const { db, run } = await accepted();
+    await recordVendorDone(db as never, { ownerUserId: OWNER, attemptId: String(attemptsOf(db, run.id)[0]!.id), now: T0 });
+    const originalRpc = db.rpc.bind(db); const originalFrom = db.from.bind(db); let committed = false;
+    db.rpc = async (name, args) => { const result = await originalRpc(name, args); if (name === "resolve_resident_dispatch_confirmation" && (result.data as { applied?: boolean })?.applied) committed = true; return result; };
+    db.from = (table) => { if (committed && table === "portal_work_order_records") throw new Error("notice read unavailable"); return originalFrom(table); };
+    const answer = await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentUserId: "resident-1", residentEmail: "dana@example.com", body: "NO", now: T0 });
+    expect(answer.handled).toBe(true);
+    expect(runById(db, run.id)).toMatchObject({ completion_state: "reopened" });
   });
 
   it("a NO reopens the service for the vendor and alerts the manager", async () => {
@@ -732,7 +810,7 @@ describe("after the accept", () => {
     await recordVendorDone(db as never, { ownerUserId: OWNER, attemptId: String(attemptsOf(db, run.id)[0]!.id), now: T0 });
     sent.vendor.length = 0;
     sent.team.length = 0;
-    const answer = await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentEmail: "dana@example.com", body: "no", now: T0 });
+    const answer = await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentUserId: "resident-1", residentEmail: "dana@example.com", body: "no", now: T0 });
     expect(answer).toMatchObject({ handled: true });
     expect(runById(db, run.id)).toMatchObject({ status: "accepted", completion_state: "reopened" });
     expect(rows(db, "portal_work_order_records")[0]!.row_data).toMatchObject({ bucket: "scheduled" });
@@ -901,7 +979,7 @@ describe("assistant tools", () => {
     const db = world();
     const preview = await dispatchVendorTool.preview(toolCtx(db), { workOrderId: "wo-1" });
     expect(preview.fields.find((field) => field.label === "Vendors")?.value).toBe("Sam Locksmith, then Lee Locks, then Kim Keys");
-    expect(preview.fields.find((field) => field.label === "Vendors see")?.value).toBe("the area (Seattle) until they accept");
+    expect(preview.fields.find((field) => field.label === "Vendors see")?.value).toBe("the area (Seattle, WA) until they accept");
     expect(rows(db, "vendor_dispatch_runs")).toHaveLength(0);
 
     const result = await dispatchVendorTool.handler(toolCtx(db), { workOrderId: "wo-1" });

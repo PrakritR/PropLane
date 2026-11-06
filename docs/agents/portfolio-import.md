@@ -36,8 +36,11 @@ listing drafts) through the real per-domain creation paths.
         │                        saveManagerPropertyDraftToServer would build
         │                        (its two pure builders, exported, called directly —
         │                        that function itself is browser-only) → manager_property_records, status "draft"
-        │     residents       → buildImportedResidentRow → manager_application_records
-        │                        → provisionApprovedResidentAccount (auth account)
+        │     residents       → provisionApprovedResidentAccount (identity eligibility only;
+        │                        normally `invitation_required` — no account exists before mailbox
+        │                        proof, so the rows below are created UNBOUND and the resident
+        │                        reaches them through the emailed setup link: resident-onboarding.md)
+        │                        → buildImportedResidentRow → manager_application_records
         │                        → runExistingResidentOnboarding (lease stub + optional welcome)
         │     leases          → created BY runExistingResidentOnboarding: no attached signed
         │                        document → a "manager" bucket lease with managerAttestedTenancyAt,

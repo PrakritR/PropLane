@@ -25,14 +25,14 @@ async function resolveManagerInboxAgentContext(
   db: SupabaseClient,
   managerUserId: string,
 ): Promise<AgentContext | null> {
-  const [{ data: profile }, { data: roleRows }, isAdmin] = await Promise.all([
+  const [{ data: profile }, { data: roleRows, error: roleError }, isAdmin] = await Promise.all([
     db.from("profiles").select("email, role").eq("id", managerUserId).maybeSingle(),
     db.from("profile_roles").select("role").eq("user_id", managerUserId),
     isAdminUser(managerUserId),
   ]);
+  if (roleError) return null;
   const roleList = (roleRows ?? []).map((r) => String(r.role).toLowerCase());
-  const legacyRole = String(profile?.role ?? "").toLowerCase();
-  const roles = roleList.length > 0 ? roleList : legacyRole ? [legacyRole] : [];
+  const roles = roleList;
   const isManagerOrOwner = roles.some((r) => r === "manager" || r === "owner");
   if (!isAdmin && !isManagerOrOwner) return null;
   return {

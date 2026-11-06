@@ -51,9 +51,12 @@ function makeDb() {
   return {
     from(table: string) {
       const state: { ids: string[] | null; eqManagerUserId: string | null } = { ids: null, eqManagerUserId: null };
+      let pending: { id: string; row_data: DemoApplicantRow } | null = null;
+      const filters: Record<string, string | null> = {};
       const builder: Record<string, unknown> = {
         select: () => builder,
-        update: () => builder,
+        update: (values: typeof pending) => { pending = values; return builder; },
+        is: (column: string) => { filters[column] = null; return builder; },
         insert: () => Promise.resolve({ error: null }),
         upsert(values: { id: string; row_data: DemoApplicantRow }) {
           if (table === "manager_application_records") UPSERTS.push(values);
@@ -61,6 +64,7 @@ function makeDb() {
         },
         delete: () => builder,
         eq(column: string, value: string) {
+          filters[column] = value;
           if (column === "manager_user_id") state.eqManagerUserId = value;
           if (table === "resident_move_in_forms") FORM_QUERIES.push({ column, values: value });
           return builder;
@@ -85,8 +89,19 @@ function makeDb() {
           return Promise.resolve({ data: null, error: null });
         },
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
+          if (table === "profile_roles") return Promise.resolve({ data: [{ role: "manager" }], error: null }).then(resolve);
           if (table === "resident_move_in_forms") {
             return Promise.resolve(FORMS_ERROR ? { data: null, error: FORMS_ERROR } : { data: FORMS, error: null }).then(resolve);
+          }
+          if (table === "manager_application_records" && pending) {
+            const match = STORED_ROWS.find((row) => Object.entries(filters).every(([column, expected]) => {
+              const value = column.startsWith("row_data->>")
+                ? (row.row_data as unknown as Record<string, unknown>)[column.slice("row_data->>".length)]
+                : (row as unknown as Record<string, unknown>)[column];
+              return (value ?? null) === expected;
+            }));
+            if (match) UPSERTS.push(pending);
+            return Promise.resolve({ data: match ? [{ id: match.id }] : [], error: null }).then(resolve);
           }
           if (table === "manager_application_records") {
             let out = STORED_ROWS;
@@ -126,7 +141,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   PROPERTY = null;
   PROFILE = { role: "manager", email: EMAIL };
-  getUser.mockResolvedValue({ data: { user: { id: OWNER, email: EMAIL, user_metadata: {} } }, error: null });
+  getUser.mockResolvedValue({ data: { user: { id: OWNER, email: EMAIL, email_confirmed_at: "confirmed", user_metadata: {} } }, error: null });
   STORED_ROWS = [];
   UPSERTS = [];
   FORMS = [];

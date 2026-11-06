@@ -180,3 +180,49 @@ describe("the permissions editor offers no inert choice", () => {
   });
 });
 
+
+/**
+ * An owner invite opens an account by MAILBOX PROOF, never by a password typed on the invite page.
+ *
+ * The page used to POST `{ email, password }` to `/api/auth/signup` anonymously and then
+ * `signInWithPassword`. Two things were wrong with it. It was dead: `/api/auth/signup` now refuses
+ * any caller who is not already a verified, signed-in mailbox owner, so the form answered 403 and
+ * the screen had no way forward at all. And it set a password on an address nobody had proven, so a
+ * holder of the link could open an account on the invited address and accept the seat into it —
+ * the exact caveat `checkBoundInviteeEmail`'s docstring used to carry.
+ *
+ * Now the page mails a `token_hash` link, the link signs them in and completes the account, and the
+ * invite is redeemed afterwards by the signed-in subject. The binding is unchanged and still
+ * server-side: `checkBoundInviteeEmail` re-derives the redeemer's CONFIRMED email from the auth user
+ * and refuses anyone else, before a use is spent.
+ */
+describe("the invite page proves the mailbox before it opens an account", () => {
+  it("starts the emailed-link onboarding instead of creating an account anonymously", () => {
+    expect(PAGE).toContain('"/api/auth/email-onboarding/start"');
+    expect(PAGE).toContain('intent: "generic"');
+  });
+
+  it("carries no password and never signs in with one", () => {
+    // Call shapes, not bare names: the comment that records the retirement names both.
+    expect(PAGE).not.toMatch(/fetch\(\s*"\/api\/auth\/signup"/);
+    expect(PAGE).not.toMatch(/auth\.signInWithPassword\(/);
+    expect(PAGE).not.toContain("ownerPassword");
+    expect(PAGE).not.toMatch(/type="password"/);
+    expect(PAGE).not.toContain("new-password");
+  });
+
+  it("keeps the email field locked to the invited address", () => {
+    expect(PAGE).toContain("readOnly={Boolean(preview.inviteeEmail)}");
+    expect(PAGE).toContain("if (loaded.inviteeEmail) setOwnerEmail(loaded.inviteeEmail)");
+  });
+
+  it("still redeems only for the signed-in subject whose CONFIRMED email is the invited one", () => {
+    expect(SERVER).toContain("async function checkBoundInviteeEmail");
+    // The address comes off the auth user, never the request.
+    expect(SERVER).toContain("db.auth.admin.getUserById(redeemerUserId)");
+    expect(SERVER).toContain("normalizeInviteeEmail(user.email) !== bound.email");
+    expect(SERVER).toContain("INVITE_EMAIL_UNCONFIRMED_ERROR");
+    // And redeeming needs a session at all.
+    expect(REDEEM_ROUTE).toContain('{ error: "Sign in to accept this invite." }');
+  });
+});

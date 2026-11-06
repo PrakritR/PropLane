@@ -97,6 +97,7 @@ function makeDb() {
           return Promise.resolve({ data: null, error: null });
         },
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
+          if (table === "profile_roles") return Promise.resolve({ data: [{ role: "manager" }], error: null }).then(resolve);
           return Promise.resolve({ data: deleting ? null : rowsFor(), error: null }).then(resolve);
         },
       };
@@ -143,7 +144,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   PROFILE = { role: "manager", email: "owner@test.proplane.local" };
   getUser.mockResolvedValue({
-    data: { user: { id: NEW_OWNER, email: "owner@test.proplane.local", user_metadata: {} } },
+    data: { user: { id: NEW_OWNER, email: "owner@test.proplane.local", email_confirmed_at: "confirmed", user_metadata: {} } },
     error: null,
   });
   PROPERTIES = [];

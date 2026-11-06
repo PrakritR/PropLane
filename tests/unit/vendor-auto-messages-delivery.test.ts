@@ -53,6 +53,7 @@ type Row = Record<string, unknown> & { id: string };
 function makeDb(profiles: Row[]) {
   const tables: Record<string, Row[]> = {
     profiles: [...profiles],
+    profile_roles: profiles.map((profile) => ({ id: `role-${profile.id}`, user_id: profile.id, role: profile.role })),
     portal_inbox_thread_records: [],
     portal_outbound_mail_records: [],
     action_events: [],

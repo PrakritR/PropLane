@@ -1,6 +1,7 @@
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { AuthOAuthErrorHandler } from "@/components/auth/auth-oauth-error-handler";
+import { TOUR_INVITE_BOOTSTRAP } from "@/lib/auth/tour-invite-bootstrap";
 import { NavigationTiming } from "@/components/analytics/navigation-timing";
 import { GeneralAssistantLazy } from "@/components/general/general-assistant-lazy";
 import { NativeAppGate } from "@/components/native/native-app-gate";
@@ -76,6 +77,9 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full overflow-x-clip bg-background text-foreground">
+        <Script id="tour-invite-bootstrap" strategy="beforeInteractive">
+          {TOUR_INVITE_BOOTSTRAP}
+        </Script>
         <Script id="axis-theme-bootstrap" strategy="beforeInteractive">
           {THEME_BOOTSTRAP_SCRIPT}
         </Script>

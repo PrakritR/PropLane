@@ -180,7 +180,7 @@ describe("ingestInboundEmailReply", () => {
   beforeEach(() => vi.clearAllMocks());
   afterEach(() => vi.restoreAllMocks());
 
-  it("writes both sides: owner unread inbound copy, replier outbound copy", async () => {
+  it("delivers to the owner without attaching a reused sender email to a new account", async () => {
     const db = fakeDb(PROFILES);
     const result = await ingestInboundEmailReply(REPLY, OWNER_ID, db as never);
     expect(result).toMatchObject({ handled: true, appended: true });
@@ -191,7 +191,7 @@ describe("ingestInboundEmailReply", () => {
     expect(result.body).toBe("Sounds good, thanks!");
 
     const rows = threadRows(db);
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(1);
     const ownerSide = rows.find((r) => r.scope === MANAGER_SCOPE)!;
     expect(ownerSide.owner).toBe(OWNER_ID);
     expect(ownerSide.participant).toBe("manager@example.com");
@@ -200,11 +200,7 @@ describe("ingestInboundEmailReply", () => {
     expect(ownerSide.rowData.body).toBe("Sounds good, thanks!"); // quote stripped
     expect(ownerSide.rowData.rootMessageId).toBe(inboundReplyMessageId("reply-abc-1"));
 
-    const replierSide = rows.find((r) => r.scope === RESIDENT_SCOPE)!;
-    expect(replierSide.owner).toBe("res-user-1");
-    expect(replierSide.participant).toBe("jane@example.com");
-    expect(replierSide.rowData.email).toBe("manager@example.com");
-    expect(replierSide.rowData.unread).toBe(false);
+    expect(rows.find((r) => r.scope === RESIDENT_SCOPE)).toBeUndefined();
 
     expect(sendPushToUser).toHaveBeenCalledWith(
       OWNER_ID,
@@ -239,7 +235,7 @@ describe("ingestInboundEmailReply", () => {
     expect(messages).toHaveLength(1);
     expect(messages[0]!.id).toBe(inboundReplyMessageId("reply-abc-1"));
     expect(messages[0]!.outbound).toBe(false);
-    expect(db.threads.size).toBe(2); // seed + replier side only
+    expect(db.threads.size).toBe(1); // only the existing owner thread
   });
 
   it("is idempotent across redeliveries — no duplicate messages, no second push", async () => {
@@ -247,7 +243,7 @@ describe("ingestInboundEmailReply", () => {
     expect((await ingestInboundEmailReply(REPLY, OWNER_ID, db as never)).appended).toBe(true);
     expect((await ingestInboundEmailReply(REPLY, OWNER_ID, db as never)).appended).toBe(false);
 
-    expect(db.threads.size).toBe(2);
+    expect(db.threads.size).toBe(1);
     for (const row of threadRows(db)) {
       expect(((row.rowData.messages ?? []) as unknown[]).length).toBe(0); // still root-only
     }
@@ -289,7 +285,7 @@ describe("backfillInboundEmailReplyBody", () => {
     vi.restoreAllMocks();
   });
 
-  it("replaces the placeholder in both rows (root and appended message)", async () => {
+  it("replaces the placeholder in the owner thread", async () => {
     const db = fakeDb(PROFILES);
     // Owner side has an existing conversation → reply appends as a message;
     // replier side has none → reply becomes the root body.
@@ -312,9 +308,7 @@ describe("backfillInboundEmailReplyBody", () => {
     const seeded = db.threads.get("msg_inbox_seed")!;
     const messages = ((seeded.row_data as StoredRow).messages ?? []) as Array<StoredRow>;
     expect(messages[0]!.body).toBe("The real reply");
-    const replierSide = threadRows(db).find((r) => r.scope === RESIDENT_SCOPE)!;
-    expect(replierSide.rowData.body).toBe("The real reply");
-    expect(replierSide.rowData.preview).toBe("The real reply");
+    expect(threadRows(db).find((r) => r.scope === RESIDENT_SCOPE)).toBeUndefined();
   });
 
   it("never clobbers a body that is no longer the placeholder", async () => {

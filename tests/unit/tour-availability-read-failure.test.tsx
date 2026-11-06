@@ -78,12 +78,13 @@ function stubAvailability(responses: { ok: boolean; status: number; body: unknow
   return fetchMock;
 }
 
-/** Render the flow and advance from the room step to the date & time step. */
+/** Render the flow: Date & time is the first step (no up-front account gate, room picked inline). */
 async function renderAtDateStep() {
   render(<TourScheduleFlow property={PROPERTY} returnAfterAuth="/rent" onSuccess={() => {}} />);
-  fireEvent.click(await screen.findByText(`${PROPERTY.buildingName} · ${PROPERTY.unitLabel}`));
-  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 }
+
+/** Request mode: no open slot, so every upcoming day is offered as "request a tour". */
+const REQUEST_DAY = /request a tour/i;
 
 describe("a failed tour-availability read is never a booking page with zero slots", () => {
   it("shows a try-again message rather than the empty state when the route throttles", async () => {
@@ -129,12 +130,12 @@ describe("a failed tour-availability read is never a booking page with zero slot
 
   it("still treats a SUCCEEDED, empty read as the property's own answer (request mode, never a retry)", async () => {
     // The empty read is a real answer - the fix must not swallow it too. It no longer ends in a dead
-    // "No tour times yet": the visitor is offered a requested time (signed out: asked to sign in first).
+    // "No tour times yet": the visitor (signed out too) is offered days to request a time on.
     stubAvailability([{ ok: true, status: 200, body: { slotHosts: {} } }]);
     await renderAtDateStep();
 
     await waitFor(() => {
-      expect(screen.getByText(/Sign in to request a tour time/i)).toBeTruthy();
+      expect(screen.getAllByRole("button", { name: REQUEST_DAY }).length).toBeGreaterThan(0);
     });
     expect(screen.queryByText(EMPTY_STATE)).toBeNull();
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
@@ -145,12 +146,12 @@ describe("a failed tour-availability read is never a booking page with zero slot
     await renderAtDateStep();
 
     await waitFor(() => {
-      expect(screen.getByText(/Sign in to request a tour time/i)).toBeTruthy();
+      expect(screen.getAllByRole("button", { name: REQUEST_DAY }).length).toBeGreaterThan(0);
     });
     expect(screen.queryByText(EMPTY_STATE)).toBeNull();
   });
 
-  it("replaces the dead empty state with sign-in links into the resident portal, never a text link", async () => {
+  it("shows the request days signed out, with no sign-in gate and never a text link", async () => {
     stubAvailability([{ ok: true, status: 200, body: { slotHosts: {} } }]);
     render(
       <TourScheduleFlow
@@ -159,10 +160,11 @@ describe("a failed tour-availability read is never a booking page with zero slot
         onSuccess={() => {}}
       />,
     );
-    fireEvent.click(await screen.findByText(`${PROPERTY.buildingName} · ${PROPERTY.unitLabel}`));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    const signIn = await screen.findByText("Sign in");
-    expect(signIn.closest("a")?.getAttribute("href")?.startsWith("sms:")).toBe(false);
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: REQUEST_DAY }).length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText(/Sign in to request/i)).toBeNull();
+    expect(document.querySelector('a[href^="sms:"]')).toBeNull();
     expect(screen.queryByText("Message the manager")).toBeNull();
   });
 });

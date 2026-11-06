@@ -61,6 +61,11 @@ export type ManagerAssistantEmailStatus = {
     address: string | null;
   }>;
   address: string | null;
+  /**
+   * The viewer may change this workspace's address: its owner, or staff with member rights on a PropLane-managed
+   * workspace. Decided server-side; the card shows its Edit icon on this alone.
+   */
+  canEditAddress?: boolean;
   state: ManagerAssistantEmailState;
   canRequest: boolean;
   /**

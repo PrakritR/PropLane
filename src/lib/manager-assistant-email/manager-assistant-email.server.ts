@@ -12,6 +12,7 @@ import {
 import {
   allocateAssistantMailboxLocal,
   findActiveMailboxLocalAlias,
+  mailboxAliasClaimableBy,
   reclaimMailboxLocalAlias,
   releaseMailboxLocalAsAlias,
 } from "@/lib/manager-assistant-email/assistant-mailbox-local.server";
@@ -153,7 +154,14 @@ async function resolveAssistantMailboxByAlias(
   db: SupabaseClient,
   mailboxLocal: string,
 ): Promise<AssistantMailboxTarget | null> {
-  const alias = await findActiveMailboxLocalAlias(db, mailboxLocal);
+  let alias: Awaited<ReturnType<typeof findActiveMailboxLocalAlias>>;
+  try {
+    alias = await findActiveMailboxLocalAlias(db, mailboxLocal);
+  } catch (cause) {
+    // Inbound routing degrades to "not found"; only claim checks fail closed.
+    console.warn("assistant-email alias lookup failed", cause instanceof Error ? cause.message : cause);
+    return null;
+  }
   if (!alias) return null;
   const { data, error } = await db
     .from("manager_assistant_emails")
@@ -439,6 +447,8 @@ export async function ensureManagerAssistantEmail(
   db: SupabaseClient,
   managerUserId: string,
   workspace?: (Pick<ActiveWorkspace, "id" | "ownerUserId" | "owned" | "isDefault"> & { name?: string }) | null,
+  /** `service`: a PropLane-managed workspace is named by the service rule (`ambikahomes`), not the self-serve one. */
+  opts: { service?: boolean } = {},
 ): Promise<ManagerAssistantEmailRow> {
   let target = workspace ?? null;
   if (!target) {
@@ -478,7 +488,7 @@ export async function ensureManagerAssistantEmail(
   const profile = await loadManagerProfile(db, managerUserId);
   const workspaceName =
     ("name" in target && typeof target.name === "string" ? target.name.trim() : "") || null;
-  const mailboxLocal = await allocateAssistantMailboxLocal(db, profile, token, workspaceName);
+  const mailboxLocal = await allocateAssistantMailboxLocal(db, profile, token, workspaceName, { service: opts.service === true });
   const now = new Date().toISOString();
   const { error } = await db.from("manager_assistant_emails").insert({
     manager_user_id: managerUserId,
@@ -552,10 +562,12 @@ export type MailboxLocalCheckResult =
  * A local part still inside another workspace's 30-day released-alias
  * cooldown is also `taken` — mail addressed to it is still routed to its
  * previous owner, so a second workspace must not be able to claim it out
- * from under them. `ownerUserId`, when passed, lets that PREVIOUS owner
- * reclaim their own alias (checked by the alias's `owner_user_id`, never by
- * whichever workspace currently calls this); omitted, the alias always
- * blocks the claim.
+ * from under them. The alias belongs to the WORKSPACE of the mailbox row it
+ * routes to, so only that same workspace may reclaim it (service workspaces
+ * share one owner user, so the owner is no identity here). `ownerUserId` is
+ * used only for a legacy alias whose mailbox row has no workspace: then the
+ * old owner rule applies, and only when `workspaceId` is that owner's sole
+ * workspace. An unreadable alias or workspace read throws (fails closed).
  */
 export async function checkWorkspaceAssistantMailboxLocal(
   db: SupabaseClient,
@@ -590,7 +602,7 @@ export async function checkWorkspaceAssistantMailboxLocal(
   }
 
   const alias = await findActiveMailboxLocalAlias(db, trimmed);
-  if (alias && alias.ownerUserId !== ownerUserId) {
+  if (alias && !(await mailboxAliasClaimableBy(db, alias, workspaceId, ownerUserId))) {
     return { ok: false, state: "taken", message: "That address is already in use." };
   }
   return { ok: true, state: "available" };
@@ -659,7 +671,7 @@ export async function setWorkspaceAssistantMailboxLocal(
   // reclaims it outright, rather than leaving a stale alias behind that
   // would otherwise block nobody (it already points at this row) but would
   // needlessly survive until its own cooldown lapsed.
-  await reclaimMailboxLocalAlias(db, trimmed, managerUserId);
+  await reclaimMailboxLocalAlias(db, trimmed, { workspaceId: workspace.id, ownerUserId: managerUserId });
 
   return { ok: true, address: assistantMailboxAddress(trimmed) };
 }

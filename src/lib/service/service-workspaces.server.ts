@@ -1,8 +1,9 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { listAdminUserIds, userHoldsAdminRole } from "@/lib/auth/admin-role";
+import { listAdminUserIds, userHoldsAdminRole, userHoldsAdminRoleStrict } from "@/lib/auth/admin-role";
 import { ensureProfileProplaneId } from "@/lib/manager-access-server";
+import { isReservedMailboxLocal, isValidMailboxLocal } from "@/lib/manager-assistant-email/assistant-email-address";
 import {
   TEAM_ROLE_LABELS,
   flatTeamRoleGrant,
@@ -32,7 +33,14 @@ import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligib
 import { resolveServiceLine, type ServiceLine } from "@/lib/one-number/service-line.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { releaseManagerNumber } from "@/lib/sms/manager-number-provisioning.server";
-import { isPlatformServiceOwner, loadServiceWorkspace, resolveServiceOwner } from "@/lib/service/service-owner.server";
+import { isPlatformServiceOwner, loadServiceWorkspace, resolveServiceOwner, type ServiceWorkspaceRow } from "@/lib/service/service-owner.server";
+import {
+  followServiceWorkspaceRename,
+  mintServiceWorkspaceWorkEmail,
+  setServiceWorkspaceWorkEmailLocal,
+  type ServiceWorkEmailResult,
+  type ServiceWorkEmailSetResult,
+} from "@/lib/service/service-work-email.server";
 import { ensureServiceFeePolicy, setServiceManagementFee, PolicyError, type ServiceManagementFee } from "@/lib/owner-management/policies.server";
 import { MANAGEMENT_FEE_RANGE_MESSAGE, feePercentForOwnerShareBps, ownerShareBpsForFeePercent } from "@/lib/owner-management/fee-percent";
 
@@ -369,7 +377,7 @@ export async function createServiceWorkspace(
   db: SupabaseClient,
   operatorUserId: string,
   input: { name: unknown; city: unknown; ownerOfRecord?: unknown; ownerContact?: unknown; ownerRole?: unknown },
-): Promise<ServiceResult<{ id: string; ownerInvite: { sent: boolean; delivery?: "account" | "link"; error?: string } | null }>> {
+): Promise<ServiceResult<{ id: string; ownerInvite: { sent: boolean; delivery?: "account" | "link"; error?: string } | null; workEmail: ServiceWorkEmailResult }>> {
   const name = cleanServiceName(input.name);
   if (!name) return fail(400, "Use a workspace name of 1 to 80 characters.");
   const city = cleanServiceCity(input.city);
@@ -422,7 +430,10 @@ export async function createServiceWorkspace(
     });
     ownerInvite = invited.ok ? { sent: true, delivery: invited.delivery } : { sent: false, error: invited.error };
   }
-  return { ok: true, id, ownerInvite };
+  // PropLane runs this workspace, so its work email (`ambikahomes@`) is minted now, not gated on the owner's plan. A
+  // failed mint is reported as a warning; the workspace stays created.
+  const workEmail = await mintServiceWorkspaceWorkEmail(db, id);
+  return { ok: true, id, ownerInvite, workEmail };
 }
 
 export const ADMIN_SERVICE_ATTACH_AUDIT_ACTION = "admin_service_attach";
@@ -537,6 +548,10 @@ export async function attachWorkspaceToService(
   await updateAuditResult(actor, auditKey, { applied: true });
   // The automatic management fee (no signature): the client who owns the attached workspace is its owner of record.
   await ensureServiceFeePolicy(db, workspace.id, { role: "admin", userId: operatorUserId });
+  // The work email is MINTED when the workspace has none, and only then. The workspace already belonged to a
+  // client, so its address may be printed on listings, in syndication posts and on the public listing payload:
+  // the attach label never moves it, even when that label renames the workspace. Cannot fail the attach.
+  await mintServiceWorkspaceWorkEmail(db, workspace.id);
   return { ok: true, id: workspace.id };
 }
 
@@ -649,6 +664,8 @@ async function operatorStanding(db: SupabaseClient, operatorUserId: string, work
   return { ok: true as const, workspace, standing };
 }
 
+export const ADMIN_SERVICE_WORK_EMAIL_AUDIT_ACTION = "admin_service_work_email";
+
 export async function renameServiceWorkspace(
   db: SupabaseClient,
   operatorUserId: string,
@@ -675,7 +692,65 @@ export async function renameServiceWorkspace(
     .eq("owner_user_id", who.workspace.ownerUserId)
     .eq("is_service", true);
   if (res.error) return fail(503, "Could not rename the workspace. Please retry.");
+  // The work email follows the name unless it was customized; a failure never fails the rename.
+  if (name !== who.workspace.name) {
+    const followed = await followServiceWorkspaceRename(db, who.workspace.id, who.workspace.name);
+    // The address moved without a staff hand on it, so it leaves the same audit row a staff change does (after the
+    // fact: the rename is already committed and a failed row only logs).
+    if (followed.changed && followed.address) {
+      await auditServiceChange(
+        db,
+        operatorUserId,
+        who.workspace.ownerUserId,
+        ADMIN_SERVICE_WORK_EMAIL_AUDIT_ACTION,
+        { workspaceId: who.workspace.id, local: followed.address.split("@")[0]!.toLowerCase() },
+        false,
+      );
+    }
+  }
   return { ok: true };
+}
+
+/**
+ * Whether the operator may change a PropLane-managed workspace's work email: the SAME standing a rename needs
+ * (`operatorStanding`, then `rights.members`), on a workspace that carries the service flag. Everything else about the
+ * request (the id, the local part) is a name, never a grant.
+ */
+export async function authorizeServiceWorkEmailEdit(
+  db: SupabaseClient,
+  operatorUserId: string,
+  workspaceId: string,
+): Promise<ServiceResult<{ workspace: ServiceWorkspaceRow }>> {
+  const who = await operatorStanding(db, operatorUserId, workspaceId);
+  if (!who.ok) return who;
+  if (!who.standing.rights.members) return fail(403, "Only the owner or an admin of this workspace can change its work email.");
+  return { ok: true, workspace: who.workspace };
+}
+
+/** Staff changing a service workspace's work email: authorized as above, the audit row written first (no row, no change). */
+export async function setServiceWorkspaceWorkEmail(
+  db: SupabaseClient,
+  operatorUserId: string,
+  input: { workspaceId: string; local: string },
+): Promise<ServiceWorkEmailSetResult> {
+  const allowed = await authorizeServiceWorkEmailEdit(db, operatorUserId, input.workspaceId);
+  if (!allowed.ok) return allowed;
+  // Validate before the audit row: invalid input is a 400 that leaves no trace and costs no write.
+  const local = typeof input.local === "string" ? input.local.trim().toLowerCase() : "";
+  if (local.length < 3 || !isValidMailboxLocal(local)) {
+    return { ok: false, status: 400, error: "Use 3 to 32 letters, digits, dots or hyphens.", state: "invalid" };
+  }
+  if (isReservedMailboxLocal(local)) return { ok: false, status: 400, error: "That address is reserved.", state: "reserved" };
+  const audited = await auditServiceChange(
+    db,
+    operatorUserId,
+    allowed.workspace.ownerUserId,
+    ADMIN_SERVICE_WORK_EMAIL_AUDIT_ACTION,
+    { workspaceId: allowed.workspace.id, local },
+    true,
+  );
+  if (audited) return audited;
+  return setServiceWorkspaceWorkEmailLocal(db, allowed.workspace, input.local);
 }
 
 /** Open: only a member (or the owner) may switch into it; the caller then sets the workspace cookie. */
@@ -778,7 +853,13 @@ export async function listServiceTeam(
   }[];
   const pendingLinks = await liveServiceInviteLinks(db, who.workspace);
   if (!pendingLinks.ok) return pendingLinks;
-  const adminIds = await listAdminUserIds(db);
+  // `listAdminUserIds` throws on a failed read; every neighbouring read here answers 503 instead.
+  let adminIds: string[];
+  try {
+    adminIds = await listAdminUserIds(db);
+  } catch {
+    return fail(503, "Could not load the team. Please retry.");
+  }
   const profileIds = [...new Set([...linkRows.filter((l) => l.status === "accepted").map((l) => l.invitee_user_id), ...adminIds])];
   const profiles = profileIds.length
     ? await db.from("profiles").select("id, full_name, email").in("id", profileIds)
@@ -1018,7 +1099,10 @@ export async function inviteServiceClient(
   if (!targetUserId && !rawEmail) return fail(404, "No account found with this PropLane ID.");
   if (targetUserId) {
     if (targetUserId === who.workspace.ownerUserId) return fail(409, "That account already owns this workspace.");
-    if (flag && (await userHoldsAdminRole(db, targetUserId))) return fail(409, "A PropLane admin cannot be the owner of record.");
+    if (flag) {
+      try { if (await userHoldsAdminRoleStrict(db, targetUserId)) return fail(409, "A PropLane admin cannot be the owner of record."); }
+      catch { return fail(503, "Could not verify the account role."); }
+    }
   }
   // An account that exists but has no property portal cannot hold a teammate seat; an owner can still be invited,
   // because the invite page gives an owner a property-portal account when they accept.
@@ -1429,7 +1513,8 @@ export async function setServiceOwnerOfRecord(
     // The owner of record is a Property owner (the owner portal). An operator's seat is never converted, and a
     // member is only converted when the workspace keeps an Admin without them.
     if (target.team_role !== "property_owner") {
-      if (await userHoldsAdminRole(db, target.invitee_user_id)) return fail(409, "A PropLane admin cannot be the owner of record.");
+      try { if (await userHoldsAdminRoleStrict(db, target.invitee_user_id)) return fail(409, "A PropLane admin cannot be the owner of record."); }
+      catch { return fail(503, "Could not verify the account role."); }
       if (target.status === "accepted") {
         const verdict = canActOnMember({
           actorRole: who.standing.role,
@@ -1649,6 +1734,21 @@ export async function seatAdminTeamMember(
   const added = await insertAdminMembership(db, who.workspace.ownerUserId, who.workspace.id, userId, { grant });
   if (!added.ok) return added;
   return { ok: true, linkId: added.linkId };
+}
+
+/** Prepare a seat grant without writing profiles, seats, or audit records. The
+ * atomic admin-team operation rechecks workspace and house ownership under lock. */
+export async function prepareAdminTeamSeatGrant(
+  db: SupabaseClient,
+  operatorUserId: string,
+  input: InviteAccessInput & { id: string; userId: string },
+): Promise<ServiceResult<{ ownerUserId: string; grant: ServiceSeatGrant }>> {
+  const who = await operatorStanding(db, operatorUserId, input.id, { overall: true });
+  if (!who.ok) return who;
+  if (input.userId.trim() === who.workspace.ownerUserId) return fail(409, "That account already owns this workspace.");
+  const resolved = await resolveServiceSeatGrant(db, who, operatorUserId, input);
+  if (!resolved.ok) return resolved;
+  return { ok: true, ownerUserId: who.workspace.ownerUserId, grant: resolved.grant };
 }
 
 /**

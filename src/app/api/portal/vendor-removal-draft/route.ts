@@ -1,13 +1,9 @@
 import { NextResponse } from "next/server";
-import { getPortalAccessContext, hasRole } from "@/lib/auth/portal-access";
+import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { buildVendorRemovedEmailBody, vendorRemovedSubject } from "@/lib/vendor-invite-email";
 
 export const runtime = "nodejs";
-
-function canPrepareVendorRemoval(role: string | null | undefined): boolean {
-  return role === "admin" || role === "manager" || role === "owner" || role === "pro";
-}
 
 function vendorNameFromRowData(rowData: unknown): string {
   const row = (rowData && typeof rowData === "object" && !Array.isArray(rowData) ? rowData : {}) as Record<
@@ -23,7 +19,9 @@ export async function POST(req: Request) {
   try {
     const ctx = await getPortalAccessContext();
     if (!ctx.user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    if (!hasRole(ctx, "manager") && !canPrepareVendorRemoval(ctx.profile?.role)) {
+    const db = createSupabaseServiceRoleClient();
+    const { data: roles, error: roleError } = await db.from("profile_roles").select("role").eq("user_id", ctx.user.id);
+    if (roleError || !(roles ?? []).some((row) => row.role === "manager" || row.role === "admin")) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
@@ -35,7 +33,6 @@ export async function POST(req: Request) {
 
     if (!vendorId) return NextResponse.json({ error: "vendorId is required." }, { status: 400 });
 
-    const db = createSupabaseServiceRoleClient();
     const { data: vendorRow } = await db
       .from("manager_vendor_records")
       .select("id, manager_user_id, row_data")

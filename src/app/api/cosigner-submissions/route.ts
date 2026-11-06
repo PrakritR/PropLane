@@ -2,11 +2,12 @@ import { NextResponse } from "next/server";
 import { cosignerSubmissionSummary } from "@/lib/cosigner-submission-visibility";
 import { openCosignerIdentity } from "@/lib/security/cosigner-identity";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
-import { isAdminUser } from "@/lib/auth/admin-preview";
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { managerCanAccessApplicationRecord } from "@/lib/auth/manager-application-access";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 
 export const runtime = "nodejs";
 
@@ -23,37 +24,32 @@ export async function GET(req: Request) {
     if (!signerAppId) return NextResponse.json({ error: "signerAppId required" }, { status: 400 });
 
     const db = createSupabaseServiceRoleClient();
-    const admin = await isAdminUser(user.id);
+    const admin = await resolveAdminOversight(req, user.id);
 
     let fullAccess = admin;
     if (!admin) {
       const { data: appRow } = await db
         .from("manager_application_records")
-        .select("manager_user_id, resident_email, property_id, assigned_property_id")
+        .select("manager_user_id, resident_email, row_data, property_id, assigned_property_id")
         .eq("id", signerAppId)
         .maybeSingle();
       if (!appRow) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
 
-      let allowed = appRow.manager_user_id === user.id;
-      fullAccess = allowed;
-      if (!allowed) {
-        const [{ data: profile }, { data: roleRows }] = await Promise.all([
-          db.from("profiles").select("email, role").eq("id", user.id).maybeSingle(),
-          db.from("profile_roles").select("role").eq("user_id", user.id),
-        ]);
-        const profileRoles = (roleRows ?? []).map((r) => String(r.role ?? "").toLowerCase());
-        const legacyRole = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-        const hasResidentRole = profileRoles.includes("resident") || legacyRole === "resident";
-        const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
-        if (hasResidentRole) {
-          const recordEmail = String(appRow.resident_email ?? "").trim().toLowerCase();
-          allowed = Boolean(email) && recordEmail === email;
-        }
-        if (!allowed) {
-          allowed = await managerCanAccessApplicationRecord(db, user.id, appRow);
-          fullAccess = allowed;
-        }
+      const { data: roleRows, error: roleError } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+      if (roleError) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      const roles = (roleRows ?? []).map((row) => String(row.role ?? "").toLowerCase());
+      const rowData = appRow.row_data && typeof appRow.row_data === "object" && !Array.isArray(appRow.row_data)
+        ? appRow.row_data as Record<string, unknown> : {};
+      const residentOwns = roles.includes("resident") && rowData.residentUserId === user.id;
+      const managerRole = roles.includes("manager");
+      // The manager branch asks the shared owner-only seam before it reads anything for a manager.
+      if (managerRole) {
+        const ownerRefusal = await refuseOwnerOnly(db, user.id);
+        if (ownerRefusal) return ownerRefusal;
       }
+      const managerOwns = managerRole && await managerCanAccessApplicationRecord(db, user.id, appRow);
+      const allowed = residentOwns || managerOwns;
+      fullAccess = managerOwns;
       if (!allowed) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 

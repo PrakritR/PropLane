@@ -138,12 +138,12 @@ describe("Prakrit account-deletion review: missing guarantees", () => {
     expect(rows.profile_roles).toHaveLength(1);
   });
 
-  it("resident cleanup must remove historical mixed-case email rows", async () => {
+  it("resident cleanup retains unbound historical rows despite matching email", async () => {
     const { db, rows } = database({
       portal_service_request_records: [{ id: "legacy", resident_email: "Resident@Example.com" }],
     });
     await purgeResidentPortalData(db as never, { email: "resident@example.com", userId: "resident" });
-    expect(rows.portal_service_request_records).toEqual([]);
+    expect(rows.portal_service_request_records).toHaveLength(1);
   });
 
   it("removing manager A's application must not purge manager B's tenancy", async () => {

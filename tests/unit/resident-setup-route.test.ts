@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * POST /api/auth/resident-setup — the token-gated resident account creation path.
@@ -7,12 +7,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * created.
  */
 
-const { findLookup, provisionMock, consumeMock, createUserMock } = vi.hoisted(() => ({
+const { findLookup, provisionMock, consumeMock, createUserMock, getUserMock, bindMock } = vi.hoisted(() => ({
   findLookup: vi.fn(),
   provisionMock: vi.fn(),
   consumeMock: vi.fn(),
   createUserMock: vi.fn(),
+  getUserMock: vi.fn(),
+  bindMock: vi.fn(),
 }));
+vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { getUser: getUserMock } }) }));
 
 // `after()` runs the deferred SMS intro outside a request scope in tests — no-op it.
 vi.mock("next/server", async (importOriginal) => {
@@ -34,6 +37,7 @@ vi.mock("@/lib/auth/find-auth-user-id-by-email", () => ({ findAuthUserIdByEmail:
 vi.mock("@/lib/auth/verify-auth-password", () => ({ assertPasswordMatchesExistingAuthUser: vi.fn() }));
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({
+    rpc: bindMock,
     auth: { admin: { createUser: createUserMock } },
     from: () => ({
       update: () => ({ eq: () => Promise.resolve({ error: null }) }),
@@ -63,11 +67,14 @@ function post(body: unknown) {
 }
 
 describe("POST /api/auth/resident-setup — phone required", () => {
+  afterEach(() => vi.unstubAllEnvs());
   beforeEach(() => {
     findLookup.mockReset().mockResolvedValue(LOOKUP_OK);
     provisionMock.mockReset().mockResolvedValue({ ok: true, axisId: LOOKUP_OK.axisId, linkedApplication: true });
     consumeMock.mockReset().mockResolvedValue(undefined);
+    bindMock.mockReset().mockResolvedValue({ data: true, error: null });
     createUserMock.mockReset().mockResolvedValue({ data: { user: { id: "user-1" } }, error: null });
+    getUserMock.mockReset().mockResolvedValue({ data: { user: { id: "user-1", email: "sam@example.com", email_confirmed_at: "2026-10-30T00:00:00Z" } } });
   });
 
   it("400s when phone is missing", async () => {
@@ -79,6 +86,16 @@ describe("POST /api/auth/resident-setup — phone required", () => {
     expect(createUserMock).not.toHaveBeenCalled();
     expect(provisionMock).not.toHaveBeenCalled();
   });
+  it("does not turn a guest draft token into verified email under identity rollout", async () => {
+    vi.stubEnv("RESIDENT_IDENTITY_ENABLED", "true");
+    getUserMock.mockResolvedValue({ data: { user: null } });
+    const res = await POST(post({ email: "sam@example.com", password: "hunter2hunter", phone: "2065550142", token: "tok", axisId: "PROPLANE-SETUP01" }));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "EMAIL_VERIFICATION_REQUIRED" });
+    expect(createUserMock).not.toHaveBeenCalled();
+    expect(provisionMock).not.toHaveBeenCalled();
+    expect(consumeMock).not.toHaveBeenCalled();
+  });
 
   it("400s when phone is unparseable", async () => {
     const res = await POST(
@@ -88,7 +105,22 @@ describe("POST /api/auth/resident-setup — phone required", () => {
     expect(provisionMock).not.toHaveBeenCalled();
   });
 
-  it("creates the account and provisions with the normalized phone", async () => {
+  it("does not provision if the application capability is no longer claimable", async () => {
+    bindMock.mockResolvedValue({ data: false, error: null });
+    const res = await POST(post({ email: "sam@example.com", password: "hunter2hunter", phone: "2065550142", token: "tok", axisId: "PROPLANE-SETUP01" }));
+    expect(res.status).toBe(403);
+    expect(provisionMock).not.toHaveBeenCalled();
+    expect(bindMock).toHaveBeenCalledWith("bind_resident_setup_subject", expect.objectContaining({ p_application: LOOKUP_OK.axisId, p_user: "user-1" }));
+  });
+
+  it("offers a retry when lifecycle locking is unavailable", async () => {
+    bindMock.mockResolvedValue({ data: null, error: { code: "40001" } });
+    const res = await POST(post({ email: "sam@example.com", password: "hunter2hunter", phone: "2065550142", token: "tok", axisId: "PROPLANE-SETUP01" }));
+    expect(res.status).toBe(503);
+    expect(provisionMock).not.toHaveBeenCalled();
+  });
+
+  it("provisions the already verified session with the normalized phone", async () => {
     const res = await POST(
       post({
         email: "sam@example.com",
@@ -102,6 +134,7 @@ describe("POST /api/auth/resident-setup — phone required", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { ok?: boolean; redirectTo?: string };
     expect(body.ok).toBe(true);
+    expect(createUserMock).not.toHaveBeenCalled();
     expect(body.redirectTo).toContain("/resident/applications");
     expect(provisionMock).toHaveBeenCalledWith(
       expect.anything(),

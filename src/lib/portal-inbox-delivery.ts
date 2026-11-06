@@ -231,6 +231,7 @@ export async function resolveInboxThreadReplyTarget(
   // access to it — that clause covers only legacy rows written with no owner.
   // The other owner never invited this manager (see conversation-visibility).
   const isParticipant =
+    String(threadRow.scope ?? "") !== RESIDENT_INBOX_SCOPE &&
     String(threadRow.participant_email ?? "").toLowerCase() === senderEmail && (!managerScope || !ownerUserId);
   let delegatedOwner = false;
   if (!isOwner && !isParticipant && ownerUserId && managerScope) {
@@ -1210,7 +1211,7 @@ export async function deliverPortalInboxMessage(
   // (mirrors send-inbox-message) since profiles.role may not literally be "admin".
   const senderIsAdmin =
     opts.recipientsAuthorizedByCaller === true ||
-    senderRole === "admin" ||
+    opts.senderRole === "admin" ||
     (await userHoldsAdminRole(db, opts.senderUserId));
   if (!senderIsAdmin) {
     // Same narrowing the interactive route applies: the workspace this send

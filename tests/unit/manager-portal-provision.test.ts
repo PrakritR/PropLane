@@ -14,6 +14,8 @@ vi.mock("@/lib/auth/manager-onboarding", () => ({
   isAxisPendingSessionId: (id: string) => id.startsWith("axis_pending_"),
   provisionPendingManagerAccount: (...args: unknown[]) => provisionPendingManagerAccount(...args),
   finalizePendingManagerFreeTier: (...args: unknown[]) => finalizePendingManagerFreeTier(...args),
+  managerCheckoutInProgress: (purchase: { stripe_checkout_session_id?: string | null } | null | undefined) =>
+    String(purchase?.stripe_checkout_session_id ?? "").startsWith("cs_"),
 }));
 
 vi.mock("@/lib/auth/profile-role-row", () => ({
@@ -36,8 +38,9 @@ function testUser(partial: Partial<User> = {}): User {
   } as User;
 }
 
-function mockSupabase() {
+function mockSupabase(unlinkedRows: Array<{ id: string; stripe_checkout_session_id: string }> = []) {
   return {
+    auth: { admin: { getUserById: async () => ({ data: { user: { email: "new@test.com", email_confirmed_at: "now" } }, error: null }) } },
     from: (table: string) => {
       if (table === "profile_roles") {
         return {
@@ -64,7 +67,7 @@ function mockSupabase() {
             ilike: () => ({
               is: () => ({
                 not: () => ({
-                  limit: () => Promise.resolve({ data: [], error: null }),
+                  like: () => ({ limit: () => Promise.resolve({ data: unlinkedRows.filter((row) => row.stripe_checkout_session_id.startsWith("cs_")).map((row) => ({ ...row, email: "new@test.com" })), error: null }) }),
                 }),
               }),
             }),
@@ -80,6 +83,7 @@ function mockSupabase() {
 /** Like `mockSupabase()`, but `profile_roles` reports the given roles as present. */
 function mockSupabaseWithRoles(existingRoles: string[]) {
   return {
+    auth: { admin: { getUserById: async () => ({ data: { user: { email: "new@test.com", email_confirmed_at: "now" } }, error: null }) } },
     from: (table: string) => {
       if (table === "profile_roles") {
         return {
@@ -89,6 +93,7 @@ function mockSupabaseWithRoles(existingRoles: string[]) {
                 maybeSingle: () =>
                   Promise.resolve({ data: existingRoles.includes(role) ? { role } : null, error: null }),
               }),
+              in: () => Promise.resolve({ data: existingRoles.filter((role) => role === "manager" || role === "admin").map((role) => ({ role })), error: null }),
               maybeSingle: () => Promise.resolve({ data: null, error: null }),
             }),
           }),
@@ -105,8 +110,31 @@ describe("ensureFreeManagerPortalAccess", () => {
     isPrimaryAdminEmail.mockReturnValue(false);
     isManagerOnboardingComplete.mockReturnValue(false);
     provisionPendingManagerAccount.mockResolvedValue({ managerId: "AXIS-NEW", created: true });
-    finalizePendingManagerFreeTier.mockResolvedValue({ sessionId: "axis_intent_1", managerId: "AXIS-NEW" });
+    finalizePendingManagerFreeTier.mockResolvedValue({ status: "finalized", sessionId: "axis_intent_1", managerId: "AXIS-NEW" });
     ensureProfileRoleRow.mockResolvedValue(undefined);
+  });
+
+  it("does not treat a resident's legacy profile role as a manager grant", async () => {
+    const { ensureFreeManagerPortalAccess } = await import("@/lib/auth/manager-portal-provision");
+    const db = mockSupabaseWithRoles(["resident"]);
+    const result = await ensureFreeManagerPortalAccess(db as never, testUser({ user_metadata: { role: "manager" } }));
+    expect(result).toEqual({ status: "skipped", reason: "resident_only" });
+    expect(provisionPendingManagerAccount).not.toHaveBeenCalled();
+  });
+  it("does not let an unsigned same-email intent block free provisioning", async () => {
+    const { ensureFreeManagerPortalAccess } = await import("@/lib/auth/manager-portal-provision");
+    findManagerPurchaseForAccount.mockResolvedValue(null);
+    const result = await ensureFreeManagerPortalAccess(mockSupabase([{ id: "attacker", stripe_checkout_session_id: "axis_intent_unclaimed" }]) as never, testUser());
+    expect(result.status).toBe("portal_ready");
+    expect(provisionPendingManagerAccount).toHaveBeenCalled();
+  });
+
+  it("does not ignore a server-backed unclaimed paid checkout", async () => {
+    const { ensureFreeManagerPortalAccess } = await import("@/lib/auth/manager-portal-provision");
+    findManagerPurchaseForAccount.mockResolvedValue(null);
+    const result = await ensureFreeManagerPortalAccess(mockSupabase([{ id: "paid", stripe_checkout_session_id: "cs_test_paid" }]) as never, testUser());
+    expect(result).toEqual({ status: "skipped", reason: "unlinked_paid_purchase" });
+    expect(provisionPendingManagerAccount).not.toHaveBeenCalled();
   });
 
   it("provisions pending purchase into a free portal account", async () => {

@@ -1,10 +1,10 @@
+import { userHoldsManagerRole } from "@/lib/manager-route-guard.server";
 import { NextResponse } from "next/server";
 import { resolveAppOrigin } from "@/lib/app-url";
 import {
   assertManagerCommunicationAllowedForActiveWorkspace,
   communicationRefusalBody,
 } from "@/lib/manager-communication-access.server";
-import { getPortalAccessContext, hasRole } from "@/lib/auth/portal-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { sendVendorInvite } from "@/lib/vendor-invite.server";
@@ -16,11 +16,6 @@ export const runtime = "nodejs";
 // so there is exactly one way to parse a match — avoids polynomial backtracking.
 const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
-/** profile_roles-aware: "owner" folds into manager; a multi-role account created as resident still qualifies. */
-async function canSendVendorInvite(): Promise<boolean> {
-  const ctx = await getPortalAccessContext();
-  return hasRole(ctx, "manager") || hasRole(ctx, "admin") || String(ctx.profile?.role ?? "").toLowerCase() === "pro";
-}
 
 export async function POST(req: Request) {
   try {
@@ -48,8 +43,11 @@ export async function POST(req: Request) {
     if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
       return NextResponse.json({ error: "Vendor access is unavailable for this account." }, { status: 403 });
     }
-    const { data: profile } = await db.from("profiles").select("role, full_name, email").eq("id", user.id).maybeSingle();
-    if (!(await canSendVendorInvite())) {
+    const { data: profile } = await db.from("profiles").select("full_name, email").eq("id", user.id).maybeSingle();
+    // A stored manager row, the same gate every other manager route uses. A stored `admin` row is
+    // not one: an Overall admin operating a service workspace reaches the manager APIs through
+    // admin oversight, never by being read as a manager here.
+    if (!(await userHoldsManagerRole(db, user.id))) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 

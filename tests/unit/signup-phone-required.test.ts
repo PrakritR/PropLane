@@ -24,8 +24,12 @@ describe("website sign-up collects the phone", () => {
     expect(read("src/components/auth/vendor-signup-form.tsx")).toMatch(/phoneRequired/);
     expect(read("src/components/auth/vendor-signup-form.tsx")).toContain('setError("Enter a valid phone number.")');
     expect(read("src/components/auth/resident-signup-form.tsx")).toMatch(/phoneRequired/);
-    expect(read("src/components/auth/portal-auth-form.tsx")).toMatch(/phoneRequired/);
-    expect(read("src/components/auth/portal-auth-form.tsx")).toContain('setErrorText("Enter a valid phone number.")');
+    // The hub's door is `EmailFirstSignup`: the phone is collected on the completion step (after
+    // the mailbox is proven) and checked before the POST, so a hub signup still lands with a number.
+    const hub = read("src/components/auth/email-first-signup.tsx");
+    expect(hub).toContain("<PhoneNumberField");
+    expect(hub).toContain('setError("Enter your name and a valid phone number.")');
+    expect(hub).toMatch(/phone\.replace\(\/\\D\/g, ""\)\.length < 10/);
     expect(read("src/components/auth/manager-trial-signup-form.tsx")).toMatch(/phoneRequired/);
   });
 

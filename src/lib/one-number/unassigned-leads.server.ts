@@ -7,23 +7,31 @@ import { isMissingSchemaError, loadSharedLineConfig, workspaceOnSharedLine } fro
 import type { SharedLineConfig, SharedLineInbound } from "@/lib/one-number/contracts";
 import { extractLeadFieldsWithModel } from "@/lib/one-number/lead-extract.server";
 import {
+  areaNamesKnownPlace,
   buildOfferBubbles,
   buildOfferText,
+  buildOverviewBubbles,
+  matchOverviewHomes,
+  OVERVIEW_NONE_TEXT,
+  OVERVIEW_UNFILTERED_LEAD,
   countFittingRooms,
   MAX_STRANGER_OFFERS,
   type OfferBubble,
   matchOffers,
   NO_MATCH_TEXT,
+  OFFER_DETAILS_HEADER,
   offerFromRow,
   parseOfferPick,
 } from "@/lib/one-number/lead-match";
 import {
   applyAnswer,
+  isInfoRequest,
   mergeModelFields,
   missingSteps,
   NEUTRAL_REPLY,
   nextQuestion,
   pacificToday,
+  questionFor,
   toGsm7,
   touchesProtectedTopic,
   WELCOME,
@@ -226,21 +234,86 @@ async function matchAndOffer(profile: LeadProfile, deps: Required<Pick<LeadDeps,
   };
 }
 
+/**
+ * "Is there availability", "do you have openings early next year", "please share more details of accommodation along with
+ * photos": answered FIRST with the PropLane-managed homes that have an open room (price from, listing page, tour page, how to
+ * apply), not with a questionnaire. At most one short question rides the end, and the STOP notice only on a first reply.
+ * Null when the catalog cannot be read: the ordinary qualifier then answers.
+ */
+async function overviewTurn(
+  profile: LeadProfile,
+  first: boolean,
+  deps: Required<Pick<LeadDeps, "now" | "listings" | "origin">>,
+): Promise<FlowResult | null> {
+  let listings: LineListing[];
+  try {
+    listings = await deps.listings();
+  } catch {
+    return null;
+  }
+  const { picks, narrowed, filtered } = matchOverviewHomes(listings, profile, pacificToday(deps.now()));
+  const lead = (text: string) => toGsm7(first ? `${WELCOME} ${text}` : text);
+  if (picks.length === 0) {
+    return { profile: { ...profile, stage: "no_match", asked: null, offers: [], overviewSent: true }, reply: lead(OVERVIEW_NONE_TEXT), mediaUrls: [] };
+  }
+  const rows = picks.map((p) => p.row);
+  const offers = picks.map((p, i) => offerFromRow(p.row, i + 1, p.tier));
+  // One short question at most, and only one that narrows the list: the budget, then the move-in date.
+  const question = missingSteps(profile).find((step) => step === "budget" || step === "move_in");
+  const bubbles = buildOverviewBubbles(offers, rows, deps.origin(), { question: question ? questionFor(question, profile) : null });
+  if (narrowed && !filtered) bubbles.unshift({ body: toGsm7(OVERVIEW_UNFILTERED_LEAD) });
+  if (first && bubbles[0]) bubbles[0] = { ...bubbles[0], body: toGsm7(`${WELCOME} ${bubbles[0].body}`) };
+  return {
+    profile: { ...profile, stage: "offered", asked: "pick", offers, overviewSent: true },
+    reply: bubbles.map((b) => b.body).join("\n"),
+    mediaUrls: bubbles.flatMap((b) => (b.mediaUrl ? [b.mediaUrl] : [])),
+    bubbles,
+  };
+}
+
+/**
+ * The prospect's words name a real place this line's catalog can search on. A catalog that cannot be read is not
+ * grounds to filter on a sentence, so it answers no.
+ */
+async function areaIsReal(area: string, deps: Required<Pick<LeadDeps, "listings">>): Promise<boolean> {
+  const listings = await deps.listings().catch(() => null);
+  return listings !== null && areaNamesKnownPlace(listings, area);
+}
+
+/** A follow-up that asks about the offered rooms rather than picking one, narrowing the search or saying no. */
+function asksAboutTheOffers(text: string): boolean {
+  return text.includes("?") || isInfoRequest(text);
+}
+
 async function readAnswer(
   profile: LeadProfile,
   text: string,
   deps: Required<Pick<LeadDeps, "now" | "extract">>,
+  /** Rejects an area the words do not actually name (`asked: "refine"` otherwise takes the whole sentence). */
+  allowArea?: (area: string) => Promise<boolean>,
 ): Promise<{ profile: LeadProfile; neutral: boolean; changed: boolean }> {
   const result = applyAnswer(profile, text, deps.now());
-  let next = result.profile;
-  let changed = result.changed.length > 0;
+  const keepArea = (read: LeadProfile): LeadProfile => {
+    const reverted = { ...read, area: profile.area };
+    if (profile.area === undefined) delete reverted.area;
+    return reverted;
+  };
+  let base = result.profile;
+  let touched = result.changed;
+  if (allowArea && touched.includes("area") && base.area !== undefined && !(await allowArea(base.area))) {
+    base = keepArea(base);
+    touched = touched.filter((field) => field !== "area");
+  }
+  let next = base;
+  let changed = touched.length > 0;
   if (!changed) {
     const safe = redactLeadBody(result.neutral ? withoutProtectedClauses(text) : text);
     if (safe.trim().length >= 2) {
       const fields = await deps.extract({ text: safe, today: pacificToday(deps.now()) }).catch(() => null);
       if (fields && Object.keys(fields).length > 0) {
         next = mergeModelFields(next, fields, profile.asked);
-        changed = JSON.stringify(next) !== JSON.stringify(result.profile);
+        if (allowArea && next.area !== undefined && next.area !== base.area && !(await allowArea(next.area))) next = keepArea(next);
+        changed = JSON.stringify(next) !== JSON.stringify(base);
       }
     }
   }
@@ -273,9 +346,15 @@ async function runFlow(
         mediaUrls: [],
       };
     }
-    const read = await readAnswer({ ...profile, asked: "refine" }, text, deps);
+    const read = await readAnswer({ ...profile, asked: "refine" }, text, deps, (area) => areaIsReal(area, deps));
     if (read.changed) return matchAndOffer({ ...read.profile, offers: [] }, deps);
-    return { profile, reply: `${read.neutral || touchesProtectedTopic(text) ? `${NEUTRAL_REPLY} ` : ""}${PICK_PROMPT(offers.length)}`, mediaUrls: [] };
+    const neutral = read.neutral || touchesProtectedTopic(text);
+    // A question about the rooms standing ("anything cheaper?", "can I see photos?", "is parking included?") is answered
+    // with those rooms and their listing pages, never with "nothing fits" while they are open.
+    if (!neutral && offers.length > 0 && asksAboutTheOffers(text)) {
+      return { profile, reply: buildOfferText(offers, deps.origin(), OFFER_DETAILS_HEADER), mediaUrls: [] };
+    }
+    return { profile, reply: `${neutral ? `${NEUTRAL_REPLY} ` : ""}${PICK_PROMPT(offers.length)}`, mediaUrls: [] };
   }
 
   if (stage === "no_match") {
@@ -291,6 +370,11 @@ async function runFlow(
   // Qualifying (including a first text).
   const read = await readAnswer(profile, text, deps);
   const next: LeadProfile = { ...read.profile, stage: "qualifying" };
+  // A question about what is open, what it costs or what it looks like is answered with the open homes before any question.
+  if (!read.neutral && !profile.overviewSent && isInfoRequest(text)) {
+    const overview = await overviewTurn(next, first, deps);
+    if (overview) return overview;
+  }
   let question = nextQuestion(next);
   // Keep asking while more than 4 rooms fit. Everything that can narrow the search is asked (budget, move-in, area, room
   // type); the headcount never filters, so once those are in and 4 or fewer rooms fit, the offers go out without it.

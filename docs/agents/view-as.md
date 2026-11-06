@@ -13,9 +13,10 @@ audit trail. It is never "act as".
   (comma-separated). Empty or unset means nobody. Both are re-checked on every
   request, not only at start.
 - **What:** `POST /api/admin/preview` `{targetUserId, portal, reason}`. Reason is
-  3..300 chars. The target must hold the portal in `profile_roles` (legacy
-  `profiles.role` only as the fallback), must not be an admin, disabled or
-  purged, and a test-workspace member only if the operator is also on
+  3..300 chars. The target must hold the portal in `profile_roles` — the stored rows
+  are the whole answer, and a failed read refuses rather than reading as "no portals"
+  — must not be an admin (`userHoldsAdminRoleStrict`, which throws rather than
+  answering "not an admin" on an unreadable role list), disabled or purged, and a test-workspace member only if the operator is also on
   `PROPLANE_TEST_WORKSPACE_OPERATOR_IDS`.
 - **Audit first:** the `admin_view_as_started` row (`audit_log`, `landlord_id` =
   viewed account, `actor_user_id` = operator, `dedupe_key = view_as_started:<sid>`)

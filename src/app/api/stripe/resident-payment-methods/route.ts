@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { getStripe } from "@/lib/stripe";
+import { RESIDENT_CARD_SETUP_PURPOSE } from "@/lib/stripe/resident-card-setup-purpose";
 import {
   ensureResidentStripeCustomerId,
   listResidentSavedPaymentMethods,
@@ -126,6 +127,9 @@ export async function POST(req: Request) {
       customer: customerId,
       return_url: returnUrl,
       payment_method_types: ["card"],
+      // Named so the webhook recognises it. A session with no `purpose` used to be classified as a
+      // manager plan purchase, which made this one fail the event (`stripe/checkout-purpose.ts`).
+      metadata: { purpose: RESIDENT_CARD_SETUP_PURPOSE, resident_user_id: user.id, resident_payment_flow: "saved_card" },
     } as unknown as Parameters<typeof stripe.checkout.sessions.create>[0]);
 
     if (!session.client_secret) {

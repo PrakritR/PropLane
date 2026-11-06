@@ -72,6 +72,10 @@ function makeQuery(table: string) {
       filters.push((r) => r[col] === val);
       return q;
     },
+    in: (col: string, vals: unknown[]) => {
+      filters.push((r) => vals.includes(r[col]));
+      return q;
+    },
     limit: () => Promise.resolve({ data: matches(), error: null }),
     maybeSingle: () => Promise.resolve({ data: matches()[0] ?? null, error: null }),
     upsert: (payload: Row) => {
@@ -102,6 +106,7 @@ const db = {
     return { data: "persisted", error: null };
   },
   from: (table: string) => {
+    if (table === "profile_roles") return { select: () => ({ eq: async () => ({ data: state.profile?.role ? [{ role: state.profile.role }] : [], error: null }) }) };
     if (table === "profiles") {
       return {
         select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: state.profile }) }) }),
@@ -899,6 +904,168 @@ describe("POST /api/portal-lease-pipeline: signed documents are immutable server
     expect(storedRowData().templatePlacementReview).toEqual(reviewed.templatePlacementReview);
     expect(storedRowData().templateImportReview).toEqual(reviewed.templateImportReview);
     expect(storedRowData().managerUploadedPdf).toBeFalsy();
+  });
+
+  // A row filed before the mode was persisted carries no `documentMode` and no PDF, so the resolved
+  // mode reads "proplane-generated" off its bytes alone. The link requirement reads the mode the
+  // generator stored, so such a row is sent as it always was, even with no application named.
+  it("sends a LEGACY lease that stores no documentMode and names no application", async () => {
+    const legacy = executedRow({
+      bucket: "manager",
+      status: "Manager Review",
+      residentSignature: null,
+      managerSignature: null,
+      fullySignedAt: null,
+      generatedHtml: "<html><body>Legacy lease body</body></html>",
+    });
+    expect(legacy.documentMode).toBeUndefined();
+    expect(legacy.axisId).toBeUndefined();
+    seedExecuted(legacy);
+    state.leases[0]!.status = "manager_review";
+
+    const send = await post({
+      action: "upsert",
+      row: { ...legacy, status: "Resident Signature Pending", bucket: "resident", sentToResidentAt: "2026-09-24T01:00:00.000Z" },
+    });
+    expect(send.status, await send.clone().text()).toBe(200);
+    expect(storedRowData().status).toBe("Resident Signature Pending");
+  });
+
+  // Sendable with no application named, but it is not an imported document either: a link it DOES name is
+  // still measured, so the two gates read the same one classification of the stored row.
+  it("measures the terms of a legacy lease that names an application", async () => {
+    const applicationId = "application_legacy_1";
+    state.applications = [{
+      id: applicationId,
+      manager_user_id: state.user!.id,
+      resident_email: "jordan.lee@example.com",
+      property_id: "property_legacy_1",
+      row_data: { application: { leaseStart: "2026-12-01", leaseEnd: "2027-11-30", managerRentOverride: "1800", managerSecurityDepositOverride: "0" } },
+    }];
+    const legacy = executedRow({
+      bucket: "manager",
+      status: "Manager Review",
+      residentSignature: null,
+      managerSignature: null,
+      fullySignedAt: null,
+      axisId: applicationId,
+      generatedHtml: "<html><body>Legacy lease body</body></html>",
+      application: { leaseStart: "2026-12-01", leaseEnd: "2027-11-30", managerRentOverride: "1800", managerSecurityDepositOverride: "0" },
+    });
+    expect(legacy.documentMode).toBeUndefined();
+    seedExecuted(legacy);
+    state.leases[0]!.status = "manager_review";
+
+    const tampered = await post({
+      action: "upsert",
+      row: {
+        ...legacy,
+        status: "Resident Signature Pending",
+        bucket: "resident",
+        sentToResidentAt: "2026-09-24T01:00:00.000Z",
+        application: { ...legacy.application as Row, managerRentOverride: "1" },
+      },
+    });
+    expect(tampered.status).toBe(409);
+    expect(((await tampered.json()) as Row).blocked).toBe("terms-differ");
+  });
+
+  it("refuses a PropLane-generated send that is linked to no application (terms-unlinked)", async () => {
+    state.leases = [];
+    const send = await post({
+      action: "upsert",
+      row: {
+        id: "lease_unlinked_1",
+        residentName: "Jordan Lee",
+        residentEmail: "jordan.lee@example.com",
+        managerUserId: state.user!.id,
+        bucket: "resident",
+        status: "Resident Signature Pending",
+        documentMode: "proplane-generated",
+        generatedHtml: "<html><body>PropLane lease</body></html>",
+        application: { leaseStart: "2026-12-01", managerRentOverride: "1", managerSecurityDepositOverride: "0" },
+        sentToResidentAt: "2026-09-24T01:00:00.000Z",
+      },
+    });
+    expect(send.status).toBe(409);
+    expect(((await send.json()) as Row).blocked).toBe("terms-unlinked");
+    expect(state.leases).toHaveLength(0);
+  });
+
+  it("refuses an unlinked create-and-send that omits documentMode and carries no PDF", async () => {
+    state.leases = [];
+    const send = await post({
+      action: "upsert",
+      row: {
+        id: "lease_unlinked_2",
+        residentName: "Jordan Lee",
+        residentEmail: "jordan.lee@example.com",
+        managerUserId: state.user!.id,
+        bucket: "resident",
+        status: "Resident Signature Pending",
+        generatedHtml: "<html><body>Hand-written lease body</body></html>",
+        application: { leaseStart: "2026-12-01", managerRentOverride: "1", managerSecurityDepositOverride: "0" },
+        sentToResidentAt: "2026-09-24T01:00:00.000Z",
+      },
+    });
+    expect(send.status).toBe(409);
+    expect(((await send.json()) as Row).blocked).toBe("terms-unlinked");
+    expect(state.leases).toHaveLength(0);
+  });
+
+  it("measures a create-and-send whose only PDF bytes ride on originalDataUrl (no dataUrl)", async () => {
+    const applicationId = "application_original_only_1";
+    state.leases = [];
+    state.applications = [{
+      id: applicationId,
+      manager_user_id: state.user!.id,
+      resident_email: "jordan.lee@example.com",
+      property_id: "property_original_only_1",
+      row_data: { application: { leaseStart: "2026-12-01", leaseEnd: "2027-11-30", managerRentOverride: "1800", managerSecurityDepositOverride: "0" } },
+    }];
+    const originalDataUrl = `data:application/pdf;base64,${Buffer.from(state.sourceBytes).toString("base64")}`;
+    const send = await post({
+      action: "upsert",
+      row: {
+        id: "lease_original_only_1",
+        axisId: applicationId,
+        residentName: "Jordan Lee",
+        residentEmail: "jordan.lee@example.com",
+        managerUserId: state.user!.id,
+        bucket: "resident",
+        status: "Resident Signature Pending",
+        documentMode: "original-pdf",
+        generatedHtml: null,
+        managerUploadedPdf: { originalDataUrl, fileName: "lease.pdf", uploadedAt: "2026-09-24T00:00:00.000Z" },
+        application: { leaseStart: "2026-12-01", leaseEnd: "2027-11-30", managerRentOverride: "1", managerSecurityDepositOverride: "0" },
+        sentToResidentAt: "2026-09-24T01:00:00.000Z",
+      },
+    });
+    expect(send.status).toBe(409);
+    expect(((await send.json()) as Row).blocked).toBe("terms-differ");
+    expect(state.leases).toHaveLength(0);
+  });
+
+  it("does not call an unlinked uploaded-PDF send terms-unlinked (its own review gate owns it)", async () => {
+    state.leases = [];
+    const dataUrl = `data:application/pdf;base64,${Buffer.from(state.sourceBytes).toString("base64")}`;
+    const send = await post({
+      action: "upsert",
+      row: {
+        id: "lease_unlinked_3",
+        residentName: "Jordan Lee",
+        residentEmail: "jordan.lee@example.com",
+        managerUserId: state.user!.id,
+        bucket: "resident",
+        status: "Resident Signature Pending",
+        documentMode: "original-pdf",
+        generatedHtml: null,
+        managerUploadedPdf: { dataUrl, originalDataUrl: dataUrl, fileName: "lease.pdf", uploadedAt: "2026-09-24T00:00:00.000Z" },
+        sentToResidentAt: "2026-09-24T01:00:00.000Z",
+      },
+    });
+    const body = send.status === 200 ? {} : ((await send.json()) as Row);
+    expect(body.blocked).not.toBe("terms-unlinked");
   });
 
   it("rejects a reusable-template send after its private source changes after confirmation", async () => {

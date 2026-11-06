@@ -1,8 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { filterAdminUserIds } from "@/lib/auth/admin-role";
-import { normalizePortalRoles } from "@/lib/auth/portal-roles";
+import { userHoldsAdminRoleStrict } from "@/lib/auth/admin-role";
 import type { ViewAsPortal } from "@/lib/auth/view-as-token";
 import {
   isTrustedTestWorkspaceOperatorId,
@@ -54,8 +53,9 @@ export async function listViewablePortals(
     return { ok: false };
   }
 
-  const admins = await filterAdminUserIds(db, [targetId]);
-  if (admins.has(targetId)) return { ok: false };
+  try {
+    if (await userHoldsAdminRoleStrict(db, targetId)) return { ok: false };
+  } catch { return { ok: false }; }
 
   // A durable test-workspace member is viewable only by a test-workspace operator.
   const classification = await resolveTestWorkspaceClassification(targetId, db);
@@ -63,8 +63,9 @@ export async function listViewablePortals(
     return { ok: false };
   }
 
-  const { data: roleRows } = await db.from("profile_roles").select("role").eq("user_id", targetId);
-  const roles = normalizePortalRoles(roleRows as { role: string }[] | null, p.role);
+  const { data: roleRows, error: roleError } = await db.from("profile_roles").select("role").eq("user_id", targetId);
+  if (roleError) return { ok: false };
+  const roles = (roleRows ?? []).map((row) => String(row.role ?? "").trim().toLowerCase());
   const portals = roles.filter((r): r is ViewAsPortal => r === "manager" || r === "resident" || r === "vendor");
   return { ok: true, portals, name: p.full_name?.trim() || p.email || "this account", email: p.email };
 }

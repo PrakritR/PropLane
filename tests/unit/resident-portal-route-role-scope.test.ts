@@ -24,14 +24,15 @@ let PORTAL_ROLES: string[] = [];
 let EFFECTIVE_ROLE: string | null = null;
 let PORTAL_CONTEXT_THROWS = false;
 
-const RESIDENT_ROW = { id: "wo-mine", title: "My leaky sink", residentEmail: RESIDENT_EMAIL };
-const OTHER_RESIDENT_ROW = { id: "wo-theirs", title: "Someone else's sink", residentEmail: "tenant@example.com" };
+const RESIDENT_ROW = { residentUserId: USER_ID, id: "wo-mine", title: "My leaky sink", residentEmail: RESIDENT_EMAIL };
+const OTHER_RESIDENT_ROW = { residentUserId: "other-user", id: "wo-theirs", title: "Someone else's sink", residentEmail: "tenant@example.com" };
 const MANAGER_ONLY_ROW = { id: "wo-portfolio", title: "Portfolio roof", residentEmail: "tenant@example.com" };
 
 const ALL_RECORDS = [
-  { id: RESIDENT_ROW.id, resident_email: RESIDENT_EMAIL, row_data: RESIDENT_ROW, updated_at: "2026-02-01T00:00:00Z" },
+  { id: RESIDENT_ROW.id, resident_user_id: USER_ID, resident_email: RESIDENT_EMAIL, row_data: RESIDENT_ROW, updated_at: "2026-02-01T00:00:00Z" },
   {
     id: OTHER_RESIDENT_ROW.id,
+    resident_user_id: "other-user",
     resident_email: "tenant@example.com",
     row_data: OTHER_RESIDENT_ROW,
     updated_at: "2026-01-01T00:00:00Z",
@@ -50,7 +51,7 @@ vi.mock("@/lib/auth/portal-access", () => ({
   ACTIVE_PORTAL_COOKIE: "axis_active_portal",
   getPortalAccessContext: async () => {
     if (PORTAL_CONTEXT_THROWS) throw new Error("profile_roles read failed");
-    return { user: null, profile: null, roles: PORTAL_ROLES, effectiveRole: EFFECTIVE_ROLE };
+    return { user: { id: USER_ID }, profile: null, roles: PORTAL_ROLES, effectiveRole: EFFECTIVE_ROLE };
   },
 }));
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({
@@ -85,9 +86,10 @@ function makeDb() {
       const rowsFor = () => {
         if (table === "portal_work_order_records" || table === "portal_service_request_records") {
           return ALL_RECORDS.filter((row) =>
-            filters.every(([col, val]) => (col === "resident_email" ? row.resident_email === val : true)),
+            filters.every(([col, val]) => col === "resident_email" ? row.resident_email === val : col === "resident_user_id" ? row.resident_user_id === val : true),
           );
         }
+        if (table === "profile_roles") return PROFILE_ROLES.map(role => ({ role }));
         return [];
       };
       const builder: Record<string, unknown> = {
@@ -181,17 +183,32 @@ for (const surface of SURFACES) {
     });
   });
 
+  /**
+   * The CAPABILITY is the stored `profile_roles` row; the active portal only says which of two
+   * capabilities a request is exercising. An admin+manager in the admin portal reads as the manager
+   * it stores, scoped to its own id as always — that case used to be denied outright: a 403 on work
+   * orders, services and the lease pipeline outside `?oversight=admin`, against `AGENTS.md`
+   * § "Admin borrows" ("a platform admin reads and writes as the manager they are").
+   *
+   * Widening is a decision that needs evidence, though, and the ACTIVE PORTAL has to supply it. A
+   * context that cannot be trusted — the read threw, or its own role list disagrees with the stored
+   * roles — and one that names no portal at all (`getPortalAccessContext` reports a null
+   * `effectiveRole` for every multi-role account with no valid `axis_active_portal` cookie) both
+   * narrow to resident: absence of an answer must never buy the broader scope. The groups below pin
+   * each half.
+   */
   describe(`${surface.name} — portal context degraded to the legacy role`, () => {
     beforeEach(() => {
       // getPortalAccessContext falls back to `profiles.role` when its own
-      // profile_roles read errors, so it reports manager-only with no throw.
+      // profile_roles read errors, so it reports manager-only with no throw —
+      // a context that contradicts the stored roles rather than confirming them.
       PROFILE = { email: RESIDENT_EMAIL, role: "manager" };
       PROFILE_ROLES = ["manager", "resident"];
       PORTAL_ROLES = ["manager"];
       EFFECTIVE_ROLE = "manager";
     });
 
-    it("fails safe to the resident scope rather than granting the manager read", async () => {
+    it("narrows to the resident scope rather than widening on a contradictory context", async () => {
       const res = await surface.load();
       expect(res.status).toBe(200);
       const ids = ((await res.json()).rows as Array<{ id: string }>).map((row) => row.id);
@@ -204,14 +221,14 @@ for (const surface of SURFACES) {
     beforeEach(() => {
       // getPortalAccessContext returns effectiveRole: null for any multi-role
       // account whenever axis_active_portal is absent or names a role they do
-      // not hold, and raises no error. This used to fall back to "manager".
+      // not hold, and raises no error.
       PROFILE = { email: RESIDENT_EMAIL, role: "manager" };
       PROFILE_ROLES = ["manager", "resident"];
       PORTAL_ROLES = ["manager", "resident"];
       EFFECTIVE_ROLE = null;
     });
 
-    it("resolves to the narrower resident scope, not the legacy manager value", async () => {
+    it("narrows to the resident scope rather than widening on a missing answer", async () => {
       const res = await surface.load();
       expect(res.status).toBe(200);
       const ids = ((await res.json()).rows as Array<{ id: string }>).map((row) => row.id);
@@ -229,7 +246,28 @@ for (const surface of SURFACES) {
       PORTAL_CONTEXT_THROWS = true;
     });
 
-    it("resolves to the narrower resident scope rather than propagating the error", async () => {
+    it("narrows to the resident scope rather than propagating the error or widening", async () => {
+      // The same catch also swallows the phone-gate `redirect()` getPortalAccessContext throws, so
+      // widening here would hand a phone-gated account the whole portfolio.
+      const res = await surface.load();
+      expect(res.status).toBe(200);
+      const ids = ((await res.json()).rows as Array<{ id: string }>).map((row) => row.id);
+      expect(ids).toEqual([RESIDENT_ROW.id]);
+      expect(fetchRowsForManagerWithLinked).not.toHaveBeenCalled();
+    });
+  });
+
+  describe(`${surface.name} — a resident-only account with a stale manager cookie`, () => {
+    beforeEach(() => {
+      // The narrowing that still has to hold: the cookie cannot widen a capability the account
+      // does not store, so this stays on the resident's own rows.
+      PROFILE = { email: RESIDENT_EMAIL, role: "manager" };
+      PROFILE_ROLES = ["resident"];
+      PORTAL_ROLES = ["resident"];
+      EFFECTIVE_ROLE = "manager";
+    });
+
+    it("returns only the resident's own rows", async () => {
       const res = await surface.load();
       expect(res.status).toBe(200);
       const ids = ((await res.json()).rows as Array<{ id: string }>).map((row) => row.id);
@@ -246,11 +284,9 @@ for (const surface of SURFACES) {
       EFFECTIVE_ROLE = null;
     });
 
-    it("stays scoped to their own rows", async () => {
+    it("denies access without a stored role", async () => {
       const res = await surface.load();
-      expect(res.status).toBe(200);
-      const ids = ((await res.json()).rows as Array<{ id: string }>).map((row) => row.id);
-      expect(ids).toEqual([RESIDENT_ROW.id]);
+      expect(res.status).toBe(403);
       expect(fetchRowsForManagerWithLinked).not.toHaveBeenCalled();
     });
   });

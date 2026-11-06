@@ -95,6 +95,11 @@ const storage = {
 };
 const db = {
   from: builder,
+  rpc: async (name: string, args: { p_form: Row }) => {
+    if (name !== "insert_bound_move_in_form") throw new Error("unexpected RPC");
+    const q = builder("resident_move_in_forms") as { insert: (row: Row) => { single: () => Promise<unknown> } };
+    return q.insert(args.p_form).single();
+  },
   storage,
   auth: { admin: { getUserById: async (id: string) => ({ data: { user: authUsers[id] ?? null }, error: null }) } },
 };
@@ -179,6 +184,10 @@ describe("authorization: a foreign id is a 404, never a 403", () => {
 
   it("does not match another resident reusing the email with a different login", async () => {
     await expect(moveInFormDetail(resident("imposter", "a@example.test"), ID)).rejects.toMatchObject({ status: 404 });
+    forms[0]!.resident_user_id = null;
+    await expect(moveInFormDetail(resident(), ID)).rejects.toMatchObject({ status: 404 });
+    forms[0]!.resident_user_id = "res-a";
+    expect((await moveInFormDetail(resident("res-a", ""), ID)).form.id).toBe(ID);
   });
 });
 
@@ -397,6 +406,30 @@ describe("manager actions", () => {
     properties[0]!.templates = [{ ...newMoveInFormTemplate("upload"), id: "up", name: "Rules", pdf: null }];
     await expect(sendMoveInForm(manager(), { applicationId: "AXIS-A", formId: "up" })).rejects.toMatchObject({ status: 409 });
   });
+
+  /**
+   * `insert_bound_move_in_form` raises 23514 when the residency it is asked to bind no longer agrees
+   * with the form. The send deliberately passes the property's ACTUAL owner rather than the stamp on
+   * the application, so ownership moving after the application was stamped hits exactly that check —
+   * and only 23505 was special-cased, so the manager got a bare 500 and the automatic trigger path
+   * recorded `failed` with no explanation.
+   */
+  it("answers a residency/form mismatch with a 409 the manager can act on, never a 500", async () => {
+    const cases: Array<[string, RegExp]> = [
+      ["Form application mismatch", /current owner/i],
+      ["Form subject mismatch", /different account/i],
+    ];
+    for (const [message, expected] of cases) {
+      properties[0]!.templates = [{ ...newMoveInFormTemplate("built"), id: "f3", name: "Keys", trigger: "manual", questions: [q("sig", "signature", { required: true })] }];
+      forms = [];
+      const mismatching = { ...db, rpc: async () => ({ data: null, error: { code: "23514", message } }) };
+      const actor = { role: "manager", context: { userId: "owner", landlordId: "owner", db: mismatching } } as unknown as MoveInFormActor;
+      const failure = await sendMoveInForm(actor, { applicationId: "AXIS-A", formId: "f3" }).catch((e) => e);
+      expect(failure).toMatchObject({ status: 409 });
+      expect((failure as Error).message).toMatch(expected);
+      expect((failure as Error).message).not.toMatch(/Could not send the form/);
+    }
+  });
 });
 
 describe("files", () => {
@@ -405,6 +438,8 @@ describe("files", () => {
     const photo = `${ID}/room_photos/${UUID}.jpg`;
     expect(await moveInFormFileUrl(manager(), ID, photo)).toBe(`https://signed.example/${photo}`);
     expect(await moveInFormFileUrl(resident(), ID, photo)).toBe(`https://signed.example/${photo}`);
+    await expect(moveInFormFileUrl(resident("imposter", "a@example.test"), ID, photo)).rejects.toMatchObject({ status: 404 });
+    expect(await moveInFormFileUrl(resident("res-a", ""), ID, photo)).toBe(`https://signed.example/${photo}`);
     await expect(moveInFormFileUrl(manager(), ID, `${OTHER_ID}/room_photos/${UUID}.jpg`)).rejects.toMatchObject({ status: 404 });
     await expect(moveInFormFileUrl(manager(), ID, `${ID}/room_photos/${OTHER_ID}.jpg`)).rejects.toMatchObject({ status: 404 });
     await expect(moveInFormFileUrl(manager("other-owner"), ID, photo)).rejects.toMatchObject({ status: 404 });
@@ -662,13 +697,17 @@ describe("dispatch: intake, links and move-out", () => {
       expect(emitted.calls).toEqual([]);
     });
 
-    it("addresses the notice to the confirmed login, not to the typed row", async () => {
+    it("addresses the notice to the confirmed login while the link still follows the row's own binding", async () => {
       applications[0]!.app_bucket = "pending";
       applications[0]!.app_resident_user_id = "someone-else";
       await send("application-submitted");
       const { emitMoveInFormEvent } = await import("@/lib/move-in-forms/move-in-form-events.server");
-      const input = vi.mocked(emitMoveInFormEvent).mock.calls[0]![1] as unknown as { row: { resident_user_id: string; resident_email: string } };
-      expect(input.row).toMatchObject({ resident_user_id: "res-a", resident_email: "a@example.test" });
+      const input = vi.mocked(emitMoveInFormEvent).mock.calls[0]![1] as unknown as {
+        row: { resident_user_id: string | null; resident_email: string };
+        noticeAccount?: { id: string | null; email: string };
+      };
+      expect(input.noticeAccount).toEqual({ id: "res-a", email: "a@example.test" });
+      expect(input.row.resident_user_id).not.toBe("res-a");
     });
 
     it("also sends it to an application that is already approved", async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildManagerSubscriptionCheckoutBase,
+  MANAGER_PLAN_CHECKOUT_PURPOSE,
   MANAGER_SUBSCRIPTION_TRIAL_DAYS,
   subscriptionCheckoutUsesCardOnlyFunding,
 } from "@/lib/stripe/subscription-checkout-session";
@@ -15,6 +16,12 @@ describe("buildManagerSubscriptionCheckoutBase", () => {
 
     expect(subscriptionCheckoutUsesCardOnlyFunding(params)).toBe(true);
     expect(params.subscription_data?.trial_period_days).toBe(14);
-    expect(params.subscription_data?.metadata).toEqual({ tier: "pro", billing: "monthly" });
+    // The plan marker is stamped by this builder, so it rides on the subscription metadata too —
+    // the webhook classifies a manager plan by it, never by the absence of a `purpose`.
+    expect(params.subscription_data?.metadata).toEqual({
+      purpose: MANAGER_PLAN_CHECKOUT_PURPOSE,
+      tier: "pro",
+      billing: "monthly",
+    });
   });
 });

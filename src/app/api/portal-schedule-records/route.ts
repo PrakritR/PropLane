@@ -876,7 +876,7 @@ const route = createJsonRecordRoute({
   },
 });
 
-export function GET(req?: Request) {
+export function GET(req: Request) {
   return handleTestWorkspaceScheduleGet(() => route.GET(req));
 }
 

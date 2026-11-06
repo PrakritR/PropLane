@@ -2,8 +2,7 @@ import "server-only";
 
 import { cookies, headers } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { filterAdminUserIds, userHoldsAdminRole } from "@/lib/auth/admin-role";
-import { normalizePortalRoles } from "@/lib/auth/portal-roles";
+import { userHoldsAdminRole, userHoldsAdminRoleStrict } from "@/lib/auth/admin-role";
 import {
   isViewAsOperatorId,
   readViewAsSecret,
@@ -118,13 +117,13 @@ export function resetViewAsResolutionCache(): void {
 }
 
 async function loadTarget(db: SupabaseClient, targetId: string): Promise<ViewAsTarget | null> {
-  const [{ data: profile }, { data: roleRows }] = await Promise.all([
+  const [{ data: profile, error: profileError }, { data: roleRows, error: roleError }] = await Promise.all([
     db.from("profiles").select("id, email, full_name, role, manager_id").eq("id", targetId).maybeSingle(),
     db.from("profile_roles").select("role").eq("user_id", targetId),
   ]);
-  if (!profile) return null;
+  if (profileError || roleError || !profile) return null;
   const p = profile as { id: string; email: string | null; full_name: string | null; role: string | null; manager_id: string | null };
-  const roles = normalizePortalRoles(roleRows as { role: string }[] | null, p.role);
+  const roles = (roleRows ?? []).map((row) => String(row.role ?? "").trim().toLowerCase());
   return {
     id: String(p.id),
     email: p.email ?? null,
@@ -160,8 +159,7 @@ export async function resolveActiveViewAs(realUserId: string): Promise<ActiveVie
     if (await userHoldsAdminRole(db, real)) {
       const target = await loadTarget(db, payload.targetId);
       if (target && target.roles.includes(payload.portal)) {
-        const admins = await filterAdminUserIds(db, [target.id]);
-        if (!admins.has(target.id)) {
+        if (!(await userHoldsAdminRoleStrict(db, target.id))) {
           value = {
             adminId: payload.adminId,
             targetUserId: payload.targetId,

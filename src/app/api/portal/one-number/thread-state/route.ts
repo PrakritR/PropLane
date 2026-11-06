@@ -44,7 +44,7 @@ async function resolveThread(conversationId: string, level: "read" | "edit"): Pr
   // Role first: resolving the workspace provisions one for an account that has none.
   let manager = false;
   try {
-    manager = await userHoldsManagerRole(db, user.id, user.user_metadata?.role);
+    manager = await userHoldsManagerRole(db, user.id);
   } catch {
     return { ok: false, status: 503, error: "Could not verify your account." };
   }

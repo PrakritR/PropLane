@@ -20,6 +20,7 @@ const REFUSAL: Record<Exclude<PlatformLeadSendResult, { ok: true }>["reason"], {
   shielded: { status: 409, error: "That number cannot be texted." },
   quiet_hours: { status: 409, error: "Texts to this number are paused until morning." },
   invalid_to: { status: 422, error: "That lead has no valid phone number." },
+  config_unavailable: { status: 503, error: "The PropLane line is not available." },
   not_shared_mode: { status: 503, error: "The PropLane line is not available." },
   no_shared_number: { status: 503, error: "The PropLane line is not available." },
   provider_error: { status: 502, error: "Could not send SMS." },

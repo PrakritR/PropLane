@@ -22,7 +22,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 vi.mock("@/hooks/use-portal-session", () => ({
-  usePortalSession: () => ({ email: "jamie.rivera@example.com", ready: true }),
+  usePortalSession: () => ({ email: "jamie.rivera@example.com", userId: "resident-test", ready: true }),
 }));
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useConfirm: () => (req: { description?: unknown }) =>
@@ -63,12 +63,15 @@ function rows(): DemoApplicantRow[] {
   const base = {
     name: "Jamie Rivera",
     email: "jamie.rivera@example.com",
+    residentUserId: "resident-test",
     property: "Magnolia House",
     propertyId: "mgr-test-magnolia",
     application: { propertyId: "mgr-test-magnolia", email: "jamie.rivera@example.com", roomLabel: "Room 2" },
   };
   return [
-    { ...base, id: "PROPLANE-AAAA0001", stage: "In progress", bucket: "pending", detail: "Started 8/1/2026, 7:48:40 PM" },
+    // One row per house: an unsent draft for the house a sent application already covers is not listed, so
+    // the draft is for another house.
+    { ...base, id: "PROPLANE-AAAA0001", property: "Birch Court", propertyId: "mgr-test-birch", application: { ...base.application, propertyId: "mgr-test-birch" }, stage: "In progress", bucket: "pending", detail: "Started 8/1/2026, 7:48:40 PM" },
     { ...base, id: "PROPLANE-BBBB0002", stage: "Submitted", bucket: "pending", detail: "Submitted 8/3/2026, 5:24:39 PM" },
   ] as DemoApplicantRow[];
 }

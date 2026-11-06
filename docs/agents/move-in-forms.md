@@ -50,7 +50,9 @@ the action-event bus, domain `move_in_form`).
   Read it only through `resolveMoveInFormBlocks`. A sent copy keeps what it was sent with: editing the template later never
   changes it. Only a `sent` copy blocks; submitted and cancelled never do.
 - **`blocking.ts` is the one place the rule lives** (`blockingFormsFromRows`, `loadResidentBlockingForms`,
-  `loadApplicationBlockingForms`, `leaseApplicationIds`). A read that fails blocks (fail closed); a missing table blocks nothing.
+  `loadApplicationBlockingForms`, `leaseApplicationIds`). **ONE error rule for every reader there: a read that does not
+  come back blocks** — a missing or schema-cache-stale table included, because this table ships with the move-in form
+  migrations, so an unreadable one is an outage, not an environment without the feature.
   `loadResidentBlockingForms` narrows by `propertyId` and/or `applicationIds`: given both, a form counts when it matches EITHER, so a
   stale or mismatched property id on a row can never open the gate for a form that is plainly this resident's. A MANAGER asking about
   someone else's resident passes `callerHolds`, so only forms the caller may judge count — another landlord's form for the same
@@ -116,8 +118,24 @@ The hooks run after the response (`after()` via `dispatch...AfterResponse`), nev
 - **A submitted form is locked.** Save, upload, resubmit, remind and cancel all
   answer 409; the submit itself is a compare-and-swap on `status = 'sent'`.
 - **Ids in a body are never trusted.** Every read and write re-derives scope
-  (manager: owned or co-managed property, active workspace; resident: their own
-  email and login). A foreign or missing id is a 404, never a 403.
+  (manager: owned or co-managed property, active workspace; resident: the
+  authenticated Auth subject — `resident_move_in_forms.resident_user_id` is the only
+  resident filter, never `resident_email`). A foreign or missing id is a 404, never a 403.
+- **A form is bound to a subject, or it is manager-only.** `resident_user_id` is written by
+  `bind_resident_setup_subject` (migrations `20261030144800` / `144900`) when the resident proves the
+  application's mailbox, and sends go through `insert_bound_move_in_form`, which locks the
+  application row and refuses a form whose manager, house or offered subject disagrees with it —
+  answered as **409** ("Refresh the resident and try again"), not a 500. An unbound `sent` form still
+  BLOCKS, because a restriction never fails open, but only inside a scope the login already holds:
+  the applications bound to this login by a STORED subject (`leaseOwnApplicationIds`), never because
+  an address matches and never because a joint member on the same lease is tied to it. Such a row is
+  never named back in `formIds` — the resident cannot open it until the invitation binds it, so
+  pointing at it would be a dead end.
+- **A form notice never carries an account capability.** Nothing on the action-event bus mints,
+  rotates or embeds a setup token: those copies are persisted in `action_event_deliveries`, appended
+  to the inbox thread and, as a draft, read by a manager. `noticeAccount` only ADDRESSES the
+  resident's copy (the intake form sent on a guest submission); the link still follows the row's own
+  binding. The setup token leaves only through the resident setup invitation's own email.
 - **Files only through signed URLs.** Photos and signatures live in the private
   `move-in-form-files` bucket at `<recordId>/<questionKey>/<uuid>.<jpg|png>`;
   answers may only reference paths under their own record, and each must exist at

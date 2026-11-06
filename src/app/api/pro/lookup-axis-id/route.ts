@@ -3,7 +3,7 @@ import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { proplaneIdLookupVariants } from "@/lib/manager-id";
-import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
+import { userHoldsManagerRole } from "@/lib/manager-route-guard.server";
 import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 
 export const runtime = "nodejs";
@@ -44,9 +44,10 @@ export async function GET(req: Request) {
     const supabase = createSupabaseServiceRoleClient();
     // Looking another account up by PropLane ID is the first step of inviting
     // one, which an owner-only account may not do (`/api/pro/account-links`).
+    if (!(await userHoldsManagerRole(supabase, user.id))) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     const ownerRefusal = await refuseOwnerOnly(supabase, user.id);
     if (ownerRefusal) return ownerRefusal;
-    const profileQuery = supabase.from("profiles").select("id, full_name, manager_id, role");
+    const profileQuery = supabase.from("profiles").select("id, full_name, manager_id");
     const { data: profile, error } = email
       ? await profileQuery.ilike("email", email).limit(1).maybeSingle()
       : await profileQuery
@@ -70,7 +71,8 @@ export async function GET(req: Request) {
       );
     }
 
-    const eligible = await userIsPropertyPortalManager(supabase, profile.id);
+    const { data: targetRoles, error: targetError } = await supabase.from("profile_roles").select("role").eq("user_id", profile.id);
+    const eligible = !targetError && (targetRoles ?? []).some((row) => row.role === "manager" || row.role === "owner");
     if (!eligible) {
       return NextResponse.json(
         { ok: false, error: "This account is not eligible for co-manager linking (must be a property portal manager)." },
@@ -78,7 +80,7 @@ export async function GET(req: Request) {
       );
     }
 
-    const role = String(profile.role ?? "").toLowerCase();
+    const role = (targetRoles ?? []).some((row) => row.role === "owner") ? "owner" : "manager";
     const resolvedAxisId = String(profile.manager_id ?? axisId);
 
     return NextResponse.json({

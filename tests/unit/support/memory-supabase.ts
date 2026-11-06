@@ -18,6 +18,21 @@ export type MemoryDb = {
    * provisioning lock. Anything else is an error, like an unknown function.
    */
   rpc: (fn: string, args?: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
+  /**
+   * The one Auth admin read the plan code makes: the account's own CONFIRMED mailbox, which is what a
+   * legacy email-matched `manager_purchases` row is entitled against (`manager-purchase-account-rows.server.ts`).
+   * It answers from a seeded `auth_users` table (`{ id, email, email_confirmed_at }`); an id with no row
+   * gets a conclusive "no such account" 404, never a transient failure, so a test that never seeds one is
+   * simply an account with no email-linked rows rather than an unreadable plan.
+   */
+  auth: {
+    admin: {
+      getUserById: (id: string) => Promise<{
+        data: { user: Row | null };
+        error: { status: number; code: string; message: string } | null;
+      }>;
+    };
+  };
   __tables: Record<string, Row[]>;
 };
 
@@ -380,5 +395,16 @@ export function createMemoryDb(seed: Record<string, Row[]> = {}): MemoryDb {
     }
     return { data: null, error: { message: `unknown rpc ${fn}` } };
   };
-  return { from: makeBuilder, rpc, __tables: tables };
+  const auth: MemoryDb["auth"] = {
+    admin: {
+      getUserById: async (id: string) => {
+        const user = ensure("auth_users").find((row) => String(row.id) === String(id));
+        if (!user) {
+          return { data: { user: null }, error: { status: 404, code: "user_not_found", message: "User not found" } };
+        }
+        return { data: { user }, error: null };
+      },
+    },
+  };
+  return { from: makeBuilder, rpc, auth, __tables: tables };
 }

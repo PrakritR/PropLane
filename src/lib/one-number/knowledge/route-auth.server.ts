@@ -48,7 +48,7 @@ export async function requireKnowledgeActor(level: "read" | "edit" = "edit"): Pr
   // Role first: resolving the workspace below provisions one for an account that has none.
   let manager = false;
   try {
-    manager = await userHoldsManagerRole(db, user.id, user.user_metadata?.role);
+    manager = await userHoldsManagerRole(db, user.id);
   } catch {
     return fail(503, "Could not verify your account. Try again.");
   }

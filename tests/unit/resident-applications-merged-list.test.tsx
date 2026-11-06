@@ -29,7 +29,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => vi.fn() }));
 vi.mock("@/hooks/use-portal-session", () => ({
-  usePortalSession: () => ({ email: "jamie.rivera@example.com", ready: true }),
+  usePortalSession: () => ({ email: "jamie.rivera@example.com", userId: "resident-test", ready: true }),
 }));
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useConfirm: () => () => Promise.resolve(true),
@@ -86,6 +86,7 @@ function rowFor(id: string, bucket: DemoApplicantRow["bucket"], name: string): D
     id,
     name,
     email: "jamie.rivera@example.com",
+    residentUserId: "resident-test",
     property: `${name} House`,
     propertyId: PROPERTY_ID,
     stage: bucket === "approved" ? "Approved" : bucket === "rejected" ? "Declined" : "Submitted",

@@ -4,10 +4,12 @@
  *
  * Nothing here does money arithmetic of its own. The terms are read from the
  * same placement resolver the ledger bills from (`resolvePlacementValuesForRow`),
- * and every figure in the schedule comes from `buildLeaseBillingSnapshot`, the
- * resolver the lease document itself is rendered from. The schedule is
- * recomputed from the SAVED application after each edit, so it can never show
- * a figure the ledger would not create.
+ * and every figure in the schedule — plus the deposit the sheet shows, once a
+ * `managerUserId` is passed — comes from `buildLeaseBillingSnapshot`, the
+ * resolver the lease document itself is rendered from.
+ * Both are recomputed from the SAVED application, so they can never show a
+ * figure the ledger would not create. The Send lease screen only READS them now;
+ * terms change in Edit resident, and that save regenerates the editable lease.
  *
  * For an uploaded PDF the same four terms are compared against what the PDF
  * says (`UploadedLeaseParse.fields`): a term the two disagree on shows both
@@ -38,21 +40,35 @@ export type LeaseSendTerms = {
 type TermsApplicant = Pick<
   DemoApplicantRow,
   "application" | "assignedPropertyId" | "assignedRoomChoice" | "propertyId" | "property" | "signedMonthlyRent"
->;
+> &
+  Partial<Pick<DemoApplicantRow, "id" | "email" | "manualResidentDetails">>;
 
 function plainMoney(amount: number): string {
   if (!Number.isFinite(amount) || amount <= 0) return "";
   return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
 }
 
-/** The terms the application currently carries, exactly as the ledger would bill them. */
-export function leaseSendTermsFor(applicant: TermsApplicant): LeaseSendTerms {
+/**
+ * The terms the application currently carries, exactly as the ledger would bill them. Start, End and
+ * Rent are the placement resolver's; the Deposit is the billing snapshot's - the figure the Payments
+ * schedule beside it shows - because a manually added resident's deposit lives in
+ * `manualResidentDetails` and a short stay's in the stay pricing, neither of which the placement sees.
+ */
+export function leaseSendTermsFor(applicant: TermsApplicant, managerUserId?: string | null): LeaseSendTerms {
   const placement = resolvePlacementValuesForRow(applicant);
+  let deposit = placement.securityDeposit;
+  if (managerUserId !== undefined) {
+    try {
+      deposit = buildLeaseBillingSnapshot(applicant as Parameters<typeof buildLeaseBillingSnapshot>[0], managerUserId).securityDeposit;
+    } catch {
+      deposit = placement.securityDeposit;
+    }
+  }
   return {
     start: placement.leaseStart,
     end: placement.leaseEnd,
     rent: plainMoney(placement.signedMonthlyRent),
-    deposit: placement.securityDeposit > 0 ? plainMoney(placement.securityDeposit) : "0",
+    deposit: deposit > 0 ? plainMoney(deposit) : "0",
   };
 }
 

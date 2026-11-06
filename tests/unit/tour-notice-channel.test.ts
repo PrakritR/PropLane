@@ -12,8 +12,9 @@ vi.mock("@/lib/sms/tour-sms-eligibility.server", () => ({ resolveTourSmsEligibil
 const sendSms = vi.fn(async (..._args: unknown[]) => ({ sent: true, accepted: true }));
 vi.mock("@/lib/resident-outbound-sms.server", () => ({ sendResidentOutboundSms: (...a: unknown[]) => sendSms(...a) }));
 const inbox: Array<Record<string, unknown>> = [];
+const inboxWrite = vi.fn(async (_db: unknown, input: Record<string, unknown>) => { inbox.push(input); });
 vi.mock("@/lib/property-manager-inbox-thread.server", () => ({
-  appendResidentPropertyManagerInboxMessage: vi.fn(async (_db: unknown, input: Record<string, unknown>) => { inbox.push(input); }),
+  appendResidentPropertyManagerInboxMessage: (...args: [unknown, Record<string, unknown>]) => inboxWrite(...args),
   appendManagerPropertyLeadInboxMessage: vi.fn(async () => undefined),
 }));
 vi.mock("@/lib/portal-inbox-delivery", () => ({ deliverPortalMessageThreadSide: vi.fn(async () => undefined) }));
@@ -42,7 +43,10 @@ import {
 } from "@/lib/tour-notification-delivery.server";
 
 const db = {
-  from: () => ({
+  from: (table: string) => table === "resident_tour_links" ? (() => {
+    const query = { select: () => query, eq: () => query, limit: async () => ({ data: [{ resident_user_id: "resident-1" }], error: null }) };
+    return query;
+  })() : ({
     select: () => ({
       eq: () => ({
         maybeSingle: async () => ({ data: { id: "mgr-1", email: "owner@proplane.test", full_name: "Ambika", property_data: { address: "12 Cedar St" } } }),
@@ -94,8 +98,15 @@ describe.each([
 
 describe("the portal inbox copy of a confirmed or changed tour carries the same link", () => {
   it("confirmed", async () => {
-    await notifyTenantTourConfirmed(db, null, row({ noticeChannel: "portal" }) as never, window);
+    const result = await notifyTenantTourConfirmed(db, null, row({ noticeChannel: "portal" }) as never, window);
+    expect(result.inbox.sent).toBe(true);
     expect(String(inbox[0]!.body)).toContain("https://proplane.ai/resident/tour");
+  });
+  it("reports a bound inbox write failure without claiming delivery", async () => {
+    inboxWrite.mockRejectedValueOnce(new Error("unavailable"));
+    const result = await notifyTenantTourConfirmed(db, null, row() as never, window);
+    expect(result.inbox).toMatchObject({ sent: false, error: expect.any(String) });
+    expect(result.ok).toBe(false);
   });
   it("rescheduled and cancelled", async () => {
     await notifyTenantTourRescheduled(db, null, row({ noticeChannel: "portal" }) as never, { window: { ...moved, managerUserId: "mgr-1" }, previousWindow: window });

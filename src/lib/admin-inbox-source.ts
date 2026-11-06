@@ -11,6 +11,7 @@
  * when the recipient has never been messaged (`admin-inbox-threads.ts`).
  */
 import { isManagerAgentNoticeThreadId } from "@/lib/communication-manager-assistant-thread";
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { emitAdminUi } from "@/lib/demo-admin-ui";
 import {
   moveInboxMessageToTrash,
@@ -66,7 +67,7 @@ export async function refreshAdminAssistantThread(): Promise<boolean> {
 export async function refreshAdminScheduled(): Promise<boolean> {
   if (typeof window === "undefined" || isDemoModeActive()) return true;
   try {
-    const res = await fetch("/api/portal/scheduled-inbox-messages", { credentials: "include", cache: "no-store" });
+    const res = await fetch(adminOversightUrl("/api/portal/scheduled-inbox-messages"), { credentials: "include", cache: "no-store" });
     if (!res.ok) return false;
     const body = (await res.json()) as { messages?: ScheduledInboxMessageRecord[] };
     scheduledRecords = Array.isArray(body.messages) ? body.messages : [];

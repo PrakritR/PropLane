@@ -1,5 +1,6 @@
 import "server-only";
 
+import { isDurableSmsIngress } from "@/lib/sms/durable-ingress-context.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   type SharedLineCandidate,
@@ -56,6 +57,7 @@ async function settle(label: string, work: Promise<unknown>): Promise<void> {
   try {
     await work;
   } catch (error) {
+    if (isDurableSmsIngress()) throw error;
     console.error(`shared line ${label} failed`, error instanceof Error ? error.name : "unknown");
   }
 }
@@ -106,9 +108,9 @@ async function residentSearchingForHousing(db: SupabaseClient, inbound: SharedLi
  * The `continue` is returned only when that downstream recognition (`recognizeServiceManagerInbound`, the same predicate,
  * asked of the same phone on the same line) will succeed; otherwise the text would reach the manager pipeline as nobody.
  */
-async function adminAssistantContinuation(
+export async function adminAssistantContinuation(
   db: SupabaseClient,
-  input: SeamInput,
+  input: Pick<SeamInput, "config" | "fromPhone">,
 ): Promise<Extract<SharedLineSeamResult, { kind: "continue" }> | null> {
   try {
     const profile = await findVerifiedProfileByPhone(db, input.fromPhone);
@@ -153,6 +155,7 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
       const handled = await handleGroupPreferenceText(db, { fromPhone: input.fromPhone, command: groupCommand, messageSid: input.messageSid });
       if (handled.handled) return { kind: "handled", twiml: handled.reply };
     } catch (error) {
+    if (isDurableSmsIngress()) throw error;
       console.error("house group preference failed", error instanceof Error ? error.name : "unknown");
     }
   }
@@ -163,6 +166,7 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
     const redirect = await personalNumberRedirectFor(db, { fromPhone: input.fromPhone, body: input.body });
     if (redirect) return { kind: "handled", twiml: redirect.reply };
   } catch (error) {
+    if (isDurableSmsIngress()) throw error;
     console.error("personal number redirect failed", error instanceof Error ? error.name : "unknown");
   }
   // The owner of a PropLane-managed workspace asking about their house, or answering a repair approval. The router's team lane
@@ -173,6 +177,7 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
     const owner = await handleOwnerLine(db, { fromPhone: input.fromPhone, body: input.body });
     if (owner.handled) return { kind: "handled", twiml: owner.reply };
   } catch (error) {
+    if (isDurableSmsIngress()) throw error;
     console.error("owner line failed", error instanceof Error ? error.name : "unknown");
   }
   // on/smsowner: the owner of record of a PropLane Service workspace (a client seated as a Property owner) is not a
@@ -183,6 +188,7 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
     const member = await handleLineMemberText(db, { fromPhone: input.fromPhone, body: input.body, phoneKey: input.phoneKey, mode: "shared_line", messageSid: input.messageSid });
     if (member.handled) return { kind: "handled", twiml: member.reply };
   } catch (error) {
+    if (isDurableSmsIngress()) throw error;
     console.error("line member status failed", error instanceof Error ? error.name : "unknown");
   }
   const inbound: SharedLineInbound = {

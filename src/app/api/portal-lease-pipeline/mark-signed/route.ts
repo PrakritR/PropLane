@@ -1,7 +1,7 @@
 import { residentNoticeChannel } from "@/lib/resident-notice-channel.server";
 import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
 import { NextResponse } from "next/server";
-import { isAdminUser } from "@/lib/auth/admin-preview";
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { managerCanAccessLeaseRecord, type LeaseScopeRecord } from "@/lib/auth/manager-lease-scope";
 import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access";
 import { autoFileLeaseDocument, type AutoFileLeaseRow } from "@/lib/documents/document-auto-file-hooks.server";
@@ -11,6 +11,7 @@ import { queueHouseChatSyncForProperty } from "@/lib/house-chat/sync.server";
 import { leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
 import { normalizeLeasePipelineRow, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { syncLeaseLifecycleTasks } from "@/lib/manager-default-tasks.server";
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -75,13 +76,17 @@ export async function POST(req: Request) {
 
     const db = createSupabaseServiceRoleClient();
     const { data: profile } = await db.from("profiles").select("email, full_name, role").eq("id", user.id).maybeSingle();
-    const admin = await isAdminUser(user.id);
+    const admin = await resolveAdminOversight(req, user.id);
     const role = admin
       ? "admin"
-      : await resolveResidentScopedActorRole(db, { userId: user.id, legacyRole: profile?.role ?? user.user_metadata?.role });
-    if (role === "resident") {
+      : await resolveResidentScopedActorRole(db, { userId: user.id, legacyRole: profile?.role });
+    if (role !== "manager" && role !== "admin") {
       return NextResponse.json({ error: "Only a manager can mark a lease as signed." }, { status: 403 });
     }
+
+    // A manager-only write: the shared owner-only seam is asked after the role gate.
+    const ownerRefusal = await refuseOwnerOnly(db, user.id);
+    if (ownerRefusal) return ownerRefusal;
 
     const body = (await req.json().catch(() => ({}))) as MarkSignedBody;
     const leaseId = typeof body.leaseId === "string" ? body.leaseId.trim() : "";

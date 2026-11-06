@@ -555,3 +555,7 @@ Plan `channels-sync-1027` (captain, Oct 27). No migration; one production row wa
   "Check-in tomorrow", "Check-out today") carries `rollKey` (`bookingNoticeRollKey` of the booking record key) on its
   message, and `groupNoticesByBooking` returns one reservation's notices together. Existing messages stay as history.
 
+## Daily check-in / check-out text
+
+`src/lib/one-number/checkin-digest.ts` (pure) reads the same `PropertyBookingEntry` rows Bookings draws (`occupancyEntriesForManager`, the entries half of `occupancySnapshotForManager`): a check-in is `start === today`, a check-out is the day after `end` (the last night; an open-ended stay never checks out), and a closure, cancellation, unpaid hold or channel "Not available" is never a stay. `checkin-digest.server.ts` sends one line per house to the owner's alert phones at 7 AM Pacific; guests are first names only.
+

@@ -27,7 +27,7 @@ beforeEach(() => {
       select: () => query, order: () => query, limit: () => query, ilike: () => query,
       eq: () => query, neq: () => { shared = true; return query; },
       maybeSingle: async () => ({ data: { role: "manager" } }),
-      then(resolve: (value: unknown) => unknown) { return Promise.resolve({ data: table === "manager_vendor_records" && shared ? [{ row_data: row, manager_user_id: "owner" }] : [], error: null }).then(resolve); },
+      then(resolve: (value: unknown) => unknown) { return Promise.resolve({ data: table === "profile_roles" ? [{ role: "manager" }] : table === "manager_vendor_records" && shared ? [{ row_data: row, manager_user_id: "owner" }] : [], error: null }).then(resolve); },
     };
     return query;
   } });

@@ -303,10 +303,6 @@ export type ApplicationAccessRow = {
 
 const APPLICATION_ACCESS_COLUMNS = "id, manager_user_id, property_id, assigned_property_id, resident_email, row_data";
 
-function normalizeEmail(value: string | null | undefined): string {
-  return (value ?? "").trim().toLowerCase();
-}
-
 export async function loadApplicationAccessRow(db: SupabaseClient, applicationId: string): Promise<ApplicationAccessRow | null> {
   const trimmed = applicationId.trim();
   if (!trimmed) return null;
@@ -315,19 +311,24 @@ export async function loadApplicationAccessRow(db: SupabaseClient, applicationId
   return ((data ?? [])[0] as ApplicationAccessRow | undefined) ?? null;
 }
 
-/** The applicant's own row: a signed-in email that matches (never an empty one), and a bound user id must agree. */
+/**
+ * The applicant's own row. The application's BOUND subject (`row_data.residentUserId`) alone decides: a match
+ * allows, a mismatch denies, and an unbound application gives the applicant no access (a legacy row is
+ * manager-only). Neither the request's `applicant_user_id` nor an email match ever overrides the bound subject.
+ */
 export function userOwnsApplication(
   app: Pick<ApplicationAccessRow, "id" | "resident_email" | "row_data">,
   user: { id: string; email?: string | null },
-  request?: Pick<LinkedFormRequestRow, "applicant_user_id"> | null,
+  _request?: Pick<LinkedFormRequestRow, "applicant_user_id"> | null,
 ): boolean {
-  if (request?.applicant_user_id && request.applicant_user_id === user.id) return true;
+  const bound = boundApplicantUserId(app);
+  return Boolean(bound) && bound === user.id;
+}
+
+function boundApplicantUserId(app: Pick<ApplicationAccessRow, "id" | "row_data">): string | null {
   const row = openApplicantRow(app.row_data, app.id, true, { soft: true });
-  const bound = row.residentUserId?.trim();
-  if (bound && bound !== user.id) return false;
-  const sessionEmail = normalizeEmail(user.email);
-  if (!sessionEmail) return false;
-  return sessionEmail === normalizeEmail(row.email) || sessionEmail === normalizeEmail(app.resident_email);
+  const bound = typeof row.residentUserId === "string" ? row.residentUserId.trim() : "";
+  return bound || null;
 }
 
 /**
@@ -423,16 +424,10 @@ export async function listLinkedFormRequestsForResident(
   db: SupabaseClient,
   user: { id: string; email?: string | null },
 ): Promise<{ own: LinkedFormRequestView[]; helping: LinkedFormRequestView[] }> {
-  const sessionEmail = normalizeEmail(user.email);
   const appIds = new Set<string>();
+  // Listed by the request's own applicant column only; each application's bound subject is re-checked below.
   const { data: byUser } = await db.from("application_form_requests").select("application_id").eq("applicant_user_id", user.id);
   for (const entry of (byUser ?? []) as Array<{ application_id: string }>) appIds.add(entry.application_id);
-  if (sessionEmail) {
-    // No `.limit()`: an applicant with more applications than the page size silently lost the forms
-    // owed on the ones that fell off the end.
-    const { data: byEmail } = await db.from("manager_application_records").select("id").eq("resident_email", sessionEmail);
-    for (const entry of (byEmail ?? []) as Array<{ id: string }>) appIds.add(entry.id);
-  }
   // One application read per application, and one property read per property, however many forms
   // are owed on it: `toLinkedFormRequestViews` caches listings for the whole batch it is given, so
   // it is called ONCE per list rather than per request.
@@ -548,7 +543,7 @@ export async function redeemLinkedFormToken(
     .select("id");
   if (claimError || !Array.isArray(claimed) || claimed.length === 0) return { ok: false };
 
-  const applicantUserId = request.applicant_user_id ?? (await applicantUserIdFor(db, app));
+  const applicantUserId = boundApplicantUserId(app);
   if (applicantUserId && applicantUserId !== user.id) {
     // The applicant <-> helper link behind "Forms for <applicant>". One row per pair per application.
     await db.from("resident_account_links").upsert(
@@ -563,17 +558,6 @@ export async function redeemLinkedFormToken(
   }
   // With no applicant login yet there is nobody to link to; the helper still holds THIS request.
   return { ok: true, request: { ...request, helper_user_id: user.id }, role: "helper" };
-}
-
-async function applicantUserIdFor(db: SupabaseClient, app: ApplicationAccessRow): Promise<string | null> {
-  const row = openApplicantRow(app.row_data, app.id, true, { soft: true });
-  const bound = row.residentUserId?.trim();
-  if (bound) return bound;
-  const email = normalizeEmail(row.email) || normalizeEmail(app.resident_email);
-  if (!email) return null;
-  const { data } = await db.from("profiles").select("id").ilike("email", email.replace(/[\\%_]/g, "\\$&")).limit(1).maybeSingle();
-  const id = typeof (data as { id?: unknown } | null)?.id === "string" ? (data as { id: string }).id : "";
-  return id || null;
 }
 
 /* ------------------------------------------------------------- finish */

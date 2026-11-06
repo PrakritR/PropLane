@@ -474,7 +474,7 @@ function ApplicationFormAutomationBlock() {
           className="w-28 text-right"
           value={feeDollars}
           disabled={disabled}
-          placeholder="50"
+          placeholder="0"
           data-attr="forms-application-fee"
           onChange={(e) => {
             const raw = e.target.value.trim().replace(/[^0-9.]/g, "");

@@ -62,6 +62,7 @@ const db = {
     return { data: "persisted", error: null };
   },
   from: (table: string) => {
+    if (table === "profile_roles") return { select: () => ({ eq: async () => ({ data: state.profile?.role ? [{ role: state.profile.role }] : [], error: null }) }) };
     if (table === "profiles") {
       return {
         select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: state.profile }) }) }),

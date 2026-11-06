@@ -130,13 +130,36 @@ describe("partner-inquiries route SMS consent persistence", () => {
     upsertCalls.length = 0;
     existingInquiryPayload = [];
     linkTourInquiryToResident.mockClear();
+    // A tour needs a signed-in account (no anonymous booking), so consent is exercised signed in.
     vi.mocked(getPortalAccessContext).mockResolvedValue({
-      user: null,
-      profile: null,
-      roles: [],
-      effectiveRole: null,
+      user: { id: "res-1", email: "resident@example.com", email_confirmed_at: "confirmed" },
+      profile: { email: "resident@example.com" },
+      roles: ["resident"],
+      effectiveRole: "resident",
     } as never);
-    vi.mocked(hasRole).mockReturnValue(false);
+    vi.mocked(hasRole).mockImplementation((_ctx, role) => role === "resident");
+  });
+
+  it("refuses a tour with no signed-in session: 401, nothing written, no opt-in", async () => {
+    vi.mocked(getPortalAccessContext).mockResolvedValue({ user: null, profile: null, roles: [], effectiveRole: null } as never);
+    const res = await postWith(makeRow({ smsConsent: true }));
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ reason: "sign_in_required" });
+    expect(upsertCalls).toHaveLength(0);
+    expect(recordOptIn).not.toHaveBeenCalled();
+  });
+
+  it("refuses a tour whose session cannot be read (fails closed)", async () => {
+    vi.mocked(getPortalAccessContext).mockRejectedValue(new Error("session store down"));
+    const res = await postWith(makeRow({}));
+    expect(res.status).toBe(401);
+    expect(upsertCalls).toHaveLength(0);
+  });
+
+  it("still accepts a partner meeting with no session (the one anonymous use of this route)", async () => {
+    vi.mocked(getPortalAccessContext).mockResolvedValue({ user: null, profile: null, roles: [], effectiveRole: null } as never);
+    const res = await postWith(makeRow({ kind: "partner", requestedWindows: undefined, managerUserId: undefined, propertyId: undefined }));
+    expect(res.status).not.toBe(401);
   });
 
   it("persists consent + a server-stamped timestamp and records opt-in when the box is checked", async () => {
@@ -201,7 +224,7 @@ describe("partner-inquiries route resident tour linking", () => {
     upsertCalls.length = 0;
     linkTourInquiryToResident.mockClear();
     vi.mocked(getPortalAccessContext).mockResolvedValue({
-      user: { id: "res-1", email: "resident@example.com" },
+      user: { id: "res-1", email: "resident@example.com", email_confirmed_at: "confirmed" },
       profile: { email: "resident@example.com" },
       roles: ["resident"],
       effectiveRole: "resident",
@@ -217,11 +240,13 @@ describe("partner-inquiries route resident tour linking", () => {
     expect(persisted.email).toBe("resident@example.com");
 
     expect(ensureSignedInResidentAccount).toHaveBeenCalled();
+    // The link binds the id the SERVER minted, never the one the body named.
     expect(linkTourInquiryToResident).toHaveBeenCalledWith(expect.anything(), {
       userId: "res-1",
-      inquiryId: "inq-1",
+      inquiryId: persisted.id,
       email: "resident@example.com",
     });
+    expect(persisted.id).not.toBe("inq-1");
   });
 
   it("preserves both existing owner inquiries when a signed-in resident books publicly", async () => {
@@ -235,12 +260,50 @@ describe("partner-inquiries route resident tour linking", () => {
     const records = upsertCalls.at(-1) as Record<string, unknown>[];
     const singleton = records.find((record) => record.record_type === "axis_admin_partner_inquiries_v1");
     const payload = (singleton?.row_data as { payload?: Record<string, unknown>[] } | undefined)?.payload ?? [];
-    expect(payload.map((row) => row.id)).toEqual(["inq-1", "owner-a-inquiry", "owner-b-inquiry"]);
+    expect(payload.map((row) => row.id).slice(1)).toEqual(["owner-a-inquiry", "owner-b-inquiry"]);
+    expect(payload[0]!.id).not.toBe("inq-1");
+  });
+
+  /**
+   * The id is what binds a tour to its resident (`resident_tour_links.inquiry_id`), and this
+   * route is public and anonymous. Honouring a caller's id let anyone name an existing linked
+   * inquiry, replace its manager, property and time, and have that resident receive the
+   * notices for the tour they just overwrote.
+   */
+  it("mints a new id instead of replacing the inquiry a caller names", async () => {
+    const victim = {
+      id: "victim-inquiry",
+      kind: "tour",
+      email: "linked-resident@example.com",
+      managerUserId: "owner-a",
+      propertyId: "property-a",
+      proposedStart: "2026-07-01T18:00:00.000Z",
+      proposedEnd: "2026-07-01T18:30:00.000Z",
+    };
+    existingInquiryPayload = [victim];
+
+    const res = await postWith(makeRow({ id: "victim-inquiry", managerUserId: "attacker-host", propertyId: "attacker-property" }));
+    expect(res.status).toBe(200);
+
+    const records = upsertCalls.at(-1) as Record<string, unknown>[];
+    const singleton = records.find((record) => record.record_type === "axis_admin_partner_inquiries_v1");
+    const payload = (singleton?.row_data as { payload?: Record<string, unknown>[] } | undefined)?.payload ?? [];
+
+    // The named row survives byte-for-byte: nothing about it was replaced.
+    expect(payload.find((row) => row.id === "victim-inquiry")).toEqual(victim);
+    // And the attacker's tour is a NEW row under an id it did not choose.
+    const created = payload.find((row) => row.id !== "victim-inquiry")!;
+    expect(payload).toHaveLength(2);
+    expect(created.id).toEqual(expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/));
+    expect(created.managerUserId).toBe("attacker-host");
+    // The signed-in caller's link binds the id the SERVER minted, never the victim's.
+    expect(linkTourInquiryToResident).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ inquiryId: created.id }));
+    expect(linkTourInquiryToResident).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ inquiryId: "victim-inquiry" }));
   });
 
   it("links tours for signed-in managers who book through a property link", async () => {
     vi.mocked(getPortalAccessContext).mockResolvedValue({
-      user: { id: "mgr-1", email: "mgr@example.com" },
+      user: { id: "mgr-1", email: "mgr@example.com", email_confirmed_at: "confirmed" },
       profile: { email: "mgr@example.com" },
       roles: ["manager"],
       effectiveRole: "manager",
@@ -254,6 +317,7 @@ describe("partner-inquiries route resident tour linking", () => {
     expect(ensureSignedInResidentAccount).toHaveBeenCalledWith(expect.anything(), {
       id: "mgr-1",
       email: "mgr@example.com",
+      email_confirmed_at: "confirmed",
     });
     expect(linkTourInquiryToResident).toHaveBeenCalled();
   });

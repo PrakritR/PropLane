@@ -2,6 +2,7 @@ import {
   findManagerPurchaseForAccount,
   finalizePendingManagerFreeTier,
   isManagerOnboardingComplete,
+  MANAGER_CHECKOUT_IN_PROGRESS_ERROR,
   provisionPendingManagerAccount,
 } from "@/lib/auth/manager-onboarding";
 import { markGoogleServicesOnboardingPending } from "@/lib/auth/manager-google-services-onboarding.server";
@@ -58,7 +59,8 @@ export async function completeFreeManagerTierForUser(
     throw new Error("A manager account already exists for this email. Sign in instead.");
   }
 
-  await finalizePendingManagerFreeTier(supabase, opts);
+  const finalized = await finalizePendingManagerFreeTier(supabase, opts);
+  if (finalized.status === "skipped") throw new Error(MANAGER_CHECKOUT_IN_PROGRESS_ERROR);
   await markGoogleServicesOnboardingPending(supabase, opts.userId).catch(() => undefined);
   return { managerId: prepared.managerId, alreadyLinked: true };
 }

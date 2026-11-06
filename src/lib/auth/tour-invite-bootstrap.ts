@@ -1,0 +1,2 @@
+/** Runs before client analytics: fragment secrets never enter the request URL. */
+export const TOUR_INVITE_BOOTSTRAP = `try { if (location.pathname === "/auth/create-account") { var p = new URLSearchParams(location.hash.slice(1)); var t = p.get("tour_token"); if (t && /^[a-f0-9]{64}$/.test(t)) { history.replaceState(history.state, "", location.pathname + location.search); sessionStorage.setItem("proplane_tour_invite", t); } } } catch (_) {}`;

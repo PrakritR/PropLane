@@ -132,10 +132,10 @@ describe("managedReadOnlyWorkspaceIds (mirror of the SQL rule)", () => {
   it("platform admin and the platform service owner are never locked", async () => {
     expect(await managedReadOnlyWorkspaceIds(world({ roles: [{ user_id: "client", role: "admin" }] }), "client")).toEqual([]);
     expect(await managedReadOnlyWorkspaceIds(world({ settings: [{ owner_user_id: "client" }] }), "client")).toEqual([]);
-    expect(await managedReadOnlyWorkspaceIds(world({ profile: { id: "client", email: "founders@axis-seattle-housing.com" } }), "client")).toEqual([]);
+    expect(await managedReadOnlyWorkspaceIds(world({ profile: { id: "client", email: "founders@axis-seattle-housing.com" } }), "client")).toEqual([WS]);
   });
 
-  it("the LEGACY profiles.role column never escapes the lock: only profile_roles (or the ops address) does", async () => {
+  it("the LEGACY profiles.role column never escapes the lock: only profile_roles does", async () => {
     // `profiles.role` is the role the account was created as and is kept forever, so an owner first created as
     // admin - or one whose admin row was revoked - must not keep full write.
     const legacy = world({ profile: { id: "client", email: "ambika@example.com", role: "admin" }, roles: [] });
@@ -173,7 +173,7 @@ describe("managedReadOnlyWorkspaceIds (mirror of the SQL rule)", () => {
   });
   it("fails closed: a read error throws from the list and counts as locked for one workspace", async () => {
     const db = world({});
-    const broken = fakeDb({ portal_workspaces: [{ id: WS, owner_user_id: "client", is_service: true }] }, "profiles");
+    const broken = fakeDb({ portal_workspaces: [{ id: WS, owner_user_id: "client", is_service: true }] }, "account_link_invites");
     await expect(managedReadOnlyWorkspaceIds(broken, "client")).rejects.toThrow();
     expect(await isManagedReadOnly(broken, "client", WS2)).toBe(true);
     expect(await isManagedReadOnly(db, "client", WS)).toBe(true);

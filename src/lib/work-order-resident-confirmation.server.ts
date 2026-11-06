@@ -17,15 +17,17 @@ import { createHash, randomBytes } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { RESIDENT_CONFIRMATION_TTL_MS } from "@/lib/resident-confirmation-window";
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { resolveServiceAutomationSettingsForRow } from "@/lib/service-automation-settings.server";
 import { createSettingsScopeCache } from "@/lib/settings/scope-resolver.server";
+import { isTerminalService } from "@/lib/vendor-dispatch/work-order-open.server";
 import { workOrderEvent, type WorkOrderEventRecipient } from "@/lib/work-order-events.server";
 
 export const RESIDENT_CONFIRMATION_PATH = "/services/confirm";
 
 /** Seven days: a resident should not be able to reopen a job from a month-old email. */
-const TOKEN_TTL_MS = 7 * 24 * 60 * 60_000;
+const TOKEN_TTL_MS = RESIDENT_CONFIRMATION_TTL_MS;
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token.trim(), "utf8").digest("hex");
@@ -41,6 +43,9 @@ type WorkOrderRecord = {
   id: string;
   manager_user_id: string;
   vendor_user_id: string | null;
+  resident_user_id?: string | null;
+  row_revision?: number;
+  updated_at: string | null;
   row_data: DemoManagerWorkOrderRow;
 };
 
@@ -53,6 +58,19 @@ async function managerRecipients(db: SupabaseClient, record: WorkOrderRecord): P
   return ids.map((userId) => ({ audience: "manager" as const, userId }));
 }
 
+/** Prepare a confirmation without writing a potentially stale work-order snapshot. */
+export async function prepareResidentConfirmation(
+  db: SupabaseClient,
+  managerUserId: string,
+  rowData: DemoManagerWorkOrderRow,
+): Promise<{ tokenDigest: string; confirmUrl: string } | null> {
+  const propertyId = rowData.assignedPropertyId || rowData.propertyId || null;
+  const settings = await resolveServiceAutomationSettingsForRow(db, createSettingsScopeCache(), managerUserId, propertyId).catch(() => null);
+  if (!settings?.residentConfirmation || !(rowData.residentEmail ?? "").includes("@")) return null;
+  const token = randomBytes(24).toString("base64url");
+  return { tokenDigest: hashToken(token), confirmUrl: residentConfirmationUrl(token) };
+}
+
 /**
  * Stamp a fresh confirmation request on the row and return the link to put in
  * the resident's message. Returns null when the manager has the step off.
@@ -61,30 +79,33 @@ export async function requestResidentConfirmation(
   db: SupabaseClient,
   workOrderId: string,
   managerUserId: string,
-  rowData: DemoManagerWorkOrderRow,
   now: Date = new Date(),
 ): Promise<{ rowData: DemoManagerWorkOrderRow; confirmUrl: string } | null> {
-  // A house with its own service automation settings gets them; a work order
-  // with no property, or an un-customized house, falls through workspace then
-  // account (phase C).
-  const propertyId = rowData.assignedPropertyId || rowData.propertyId || null;
-  const settings = await resolveServiceAutomationSettingsForRow(db, createSettingsScopeCache(), managerUserId, propertyId).catch(() => null);
-  if (!settings?.residentConfirmation) return null;
-  if (!(rowData.residentEmail ?? "").includes("@")) return null;
-  const token = randomBytes(24).toString("base64url");
+  const { data, error } = await db.from("portal_work_order_records")
+    .select("row_data, row_revision, resident_user_id")
+    .eq("id", workOrderId).eq("manager_user_id", managerUserId).maybeSingle();
+  const current = data as { row_data?: DemoManagerWorkOrderRow; row_revision?: number; resident_user_id?: string | null } | null;
+  if (error || !current?.row_data || current.row_revision === undefined || !current.resident_user_id || isTerminalService(current.row_data)) return null;
+  const prepared = await prepareResidentConfirmation(db, managerUserId, current.row_data);
+  if (!prepared) return null;
   const next: DemoManagerWorkOrderRow = {
-    ...rowData,
-    residentConfirmation: { requestedAt: now.toISOString(), tokenId: hashToken(token) },
+    ...current.row_data,
+    residentConfirmation: { requestedAt: now.toISOString(), tokenId: prepared.tokenDigest },
   };
-  await db.from("portal_work_order_records").update({ row_data: next, updated_at: now.toISOString() }).eq("id", workOrderId);
-  return { rowData: next, confirmUrl: residentConfirmationUrl(token) };
+  const { data: updated, error: updateError } = await db.from("portal_work_order_records")
+    .update({ row_data: next, updated_at: now.toISOString() })
+    .eq("id", workOrderId).eq("manager_user_id", managerUserId)
+    .eq("resident_user_id", current.resident_user_id).eq("row_revision", current.row_revision)
+    .select("id").maybeSingle();
+  if (updateError || !updated) return null;
+  return { rowData: next, confirmUrl: prepared.confirmUrl };
 }
 
 async function findByToken(db: SupabaseClient, token: string): Promise<WorkOrderRecord | null> {
   const tokenId = hashToken(token);
   const { data } = await db
     .from("portal_work_order_records")
-    .select("id, manager_user_id, vendor_user_id, row_data")
+    .select("id, manager_user_id, vendor_user_id, resident_user_id, row_data, updated_at, row_revision")
     .contains("row_data", { residentConfirmation: { tokenId } })
     .limit(1)
     .maybeSingle();
@@ -100,7 +121,7 @@ export type ConfirmationLookup =
 export async function lookupResidentConfirmation(db: SupabaseClient, token: string): Promise<ConfirmationLookup> {
   const record = await findByToken(db, token);
   const confirmation = record?.row_data.residentConfirmation;
-  if (!record || !confirmation) return { ok: false, reason: "invalid" };
+  if (!record || !confirmation || (!confirmation.respondedAt && isTerminalService(record.row_data))) return { ok: false, reason: "invalid" };
   if (Date.parse(confirmation.requestedAt) + TOKEN_TTL_MS < Date.now()) return { ok: false, reason: "expired" };
   return {
     ok: true,
@@ -143,15 +164,15 @@ export async function resolveResidentConfirmation(
  */
 export async function resolveResidentConfirmationBySms(
   db: SupabaseClient,
-  input: { managerUserId: string; residentEmail: string; verdict: "fixed" | "not_fixed"; note?: string; now?: Date },
+  input: { managerUserId: string; residentUserId: string; verdict: "fixed" | "not_fixed"; note?: string; now?: Date },
 ): Promise<{ ok: true; title: string; reopened: boolean } | null> {
-  const email = input.residentEmail.trim().toLowerCase();
-  if (!email.includes("@")) return null;
+  const residentUserId = input.residentUserId.trim();
+  if (!residentUserId) return null;
   const { data } = await db
     .from("portal_work_order_records")
     .select("id, manager_user_id, vendor_user_id, row_data, updated_at")
     .eq("manager_user_id", input.managerUserId)
-    .eq("resident_email", email)
+    .eq("resident_user_id", residentUserId)
     .not("row_data->residentConfirmation", "is", null)
     .order("updated_at", { ascending: false })
     .limit(20);
@@ -159,7 +180,7 @@ export async function resolveResidentConfirmationBySms(
     (candidate) => candidate.row_data.residentConfirmation && !candidate.row_data.residentConfirmation.respondedAt,
   );
   if (!record) return null;
-  const result = await resolveConfirmationRecord(db, record, { verdict: input.verdict, note: input.note, now: input.now, ratingUrl: null });
+  const result = await resolveConfirmationRecord(db, record, { verdict: input.verdict, note: input.note, now: input.now, ratingUrl: null, residentUserId });
   if (!result.ok) return null;
   return { ok: true, title: record.row_data.title || "your service request", reopened: input.verdict === "not_fixed" };
 }
@@ -167,11 +188,11 @@ export async function resolveResidentConfirmationBySms(
 async function resolveConfirmationRecord(
   db: SupabaseClient,
   record: WorkOrderRecord | null,
-  input: { verdict: "fixed" | "not_fixed"; note?: string; now?: Date; ratingUrl: string | null },
+  input: { verdict: "fixed" | "not_fixed"; note?: string; now?: Date; ratingUrl: string | null; residentUserId?: string },
 ): Promise<{ ok: true; ratingUrl: string | null } | { ok: false; reason: "invalid" | "expired" | "answered" }> {
   const now = input.now ?? new Date();
   const confirmation = record?.row_data.residentConfirmation;
-  if (!record || !confirmation) return { ok: false, reason: "invalid" };
+  if (!record || !confirmation || isTerminalService(record.row_data)) return { ok: false, reason: "invalid" };
   if (Date.parse(confirmation.requestedAt) + TOKEN_TTL_MS < now.getTime()) return { ok: false, reason: "expired" };
   if (confirmation.respondedAt) return { ok: false, reason: "answered" };
 
@@ -185,10 +206,29 @@ async function resolveConfirmationRecord(
     // stands, so the invoice nudge and the manager's approval step both wait.
     ...(reopened ? { automationStatus: undefined, vendorMarkedDoneAt: undefined, reopenedAt: now.toISOString() } : {}),
   };
-  await db.from("portal_work_order_records").update({ row_data: next, updated_at: now.toISOString() }).eq("id", record.id);
+  const previousUpdateMs = Date.parse(record.updated_at ?? "");
+  if (!Number.isFinite(previousUpdateMs)) return { ok: false, reason: "invalid" };
+  const nextUpdate = new Date(Math.max(now.getTime(), previousUpdateMs + 1)).toISOString();
+  let update = db.from("portal_work_order_records").update({ row_data: next, updated_at: nextUpdate }).eq("id", record.id).eq("updated_at", record.updated_at);
+  if (input.residentUserId) update = update.eq("resident_user_id", input.residentUserId);
+  const { data: updated, error: updateError } = await update.select("id").maybeSingle();
+  if (updateError || !updated) return { ok: false, reason: "invalid" };
 
+  await emitResidentConfirmationEvent(db, record, input.verdict, confirmation.requestedAt, now, note, input.ratingUrl, input.residentUserId);
+
+  return { ok: true, ratingUrl: reopened ? null : input.ratingUrl ?? null };
+}
+
+/** Send the exact committed confirmation event; the dispatch RPC caller invokes this only after winning. */
+export async function emitResidentConfirmationEvent(
+  db: SupabaseClient, record: WorkOrderRecord, verdict: "fixed" | "not_fixed", requestedAt: string,
+  now: Date, note?: string, ratingUrl?: string | null, residentUserId?: string,
+): Promise<void> {
+  const reopened = verdict === "not_fixed";
   const sender = await senderFor(db, record.manager_user_id);
-  const residentEmail = (record.row_data.residentEmail ?? "").trim();
+  // The row's bound Auth subject, never a payload email, names the resident. A legacy row with
+  // no stored subject keeps its manager event and state but notifies no resident.
+  const residentSubject = (residentUserId ?? record.resident_user_id ?? "").trim();
   const facts = {
     reference: record.row_data.reference || "Work order",
     title: record.row_data.title || "Service",
@@ -196,12 +236,12 @@ async function resolveConfirmationRecord(
     vendorName: record.row_data.vendorName || record.row_data.assignee?.name || undefined,
     residentName: record.row_data.residentName || undefined,
     note,
-    ratingUrl: reopened ? undefined : input.ratingUrl ?? undefined,
+    ratingUrl: reopened ? undefined : ratingUrl ?? undefined,
     url: `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/portal/services/work-orders`,
   };
   const managers = await managerRecipients(db, record);
   await workOrderEvent(db, {
-    eventId: `${record.id}:${reopened ? "resident_reopened" : "resident_confirmed"}:${confirmation.requestedAt}`,
+    eventId: `${record.id}:${reopened ? "resident_reopened" : "resident_confirmed"}:${requestedAt}`,
     event: reopened ? "resident_reopened" : "resident_confirmed",
     managerUserId: record.manager_user_id,
     workOrderId: record.id,
@@ -210,14 +250,13 @@ async function resolveConfirmationRecord(
     senderName: sender.fullName,
     facts,
     recipients: [
-      ...(residentEmail.includes("@") ? [{ audience: "resident" as const, email: residentEmail }] : []),
+      ...(residentSubject ? [{ audience: "resident" as const, userId: residentSubject }] : []),
       ...managers,
       ...(reopened && record.vendor_user_id ? [{ audience: "vendor" as const, userId: record.vendor_user_id }] : []),
     ],
     now,
   }).catch(() => undefined);
 
-  return { ok: true, ratingUrl: reopened ? null : facts.ratingUrl ?? null };
 }
 
 /** The resident's star rating after confirming the fix; relayed to the vendor only when the manager shares ratings. */
@@ -228,7 +267,7 @@ export async function rateResidentConfirmation(
   const now = input.now ?? new Date();
   const record = await findByToken(db, input.token);
   const confirmation = record?.row_data.residentConfirmation;
-  if (!record || !confirmation) return { ok: false, reason: "invalid" };
+  if (!record || !confirmation || record.row_revision === undefined) return { ok: false, reason: "invalid" };
   if (Date.parse(confirmation.requestedAt) + TOKEN_TTL_MS < now.getTime()) return { ok: false, reason: "expired" };
   if (confirmation.verdict !== "fixed") return { ok: false, reason: "unconfirmed" };
   if (typeof confirmation.rating === "number") return { ok: false, reason: "rated" };
@@ -238,7 +277,12 @@ export async function rateResidentConfirmation(
     ...record.row_data,
     residentConfirmation: { ...confirmation, rating, ratedAt: now.toISOString(), ...(note ? { note } : {}) },
   };
-  await db.from("portal_work_order_records").update({ row_data: next, updated_at: now.toISOString() }).eq("id", record.id);
+  const { data: updated, error } = await db.from("portal_work_order_records")
+    .update({ row_data: next, updated_at: now.toISOString() })
+    .eq("id", record.id).eq("row_revision", record.row_revision)
+    .contains("row_data", { residentConfirmation: { tokenId: confirmation.tokenId, verdict: "fixed" } })
+    .select("id").maybeSingle();
+  if (error || !updated) return { ok: false, reason: "invalid" };
 
   // A house with its own service automation settings gets them; a work order
   // with no property, or an un-customized house, falls through workspace then
@@ -281,12 +325,12 @@ export async function rateResidentConfirmation(
 export async function autoCloseResidentConfirmations(db: SupabaseClient, now: Date = new Date()): Promise<number> {
   const { data, error } = await db
     .from("portal_work_order_records")
-    .select("id, manager_user_id, vendor_user_id, row_data")
+    .select("id, manager_user_id, vendor_user_id, resident_user_id, row_data, updated_at, row_revision")
     .not("row_data->residentConfirmation", "is", null)
     .limit(500);
   if (error) throw error;
   const open = ((data ?? []) as unknown as WorkOrderRecord[]).filter(
-    (record) => record.row_data.residentConfirmation && !record.row_data.residentConfirmation.respondedAt,
+    (record) => record.row_data.residentConfirmation && !record.row_data.residentConfirmation.respondedAt && !isTerminalService(record.row_data),
   );
   if (open.length === 0) return 0;
   let closed = 0;
@@ -309,13 +353,14 @@ export async function autoCloseResidentConfirmations(db: SupabaseClient, now: Da
       .from("portal_work_order_records")
       .update({ row_data: next, updated_at: now.toISOString() })
       .eq("id", record.id)
+      .eq("row_revision", record.row_revision)
       .contains("row_data", { residentConfirmation: { tokenId: confirmation.tokenId } })
       .select("id")
       .maybeSingle();
     if (!updated) continue;
     closed += 1;
-    const residentEmail = (record.row_data.residentEmail ?? "").trim();
-    if (!residentEmail.includes("@")) continue;
+    const residentUserId = record.resident_user_id?.trim();
+    if (!residentUserId) continue;
     const sender = await senderFor(db, record.manager_user_id);
     await workOrderEvent(db, {
       eventId: `${record.id}:auto_closed:${confirmation.requestedAt}`,
@@ -326,7 +371,7 @@ export async function autoCloseResidentConfirmations(db: SupabaseClient, now: Da
       senderEmail: sender.email,
       senderName: sender.fullName,
       facts: { reference: record.row_data.reference || "Work order", title: record.row_data.title || "Service", propertyLabel: record.row_data.propertyName || undefined },
-      recipients: [{ audience: "resident", email: residentEmail }],
+      recipients: [{ audience: "resident", userId: residentUserId }],
       now,
     }).catch(() => undefined);
   }

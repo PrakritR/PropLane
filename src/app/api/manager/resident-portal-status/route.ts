@@ -33,7 +33,7 @@ export async function POST(req: Request) {
         if (!profile.id || !profile.email) return null;
         const { data: authData } = await db.auth.admin.getUserById(profile.id);
         const meta = authData.user?.user_metadata as Record<string, unknown> | undefined;
-        // auto_provisioned_resident=true means they're still on the default password
+        // auto_provisioned_resident=true means the account was created on approval and the resident has not set up their own sign-in yet
         const autoProvisioned = meta?.auto_provisioned_resident === true;
         const passwordClaimed = Boolean(meta?.resident_password_claimed_at);
         return {

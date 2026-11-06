@@ -65,6 +65,7 @@ function makeDb() {
         maybeSingle: () =>
           Promise.resolve({ data: table === "profiles" ? { role: "manager", email: "owner@test.proplane.local" } : null, error: null }),
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
+          if (table === "profile_roles") return Promise.resolve({ data: [{ role: "manager" }], error: null }).then(resolve);
           const data = table === "manager_property_records" ? OWNED.filter((p) => p.manager_user_id === eqVal) : [];
           return Promise.resolve({ data, error: null }).then(resolve);
         },
@@ -92,7 +93,7 @@ beforeEach(() => {
   LINK_LOOKUP_FAILS = false;
   OWNED = [{ id: "owned-house", manager_user_id: MANAGER }];
   getUser.mockResolvedValue({
-    data: { user: { id: MANAGER, email: "owner@test.proplane.local", user_metadata: {} } },
+    data: { user: { id: MANAGER, email: "owner@test.proplane.local", email_confirmed_at: "confirmed", user_metadata: {} } },
     error: null,
   });
 });

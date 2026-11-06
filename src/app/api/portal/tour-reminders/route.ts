@@ -1,3 +1,4 @@
+import { userHoldsManagerRole } from "@/lib/manager-route-guard.server";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -20,14 +21,9 @@ async function requireManager() {
   if (!user?.id) return null;
 
   const db = createSupabaseServiceRoleClient();
-  const [{ data: profile }, { data: roles }] = await Promise.all([
-    db.from("profiles").select("role, full_name, email").eq("id", user.id).maybeSingle(),
-    db.from("profile_roles").select("role").eq("user_id", user.id),
-  ]);
-  const roleList = (roles ?? []).map((r) => String(r.role).toLowerCase());
-  const legacy = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-  const isManager = roleList.includes("manager") || legacy === "manager" || legacy === "admin";
-  if (!isManager) return null;
+  if (!(await userHoldsManagerRole(db, user.id))) return null;
+  const { data: profile, error: profileError } = await db.from("profiles").select("full_name, email").eq("id", user.id).maybeSingle();
+  if (profileError) return null;
 
   const managerName =
     profile?.full_name?.trim() || profile?.email?.trim() || user.email?.trim() || "Your property manager";

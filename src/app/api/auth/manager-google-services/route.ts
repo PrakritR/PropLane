@@ -17,13 +17,10 @@ async function requireManager() {
   if (!user?.id) return null;
 
   const db = createSupabaseServiceRoleClient();
-  const [{ data: profile }, { data: roles }] = await Promise.all([
-    db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
-    db.from("profile_roles").select("role").eq("user_id", user.id),
-  ]);
+  const { data: roles, error } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+  if (error) return null;
   const roleList = (roles ?? []).map((r) => String(r.role).toLowerCase());
-  const legacy = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-  const isManager = roleList.includes("manager") || legacy === "manager" || legacy === "admin";
+  const isManager = roleList.includes("manager") || roleList.includes("admin");
   if (!isManager) return null;
   return { db, userId: user.id };
 }

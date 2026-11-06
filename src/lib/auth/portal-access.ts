@@ -23,21 +23,8 @@ function isAuthRole(value: string): value is AuthRole {
   return value === "resident" || value === "manager" || value === "admin" || value === "vendor";
 }
 
-function mapLegacyPortalRole(role: string | null | undefined): AuthRole | null {
-  const value = String(role ?? "").toLowerCase();
-  if (value === "owner") return "manager";
-  return isAuthRole(value) ? value : null;
-}
-
-function normalizeRoles(
-  rows: { role: string }[] | null | undefined,
-  fallbackRole: string | null | undefined,
-): AuthRole[] {
-  return normalizePortalRoles(rows, fallbackRole);
-}
-
 /**
- * Roles from profile_roles (or legacy profiles.role), plus which portal is active via cookie when multi-role.
+ * Roles from profile_roles, plus which portal is active via cookie when multi-role.
  */
 export const getPortalAccessContext = cache(async (): Promise<PortalAccessContext> => {
   const base = await getServerSessionProfile();
@@ -59,7 +46,6 @@ export const getPortalAccessContext = cache(async (): Promise<PortalAccessContex
     redirect(phoneGateHref(requested));
   }
 
-  const fallbackRole = base.profile?.role ?? null;
 
   // A verified "View as" session resolves this request as the viewed account:
   // its roles, and the portal the operator opened (never the operator's own
@@ -68,10 +54,7 @@ export const getPortalAccessContext = cache(async (): Promise<PortalAccessContex
     return {
       user: base.user,
       profile: base.profile,
-      roles: normalizeRoles(
-        base.viewAs.target.roles.map((role) => ({ role })),
-        fallbackRole,
-      ),
+      roles: normalizePortalRoles(base.viewAs.target.roles.map((role) => ({ role })), null),
       effectiveRole: base.viewAs.portal,
     };
   }
@@ -80,9 +63,9 @@ export const getPortalAccessContext = cache(async (): Promise<PortalAccessContex
   try {
     const supabase = await createSupabaseServerClient();
     const { data: roleRows, error: roleErr } = await supabase.from("profile_roles").select("role").eq("user_id", base.user.id);
-    roles = roleErr ? normalizeRoles(null, fallbackRole) : normalizeRoles(roleRows, fallbackRole);
+    roles = roleErr ? [] : normalizePortalRoles(roleRows, null);
   } catch {
-    roles = normalizeRoles(null, fallbackRole);
+    roles = [];
   }
 
   let cookieRole: AuthRole | null = null;

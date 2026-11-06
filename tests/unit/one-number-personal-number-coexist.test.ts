@@ -16,7 +16,7 @@ describe("personal numbers beside the shared line", () => {
   });
 
   it("the inbound route gates the shared-line seam on the shared number and still runs both personal-number ingests", () => {
-    const route = readFileSync("src/app/api/twilio/inbound/route.ts", "utf8");
+    const route = readFileSync("src/lib/sms/process-accepted-inbound.server.ts", "utf8");
     expect(route).toMatch(/lineConfig\.mode === "shared" && messageSid && isSharedLineNumber\(lineConfig, toPhone\)/);
     expect(route).toContain("ingestVendorWorkIdentitySms(db, { toPhone");
     expect(route).toContain("ingestResidentAgentNumberSms(db, { toPhone");

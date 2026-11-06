@@ -34,8 +34,9 @@ export async function resolvePostSignInDestination(input: {
   const { service, user } = input;
   const recovery = await recoverySetupRedirect(service, user.id);
   if (recovery) return { redirectTo: recovery, openedRole: null, landedRole: null };
-  // Password sign-in reaches this resolver without an OAuth callback, so keep
-  // email/password and OAuth portal rows merged before choosing a destination.
+  // Password sign-in reaches this resolver without an OAuth callback, so refresh this account's own
+  // profile contact fields here too. An email is never ownership of another account: a same-address
+  // login is a separate account and nothing crosses between them.
   try {
     await reconcileAuthAccountsByEmail(service, user);
   } catch (reconcileError) {

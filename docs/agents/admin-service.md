@@ -133,6 +133,21 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
   `GET /api/workspaces/service-fee`, never sent by the client); the owner and other seats see it read-only ("PropLane 10% ·
   You 90%"). The same control stays in Service > Workspaces > ⋯ > Management fee. See
   [`owner-management.md`](owner-management.md) § Automatic management fee.
+- **Work email** (`service-work-email.server.ts`): a service workspace mints `<name>homes@` (service rule: "1. Ambika" ->
+  `ambikahomes@proplane.ai`, `serviceWorkspaceMailboxLocalFor`) when it is added or attached, not gated on the owner's plan;
+  a failed mint is a warning on create, never a failure. An attach only MINTS: a workspace that already has an address
+  keeps it, because a client's address is already on listings, in syndication posts and in the public listing payload. A
+  rename moves the address only while it still follows the SERVICE rule for the old name (`mailboxLocalIsDerivedFrom`) -
+  a customized one, and a self-serve `{workspace-slug}@` minted before the takeover, stay put; the old local is a 30-day
+  alias, held by its WORKSPACE rather than its owner user
+  ([`inbound-email-inbox.md`](inbound-email-inbox.md) § Custom work email local part); a rename that moves the address also writes the
+  `admin_service_work_email` audit row. Staff with member rights (the rename standing,
+  `authorizeServiceWorkEmailEdit`) change it from the Communication "Work email" card Edit icon; the write is audited
+  (`admin_service_work_email`) first. Existing workspaces: `scripts/backfill-workspace-mailbox-locals.mjs --service` (dry run;
+  `--apply` writes; production needs `--allow-production`) is MINT-ONLY - it fills in a workspace with no address and
+  never moves one that has one, so it cannot undo the invariant above; `--rename-workspace=<workspaceId>`
+  (or space-separated; repeatable, UUID required, exits non-zero on a bad value) is the explicit opt-in to move
+  that one workspace onto its service-rule local.
 - **Dashboard** (`/admin/dashboard`): each slow source (Stripe earnings, Subscribers, expenses, signups, feedback) has a
   9s budget (`withBudget`); a source that misses it is `null` and its card is left out, so one hung read cannot hold the
   page on Loading. The browser still gives up at 20s with a "took too long" error and Try again.
@@ -155,7 +170,9 @@ workspaces, no PropLane logo, no `+`); `/admin` pages redirect them there and th
   account" (name, mobile with the usual text code, Google or a password) or, signed in, Accept. The kind is never accepted from a
   request body (`normalizeInviteLinkKind` still falls back to `manager`), admin links are excluded from every share-link list,
   rotate, reveal and revoke, and an admin link with no bound email redeems as nothing.
-- **A new account proves the inbox.** The generic sign-up confirms an address with no inbox round-trip, so for admin invites the
+- **A new account proves the inbox.** This pane owns its own mailbox proof — a 6-digit code, not the
+  emailed link the generic sign-up now uses — because the redeem is bound to the address on the link and must
+  prove THAT inbox inside this flow rather than wherever a verification link was opened. The
   invite page mails a 6-digit code to the address stored on the link (`/api/pro/invite-links/admin-account`, stateless HMAC
   challenge) and the server creates the confirmed account only when it verifies, stamping
   `app_metadata.admin_invite_proof = <link id>`. Five code attempts per link, across every challenge (a fresh code buys no
@@ -168,9 +185,14 @@ workspaces, no PropLane logo, no `+`); `/admin` pages redirect them there and th
 - **Invites are rate limited and cleaned.** 20 invites + resends per hour per inviter (`admin-team-invite:<user>`); the inviter's
   profile name in the email loses URLs and angle brackets and is cut to 60 characters (`sanitizeInviterName`).
 - **Change never seats a stranger.** `changeAdminTeamMember` works only on someone who already holds an Overall role or a
-  PropLane-issued seat inside the actor's reach (otherwise 404, "Invite them instead"); every target seat is validated
-  (`checkAdminTeamSeatGrant`) BEFORE a demotion deletes the Overall role, so a refusal changes nothing; a seat the workspace's own
-  owner issued (not `is_service_seat`) is refused, never converted.
+  PropLane-issued seat inside the actor's reach (otherwise 404, "Invite them instead"); a seat the workspace's own owner issued
+  (not `is_service_seat`) is refused, never converted.
+- **A demotion or removal is ONE transaction** (`demote_admin_team_role`, migration `20261030145100`). Under the exclusive
+  account-lifecycle advisory lock it re-checks the actor, re-derives durable ownership of every named workspace and property
+  from the database, and compares the caller's seat set against what is actually stored: stale seat or property context answers
+  `stale` and nothing moves, so the Overall role is never deleted against a plan that has since drifted. Do not reintroduce a
+  validate-then-delete sequence in application code. The `p_plan` it takes is the server's own normalized grant, never a request
+  body. A `p_check_only` retry succeeds only if the requested final state already exists, and writes no audit row.
 - **The audit row says what happened.** Written `applied: false` before the change, stamped `applied: true` after it took
   effect and `applied: false` (+ `error`) on every refused or handed-back path, the redeem undo included.
 - **Redeem** (`applyAdminInviteGrant`): the session's confirmed email must equal the bound one; the inviter is re-derived at that
@@ -178,7 +200,7 @@ workspaces, no PropLane logo, no `+`); `/admin` pages redirect them there and th
   `admin_team_seat`) is written BEFORE the role; any failure hands the spent use back. Every change writes `admin_team_*` audit rows
   first and is refused without them. `admin_team_grants` (server-only, RLS on, no client grants) is the list/trail row.
 - **Last Overall admin** cannot be removed or demoted (`lastOverallAdminVerdict`). An admin that comes from the primary-admin
-  email or legacy `profiles.role` is never removed by this pane (founders@ keeps admin, Oct 27).
+  email is never removed by this pane (founders@ keeps admin, Oct 27); legacy `profiles.role` does not grant admin.
 - **Routes** (`/api/admin/team`, `/invite`, `/change`, `/resend`, `/remove`) gate on `requireAdminTeamActor` (Overall admin or a seat
   with member rights; the verbs re-check every target). Every PropLane-wide `/api/admin/*` route keeps `requireAdminRoute()`, so a
   seat holder gets 403 there.

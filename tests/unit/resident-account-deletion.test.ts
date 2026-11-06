@@ -239,8 +239,8 @@ describe("deleting a resident deletes their PropLane account only when nothing e
   it.each([
     ["an application", { manager_application_records: [{ id: "app-a", manager_user_id: MANAGER, resident_email: EMAIL }, { id: "app-b", manager_user_id: OTHER_MANAGER, resident_email: EMAIL }] }],
     ["a lease", { portal_lease_pipeline_records: [{ id: "lease-b", manager_user_id: OTHER_MANAGER, resident_email: EMAIL }] }],
-    ["a service request", { portal_service_request_records: [{ id: "svc-b", manager_user_id: OTHER_MANAGER, resident_email: EMAIL }] }],
-    ["a work order", { portal_work_order_records: [{ id: "wo-b", manager_user_id: OTHER_MANAGER, resident_email: EMAIL }] }],
+    ["a service request", { portal_service_request_records: [{ id: "svc-b", manager_user_id: OTHER_MANAGER, resident_user_id: RESIDENT, resident_email: EMAIL }] }],
+    ["a work order", { portal_work_order_records: [{ id: "wo-b", manager_user_id: OTHER_MANAGER, resident_user_id: RESIDENT, resident_email: EMAIL }] }],
     ["a rent profile", { portal_recurring_rent_profile_records: [{ id: "rent-b", manager_user_id: OTHER_MANAGER, resident_id: RESIDENT, resident_user_id: RESIDENT }] }],
     ["a team membership", { account_link_invites: [{ id: "inv", inviter_user_id: OTHER_MANAGER, invitee_user_id: RESIDENT }] }],
     ["another manager's conversation", { portal_inbox_thread_records: [

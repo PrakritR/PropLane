@@ -8,6 +8,7 @@ import {
   buildTourRequestManagerBody,
   buildTourRescheduleConfirmRequestBody,
   formatTourTimeRange,
+  tourRequestNotificationContexts,
 } from "@/lib/tour-notifications";
 
 describe("tour-notifications", () => {
@@ -30,6 +31,15 @@ describe("tour-notifications", () => {
       emailSelected: true,
       emailReplyAvailable: false,
     },
+  });
+
+  it("omits a dead signup link on mint failure and keeps a valid token out of inbox copies", () => {
+    const failed = tourRequestNotificationContexts(baseCtx, null);
+    expect(failed.email.createAccountUrl).toBeUndefined();
+    expect(failed.clean.createAccountUrl).toBeUndefined();
+    const issued = tourRequestNotificationContexts(baseCtx, "synthetic-token");
+    expect(issued.email.createAccountUrl).toContain("#tour_token=synthetic-token");
+    expect(issued.clean.createAccountUrl).toBeUndefined();
   });
 
   it("builds manager request subject and body", () => {

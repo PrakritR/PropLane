@@ -18,6 +18,7 @@ import {
   PortalMessageSubjectField,
   portalMessageFieldLabel,
 } from "@/components/portal/portal-message-compose-fields";
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { Select } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { appendInboxMessage, type AdminComposeSendMode } from "@/lib/demo-admin-partner-inbox";
@@ -167,7 +168,12 @@ export function AdminComposeModal({
 
     // Deliver to each recipient's real portal inbox (admin's own "Sent" record above is separate).
     if (toUserIds.length > 0) {
-      void fetch("/api/portal/send-inbox-message", {
+      // Admin Communication operates the admin surface, so its sends ASK for oversight
+      // (`?oversight=admin`); the server still confirms the stored admin role
+      // (`resolveAdminOversight`). Without it a seated Overall admin — who holds the admin row and
+      // no manager row — is refused on the manager portal send, and the picker above would have
+      // invited a compose that always 403s.
+      void fetch(adminOversightUrl("/api/portal/send-inbox-message"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -204,7 +210,7 @@ export function AdminComposeModal({
 
     const results = await Promise.all(
       picked.map((p) =>
-        fetch("/api/portal/scheduled-inbox-messages", {
+        fetch(adminOversightUrl("/api/portal/scheduled-inbox-messages"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",

@@ -1,4 +1,6 @@
+import { projectWorkOrderForHiredVendor } from "@/lib/work-order-vendor-privacy";
 import { NextResponse } from "next/server";
+import { resolveSessionActorRole } from "@/lib/auth/vendor-api-access";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -26,12 +28,12 @@ export async function POST(req: Request) {
       email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),
       fullName: profile?.full_name?.trim() || "",
       admin,
-      role: String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase(),
+      role: await resolveSessionActorRole(profile?.role),
     };
     const body = (await req.json().catch(() => ({}))) as { workOrderId?: string; etaMinutes?: number };
     const result = await markVendorEnRoute(db, actor, body);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
-    return NextResponse.json({ ok: true, alreadyEnRoute: result.alreadyEnRoute, workOrder: result.workOrder });
+    return NextResponse.json({ ok: true, alreadyEnRoute: result.alreadyEnRoute, workOrder: projectWorkOrderForHiredVendor(result.workOrder) });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Could not mark on the way." }, { status: 500 });
   }

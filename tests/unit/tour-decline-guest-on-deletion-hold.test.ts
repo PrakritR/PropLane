@@ -27,7 +27,7 @@ vi.mock("@/lib/resident-outbound-sms.server", () => ({ sendResidentOutboundSms: 
 vi.mock("@/lib/manager-notification-routing.server", () => ({ sendManagerNotificationSms: vi.fn() }));
 vi.mock("@/lib/manager-sms-messages.server", () => ({ fetchManagerSmsConversations: vi.fn() }));
 vi.mock("@/lib/application-lifecycle-sms.server", () => ({ resolveExistingApplicantConversation: vi.fn() }));
-vi.mock("@/lib/observability/langfuse", () => ({ traceSystemNotification: vi.fn() }));
+vi.mock("@/lib/observability/langfuse", () => ({ traceSystemNotification: vi.fn(async (input: { run: () => Promise<unknown> }) => input.run()) }));
 vi.mock("@/lib/inbound-email/reply-address.server", () => ({ buildReplyAddress: vi.fn() }));
 vi.mock("@/lib/co-manager-notification-recipients.server", () => ({
   resolveManagerRecipientProfiles: vi.fn(),
@@ -37,17 +37,18 @@ vi.mock("@/lib/co-manager-notification-recipients.server", () => ({
 import {
   notifyTenantTourRequestReceived,
   notifyTenantTourRequestRemoved,
+  notifyTenantTourConfirmed,
 } from "@/lib/tour-notification-delivery.server";
 
 const RECOVERY_GUARD_ERROR = "Could not create the resident property manager thread.";
 
-function makeDb() {
+function makeDb(linked = true) {
   return {
-    from: vi.fn(() => ({
+    from: vi.fn((table: string) => ({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
       or: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+      limit: vi.fn().mockResolvedValue({ data: table === "resident_tour_links" && linked ? [{ resident_user_id: "guest-user" }] : [], error: null }),
       maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
     })),
   };
@@ -113,6 +114,21 @@ describe("tour guest notifications when the guest's inbox is frozen", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toBe("Email provider rejected the message.");
+  });
+
+  it("sends email without claiming an unbound same-email inbox", async () => {
+    const result = await notifyTenantTourRequestRemoved(makeDb(false) as never, null, INQUIRY);
+    expect(appendResidentPropertyManagerInboxMessage).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.inbox.sent).toBe(false);
+  });
+
+  it("reports failure when no channel is delivered", async () => {
+    const result = await notifyTenantTourConfirmed(makeDb(false) as never, null, INQUIRY,
+      { start: INQUIRY.proposedStart, end: INQUIRY.proposedEnd, managerUserId: INQUIRY.managerUserId },
+      undefined, undefined, { viaEmail: false, viaSms: false });
+    expect(result).toMatchObject({ ok: false, inbox: { sent: false } });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("acknowledges a new tour request when the inbox copy is refused", async () => {

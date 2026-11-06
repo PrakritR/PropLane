@@ -51,7 +51,8 @@ function authDb() {
         };
       }
       if (table === "profile_roles") {
-        return { select: () => ({ eq: async () => ({ data: [{ role: "manager" }] }) }) };
+        const q = { eq: () => q, maybeSingle: async () => ({ data: { role: "manager" }, error: null }) };
+        return { select: () => q };
       }
       throw new Error(`authDb: unexpected table "${table}"`);
     },

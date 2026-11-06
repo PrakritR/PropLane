@@ -1,3 +1,6 @@
+const session = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { getUser: session } }) }));
+vi.mock("@/lib/auth/claim-manager-purchase.server", () => ({ claimManagerPurchase: vi.fn().mockResolvedValue(true) }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { jsonRequest, parseJsonResponse } from "../../helpers/api-request";
 
@@ -11,6 +14,7 @@ vi.mock("@/lib/stripe/server", () => ({
 
 vi.mock("@/lib/manager-purchase-from-session", () => ({
   recordPaidManagerCheckoutSession: vi.fn().mockResolvedValue(undefined),
+  checkoutSessionIndicatesPaidPurchase: (s: { status: string; payment_status: string }) => s.status === "complete" && ["paid", "no_payment_required"].includes(s.payment_status),
 }));
 
 vi.mock("@/lib/auth/find-auth-user-id-by-email", () => ({
@@ -33,6 +37,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe/server";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
 import { POST as managerSignup } from "@/app/api/auth/manager-signup/route";
+import { claimManagerPurchase } from "@/lib/auth/claim-manager-purchase.server";
 
 const AXIS_INTENT_SESSION = "axis_intent_test123";
 const STRIPE_SESSION = "cs_test_stripe_session";
@@ -42,10 +47,10 @@ function makeDbMock(options: {
   createUserSuccess?: boolean;
   existingUserId?: string;
 }) {
-  const { purchase = null, createUserSuccess = true, existingUserId } = options;
+  const { purchase = null, createUserSuccess = true } = options;
   const createdUserId = "new_user_id";
 
-  const purchaseMaybeSingle = vi.fn().mockResolvedValue({ data: purchase, error: purchase ? null : null });
+  const purchaseMaybeSingle = vi.fn().mockImplementation(async () => ({ data: purchase ? { ...purchase, tier: "pro", billing: "monthly", paid_at: "2026-01-01", stripe_checkout_session_id: purchase.id === "purchase_3" ? STRIPE_SESSION : AXIS_INTENT_SESSION } : null, error: null }));
   const profileMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
 
   const mockDb = {
@@ -82,21 +87,30 @@ function makeDbMock(options: {
 describe("POST /api/auth/manager-signup", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    session.mockResolvedValue({ data: { user: { id: "new_user_id", email: "mgr@example.com", email_confirmed_at: "confirmed" } } });
+  });
+
+  it("refuses a confirmed account with a different purchase email before claiming", async () => {
+    session.mockResolvedValue({ data: { user: { id: "other", email: "other@example.com", email_confirmed_at: "confirmed" } } });
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(makeDbMock({ purchase: { id: "p1", email: "mgr@example.com", manager_id: "MGR-1", user_id: null } }) as never);
+    const response = await managerSignup(jsonRequest("http://localhost/api/auth/manager-signup", { method: "POST", body: { sessionId: AXIS_INTENT_SESSION, fullName: "Manager", phone: "+12065550123" } }));
+    expect(response.status).toBe(403);
+    expect(claimManagerPurchase).not.toHaveBeenCalled();
   });
 
   it("returns 400 when sessionId is missing", async () => {
     const req = jsonRequest("http://localhost/api/auth/manager-signup", {
       method: "POST",
-      body: { password: "TestPass123!" },
+      body: { fullName: "Test Manager", phone: "+12065550123" },
     });
     const res = await managerSignup(req);
     expect(res.status).toBe(400);
   });
 
-  it("returns 400 when password is too short", async () => {
+  it("requires verified account details after email proof", async () => {
     const req = jsonRequest("http://localhost/api/auth/manager-signup", {
       method: "POST",
-      body: { sessionId: AXIS_INTENT_SESSION, password: "short" },
+      body: { sessionId: AXIS_INTENT_SESSION },
     });
     const res = await managerSignup(req);
     expect(res.status).toBe(400);
@@ -108,7 +122,7 @@ describe("POST /api/auth/manager-signup", () => {
 
     const req = jsonRequest("http://localhost/api/auth/manager-signup", {
       method: "POST",
-      body: { sessionId: "axis_intent_unknown", password: "TestPass123!" },
+      body: { sessionId: "axis_intent_unknown", fullName: "Test Manager", phone: "+12065550123" },
     });
     const res = await managerSignup(req);
     expect(res.status).toBe(400);
@@ -128,7 +142,7 @@ describe("POST /api/auth/manager-signup", () => {
 
     const req = jsonRequest("http://localhost/api/auth/manager-signup", {
       method: "POST",
-      body: { sessionId: AXIS_INTENT_SESSION, password: "TestPass123!" },
+      body: { sessionId: AXIS_INTENT_SESSION, fullName: "Test Manager", phone: "+12065550123" },
     });
     const res = await managerSignup(req);
     const { status, data } = await parseJsonResponse<{ ok?: boolean; managerId?: string }>(res);
@@ -139,6 +153,7 @@ describe("POST /api/auth/manager-signup", () => {
   });
 
   it("reuses existing auth user when email already exists in axis_intent flow", async () => {
+    session.mockResolvedValue({ data: { user: { id: "existing_user_id", email: "existing@example.com", email_confirmed_at: "confirmed" } } });
     const db = makeDbMock({
       purchase: { id: "purchase_2", email: "existing@example.com", manager_id: "MGR-EXIST-01", user_id: null },
       createUserSuccess: false,
@@ -149,7 +164,7 @@ describe("POST /api/auth/manager-signup", () => {
 
     const req = jsonRequest("http://localhost/api/auth/manager-signup", {
       method: "POST",
-      body: { sessionId: AXIS_INTENT_SESSION, password: "TestPass123!" },
+      body: { sessionId: AXIS_INTENT_SESSION, fullName: "Test Manager", phone: "+12065550123" },
     });
     const res = await managerSignup(req);
     const { status, data } = await parseJsonResponse<{ ok?: boolean; managerId?: string }>(res);
@@ -160,6 +175,7 @@ describe("POST /api/auth/manager-signup", () => {
   });
 
   it("creates manager account from Stripe checkout session", async () => {
+    session.mockResolvedValue({ data: { user: { id: "new_user_id", email: "stripe@example.com", email_confirmed_at: "confirmed" } } });
     const stripeMock = {
       checkout: {
         sessions: {
@@ -182,7 +198,7 @@ describe("POST /api/auth/manager-signup", () => {
 
     const req = jsonRequest("http://localhost/api/auth/manager-signup", {
       method: "POST",
-      body: { sessionId: STRIPE_SESSION, password: "TestPass123!" },
+      body: { sessionId: STRIPE_SESSION, fullName: "Test Manager", phone: "+12065550123" },
     });
     const res = await managerSignup(req);
     const { status, data } = await parseJsonResponse<{ ok?: boolean; managerId?: string }>(res);
@@ -190,5 +206,14 @@ describe("POST /api/auth/manager-signup", () => {
     expect(status).toBe(200);
     expect(data.ok).toBe(true);
     expect(data.managerId).toBe("MGR-STRIPE-01");
+  });
+
+  it("does not claim an asynchronously unpaid completed checkout", async () => {
+    vi.mocked(getStripe).mockReturnValue({ checkout: { sessions: { retrieve: vi.fn().mockResolvedValue({ status: "complete", payment_status: "unpaid" }) } } } as never);
+    const res = await managerSignup(jsonRequest("http://localhost/api/auth/manager-signup", {
+      method: "POST", body: { sessionId: STRIPE_SESSION, fullName: "Test Manager", phone: "+12065550123" },
+    }));
+    expect(res.status).toBe(400);
+    expect(claimManagerPurchase).not.toHaveBeenCalled();
   });
 });

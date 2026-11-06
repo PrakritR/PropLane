@@ -194,6 +194,7 @@ describe("report_maintenance_issue", () => {
             resident_email: RESIDENT.email,
             updated_at: "2026-08-01T00:00:00.000Z",
             row_data: {
+              residentUserId: RESIDENT.userId,
               bucket: "approved",
               name: "Res A",
               property: "Wrong Manager House",
@@ -205,6 +206,7 @@ describe("report_maintenance_issue", () => {
             resident_email: RESIDENT.email,
             updated_at: "2026-07-01T00:00:00.000Z",
             row_data: {
+              residentUserId: RESIDENT.userId,
               bucket: "approved",
               name: "Res A",
               property: "Maple House",

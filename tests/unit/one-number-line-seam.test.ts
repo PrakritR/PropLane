@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SharedLineConfig } from "@/lib/one-number/contracts";
 import { createFakeDb, type FakeDb, type Row } from "../helpers/fake-table-db";
 
@@ -36,7 +36,11 @@ const residentOfA: Record<string, Row[]> = {
   manager_application_records: [{ id: "app", manager_user_id: "owner-a", resident_email: "u@x.com", property_id: "prop-a1", row_data: { bucket: "approved" } }],
 };
 
-beforeEach(() => unassigned.mockClear());
+beforeEach(() => {
+  vi.setSystemTime(new Date("2026-10-18T18:00:00.000Z"));
+  unassigned.mockClear();
+});
+afterEach(() => vi.useRealTimers());
 
 describe("shared line: a resident's intent is decided per text", () => {
   it("is routed to their workspace for rent or repairs, as before", async () => {
@@ -84,10 +88,17 @@ describe("shared line: the owner of record of a PropLane Service workspace", () 
     });
 
   it("gets read-only status instead of being treated as a stranger", async () => {
-    const result = await run(client(), "how are my houses doing");
-    expect(result).toMatchObject({ kind: "handled" });
-    expect(result.kind === "handled" && result.twiml).toContain("Ambika Homes, October: 1 house, 1 of 2 rooms occupied.");
-    expect(unassigned).not.toHaveBeenCalled();
+    // The status line names the current month; pin the clock so the expectation does not rot.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-15T19:00:00.000Z"));
+    try {
+      const result = await run(client(), "how are my houses doing");
+      expect(result).toMatchObject({ kind: "handled" });
+      expect(result.kind === "handled" && result.twiml).toContain("Ambika Homes, October: 1 house, 1 of 2 rooms occupied.");
+      expect(unassigned).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("is declined, view only, when asking to change something", async () => {

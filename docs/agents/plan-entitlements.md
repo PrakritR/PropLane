@@ -62,12 +62,21 @@ on an account with five listings and no paywall anywhere).
   apart from a genuine read failure, which still refuses. Staff end a code or one account in
   Admin > Money > Promo codes and `POST /api/admin/accounts/[id]/billing/end-promo`
   (reason required, audit row first). An account's purchase rows are only its OWN:
-  `loadAccountPurchaseRows` merges the `user_id` rows with the rows whose `email` matches
-  the account's EXACTLY (`%` / `_` escaped before the filter and the address re-compared in
-  JS), so the email half reaches an email-linked signup waiver row without ever ending or
-  reading a lookalike account's row. Coverage: `tests/unit/promo-code-expiry.test.ts`,
+  `loadAccountPurchaseRows` merges the `user_id` rows with the rows whose `email` matches the
+  account's EXACTLY and that no OTHER account has claimed (`%` / `_` escaped before the filter
+  and the address re-compared in JS), so the email half reaches an email-linked signup waiver row without ever
+  ending or reading a lookalike account's row. **That address is the CONFIRMED Auth address
+  read from Auth itself** (`auth.admin.getUserById`, `email_confirmed_at` required), never
+  `profiles.email`, which server routes write from caller-supplied values and which can drift
+  from the login. The email match provides read-only entitlement evidence for an existing
+  stored manager role; it does not create a role or claim a purchase. A missing Auth user is
+  an answer; a transient Auth failure sets `readFailed`. `findManagerPurchaseForAccount`
+  reads by `user_id` only, and a read failure throws `ManagerPurchaseReadError`. A paid signup
+  claim requires its exact server-owned handoff, rather than an email-only lookup. Coverage: `tests/unit/promo-code-expiry.test.ts`,
   `waiver-grants-pro-only.test.ts`, `admin-promo-expire.test.ts`,
-  `manager-purchase-account-rows-email-match.test.ts`.
+  `manager-purchase-account-rows-email-match.test.ts`,
+  `manager-purchase-verified-entitlement.test.ts`,
+  `manager-purchase-email-entitlement.test.ts`.
   **Promo codes are Stripe-native, and two columns must never be confused.**
   `manager_purchases.promo_code` is the payment-WAIVER column (FREE100 /
   WAIVEPROCESS1 / onboarding grants): any non-empty value is paid access with no
@@ -236,10 +245,32 @@ Stripe/Apple subscription) is not an existing paid plan. Billing & plan lets
 that manager select the same tier and monthly cadence and start an embedded
 paid checkout. The route reserves the owned Checkout session on the existing
 trial purchase row without changing its tier or trial billing first; only
-verified paid fulfillment replaces those terms. Concurrent starts keep one
-reserved session and expire the losing new session. An existing paid Stripe or
-Apple subscription is never offered a second subscription checkout, and a
-failed purchase read cannot be treated as Free. Coverage:
+verified paid fulfillment of that EXACT stored reservation replaces those terms, and a
+failed purchase read cannot be treated as Free. `createManagerCheckoutSession`
+(`src/lib/stripe/manager-checkout.ts`) owns the rules:
+
+- **A live non-Stripe entitlement refuses BEFORE Stripe is asked for anything**, so no session is
+  created at all (409 "You already have an active plan"). `holdsLiveEntitlement` names them: an Apple
+  original transaction, an `apple_iap_` / `admin_` / `axis_waiver_` reservation id, a paid tier
+  settled against something that is not a `cs_` session, or a `stripe_subscription_id` whose status is
+  not explicitly terminal. Only `canceled` / `incomplete_expired` disprove a subscription — an
+  unknown or unwritten status cannot, so it still refuses. A signup trial and an `axis_intent_` free
+  row stay replaceable: a verified Checkout is exactly what they are waiting for.
+- **Replacing a reservation is a compare-and-swap** on the session id this caller read, never an
+  unconditional overwrite, and the prior session is expired first — its URL was handed out, so it
+  stays payable until Stripe confirms `expired`. A complete session is never overwritten. A
+  definitive `resource_missing` / 404 means there is nothing payable left to close and the
+  replacement proceeds; every other read error is indistinguishable from an outage and refuses
+  (`CHECKOUT_UNCERTAIN_REFUSAL`), so a reservation can no longer wedge checkout forever. A second
+  writer that read the same row loses the swap and its session is expired before it is returned.
+- **An in-progress `cs_` reservation is not a free-tier account.**
+  `finalizePendingManagerFreeTier` answers `{ status: "skipped" }` instead of throwing, and
+  `ensureFreeManagerPortalAccess` checks for it BEFORE its profile upsert, role row and purchase
+  link — so the refusal cannot leave an account holding the manager role with a null tier or abort
+  the orphan-OAuth sweep. The two callers that ARE a person's explicit plan choice turn that result
+  back into an error themselves.
+
+Coverage: `tests/unit/stripe/manager-checkout-reservation.test.ts`,
 `tests/unit/manager-trial-portal-checkout.test.ts`,
 `tests/unit/pro-plan-adjust-sheet-doors.test.tsx`.
 

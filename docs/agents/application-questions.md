@@ -33,6 +33,25 @@ share Where you live, consent and review share the last step. A step the templat
 - A draft saved by an older wizard carries `wizardStepSchema`; `normalizePersistedWizardStep` maps its step onto
   the current one (`wizard-step-schema.ts`).
 
+## One application per person per house
+
+- A draft write for an applicant (the Auth subject when signed in, else a guest's lowercased email) and a house that
+  already has an OPEN application (a draft, or a submission still pending) folds into that row: the server keeps the
+  existing id, merges the incoming answers (blank ones never erase), never walks a sent application back to a draft,
+  and answers `{ id }`; the client adopts it (`APPLICATION_ID_ADOPTED_EVENT`). Signed-in matches only on
+  `residentUserId`; a guest matches only a guest row (no `residentUserId`) AND must hold that row's own setup token
+  (a typed email is not proof). A sent application does not take a draft for a different, named room.
+  Switching stay type on the same house keeps the id (`application-draft-dedupe.ts`, route `POST /api/manager-applications`).
+- Manager tabs: Incomplete (drafts) | Pending (sent only) | Approved | Declined (`applicationListTabForRow`). A draft's
+  row offers Send reminder and Delete only. Approving an unsent draft is refused with a 409 on every server path
+  (`isUnsubmittedDraftApplicationRow`: `/api/manager-applications`, `/api/portal/resident-approval`, the agent tool).
+- The resident list shows one row per house; an unsent draft reads "Not sent yet · n of N steps" with Continue.
+- A refused submit lists every reason above Submit with a Fix link to the step (`submit-blockers.ts`), never only a toast.
+- Duplicates written before this: `scripts/merge-duplicate-application-drafts.mjs` (dry run by default, snapshot first,
+  archives extras with `withdrawnAt` + `mergedInto`, never deletes, never touches sent/approved/declined rows).
+- Auto-approve and auto-send lease still run in the manager's browser (charges and lease generation are browser-only), on
+  the Applications list load; they are not server-side at submit.
+
 ## Everything is editable
 
 The question editor is shared by the application and the move-in form
@@ -154,7 +173,7 @@ A linked form that is itself an application **charges its own fee to whoever
 fills it** (`src/lib/linked-form-fee.server.ts`). The amount is never read from a
 request body: it is re-resolved from the stored listing — the template's own
 `feeCentsOverride`, else the listing's application fee for the application's
-term — the same chain the applicant's own fee uses. A move-in form never
+term, else the Application system setting, else free (nothing configured = free) — the same chain the applicant's own fee uses. A move-in form never
 charges.
 
 - **`fee_cents` null on an application form means UNRESOLVED, never free.** A resolved "no fee"
@@ -292,5 +311,9 @@ Coverage: `linked-form-requests-routes`, `cosigner-submission-visibility`, `cosi
 
 - Delete is explicit: a delete save carries `listingSubmission.removedApplicationTemplateIds`, and `preserveServerOwnedApplicationVersions` drops exactly those ids completely (no archive; submitted applications keep their own snapshots) and never stores the list. A save without the list still re-appends published/imported forms; the panel reads the stored list back and toasts a failure if the id survived.
 
+
+## Promo and waiver codes
+
 - **Waive on send:** the Send application modal's "Waive application fee" box (single-home apply only) makes `POST /api/portal/send-lead-invite` resolve a single-use waiver code and put it in the link as `&code=` — copying the link carries the same code (`linkOnly`) — and the wizard auto-redeems it through the same `/api/public/application-fee-waiver` route as a typed code. Who may waive, how the code is scoped and when it is reused: [`resident-payments.md`](resident-payments.md) § Application fee: waive on send, and short stays.
+- **Promo codes on a property are written under the property's OWNER, never the signed-in user** (`/api/manager/application-fee-waivers`, `resolveWaiverCodeScope` / `resolveWaiverPropertiesScope` in `src/lib/application-fee-waiver-scope.server.ts`, the same resolver Application settings uses): every covered property must belong to one owner, and a non-owner needs `applications` at `edit` on EVERY property the code covers to add, widen, edit or turn it off (a portfolio-wide code is the owner's alone). PropLane staff in a service workspace pass by their seat (`account_link_invites`, `is_service_seat`), the same grant as a co-manager, not by platform-admin role. Adding text the owner already has is idempotent (the property is appended, 200 with `extended: true` so the screen says added, not created); a turned-off, expired or used-up code is a 409, never revived, and so is a request that also asks for a cap, expiry or label the existing code does not carry ("Edit it from Settings"). Re-authorizing a code's STORED property list drops ids of deleted houses (`property_ids` has no foreign key), and its owner skips the check outright. GET lists what the caller reaches, never their own rows alone: with `?propertyId=` the owner's codes covering that house, and without one (the Settings list, which is where a teammate actually adds a code) their own codes plus every code of the owners who granted them `applications: read` that covers one of the granted houses — a portfolio-wide code of that owner included. Those owners are read concurrently and each failure is its own: an unreadable owner is omitted and the response carries `partial: true` (the screen says so) rather than blanking the caller's own codes, which read fine — a failure reading the caller's OWN codes is still a 500. NEITHER branch returns redemptions: every mounted surface shows a code's use count, which the code row already carries, so a table whose rows carry an applicant's email is never read. Either branch marks a code `readOnly` for a teammate whenever they could not write it (`waiverCodeIsReadOnly`: portfolio-wide, or covering a live house they hold no `applications: edit` on) - the POST extend response carries the same stamp, because the inline row merges it straight into its list. A read-only row keeps Copy and loses only its write controls. Coverage: `tests/unit/application-fee-waivers-route.test.ts`.
 - **Promo codes entry:** the property Applications header carries a ticket `PortalIconAction` "Promo codes" that opens the house-scoped dialog (new codes default to this property); the per-form ⋯ entry stays.

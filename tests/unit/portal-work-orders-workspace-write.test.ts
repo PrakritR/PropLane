@@ -97,9 +97,14 @@ function makeDb() {
           order: vi.fn(() => builder),
           limit: async () => ({ data: LEGACY_ROWS, error: null }),
           maybeSingle: async () => ({ data: STORED_ROW, error: null }),
-          upsert: vi.fn((row: unknown) => {
+          insert: vi.fn((row: unknown) => {
             UPSERTS.push(row);
             return Promise.resolve({ error: null });
+          }),
+          update: vi.fn((row: unknown) => {
+            const write = { eq: vi.fn(), select: async () => { UPSERTS.push(row); return { data: [{ id: "saved" }], error: null }; } };
+            write.eq.mockReturnValue(write);
+            return write;
           }),
         };
         return builder;

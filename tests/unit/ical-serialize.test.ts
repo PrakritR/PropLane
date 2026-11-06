@@ -103,7 +103,7 @@ describe("vendor feed events", () => {
   it("never prints a street address for a job the vendor is not hired on (offer / open bidding)", () => {
     const offer = row({ bucket: "open", vendorId: undefined, vendorName: undefined, vendorAssignedAt: undefined, biddingOpen: true });
     const event = vendorJobToFeedEvent("wo-2", offer);
-    expect(event?.location).toBe("Seattle");
+    expect(event?.location).toBe("Seattle, WA");
     expect(event?.description).toBeNull();
     const body = buildIcsTimedCalendar([event!], { calendarName: "PropLane jobs", now: NOW });
     expect(body).not.toContain("123 Main");

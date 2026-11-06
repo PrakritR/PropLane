@@ -221,15 +221,15 @@ export async function loadHousematesForApplicationRow(
   );
 }
 
-export async function loadResidentMoveInForEmail(email: string, options?: { db?: ReturnType<typeof createSupabaseServiceRoleClient>; managerUserId?: string }): Promise<ResidentMoveInResolved | null> {
+export async function loadResidentMoveInForEmail(email: string, options?: { db?: ReturnType<typeof createSupabaseServiceRoleClient>; managerUserId?: string; residentUserId?: string }): Promise<ResidentMoveInResolved | null> {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail) return null;
 
   const db = options?.db ?? createSupabaseServiceRoleClient();
   let applicationQuery = db
     .from("manager_application_records")
-    .select("row_data, updated_at, manager_user_id")
-    .eq("resident_email", normalizedEmail);
+    .select("row_data, updated_at, manager_user_id");
+  applicationQuery = options?.residentUserId ? applicationQuery.eq("row_data->>residentUserId", options.residentUserId) : applicationQuery.eq("resident_email", normalizedEmail);
   if (options?.managerUserId) applicationQuery = applicationQuery.eq("manager_user_id", options.managerUserId);
   const { data: records } = await applicationQuery.order("updated_at", { ascending: false });
 
@@ -237,7 +237,7 @@ export async function loadResidentMoveInForEmail(email: string, options?: { db?:
     .map((record) => asObject(record.row_data))
     .filter((row): row is Record<string, unknown> => Boolean(row))
     .map((row) => row as unknown as DemoApplicantRow)
-    .map((row) => ({ ...row, email: row.email?.trim().toLowerCase() || normalizedEmail }));
+    .map((row) => ({ ...row, email: options?.residentUserId ? normalizedEmail : row.email?.trim().toLowerCase() || normalizedEmail }));
 
   const currentApplications = applications.filter(row => isCurrentResidentApplicationRow(row) && !row.withdrawnAt);
   const homeApplications = currentApplications.length ? currentApplications : applications;

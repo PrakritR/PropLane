@@ -88,8 +88,8 @@ A manager could pay Stripe (web) AND Apple (iOS). Rules (report §3.4):
   closed on it — same rule as `subLoaded`: no Subscribe buttons, no Switch to
   Free, just a retry. **Restore purchases stays**, because it only re-reads what
   the App Store already knows. It is checked AFTER the two manage-only branches,
-  because `readFailed` is ORed across the profile / by-user-id / by-email
-  lookups: a PARTIAL failure still returns the row, so a known Apple or Stripe
+  because `readFailed` is ORed across the confirmed-Auth-email / by-user-id /
+  by-email lookups: a PARTIAL failure still returns the row, so a known Apple or Stripe
   subscription must still get its own notice rather than the generic retry card.
   Coverage: `tests/unit/manager-plan-native-3-1-2.test.tsx`.
 - **Prevent on web:** `appleManaged` is exposed on `/api/manager/subscription`;

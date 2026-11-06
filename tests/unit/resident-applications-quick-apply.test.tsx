@@ -75,10 +75,14 @@ vi.mock("@/hooks/use-quick-apply-eligibility", () => ({
 
 import { ResidentApplicationsPanel } from "@/components/portal/resident-applications-panel";
 
-beforeEach(() => nav.navigate.mockReset());
+beforeEach(() => {
+  vi.setSystemTime(new Date("2026-10-20T18:00:00.000Z"));
+  nav.navigate.mockReset();
+});
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   ROWS = [];
   searchParams = new URLSearchParams();
 });
@@ -148,12 +152,17 @@ describe("ResidentApplicationsPanel - Quick apply sheet", () => {
     const submit = screen.getByRole("button", { name: "Submit" }) as HTMLButtonElement;
     // Move-in is the one fact the sheet exists to collect: Submit stays shut until it is given.
     expect(submit.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText("Move-in"), { target: { value: "11/01/2026" } });
+    // Relative to the clock: the Move-in field refuses a date in the past, so a fixed date rots.
+    const moveIn = new Date();
+    moveIn.setDate(moveIn.getDate() + 30);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const moveInIso = `${moveIn.getFullYear()}-${pad(moveIn.getMonth() + 1)}-${pad(moveIn.getDate())}`;
+    fireEvent.change(screen.getByLabelText("Move-in"), { target: { value: `${pad(moveIn.getMonth() + 1)}/${pad(moveIn.getDate())}/${moveIn.getFullYear()}` } });
     await waitFor(() => expect(submit.disabled).toBe(false));
     fireEvent.click(submit);
     await waitFor(() => expect(nav.navigate).toHaveBeenCalledWith("/resident/applications/pending/PROPLANE-ABCD1234"));
     const call = (fetchSpy.mock.calls as unknown[][]).find((c) => String(c[0]).includes("/api/portal/quick-apply"))!;
     const body = JSON.parse(String((call[1] as RequestInit).body));
-    expect(body).toMatchObject({ propertyId: "prop-1", roomId: "r1", leaseStart: "2026-11-01", consentCredit: true, consentTruth: true, confirmCurrent: true, signature: "Jamie Rivera" });
+    expect(body).toMatchObject({ propertyId: "prop-1", roomId: "r1", leaseStart: moveInIso, consentCredit: true, consentTruth: true, confirmCurrent: true, signature: "Jamie Rivera" });
   });
 });

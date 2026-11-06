@@ -1472,7 +1472,9 @@ try {
 
   // ── Applicants: every catalog property gets ≥1 approved application (which
   //    drives a lease) plus pending/rejected spread for realistic buckets. ────
-  const AUTO_RESIDENT_PASSWORD = "123Password$"; // mirrors provision-approved-resident.ts
+  // Seed-only dev/test credential so the local suites can sign these fixtures in.
+  // Production provisioning never sets a known password (see provision-approved-resident.ts).
+  const AUTO_RESIDENT_PASSWORD = "123Password$";
   // `screen: "consider"` = completed Checkr report that did NOT auto-pass
   // (result "consider" → badge "flagged"), so Applications → Screening shows a
   // mix of passed vs needs-manual-review and the manual screening flow is

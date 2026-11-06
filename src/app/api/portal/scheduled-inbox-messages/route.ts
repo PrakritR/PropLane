@@ -1,3 +1,4 @@
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { NextResponse } from "next/server";
 import { filterRecipientsBySenderScope } from "@/lib/inbox-recipient-scope";
 import { resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
@@ -74,7 +75,7 @@ type PortalActor = {
   isResident: boolean;
 };
 
-async function requirePortalActor(preferredRole?: PortalRole): Promise<PortalActor | null> {
+async function requirePortalActor(req: Request, preferredRole?: PortalRole): Promise<PortalActor | null> {
   const supabaseAuth = await createSupabaseServerClient();
   const {
     data: { user },
@@ -82,18 +83,21 @@ async function requirePortalActor(preferredRole?: PortalRole): Promise<PortalAct
   if (!user?.id) return null;
 
   const db = createSupabaseServiceRoleClient();
-  const [{ data: profile }, { data: roles }] = await Promise.all([
+  const [{ data: profile, error: profileError }, { data: roles, error: roleError }] = await Promise.all([
     db.from("profiles").select("role, email, full_name").eq("id", user.id).maybeSingle(),
     db.from("profile_roles").select("role").eq("user_id", user.id),
   ]);
+  if (profileError || roleError) return null;
   const roleList = (roles ?? []).map((r) => String(r.role).toLowerCase());
-  const legacy = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-  const isManager = roleList.includes("manager") || roleList.includes("admin") || legacy === "manager" || legacy === "admin";
-  const isResident = roleList.includes("resident") || legacy === "resident";
+  // A stored `admin` row is not a manager row. It widens this read only when the request asks
+  // for admin oversight (`?oversight=admin`, from `adminOversightUrl`) and the server confirms
+  // the role — the same rule every other manager route follows (`AGENTS.md` § "Admin borrows").
+  const isManager = roleList.includes("manager")
+    || (roleList.includes("admin") && await resolveAdminOversight(req, user.id, true));
+  const isResident = roleList.includes("resident");
   if (!isManager && !isResident) return null;
 
-  const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
-  if (!email) return null;
+  const email = user.email_confirmed_at ? (user.email ?? "").trim().toLowerCase() : "";
 
   let role: PortalRole;
   if (isManager && isResident) {
@@ -136,7 +140,7 @@ async function resolveManagerUserIdForEmail(
 export async function GET(req: Request) {
   try {
     const preferredRole = parsePreferredRole(req);
-    const ctx = await requirePortalActor(preferredRole);
+    const ctx = await requirePortalActor(req, preferredRole);
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     if (ctx.role === "resident") {
@@ -171,7 +175,7 @@ export async function POST(req: Request) {
     };
 
     const preferredRole = parsePreferredRole(req, body);
-    const ctx = await requirePortalActor(preferredRole);
+    const ctx = await requirePortalActor(req, preferredRole);
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const subject = String(body.subject ?? "").trim();

@@ -5,6 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
+import { ResidentAppleSignUpButton } from "@/components/auth/resident-apple-sign-up-button";
+import { ResidentGoogleSignUpButton } from "@/components/auth/resident-google-sign-up-button";
+import { AuthDivider } from "@/components/auth/auth-mobile-primitives";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { MockProperty } from "@/data/types";
 import { PROPERTY_PIPELINE_EVENT } from "@/lib/property-pipeline-events";
@@ -19,8 +22,6 @@ import {
   type PropertyManagerEntry,
   toLocalDateStr,
 } from "@/lib/demo-admin-scheduling";
-import { SmsConsentCheckbox } from "@/components/marketing/sms-consent-checkbox";
-import { JourneyPicker, type JourneyPickerOption } from "@/components/public-site/journey-picker";
 import {
   ProspectAccountHandoff,
   ProspectPublicSuccessBanner,
@@ -31,10 +32,6 @@ import { useProspectContactAutofill, type ProspectContactAutofill } from "@/hook
 import { linkBookedToursToSignedInResident } from "@/lib/tour-resident-link.client";
 import { residentCreateAccountHref, residentSignInHref } from "@/lib/resident-public-nav";
 import { buildRentalApplyHref } from "@/lib/rental-application/apply-from-listing";
-import {
-  PropertySearchPicker,
-  type PropertySearchOption,
-} from "@/components/marketing/property-search-picker";
 import { canNavigateToWizardStep, nextWizardMaxReached } from "@/lib/wizard-step-nav";
 import { DEFAULT_TOUR_FORMAT, TOUR_FORMAT_OPTIONS, type TourFormat } from "@/lib/tour-format";
 import {
@@ -64,8 +61,14 @@ import {
   requestedTourSlotIndices,
 } from "@/lib/tour-request-time";
 import { isoWindowFromSlotKey } from "@/lib/tour-slot-math";
+import {
+  parseTourSlotKey,
+  tourRoomParamForKey,
+  tourSchedulePath,
+} from "@/lib/tour-schedule-link";
 
-type TourStep = 1 | 2 | 3;
+/** 1 = Date & time (room rides along as a dropdown that defaults to "any"), 2 = Your details. */
+type TourStep = 1 | 2;
 
 /** Banner when a prospect picks a room that is fully booked (PRP-398 tour half). */
 export function tourRoomAvailabilityMessage(roomKey: string | null | undefined): string | null {
@@ -163,6 +166,20 @@ function roomOptionsForProperty(p: MockProperty): TourRoomOption[] {
 }
 
 /**
+ * The room a tour starts with. A prospect never has to pick one: several rooms default to "not sure yet",
+ * one room is that room. `room` is the URL param (`<roomId>` or `any`) when a pick travelled through sign-in.
+ */
+export function defaultTourRoomKey(property: MockProperty, room?: string | null): string {
+  const rooms = roomOptionsForProperty(property);
+  const wanted = room?.trim();
+  if (wanted && wanted !== "any") {
+    const hit = rooms.find((option) => option.key === `${property.id}::${wanted}`);
+    if (hit) return hit.key;
+  }
+  return rooms.length > 1 ? TOUR_ROOM_UNDECIDED_KEY : (rooms[0]?.key ?? property.id);
+}
+
+/**
  * True when at least one published tour slot is today or later. A grid whose every published slot is already
  * past looks exactly like one with none: every day disabled, nothing to pick. Both read as "No tour times yet".
  * Slot keys are `YYYY-MM-DD:slotIndex`, so a string comparison on the date part orders them.
@@ -216,7 +233,7 @@ function TourStepNavigationFooter({
   onContinue: () => void;
   pub?: boolean;
 }) {
-  if (step >= 3) return null;
+  if (step >= 2) return null;
   if (pub) {
     return (
       <div className={`ps-j-nav ${step > 1 ? "" : "ps-j-nav-end"}`}>
@@ -264,9 +281,15 @@ export function TourScheduleFlow({
   onEmbeddedFooterChange,
   onSuccessDismiss,
   onMessageHost,
+  initialSlotKey,
+  initialRoom,
 }: {
   property: MockProperty;
   returnAfterAuth: string;
+  /** A pick that travelled through sign-in (`slot` on /resident/tour/schedule): preselected, opens on Your details. */
+  initialSlotKey?: string | null;
+  /** `<roomId>` or `any`, the `room` that travelled with {@link initialSlotKey}. */
+  initialRoom?: string | null;
   onSuccess: () => void;
   embedded?: boolean;
   /** Resident portal modal: pin Back/Continue below the assistant strip via {@link onEmbeddedFooterChange}. */
@@ -280,8 +303,9 @@ export function TourScheduleFlow({
   const { showToast } = useAppUi();
   // The public tour page (not the resident portal's embedded flow) wears the journey look.
   const pub = !embedded;
-  const [step, setStep] = useState<TourStep>(1);
-  const [maxStepReached, setMaxStepReached] = useState<TourStep>(1);
+  const [initialSlot] = useState(() => parseTourSlotKey(initialSlotKey));
+  const [step, setStep] = useState<TourStep>(initialSlot ? 2 : 1);
+  const [maxStepReached, setMaxStepReached] = useState<TourStep>(initialSlot ? 2 : 1);
   const [submitted, setSubmitted] = useState(false);
   const [submittedContact, setSubmittedContact] = useState<{
     name: string;
@@ -290,20 +314,29 @@ export function TourScheduleFlow({
     inquiryId: string;
   } | null>(null);
   const contactAutofill = useProspectContactAutofill();
-  const signedInUserId = contactAutofill.userId;
+  // The server refused the request because the session is gone (401 `sign_in_required`): the client's
+  // own "signed in" is stale, so Your details goes back to the account step — where there is something
+  // to press — instead of showing "Sign in to request a tour." with no way to sign in.
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const signedInUserId = sessionExpired ? "" : contactAutofill.userId;
   const applicationGate = useTourApplicationGate(property, { signedIn: Boolean(signedInUserId) });
   const hasResidentRole = contactAutofill.hasResidentRole;
   const [tick, setTick] = useState(0);
-  const [selectedRoomKey, setSelectedRoomKey] = useState<string | null>(null);
+  const [pickedRoomKey, setPickedRoomKey] = useState<string | null>(null);
+  // Never forced: until the prospect touches the dropdown the room is the default ("not sure yet" for several).
+  const selectedRoomKey = pickedRoomKey ?? defaultTourRoomKey(property, initialRoom);
+  const setSelectedRoomKey = setPickedRoomKey;
   const selectedRoomLabel = useMemo(
     () => tourRoomLabelForKey(property, selectedRoomKey),
     [property, selectedRoomKey],
   );
 
-  const [selectedDay, setSelectedDay] = useState<number | null>(null);
-  const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
-  const [calMonth, setCalMonth] = useState(new Date().getMonth());
-  const [calYear, setCalYear] = useState(new Date().getFullYear());
+  const [selectedDay, setSelectedDay] = useState<number | null>(initialSlot?.day ?? null);
+  const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(initialSlot?.slotIndex ?? null);
+  const [calMonth, setCalMonth] = useState(initialSlot?.month ?? new Date().getMonth());
+  const [calYear, setCalYear] = useState(initialSlot?.year ?? new Date().getFullYear());
+  // A refusal stays on the step that asked, with the chosen time still picked.
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [slotHosts, setSlotHosts] = useState<Record<string, PropertyManagerEntry[]>>({});
   // Starts true: an availability fetch always runs on mount, and it is deferred
   // behind a microtask. Starting false made the first paint claim "No tour
@@ -313,7 +346,7 @@ export function TourScheduleFlow({
   const [bookingTour, setBookingTour] = useState(false);
   const [identityRequired, setIdentityRequired] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [step3Footer, setStep3Footer] = useState<ReactNode | null>(null);
+  const [detailsFooter, setDetailsFooter] = useState<ReactNode | null>(null);
   const [occupancySyncEpoch, setOccupancySyncEpoch] = useState(0);
 
   useEffect(() => {
@@ -415,10 +448,44 @@ export function TourScheduleFlow({
   }, [selectedDay, selectedSlotIndex, calYear, calMonth, slotManagerMap]);
 
   const steps = [
-    { n: 1, label: "Room" },
-    { n: 2, label: "Date & time" },
-    { n: 3, label: "Your details" },
+    { n: 1, label: "Date & time" },
+    { n: 2, label: "Your details" },
   ];
+
+  const selectedSlotKey = useMemo(() => {
+    if (selectedDay == null || selectedSlotIndex == null) return null;
+    return dateSlotKey(toLocalDateStr(new Date(calYear, calMonth, selectedDay, 12, 0, 0, 0)), selectedSlotIndex);
+  }, [selectedDay, selectedSlotIndex, calYear, calMonth]);
+
+  // The picked time was open when it was chosen and is not any more (someone else took it, or the
+  // calendar changed). Only ever true after a successful availability read.
+  const slotGone =
+    Boolean(selectedSlotKey) &&
+    !requestMode &&
+    !availabilityLoading &&
+    !availabilityError &&
+    !selectedAvailability.has(selectedSlotKey ?? "");
+
+  const nextOpenTimes = useMemo(() => {
+    if (!slotGone) return [];
+    const today = pacificCalendarDateYmd();
+    return [...selectedAvailability]
+      .filter((key) => (key.split(":")[0] ?? "") >= today && key !== selectedSlotKey)
+      .sort((a, b) => {
+        const [dateA = "", slotA = "0"] = a.split(":");
+        const [dateB = "", slotB = "0"] = b.split(":");
+        return dateA === dateB ? Number(slotA) - Number(slotB) : dateA < dateB ? -1 : 1;
+      })
+      .slice(0, 4)
+      .map((key) => parseTourSlotKey(key))
+      .filter((parsed): parsed is NonNullable<typeof parsed> => parsed !== null);
+  }, [slotGone, selectedAvailability, selectedSlotKey]);
+
+  const accountNext = tourSchedulePath({
+    propertyId: property.id,
+    slotKey: selectedSlotKey,
+    roomParam: tourRoomParamForKey(property.id, selectedRoomKey),
+  });
 
   const goToPreviousStep = useCallback(() => {
     setStep((current) => (current - 1) as TourStep);
@@ -427,38 +494,21 @@ export function TourScheduleFlow({
   const goToNextStep = useCallback(() => {
     const errs: Record<string, string> = {};
     if (step === 1) {
-      if (!selectedRoomKey) errs.room = "Choose a room to tour, or select not sure yet.";
-    }
-    if (step === 2) {
-      if (
-        selectedDay === null ||
-        selectedSlotIndex === null ||
-        (!requestMode && managersAtSelectedSlot.length === 0) ||
-        (requestMode && !signedInUserId)
-      ) {
-        errs.tourSlot = requestMode && !signedInUserId ? "Sign in to request a tour time." : "Select a date and time for your tour.";
+      if (selectedDay === null || selectedSlotIndex === null || (!requestMode && managersAtSelectedSlot.length === 0)) {
+        errs.tourSlot = "Select a date and time for your tour.";
       }
     }
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
       showToast("Please fix the highlighted fields before continuing.");
-      queueMicrotask(() => scrollToFirstWizardFieldError(TOUR_STEP_FIELD_ORDER[step] ?? [], errs));
+      queueMicrotask(() => scrollToFirstWizardFieldError(TOUR_STEP_FIELD_ORDER[1] ?? [], errs));
       return;
     }
     setFieldErrors({});
     const next = (step + 1) as TourStep;
     setStep(next);
     setMaxStepReached((m) => nextWizardMaxReached(m, next) as TourStep);
-  }, [
-    managersAtSelectedSlot.length,
-    requestMode,
-    selectedDay,
-    selectedRoomKey,
-    selectedSlotIndex,
-    showToast,
-    signedInUserId,
-    step,
-  ]);
+  }, [managersAtSelectedSlot.length, requestMode, selectedDay, selectedSlotIndex, showToast, step]);
 
   useEffect(() => {
     if (!embeddedModalLayout || !onEmbeddedFooterChange) return;
@@ -466,11 +516,11 @@ export function TourScheduleFlow({
       onEmbeddedFooterChange(null);
       return;
     }
-    if (step === 3) {
-      onEmbeddedFooterChange(step3Footer);
+    if (step === 2) {
+      onEmbeddedFooterChange(detailsFooter);
       return () => onEmbeddedFooterChange(null);
     }
-    if (step < 3) {
+    if (step < 2) {
       onEmbeddedFooterChange(
         <TourStepNavigationFooter step={step} onBack={goToPreviousStep} onContinue={goToNextStep} />,
       );
@@ -484,7 +534,7 @@ export function TourScheduleFlow({
     goToPreviousStep,
     onEmbeddedFooterChange,
     step,
-    step3Footer,
+    detailsFooter,
     submitted,
   ]);
 
@@ -794,35 +844,12 @@ export function TourScheduleFlow({
 
       <div className={pub ? undefined : "mt-6"}>
         {step === 1 && (
-          <Step1
-            pub={pub}
-            property={property}
-            onSelectRoom={(roomKey) => {
-              if (!roomKey) {
-                setSelectedRoomKey(null);
-                setSlotHosts({});
-                setSelectedDay(null);
-                setSelectedSlotIndex(null);
-                return;
-              }
-              setFieldErrors((prev) => {
-                const next = { ...prev };
-                delete next.room;
-                return next;
-              });
-              setSelectedRoomKey(roomKey);
-              setSelectedDay(null);
-              setSelectedSlotIndex(null);
-            }}
-            selectedRoomKey={selectedRoomKey}
-            fieldErrors={fieldErrors}
-            occupancySyncEpoch={occupancySyncEpoch}
-          />
-        )}
-        {step === 2 && (
           <Step2
             pub={pub}
             property={property}
+            roomKey={selectedRoomKey}
+            onSelectRoom={setSelectedRoomKey}
+            occupancySyncEpoch={occupancySyncEpoch}
             availability={selectedAvailability}
             fieldErrors={fieldErrors}
             calMonth={calMonth}
@@ -850,6 +877,7 @@ export function TourScheduleFlow({
               setCalMonth(m);
               setSelectedDay(d);
               setSelectedSlotIndex(null);
+              setSubmitError(null);
             }}
             onSelectDay={(day) => {
               setFieldErrors((prev) => {
@@ -859,6 +887,7 @@ export function TourScheduleFlow({
               });
               setSelectedDay(day);
               setSelectedSlotIndex(null);
+              setSubmitError(null);
             }}
             selectedSlotIndex={selectedSlotIndex}
             onSelectSlotIndex={(slot) => {
@@ -868,32 +897,47 @@ export function TourScheduleFlow({
                 return next;
               });
               setSelectedSlotIndex(slot);
+              setSubmitError(null);
             }}
             managersAtSelectedSlot={managersAtSelectedSlot}
             availabilityLoading={availabilityLoading}
             availabilityError={availabilityError}
             onRetryAvailability={() => void loadAvailability()}
             requestMode={requestMode}
-            signedIn={Boolean(signedInUserId)}
-            returnAfterAuth={returnAfterAuth}
           />
         )}
-        {step === 3 && (
+        {step === 2 && !contactAutofill.ready && (
+          <div className="ps-mute" aria-busy="true">
+            Loading…
+          </div>
+        )}
+        {step === 2 && contactAutofill.ready && (
           <Step3
             pub={pub}
             property={property}
             roomLabel={selectedRoomLabel}
             contactDefaults={contactAutofill}
             signedIn={Boolean(signedInUserId)}
+            accountNext={accountNext}
+            submitError={submitError}
+            slotGone={slotGone}
+            nextOpenTimes={nextOpenTimes}
+            onPickNextOpenTime={(slot) => {
+              setCalYear(slot.year);
+              setCalMonth(slot.month);
+              setSelectedDay(slot.day);
+              setSelectedSlotIndex(slot.slotIndex);
+              setSubmitError(null);
+            }}
+            onChangeTime={() => setStep(1)}
             day={selectedDay}
             slotIndex={selectedSlotIndex}
             month={calMonth}
             year={calYear}
             submitting={bookingTour}
             fieldErrors={fieldErrors}
-            returnAfterAuth={returnAfterAuth}
             embeddedModalLayout={embeddedModalLayout}
-            onEmbeddedBookFooterChange={embeddedModalLayout ? setStep3Footer : undefined}
+            onEmbeddedBookFooterChange={embeddedModalLayout ? setDetailsFooter : undefined}
             onFieldChange={(key) =>
               setFieldErrors((prev) => {
                 if (!(key in prev)) return prev;
@@ -904,11 +948,12 @@ export function TourScheduleFlow({
             }
             onSubmit={async ({ name, email, phone, notes, smsConsent, tourFormat }) => {
               if (bookingTour) return;
+              setSubmitError(null);
               const errs = validateTourContactFields({ name, email, phone });
               if (Object.keys(errs).length > 0) {
                 setFieldErrors(errs);
                 showToast("Please fix the highlighted fields before continuing.");
-                queueMicrotask(() => scrollToFirstWizardFieldError(TOUR_STEP_FIELD_ORDER[3] ?? [], errs));
+                queueMicrotask(() => scrollToFirstWizardFieldError(TOUR_STEP_FIELD_ORDER[2] ?? [], errs));
                 return;
               }
               const normalizedPhone = normalizeTourContactPhone(phone);
@@ -916,12 +961,13 @@ export function TourScheduleFlow({
                 const phoneErr = { phone: "Phone number must be 10 digits." };
                 setFieldErrors(phoneErr);
                 showToast("Please fix the highlighted fields before continuing.");
-                queueMicrotask(() => scrollToFirstWizardFieldError(TOUR_STEP_FIELD_ORDER[3] ?? [], phoneErr));
+                queueMicrotask(() => scrollToFirstWizardFieldError(TOUR_STEP_FIELD_ORDER[2] ?? [], phoneErr));
                 return;
               }
               if (selectedDay == null || selectedSlotIndex == null) return;
               if (!requestMode && managersAtSelectedSlot.length === 0) {
-                showToast("That tour time is no longer available.");
+                setSubmitError("That tour time is no longer available.");
+                void loadAvailability();
                 return;
               }
               const dateStr = toLocalDateStr(new Date(calYear, calMonth, selectedDay, 12, 0, 0, 0));
@@ -980,9 +1026,10 @@ export function TourScheduleFlow({
                 setBookingTour(false);
                 if (!result.ok) {
                   if (result.blocked === "identity") { showIdentityHandoff(); return; }
-                  showToast(result.error ?? "That tour time is no longer available.");
-                  setStep(2);
-                  setSelectedSlotIndex(null);
+                  // Inline, on the step that asked, with the time still picked: a toast vanishes and a wiped
+                  // pick sends a prospect back to square one over a refusal that may only need another try.
+                  setSubmitError(result.error ?? "That tour time is no longer available.");
+                  if (result.status === 401) setSessionExpired(true);
                   void loadAvailability();
                   return;
                 }
@@ -1042,9 +1089,8 @@ export function TourScheduleFlow({
               const failedResult = results.find((item) => !item.ok);
               if (failedResult) {
                 if (failedResult.blocked === "identity") { showIdentityHandoff(); return; }
-                showToast(failedResult.error ?? "That tour time is no longer available.");
-                setStep(2);
-                setSelectedSlotIndex(null);
+                setSubmitError(failedResult.error ?? "That tour time is no longer available.");
+                if (failedResult.status === 401) setSessionExpired(true);
                 void loadAvailability();
                 return;
               }
@@ -1080,123 +1126,55 @@ export function TourScheduleFlow({
   );
 }
 
-function Step1({
+/**
+ * The room is never a gate. Several rooms default to "not sure yet" and a dropdown changes it; a house with
+ * one room has nothing to pick, so nothing is drawn.
+ */
+function RoomSelect({
   pub,
   property,
-  onSelectRoom,
-  selectedRoomKey,
-  fieldErrors,
+  value,
+  onChange,
   occupancySyncEpoch,
 }: {
   pub: boolean;
   property: MockProperty;
-  onSelectRoom: (roomKey: string | null) => void;
-  selectedRoomKey: string | null;
-  fieldErrors: Record<string, string>;
+  value: string | null;
+  onChange: (roomKey: string) => void;
   occupancySyncEpoch: number;
 }) {
   const listedRooms = roomOptionsForProperty(property);
-  const showUndecided = listedRooms.length > 1;
-  const roomOptions: PropertySearchOption[] = listedRooms.map((option) => ({
-    id: option.key,
-    title: option.label,
-    subtitle: option.subtitle,
-    tags: [property.address, property.neighborhood, `Available ${property.available}`],
-    searchText: `${option.label} ${option.subtitle} ${property.address} ${property.neighborhood} ${property.rentLabel}`,
-  }));
-  const undecidedSelected = isTourRoomUndecided(selectedRoomKey);
-  const pickerValue = undecidedSelected ? null : selectedRoomKey;
   void occupancySyncEpoch;
-  const roomAvailabilityWarning = tourRoomAvailabilityMessage(selectedRoomKey);
-
-  if (pub) {
-    const rowOptions: JourneyPickerOption[] = listedRooms.map((option) => ({
-      id: option.key,
-      title: option.label,
-      searchText: `${option.subtitle} ${property.address} ${property.neighborhood}`,
-    }));
-    return (
-      <div className="ps-j-stack" style={{ gap: 16 }}>
-        <h2 className="ps-h3">{showUndecided ? "Which room?" : "Room"}</h2>
-        <div data-wizard-field="room" className="ps-j-stack" style={{ gap: 12 }}>
-          <JourneyPicker
-            options={rowOptions}
-            value={pickerValue}
-            onChange={(id) => onSelectRoom(id)}
-            placeholder="Search rooms by name, floor, or rent"
-            ariaLabel="Search rooms to tour"
-            emptyMessage="No rooms match your search."
-            listEmptyMessage="No rooms listed for this property."
-          />
-          {showUndecided ? (
-            <button
-              type="button"
-              data-attr="tour-room-undecided"
-              aria-pressed={undecidedSelected}
-              onClick={() => onSelectRoom(TOUR_ROOM_UNDECIDED_KEY)}
-              className="ps-j-row"
-              style={{ borderTop: 0 }}
-            >
-              <span className="ps-j-row-t">{TOUR_ROOM_UNDECIDED_LABEL}</span>
-            </button>
-          ) : null}
-          {fieldErrors.room ? <p className="ps-error" style={{ margin: 0 }}>{fieldErrors.room}</p> : null}
-        </div>
-        {roomAvailabilityWarning ? (
-          <p role="status" data-attr="tour-room-unavailable" className="ps-j-note" style={{ margin: 0 }}>
-            {roomAvailabilityWarning}
-          </p>
-        ) : null}
-      </div>
-    );
-  }
-
+  const roomAvailabilityWarning = tourRoomAvailabilityMessage(value);
+  if (listedRooms.length <= 1) return null;
+  const select = (
+    <select
+      id="tour-room"
+      value={value ?? TOUR_ROOM_UNDECIDED_KEY}
+      onChange={(event) => onChange(event.target.value)}
+      className={pub ? "ps-select" : inputCls}
+      data-attr="tour-room-select"
+      aria-label="Room"
+    >
+      <option value={TOUR_ROOM_UNDECIDED_KEY}>{TOUR_ROOM_UNDECIDED_LABEL}</option>
+      {listedRooms.map((option) => (
+        <option key={option.key} value={option.key}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  );
   return (
-    <div className="space-y-3">
-      <p className="text-sm text-muted">
-        {showUndecided
-          ? "Choose a room to tour, or let us know if you are still deciding."
-          : "Choose the room you would like to tour."}
-      </p>
-      {showUndecided ? (
-        <button
-          type="button"
-          data-attr="tour-room-undecided"
-          onClick={() => onSelectRoom(TOUR_ROOM_UNDECIDED_KEY)}
-          className={`w-full rounded-2xl border px-4 py-3 text-left text-sm transition ${
-            undecidedSelected
-              ? "border-primary bg-primary/10 text-foreground ring-2 ring-primary/25"
-              : "border-border/70 bg-card/60 text-foreground hover:border-primary/35 hover:bg-accent/30"
-          }`}
-        >
-          <span className="font-semibold">{TOUR_ROOM_UNDECIDED_LABEL}</span>
-          <span className="mt-1 block text-xs text-muted">
-            Tour the home and compare rooms with the manager on site.
-          </span>
-        </button>
-      ) : null}
-      <div data-wizard-field="room" className={wizardSectionErrorClass(Boolean(fieldErrors.room))}>
-        {showUndecided ? (
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Or pick a specific room</p>
-        ) : null}
-        <PropertySearchPicker
-          options={roomOptions}
-          value={pickerValue}
-          onChange={onSelectRoom}
-          placeholder="Search rooms by name, floor, or rent…"
-          emptyMessage="No rooms match your search."
-          listEmptyMessage="No rooms listed for this property."
-          ariaLabel="Search rooms to tour"
-          itemNoun="room"
-          itemNounPlural="rooms"
-        />
-        {fieldErrors.room ? <p className="mt-2 text-xs font-medium text-red-600">{fieldErrors.room}</p> : null}
-      </div>
+    <div className={pub ? "ps-j-stack" : "space-y-3"} style={pub ? { gap: 12 } : undefined} data-wizard-field="room">
+      <Field pub={pub} label="Room">
+        {select}
+      </Field>
       {roomAvailabilityWarning ? (
         <p
           role="status"
           data-attr="tour-room-unavailable"
-          className="rounded-xl border px-4 py-3 text-sm portal-banner-pending"
+          className={pub ? "ps-j-note" : "rounded-xl border px-4 py-3 text-sm portal-banner-pending"}
+          style={pub ? { margin: 0 } : undefined}
         >
           {roomAvailabilityWarning}
         </p>
@@ -1209,6 +1187,9 @@ function Step2({
   pub,
   onSelectDate,
   property,
+  roomKey,
+  onSelectRoom,
+  occupancySyncEpoch,
   availability,
   fieldErrors,
   calMonth, calYear, onPrevMonth, onNextMonth,
@@ -1218,12 +1199,13 @@ function Step2({
   availabilityError,
   onRetryAvailability,
   requestMode,
-  signedIn,
-  returnAfterAuth,
 }: {
   pub: boolean;
   onSelectDate: (year: number, month: number, day: number) => void;
   property: MockProperty;
+  roomKey: string | null;
+  onSelectRoom: (roomKey: string) => void;
+  occupancySyncEpoch: number;
   availability: Set<string>;
   fieldErrors: Record<string, string>;
   calMonth: number; calYear: number;
@@ -1236,8 +1218,6 @@ function Step2({
   onRetryAvailability: () => void;
   /** The house has no open slot: any day from tomorrow and any 30-minute time is requestable. */
   requestMode: boolean;
-  signedIn: boolean;
-  returnAfterAuth: string;
 }) {
   const daysInMonth = getDaysInMonth(calYear, calMonth);
   const firstDay = getFirstDayOfMonth(calYear, calMonth);
@@ -1257,20 +1237,6 @@ function Step2({
     requestMode ? formatRequestedTourTime(slotIndex) : formatAvailabilitySlotLabel(slotIndex);
   const requestCaption =
     requestMode && selectedDateStr && selectedSlotIndex != null ? requestedTourCaption(selectedDateStr, selectedSlotIndex) : null;
-  // A requested time needs an account (the same resident-account rule every tour request has).
-  const needsSignIn = requestMode && !signedIn;
-  const signInPrompt = needsSignIn ? (
-    <div data-attr="tour-request-sign-in" className={pub ? "ps-j-note" : "flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 text-sm portal-banner-pending"}>
-      <p className={pub ? undefined : "min-w-0 flex-1 font-semibold"}>Sign in to request a tour time</p>
-      <Link href={residentSignInHref(returnAfterAuth)} prefetch={false} data-attr="tour-request-sign-in-link" className={pub ? "ps-btn ps-btn-line" : "rounded-full border border-current px-4 py-1.5 text-xs font-semibold"}>
-        Sign in
-      </Link>
-      <Link href={residentCreateAccountHref(returnAfterAuth)} prefetch={false} data-attr="tour-request-create-account-link" className={pub ? "ps-btn ps-btn-line" : "rounded-full border border-current px-4 py-1.5 text-xs font-semibold"}>
-        Create account
-      </Link>
-    </div>
-  ) : null;
-
   if (pub) {
     const openDates = requestMode ? requestDates : upcomingOpenDates(availability, todayPacific);
     return (
@@ -1292,14 +1258,20 @@ function Step2({
             </button>
           </div>
         ) : null}
-        {signInPrompt}
+        <RoomSelect
+          pub
+          property={property}
+          value={roomKey}
+          onChange={onSelectRoom}
+          occupancySyncEpoch={occupancySyncEpoch}
+        />
 
         <div
           data-wizard-field="tourSlot"
           className={`ps-j-stack${fieldErrors.tourSlot ? " ps-j-err" : ""}`}
           style={{ gap: 22 }}
         >
-          {openDates.length > 0 && !needsSignIn ? (
+          {openDates.length > 0 ? (
             <div>
               <p className="ps-j-month">Day</p>
               <div className="ps-j-days" role="group" aria-label="Open days">
@@ -1326,7 +1298,7 @@ function Step2({
             </div>
           ) : null}
 
-          {selectedDay && !needsSignIn ? (
+          {selectedDay ? (
             <div>
               <p className="ps-j-month">Time · {tourDayLabel(calYear, calMonth, selectedDay)}</p>
               {openSlots.length === 0 ? (
@@ -1388,8 +1360,6 @@ function Step2({
             Try again
           </button>
         </div>
-      ) : needsSignIn ? (
-        signInPrompt
       ) : requestMode ? (
         <p className="text-sm text-muted">
           Pick a day and time to request a tour of <span className="font-semibold text-foreground">{property.title}</span>.
@@ -1399,11 +1369,17 @@ function Step2({
           Pick an available date for <span className="font-semibold text-foreground">{property.title}</span>.
         </p>
       )}
+      <RoomSelect
+        pub={false}
+        property={property}
+        value={roomKey}
+        onChange={onSelectRoom}
+        occupancySyncEpoch={occupancySyncEpoch}
+      />
       <div
         data-wizard-field="tourSlot"
         className={wizardSectionErrorClass(Boolean(fieldErrors.tourSlot), "space-y-4 rounded-2xl")}
       >
-      {needsSignIn ? null : (
       <div className="mx-auto w-full max-w-[17.5rem]">
         <div className="mb-2 flex items-center justify-between">
           <button type="button" onClick={onPrevMonth} className="rounded-full p-1 hover:bg-accent/30">
@@ -1453,9 +1429,8 @@ function Step2({
           })}
         </div>
       </div>
-      )}
 
-      {selectedDay && !needsSignIn ? (
+      {selectedDay ? (
         <div>
           <p className="mb-2 text-sm font-semibold text-foreground">
             {requestMode ? "Request a time" : "Available times"} · {MONTHS[calMonth]} {selectedDay}
@@ -1504,10 +1479,125 @@ function Step2({
   );
 }
 
+type NextOpenTime = NonNullable<ReturnType<typeof parseTourSlotKey>>;
+
+/**
+ * A refusal lives on the step that asked, beside the time that was picked. "That time was just taken" offers
+ * the next open times as one-tap replacements; any other refusal (a duplicate request, a rate limit, a closed
+ * calendar) shows the server's own words. The chosen time is never wiped.
+ */
+function TourRefusal({
+  pub,
+  slotGone,
+  submitError,
+  nextOpenTimes,
+  onPick,
+  onChangeTime,
+}: {
+  pub: boolean;
+  slotGone: boolean;
+  submitError: string | null;
+  nextOpenTimes: NextOpenTime[];
+  onPick: (slot: NextOpenTime) => void;
+  onChangeTime: () => void;
+}) {
+  if (slotGone) {
+    return (
+      <div
+        role="alert"
+        data-attr="tour-slot-taken"
+        className={pub ? "ps-j-note ps-j-note-bad" : "rounded-xl border px-4 py-3 text-sm portal-banner-danger"}
+      >
+        <p style={{ margin: 0, fontWeight: 600 }}>That time was just taken.</p>
+        {nextOpenTimes.length > 0 ? (
+          <div className={pub ? "ps-j-times" : "mt-2 flex flex-wrap gap-2"} style={pub ? { marginTop: 10 } : undefined}>
+            {nextOpenTimes.map((slot) => (
+              <button
+                key={slot.slotKey}
+                type="button"
+                data-attr="tour-next-open-time"
+                className={pub ? "ps-j-time" : "rounded-full border border-current px-3 py-1 text-xs font-semibold"}
+                onClick={() => onPick(slot)}
+              >
+                {WEEKDAYS_SHORT[new Date(slot.year, slot.month, slot.day, 12, 0, 0, 0).getDay()]} {MONTHS_SHORT[slot.month]}{" "}
+                {slot.day} · {formatAvailabilitySlotLabel(slot.slotIndex)}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <button
+            type="button"
+            className={pub ? "ps-btn ps-btn-line" : "mt-2 rounded-full border border-current px-3 py-1 text-xs font-semibold"}
+            onClick={onChangeTime}
+          >
+            Pick another time
+          </button>
+        )}
+      </div>
+    );
+  }
+  if (!submitError) return null;
+  return (
+    <p
+      role="alert"
+      data-attr="tour-request-refused"
+      className={pub ? "ps-error" : "text-sm font-medium text-red-600"}
+      style={{ margin: 0 }}
+    >
+      {submitError}
+    </p>
+  );
+}
+
+/**
+ * "Your details" for a visitor with no account: the account is asked for here, after the room, day and time
+ * are chosen. Nothing is written before sign-in - the pick rides the sign-in `next` and
+ * `/resident/tour/schedule` finishes the request.
+ */
+function TourAccountStep({
+  pub,
+  accountNext,
+  summary,
+  refusal,
+}: {
+  pub: boolean;
+  accountNext: string;
+  summary: ReactNode;
+  refusal: ReactNode;
+}) {
+  const primary = pub ? "ps-btn ps-btn-blue ps-btn-block" : "block w-full rounded-full bg-primary px-5 py-2.5 text-center text-sm font-semibold text-primary-foreground";
+  const line = pub ? "ps-link" : "font-semibold text-primary hover:underline";
+  return (
+    <div className={pub ? "ps-j-stack" : "space-y-4"} style={pub ? { gap: 18 } : undefined} data-attr="tour-account-step">
+      {summary}
+      {refusal}
+      <div className="space-y-3">
+        <ResidentAppleSignUpButton nextPath={accountNext} />
+        <ResidentGoogleSignUpButton nextPath={accountNext} />
+      </div>
+      <AuthDivider label="or" />
+      <Link
+        href={residentCreateAccountHref(accountNext)}
+        prefetch={false}
+        className={primary}
+        data-attr="tour-account-email"
+      >
+        Continue with email
+      </Link>
+      <p style={{ margin: 0, textAlign: "center" }}>
+        <Link href={residentSignInHref(accountNext)} prefetch={false} className={line} data-attr="tour-step-sign-in">
+          Sign in
+        </Link>
+      </p>
+    </div>
+  );
+}
+
 function Step3({
   pub,
   property, roomLabel, day, slotIndex, month, year, submitting, onSubmit, fieldErrors, onFieldChange,
-  returnAfterAuth, contactDefaults, embeddedModalLayout, onEmbeddedBookFooterChange, signedIn,
+  contactDefaults, embeddedModalLayout, onEmbeddedBookFooterChange, signedIn,
+  accountNext, submitError, slotGone, nextOpenTimes, onPickNextOpenTime, onChangeTime,
 }: {
   pub: boolean;
   property: MockProperty; roomLabel: string; day: number | null; slotIndex: number | null;
@@ -1515,10 +1605,17 @@ function Step3({
   year: number;
   submitting: boolean;
   fieldErrors: Record<string, string>;
-  returnAfterAuth: string;
   contactDefaults: ProspectContactAutofill;
   /** A signed-in resident already has an account and has already consented. */
   signedIn: boolean;
+  /** Where sign-in / sign-up lands with this room, day and time preselected. */
+  accountNext: string;
+  submitError: string | null;
+  /** The picked time is no longer on offer. */
+  slotGone: boolean;
+  nextOpenTimes: NextOpenTime[];
+  onPickNextOpenTime: (slot: NextOpenTime) => void;
+  onChangeTime: () => void;
   embeddedModalLayout?: boolean;
   onEmbeddedBookFooterChange?: (footer: ReactNode | null) => void;
   onFieldChange: (key: string) => void;
@@ -1531,8 +1628,7 @@ function Step3({
   const [tourFormat, setTourFormat] = useState<TourFormat>(DEFAULT_TOUR_FORMAT);
   // Signed-in residents consented when their account was created; the tick is
   // not shown to them, so it must not silently submit as "declined".
-  const [smsConsent, setSmsConsent] = useState(signedIn);
-  const signInHref = residentSignInHref(returnAfterAuth);
+  const [smsConsent] = useState(signedIn);
   const onSubmitRef = useRef(onSubmit);
   // Synced in an effect rather than during render; the ref is only read from the
   // submit handler, well after the effect has flushed.
@@ -1548,17 +1644,17 @@ function Step3({
   }, [contactDefaults.ready, contactDefaults.name, contactDefaults.email, contactDefaults.phone]);
 
   useEffect(() => {
-    if (!embeddedModalLayout || !onEmbeddedBookFooterChange) return;
+    if (!embeddedModalLayout || !onEmbeddedBookFooterChange || !signedIn) return;
     onEmbeddedBookFooterChange(
       <Button
         type="button"
         variant="primary"
         className="h-9 min-h-0 rounded-full px-6 text-[13px]"
-        disabled={submitting}
+        disabled={submitting || slotGone}
         onClick={() => onSubmitRef.current({ name, email, phone, notes, smsConsent, tourFormat })}
         data-attr="tour-book-submit"
       >
-        {submitting ? "Booking…" : "Book tour"}
+        {submitting ? "Requesting…" : "Request tour"}
       </Button>,
     );
     return () => onEmbeddedBookFooterChange(null);
@@ -1569,53 +1665,60 @@ function Step3({
     notes,
     onEmbeddedBookFooterChange,
     phone,
+    signedIn,
+    slotGone,
     smsConsent,
     submitting,
     tourFormat,
   ]);
 
+  const refusal = (
+    <TourRefusal
+      pub={pub}
+      slotGone={slotGone}
+      submitError={submitError}
+      nextOpenTimes={nextOpenTimes}
+      onPick={onPickNextOpenTime}
+      onChangeTime={onChangeTime}
+    />
+  );
+
   if (pub) {
+    const summary = (
+      <ul className="ps-facts" data-attr="tour-confirm-summary">
+        <li>
+          <span>Home</span>
+          <span>{property.title}</span>
+        </li>
+        {day != null ? (
+          <li>
+            <span>Day</span>
+            <span>{tourDayLabel(year, month, day)}</span>
+          </li>
+        ) : null}
+        {slotIndex != null ? (
+          <li>
+            <span>Time</span>
+            <span>{formatAvailabilitySlotLabel(slotIndex)}</span>
+          </li>
+        ) : null}
+        {roomLabel ? (
+          <li>
+            <span>Room</span>
+            <span>{roomLabel}</span>
+          </li>
+        ) : null}
+      </ul>
+    );
+
+    if (!signedIn) {
+      return <TourAccountStep pub accountNext={accountNext} summary={summary} refusal={refusal} />;
+    }
+
     return (
       <div className="ps-j-stack" style={{ gap: 22 }}>
-        <ul className="ps-facts" data-attr="tour-confirm-summary">
-          <li>
-            <span>Home</span>
-            <span>{property.title}</span>
-          </li>
-          {day != null ? (
-            <li>
-              <span>Day</span>
-              <span>{tourDayLabel(year, month, day)}</span>
-            </li>
-          ) : null}
-          {slotIndex != null ? (
-            <li>
-              <span>Time</span>
-              <span>{formatAvailabilitySlotLabel(slotIndex)}</span>
-            </li>
-          ) : null}
-          {roomLabel ? (
-            <li>
-              <span>Room</span>
-              <span>{roomLabel}</span>
-            </li>
-          ) : null}
-        </ul>
-
-        {/*
-          Only for a visitor with no account. Inside the resident portal the
-          person is already signed in — telling them no account is required, and
-          offering them a sign-in link, is copy about a situation they are not in.
-        */}
-        {signedIn ? null : (
-          <p style={{ margin: 0 }}>
-            No account is required to book a tour. Add your contact details below, or{" "}
-            <Link href={signInHref} data-attr="tour-step-sign-in" className="ps-link">
-              sign in
-            </Link>{" "}
-            if you already have one.
-          </p>
-        )}
+        {summary}
+        {refusal}
 
         <div className="ps-j-grid2">
           <Field pub label="Name *" fieldKey="name" error={fieldErrors.name}>
@@ -1688,44 +1791,36 @@ function Step3({
           />
         </Field>
 
-        {signedIn ? null : (
-          <SmsConsentCheckbox checked={smsConsent} onChange={setSmsConsent} inputId="tour-sms-consent" ps />
-        )}
-
         <button
           type="button"
-          disabled={submitting}
+          disabled={submitting || slotGone}
           onClick={() => onSubmit({ name, email, phone, notes, smsConsent, tourFormat })}
           className="ps-btn ps-btn-blue ps-btn-block"
           data-attr="tour-book-submit"
         >
-          {submitting ? "Booking..." : "Book tour"}
+          {submitting ? "Requesting…" : "Request tour"}
         </button>
       </div>
     );
   }
 
-  return (
-    <div className="space-y-5">
+  const embeddedSummary = (
+    <>
       <p className="text-sm font-semibold text-foreground">{roomLabel || property.title}</p>
       <p className="text-sm text-muted">
         {MONTHS[month]} {day}, {year} · {slotIndex != null ? formatAvailabilitySlotLabel(slotIndex) : ""}
       </p>
+    </>
+  );
 
-      {/*
-        Only for a visitor with no account. Inside the resident portal the
-        person is already signed in — telling them no account is required, and
-        offering them a sign-in link, is copy about a situation they are not in.
-      */}
-      {signedIn ? null : (
-        <p className="text-sm leading-relaxed text-muted">
-          No account is required to book a tour. Add your contact details below, or{" "}
-          <Link href={signInHref} data-attr="tour-step-sign-in" className="font-semibold text-primary hover:underline">
-            sign in
-          </Link>{" "}
-          if you already have one.
-        </p>
-      )}
+  if (!signedIn) {
+    return <TourAccountStep pub={false} accountNext={accountNext} summary={embeddedSummary} refusal={refusal} />;
+  }
+
+  return (
+    <div className="space-y-5">
+      {embeddedSummary}
+      {refusal}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Name *" fieldKey="name" error={fieldErrors.name}>
@@ -1800,27 +1895,16 @@ function Step3({
         <textarea id="tour-notes" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Anything we should prepare in advance?" className={`${inputCls} resize-none`} />
       </Field>
 
-      {/*
-        Consent is collected once, when the account is created. Re-asking a
-        signed-in resident on every tour implies the earlier answer was not
-        recorded, and an already-ticked box they cannot meaningfully act on is
-        not consent — it is furniture. A visitor with no account still sees it,
-        because for them this IS the first time.
-      */}
-      {signedIn ? null : (
-        <SmsConsentCheckbox checked={smsConsent} onChange={setSmsConsent} inputId="tour-sms-consent" />
-      )}
-
       {!embeddedModalLayout ? (
         <button
           type="button"
-          disabled={submitting}
+          disabled={submitting || slotGone}
           onClick={() => onSubmit({ name, email, phone, notes, smsConsent, tourFormat })}
           className="w-full rounded-2xl py-3.5 text-sm font-semibold text-white shadow-[0_0_20px_rgba(0,122,255,0.28)] transition-all hover:brightness-105 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
           style={{ background: "linear-gradient(135deg, var(--primary), var(--primary-alt))" }}
           data-attr="tour-book-submit"
         >
-          {submitting ? "Booking..." : "Book tour"}
+          {submitting ? "Requesting…" : "Request tour"}
         </button>
       ) : null}
     </div>

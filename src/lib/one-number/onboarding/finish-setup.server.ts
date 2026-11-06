@@ -1,4 +1,5 @@
 import "server-only";
+import { claimWaitingDirectoryBalances } from "@/lib/managed-finance/directory-vendor.server";
 
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { ensureFreeManagerPortalAccess } from "@/lib/auth/manager-portal-provision";
@@ -67,6 +68,7 @@ export async function finishSetup(
 
     const provisioned = await provisionVendorAccountByEmail(db, { userId: user.id, email: user.email ?? "", fullName: null, invite: null, confirmEmail: true });
     if (!provisioned.ok) return { ok: false, reason: "unavailable" };
+    await claimWaitingDirectoryBalances(db, { userId: user.id, phone: identity.phone, phoneProven: true }).catch((error) => console.error("[vendor signup] phone balance claim failed", error instanceof Error ? error.name : "unknown"));
     if (link.context.vendorLeadId) {
       await db.from("sms_vendor_leads").update({ user_id: user.id, updated_at: now.toISOString() }).eq("id", link.context.vendorLeadId);
     }

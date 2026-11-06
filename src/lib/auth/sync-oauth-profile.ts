@@ -1,5 +1,5 @@
-import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
+import { primaryRoleWhenAddingResident } from "@/lib/auth/profile-primary-role";
 import { provisionFreeManagerFromOAuth } from "@/lib/auth/provision-free-manager-oauth";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
@@ -38,12 +38,7 @@ export async function syncOAuthProfile(
     if (!existing.full_name?.trim() && fullName) patch.full_name = fullName;
     const { error } = await supabase.from("profiles").update(patch).eq("id", user.id);
     if (error) throw error;
-    if (isPrimaryAdmin) {
-      // Re-assert admin so an OAuth sign-in always lands in the admin portal,
-      // even if the role row was lost.
-      await ensureProfileRoleRow(supabase, user.id, "admin");
-      return;
-    }
+    if (isPrimaryAdmin) return;
     if (!opts?.skipAutoProvision) {
       await provisionFreeManagerFromOAuth(supabase, user);
     }
@@ -51,20 +46,18 @@ export async function syncOAuthProfile(
   }
 
   if (isPrimaryAdmin) {
+    // The ops address is admin-ONLY and its roles come from stored `profile_roles` alone, so nothing
+    // is granted here. The profiles row itself still has to exist: `profiles.email` is what
+    // `holdsAdminOutsideRoleRow` reads to enforce the primary-admin protection, and without the row
+    // the account has no recorded email or name anywhere. The legacy `role` column is NOT NULL and
+    // carries no authority (`AGENTS.md` § `profiles.role` is legacy), so it gets the same default a
+    // brand-new profile with no portal chosen yet gets — never a fresh `admin` label, which the
+    // release's own follow-up on stale legacy admin markers exists to stop spreading.
     const { error: profileError } = await supabase.from("profiles").upsert(
-      {
-        id: user.id,
-        email,
-        role: "admin",
-        full_name: fullName,
-        manager_id: null,
-        application_approved: true,
-      },
-      { onConflict: "id" },
+      { id: user.id, email, full_name: fullName, role: primaryRoleWhenAddingResident(null), manager_id: null },
+      { onConflict: "id", ignoreDuplicates: true },
     );
     if (profileError) throw profileError;
-
-    await ensureProfileRoleRow(supabase, user.id, "admin");
     return;
   }
 

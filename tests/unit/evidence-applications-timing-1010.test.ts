@@ -78,6 +78,7 @@ function makeDb() {
         maybeSingle: () =>
           Promise.resolve({ data: table === "profiles" ? { role: "manager", email: "owner@seattlehomes.test" } : null, error: null }),
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
+          if (table === "profile_roles") return Promise.resolve({ data: [{ role: "manager" }], error: null }).then(resolve);
           const data =
             table === "manager_property_records"
               ? [{ id: HOUSE, manager_user_id: OWNER }].filter((p) => eqCol !== "manager_user_id" || p.manager_user_id === eqVal)
@@ -114,7 +115,7 @@ beforeEach(() => {
   afterCallbacks.length = 0;
   VIEW_AS_OPEN = false;
   LINK_LOOKUP_FAILS = false;
-  getUser.mockResolvedValue({ data: { user: { id: OWNER, email: "owner@seattlehomes.test", user_metadata: {} } }, error: null });
+  getUser.mockResolvedValue({ data: { user: { id: OWNER, email: "owner@seattlehomes.test", email_confirmed_at: "confirmed", user_metadata: {} } }, error: null });
 });
 
 describe("evidence · GET /api/manager-applications answers before the sweep, and reports its phases", () => {

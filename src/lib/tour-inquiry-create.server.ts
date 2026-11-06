@@ -369,9 +369,16 @@ export async function createTourInquiry(
   // below (no open slot, signed in, a valid 30-minute time) and `requestKind` is stamped only when it holds.
   const claimsRequestedTime = incoming.requestKind === REQUESTED_TOUR_KIND;
   delete incoming.requestKind;
+  // Server-owned, and the most important of the four: the callers are public (a web tour now needs a
+  // session, an SMS prospect never has one) and the payload is never trusted, while
+  // the inquiry id is what binds a tour to its resident (`resident_tour_links.inquiry_id`).
+  // Honouring a caller's id let anyone name an existing linked inquiry, replace its manager,
+  // property and time in the shared payload, and have that resident receive the notices for
+  // the tour they just overwrote. The id is minted here and never read from input.
+  delete incoming.id;
   const notify = args.notify !== false;
 
-  const id = typeof incoming.id === "string" && incoming.id.trim() ? incoming.id.trim() : crypto.randomUUID();
+  const id = crypto.randomUUID();
   // Coerce the opt-in to a strict boolean so the send-time gate can never be
   // tricked by a truthy non-boolean; stamp the decision time for provable
   // consent later. An absent/unchecked box persists as `false` (no SMS).
@@ -530,7 +537,10 @@ export async function createTourInquiry(
   if (readError) return { ok: false, reason: "write_failed", error: readError.message };
 
   const existing = inquiryRowsFromRecord(data?.row_data);
-  const next = [row, ...existing.filter((item) => item.id !== id)];
+  // The id is freshly minted, so this replaces nothing. Kept as a guard: a row already under
+  // this id would mean a UUID collision, and the new tour must not silently inherit its link.
+  if (existing.some((item) => item.id === id)) return { ok: false, reason: "write_failed", error: "Could not file this tour request. Please try again." };
+  const next = [row, ...existing];
 
   const leadSource = normalizeLeadSource(args.sourceChannel);
   const records: Record<string, unknown>[] = [

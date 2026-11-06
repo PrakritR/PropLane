@@ -1,3 +1,4 @@
+import { hasUnlinkedPaidManagerPurchase } from "@/lib/auth/unlinked-manager-paid-purchase";
 import { normalizeManagerSkuTier } from "@/lib/manager-access";
 import { ensureSandboxManagerLandlordProfile } from "@/lib/manager-landlord-profile";
 import { generateManagerId } from "@/lib/manager-id";
@@ -43,12 +44,28 @@ export function isManagerOnboardingComplete(purchase: ManagerPurchaseRow | null 
   return !isAxisIntentSessionId(purchase.stripe_checkout_session_id);
 }
 
+export type PurchaseEmailProof = { emailVerified?: boolean };
+export class ManagerPurchaseReadError extends Error {
+  readonly detail: { code?: string | null; message?: string | null } | null;
+  constructor(detail: { code?: string | null; message?: string | null } | null) {
+    super("Could not read this account's manager signup. Please try again.");
+    this.name = "ManagerPurchaseReadError";
+    this.detail = detail ?? null;
+  }
+}
+export function isManagerPurchaseReadError(error: unknown): error is ManagerPurchaseReadError {
+  return error instanceof ManagerPurchaseReadError;
+}
+
 export async function findManagerPurchaseForAccount(
   supabase: SupabaseClient,
   userId: string,
-  email: string,
+  _email: string,
+  _proof: PurchaseEmailProof = {},
 ): Promise<ManagerPurchaseRow | null> {
-  const { data: byUser } = await supabase
+  void _proof;
+  void _email; // Retained for callers; email alone is not purchase ownership.
+  const { data: byUser, error } = await supabase
     .from("manager_purchases")
     .select("id, email, manager_id, tier, billing, stripe_checkout_session_id, user_id, full_name, paid_at")
     .eq("user_id", userId)
@@ -56,28 +73,18 @@ export async function findManagerPurchaseForAccount(
     .limit(1)
     .maybeSingle();
 
-  if (byUser) return byUser as ManagerPurchaseRow;
-
-  const normalized = email.trim().toLowerCase();
-  if (!normalized) return null;
-
-  const { data: byEmail } = await supabase
-    .from("manager_purchases")
-    .select("id, email, manager_id, tier, billing, stripe_checkout_session_id, user_id, full_name, paid_at")
-    .eq("email", normalized)
-    .order("paid_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  return (byEmail as ManagerPurchaseRow | null) ?? null;
+  if (error) throw new ManagerPurchaseReadError(error);
+  const purchase = byUser as ManagerPurchaseRow | null;
+  return purchase?.user_id === userId ? purchase : null;
 }
 
 export async function managerNeedsPricingSelection(
   supabase: SupabaseClient,
   userId: string,
   email: string,
+  proof: PurchaseEmailProof = {},
 ): Promise<boolean> {
-  const purchase = await findManagerPurchaseForAccount(supabase, userId, email);
+  const purchase = await findManagerPurchaseForAccount(supabase, userId, email, proof);
   return !isManagerOnboardingComplete(purchase);
 }
 
@@ -93,6 +100,8 @@ export async function provisionPendingManagerAccount(
   if (existingPurchase && isManagerOnboardingComplete(existingPurchase)) {
     throw new Error("A manager account already exists for this email.");
   }
+
+  if (await hasUnlinkedPaidManagerPurchase(supabase, opts.userId, email)) throw new Error("A paid checkout requires verified completion.");
 
   if (existingPurchase && isAxisPendingSessionId(existingPurchase.stripe_checkout_session_id)) {
     const { data: existingProfile } = await supabase.from("profiles").select("*").eq("id", opts.userId).maybeSingle();
@@ -172,7 +181,26 @@ export async function provisionPendingManagerAccount(
   return { managerId, created: true };
 }
 
-/** After Free tier (or 100% waiver) is chosen on pricing for an already-provisioned manager. */
+/** A reservation row holding a live Stripe Checkout session: that checkout owns the plan until it closes. */
+export function managerCheckoutInProgress(purchase: { stripe_checkout_session_id?: string | null } | null | undefined): boolean {
+  return String(purchase?.stripe_checkout_session_id ?? "").startsWith("cs_");
+}
+
+export const MANAGER_CHECKOUT_IN_PROGRESS_ERROR =
+  "A checkout is already in progress. Finish that checkout before choosing another plan.";
+
+export type FinalizePendingManagerFreeTierResult =
+  | { status: "finalized"; sessionId: string; managerId: string }
+  | { status: "skipped"; reason: "checkout_in_progress" };
+
+/**
+ * After Free tier (or 100% waiver) is chosen on pricing for an already-provisioned manager.
+ *
+ * An in-progress `cs_` reservation is REFUSED, not overwritten — but as a result, never a throw: a
+ * caller that has already written half a provisioning (`manager-portal-provision.ts`) owes its own
+ * caller a `skipped` answer it can report, not a 500 out of the middle of the sequence. Callers that
+ * are a person's explicit plan choice turn it back into an error themselves.
+ */
 export async function finalizePendingManagerFreeTier(
   supabase: SupabaseClient,
   opts: {
@@ -183,10 +211,14 @@ export async function finalizePendingManagerFreeTier(
     fullName?: string | null;
     promo?: string | null;
   },
-): Promise<{ sessionId: string; managerId: string }> {
+): Promise<FinalizePendingManagerFreeTierResult> {
   const purchase = await findManagerPurchaseForAccount(supabase, opts.userId, opts.email);
   if (!purchase) {
     throw new Error("No manager signup found for this account.");
+  }
+  if (await hasUnlinkedPaidManagerPurchase(supabase, opts.userId, opts.email)) throw new Error("A paid checkout requires verified completion.");
+  if (managerCheckoutInProgress(purchase)) {
+    return { status: "skipped", reason: "checkout_in_progress" };
   }
 
   const sessionId = isAxisPendingSessionId(purchase.stripe_checkout_session_id)
@@ -195,7 +227,7 @@ export async function finalizePendingManagerFreeTier(
       ? purchase.stripe_checkout_session_id
       : `axis_intent_${randomUUID()}`;
 
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from("manager_purchases")
     .update({
       stripe_checkout_session_id: sessionId,
@@ -206,9 +238,14 @@ export async function finalizePendingManagerFreeTier(
       user_id: opts.userId,
       full_name: opts.fullName?.trim() || purchase.full_name || null,
     })
-    .eq("id", purchase.id);
+    .eq("id", purchase.id)
+    .eq("user_id", opts.userId)
+    .eq("stripe_checkout_session_id", purchase.stripe_checkout_session_id)
+    .select("id")
+    .maybeSingle();
 
   if (error) throw error;
+  if (!updated) throw new Error("Your signup changed. Please try again.");
 
   // The one choke point every live manager signup passes through (email
   // register, Google/Apple callbacks, pricing, get-started). Fire only on the
@@ -222,5 +259,5 @@ export async function finalizePendingManagerFreeTier(
     });
   }
 
-  return { sessionId, managerId: purchase.manager_id };
+  return { status: "finalized", sessionId, managerId: purchase.manager_id };
 }

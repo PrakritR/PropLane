@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
+import { verifiedSessionEmail } from "@/lib/auth/verified-session-email";
 import { getEffectiveSessionForPortal } from "@/lib/auth/effective-session";
 import { ensureMayAccessResidentPortal } from "@/lib/auth/ensure-resident-portal-access.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { loadResidentTourViews, linkAllTourInquiriesForEmail } from "@/lib/tour-resident-link.server";
+import { loadResidentTourViews } from "@/lib/tour-resident-link.server";
 
 export const runtime = "nodejs";
 
@@ -18,10 +19,7 @@ export async function GET() {
       return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
-    const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
-    if (email.includes("@")) {
-      await linkAllTourInquiriesForEmail(db, { userId: user.id, email });
-    }
+    const email = verifiedSessionEmail(user, profile?.email);
     const tours = await loadResidentTourViews(db, user.id, { email });
     return NextResponse.json({ tours });
   } catch (e) {

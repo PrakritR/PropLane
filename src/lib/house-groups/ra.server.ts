@@ -127,7 +127,7 @@ async function askerHouseAccess(
     const leaseUnlocked = access.leaseAccessUnlocked === true;
     if (!leaseUnlocked) return { moveInOpen: true, revealed: false };
     const { residentCheckInReveal } = await import("@/lib/check-in.server");
-    const reveal = await residentCheckInReveal(db, email, { managerUserId: ownerUserId, leaseUnlocked });
+    const reveal = await residentCheckInReveal(db, email, { managerUserId: ownerUserId, residentUserId: userId, leaseUnlocked });
     return { moveInOpen: true, revealed: reveal.revealed === true };
   } catch {
     return locked;

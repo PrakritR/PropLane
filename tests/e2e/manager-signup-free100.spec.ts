@@ -22,12 +22,11 @@ test.describe("Manager FREE100 signup", () => {
       page.getByRole("button", { name: /choose pro/i }).first().click(),
     ]);
 
-    // The unified generic create form (PortalAuthForm hub variant).
-    await expect(page.getByPlaceholder("Full name")).toBeVisible();
-    await expect(page.getByPlaceholder("Email")).toBeVisible();
-    await expect(page.getByPlaceholder(/Password \(8\+/)).toBeVisible();
-    // "Choose Pro" carries role=manager, and this spec runs signed out, so the
-    // submit button is the CREATE label (see manager-trial-signup-form.tsx).
-    await expect(page.getByRole("button", { name: /create property account/i })).toBeVisible();
+    // The selected tier reaches the email-first verification step.
+    await expect(page.getByRole("heading", { name: "Create your property account" })).toBeVisible();
+    await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Continue with email" })).toBeVisible();
+    await expect(page.locator('input[type="password"]')).toHaveCount(0);
+
   });
 });

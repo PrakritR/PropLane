@@ -95,6 +95,7 @@ function makeDb(options: {
         order: () => chain,
         limit: () => chain,
         then: (resolve: (value: unknown) => unknown) => {
+          if (table === "resident_tour_links") return Promise.resolve(resolve({ data: [{ resident_user_id: "guest-user" }], error: null }));
           // The owner's lines are read as a list now (one per workspace).
           if (table === "manager_sms_numbers") return Promise.resolve(resolve({ data: [NUMBER_ROW], error: null }));
           if (table !== "sms_consent_events") return Promise.resolve(resolve({ data: [], error: null }));

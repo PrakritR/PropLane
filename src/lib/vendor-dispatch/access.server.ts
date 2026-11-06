@@ -61,7 +61,7 @@ export async function authorizeDispatchActor(
     return fail(403, "Vendor access is unavailable for this account.");
   }
   // `profile_roles` is the authority; `profiles.role` is the role the account was created as.
-  if (!(await userHoldsManagerRole(db, user.id, user.user_metadata?.role)) && !(await isAdminUser(user.id))) {
+  if (!(await userHoldsManagerRole(db, user.id)) && !(await isAdminUser(user.id))) {
     return fail(403, "Forbidden.");
   }
   // Owner-only refusal seam (retired: owners use the Property portal).

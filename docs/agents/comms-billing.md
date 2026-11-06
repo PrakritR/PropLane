@@ -7,7 +7,9 @@ workspace. A signup or Stripe trial is not yet paying and cannot provision a num
 admin comp grant counts as paid for communication CREDIT, but not for a number of its own
 (§ Who may hold a personalized number). Provisioning, phone verification, carrier registration,
 consent and runtime rollout controls still apply. The phone itself has no setup or monthly
-usage deduction. Work email uses the same verified plan entitlement and remains unmetered
+usage deduction. Work email uses the same verified plan entitlement (the exception is a
+PropLane-managed workspace, whose address PropLane mints ungated - [`admin-service.md`](admin-service.md)
+§ Service mode) and remains unmetered
 (sending is free, but the assistant turn that writes an auto-reply to a prospect or resident is a
 paid `ai_agent_turn`, reserved under `ai_turn:email:<inbound email id>` before the model runs and
 refused when credit is not granted - `email-auto-reply-credit.server.ts`);

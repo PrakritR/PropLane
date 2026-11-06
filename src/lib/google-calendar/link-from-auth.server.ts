@@ -17,13 +17,9 @@ export function signedInWithGoogle(user: User): boolean {
 }
 
 async function userHasManagerPortalRole(db: SupabaseClient, userId: string): Promise<boolean> {
-  const [{ data: profile }, { data: roles }] = await Promise.all([
-    db.from("profiles").select("role").eq("id", userId).maybeSingle(),
-    db.from("profile_roles").select("role").eq("user_id", userId),
-  ]);
-  const roleList = (roles ?? []).map((row) => String(row.role).toLowerCase());
-  const legacy = String(profile?.role ?? "").toLowerCase();
-  return roleList.includes("manager") || legacy === "manager" || legacy === "admin";
+  const { data: roles, error } = await db.from("profile_roles").select("role").eq("user_id", userId);
+  if (error) return false;
+  return (roles ?? []).some((row) => ["manager", "admin"].includes(String(row.role).toLowerCase()));
 }
 
 function shouldLinkForUser(

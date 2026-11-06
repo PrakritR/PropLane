@@ -208,9 +208,9 @@ describe("group application — manager reconciliation", () => {
     // each member must still be named on their own row.
     await waitFor(() => expect(screen.getAllByText("Priya Nair").length).toBeGreaterThan(0));
     expect(document.querySelector("[data-attr='applications-resident-groups']")).toBeTruthy();
-    // Pending now holds the submitted AND the unfinished member (Incomplete is a fact on the row, not a tab).
-    expect(screen.getAllByText(/Group \d+\/\d+/).length).toBe(2);
-    expect(screen.getAllByText("Sam Okafor").length).toBeGreaterThan(0);
+    // Pending holds submitted applications only; the unfinished member sits in the Incomplete tab.
+    expect(screen.getAllByText(/Group \d+\/\d+/).length).toBe(1);
+    expect(screen.queryByText("Sam Okafor")).toBeNull();
     dumpHtml("manager-rows", container.innerHTML);
 
     rerender(<ManagerApplications bucket="pending" />);

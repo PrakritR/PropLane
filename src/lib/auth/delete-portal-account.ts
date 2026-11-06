@@ -1,5 +1,6 @@
 import { purgeSharedAccountAttachments } from "@/lib/auth/purge-shared-account-attachments";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
+import { heldPortalRoles } from "@/lib/auth/held-portal-roles";
 import { portalDashboardPath } from "@/lib/auth/portal-roles";
 import {
   purgeManagerPortalData,
@@ -46,12 +47,7 @@ export async function normalizedRolesForUser(db: ServiceDb, userId: string): Pro
   ]);
   if (profileError) throw new Error(profileError.message);
   if (rolesError) throw new Error(rolesError.message);
-  const normalized = (roleRows ?? [])
-    .map((row) => String(row.role ?? "").toLowerCase())
-    .filter(Boolean);
-  const legacyRole = String(profile?.role ?? "").toLowerCase();
-  if (legacyRole && !normalized.includes(legacyRole)) normalized.push(legacyRole);
-  return normalized;
+  return heldPortalRoles(roleRows, profile?.role);
 }
 
 function portalDeleteAllowed(roles: string[], portal: SelfDeletePortal): boolean {
@@ -83,12 +79,7 @@ async function normalizedRolesForEmail(db: ServiceDb, email: string): Promise<st
 
   if (profileError) throw new Error(profileError.message);
   if (rolesError) throw new Error(rolesError.message);
-  const normalizedRoles = (roleRows ?? [])
-    .map((row) => String(row.role ?? "").toLowerCase())
-    .filter(Boolean);
-  const legacyRole = String(profile?.role ?? "").toLowerCase();
-  if (legacyRole && !normalizedRoles.includes(legacyRole)) normalizedRoles.push(legacyRole);
-  return normalizedRoles;
+  return heldPortalRoles(roleRows, profile?.role);
 }
 
 /** Returns whether resident portal data can be purged without violating protected-role policy. */

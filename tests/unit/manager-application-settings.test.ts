@@ -3,7 +3,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   DEFAULT_MANAGER_APPLICATION_SETTINGS,
-  LEGACY_DEFAULT_APPLICATION_FEE_CENTS,
   effectiveApplicationFeeCents,
   loadManagerApplicationSettings,
   normalizeManagerApplicationSettings,
@@ -185,10 +184,21 @@ describe("effectiveApplicationFeeCents — room/term -> template -> listing -> a
   it("honors an account-wide 0 (applications free)", () => {
     expect(effectiveApplicationFeeCents({ managerFeeCents: 0, listingFeeCents: null })).toBe(0);
   });
-  it("falls back to the legacy default when nothing at all is set", () => {
-    expect(effectiveApplicationFeeCents({ managerFeeCents: null, listingFeeCents: null })).toBe(
-      LEGACY_DEFAULT_APPLICATION_FEE_CENTS,
-    );
+  it("is FREE when nothing at all is set (no built-in fee)", () => {
+    expect(effectiveApplicationFeeCents({ managerFeeCents: null, listingFeeCents: null })).toBe(0);
+    expect(effectiveApplicationFeeCents({ managerFeeCents: null })).toBe(0);
+  });
+  it("a saved account fee of $50 still charges $50", () => {
+    expect(effectiveApplicationFeeCents({ managerFeeCents: 5000 })).toBe(5000);
+  });
+  it("a listing fee, a template override and a room fee each beat an empty account setting", () => {
+    expect(effectiveApplicationFeeCents({ managerFeeCents: null, listingFeeCents: 3000 })).toBe(3000);
+    expect(effectiveApplicationFeeCents({ managerFeeCents: null, templateFeeCentsOverride: 2500 })).toBe(2500);
+    expect(effectiveApplicationFeeCents({ managerFeeCents: null, roomTermFeeCents: 4000 })).toBe(4000);
+  });
+  it("a short stay with nothing set is still free, and ignores the account fee", () => {
+    expect(effectiveApplicationFeeCents({ managerFeeCents: null, shortStay: true })).toBe(0);
+    expect(effectiveApplicationFeeCents({ managerFeeCents: 5000, shortStay: true })).toBe(0);
   });
 });
 

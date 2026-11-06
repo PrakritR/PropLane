@@ -25,6 +25,11 @@ import {
   loadResidentBlockingForms,
   type BlockingFormsPending,
 } from "@/lib/move-in-forms/blocking";
+import {
+  UNSUBMITTED_APPROVAL_BLOCKED_MESSAGE,
+  isDraftShapedApplicationRow,
+  isUnsubmittedDraftApplicationRow,
+} from "@/lib/rental-application/draft-shape";
 import { managerOwnsResident, residentPropertyIdsForManager } from "@/lib/auth/resident-relationship";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 
@@ -106,6 +111,57 @@ export async function loadResidentApprovalBlocking(
   }
 }
 
+/**
+ * Approving a resident by email alone (the agent's set_resident_approval) names no application, so the
+ * "never sent" refusal the routes apply to a named row has to be derived here: blocked when the caller's
+ * ONLY matching applications are unsubmitted drafts. A legacy stage-less wizard row with no submitted
+ * marker counts as a draft for THIS guard only (nothing is rewritten, an approved row is never a draft),
+ * and any submitted/approved/declined/hand-added row of the caller's lets the approval through.
+ * Fails closed: an unreadable list reports `readFailed`.
+ */
+export async function loadResidentApprovalDraftBlock(
+  db: SupabaseClient,
+  actor: ResidentApprovalActor,
+  email: string,
+): Promise<{ blocked: boolean; readFailed: boolean }> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return { blocked: false, readFailed: false };
+  try {
+    const { data, error } = await db
+      .from("manager_application_records")
+      .select("id, manager_user_id, property_id, assigned_property_id, row_data")
+      .eq("resident_email", normalized);
+    if (error) return { blocked: false, readFailed: true };
+    const records = (data ?? []) as Array<{
+      id: string;
+      manager_user_id: string | null;
+      property_id: string | null;
+      assigned_property_id: string | null;
+      row_data: Record<string, unknown> | null;
+    }>;
+    const memo = createApplicationAccessMemo(db, actor.userId, { strict: true });
+    const held = await Promise.all(
+      records.map((record) => (actor.isAdmin ? Promise.resolve(true) : managerCanAccessApplicationRecord(db, actor.userId, record, { memo }))),
+    );
+    let drafts = 0;
+    let others = 0;
+    records.forEach((record, index) => {
+      if (!held[index]) return;
+      const row = (record.row_data ?? {}) as Parameters<typeof isUnsubmittedDraftApplicationRow>[0] &
+        Parameters<typeof isDraftShapedApplicationRow>[0];
+      const stageLess = !String(row.stage ?? "").trim();
+      const draft =
+        isUnsubmittedDraftApplicationRow(row) ||
+        (stageLess && row.bucket === "pending" && (row as { manuallyAdded?: boolean }).manuallyAdded !== true && isDraftShapedApplicationRow(row));
+      if (draft) drafts += 1;
+      else others += 1;
+    });
+    return { blocked: drafts > 0 && others === 0, readFailed: false };
+  } catch {
+    return { blocked: false, readFailed: true };
+  }
+}
+
 export type ResidentApprovalResult = { ok: true } | { ok: false; status: number; error: string };
 
 /**
@@ -140,6 +196,12 @@ export async function setResidentApprovalForManager(
         return { ok: false, status: 403, error: "Forbidden: resident is not in your active workspace." };
       }
     }
+  }
+
+  if (input.approved) {
+    const draft = await loadResidentApprovalDraftBlock(db, actor, email);
+    if (draft.readFailed) return { ok: false, status: 409, error: "Could not verify the application status. Try again." };
+    if (draft.blocked) return { ok: false, status: 409, error: UNSUBMITTED_APPROVAL_BLOCKED_MESSAGE };
   }
 
   const { error } = await db

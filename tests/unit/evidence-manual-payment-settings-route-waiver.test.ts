@@ -37,7 +37,8 @@ const db = {
       };
     }
     if (table === "profile_roles") {
-      return { select: () => ({ eq: async () => ({ data: [{ role: "manager" }], error: null }) }) };
+      const q = { eq: () => q, maybeSingle: async () => ({ data: { role: "manager" }, error: null }) };
+      return { select: () => q };
     }
     // `assertSettingsScopeOwned` (PLAN-0920-0845) reads the workspace's owner
     // before the route's own `saveWorkspacePaymentSettings` runs — every

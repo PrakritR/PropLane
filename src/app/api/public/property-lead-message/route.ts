@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { verifiedSessionEmail } from "@/lib/auth/verified-session-email";
 import { createHash } from "node:crypto";
 import { notifyProspectPropertyMessageHandoff } from "@/lib/property-lead-prospect-handoff.server";
 import { notifyManagerPropertyLeadMessage } from "@/lib/property-lead-notification.server";
@@ -96,7 +97,7 @@ export async function POST(req: Request) {
         .select("email")
         .eq("id", signedInUser.id)
         .maybeSingle();
-      signedInAs = (signedInProfile?.email as string | undefined)?.trim().toLowerCase() || signedInUser.email?.trim().toLowerCase() || "";
+      signedInAs = verifiedSessionEmail(signedInUser, signedInProfile?.email as string | undefined);
     }
     // A typed email that belongs to an existing account, sent by someone who is
     // not that account, is an unverified lead: it never touches the account's
@@ -134,6 +135,7 @@ export async function POST(req: Request) {
     if (!unverifiedLead) {
       await recordResidentProspectInboxMessage(db, {
         participantEmail: email,
+        residentUserId: signedInAs === email ? signedInUser?.id : undefined,
         subject: `We received your message — ${topic}`,
         body: ackBody,
         residentMessage: message,

@@ -137,7 +137,7 @@ describe("lookups, one per routing step", () => {
         workspaceId: "ws-b", ownerUserId: OWNER_B, role: "vendor", reason: "vendor_job", propertyId: "prop-b1",
         // The house still matches a text that names it; the area is what a vendor is TOLD, and the workspace's own
         // name rides along as the fallback for a house whose address names no city.
-        label: "4709A 8th Ave, Seattle, WA 98108", generalArea: "Seattle", workspaceName: "Eighth Ave Co",
+        label: "4709A 8th Ave, Seattle, WA 98108", generalArea: "Seattle, WA", workspaceName: "Eighth Ave Co",
       },
     ]);
     const closed = world({ agent_sessions: [{ ...VENDOR_IN_B.agent_sessions[0], status: "closed" }], ...{ portal_work_order_records: VENDOR_IN_B.portal_work_order_records } });
@@ -302,7 +302,7 @@ describe("multi-role: one phone in two teams", () => {
     const { db, rows } = both();
     const decision = await routeSharedLineInbound(db, inbound("ok thanks"), null);
     // The vendor half is the general AREA: that job may only be offered, and an offered vendor is never told a street.
-    expect(decision).toMatchObject({ kind: "ambiguous", question: "Is this about 5259 Brooklyn or your job at Seattle?" });
+    expect(decision).toMatchObject({ kind: "ambiguous", question: "Is this about 5259 Brooklyn or your job at Seattle, WA?" });
     expect(rows.sms_line_sessions).toMatchObject([{ phone_key: "2065550142" }]);
     const pending = (rows.sms_line_sessions[0].pending_candidates as SharedLineCandidate[]).map((c) => c.workspaceId);
     expect(pending).toEqual(["ws-a", "ws-b"]);

@@ -192,29 +192,42 @@ async function announceAcceptance(
     "confirm",
   );
 
-  const residentEmail = (run.resident_email ?? "").trim().toLowerCase();
-  if (!residentEmail) return;
+  if (run.source_type !== "work_order") return;
+  // Both the resident's "your vendor accepted" text and the accepted/scheduled notice hang off this
+  // read. Swallowing its error silently dropped both with nothing in the logs, so a failure is
+  // logged and retried once before the notices are given up on.
+  const readJob = async () => db
+    .from("portal_work_order_records")
+    .select("resident_user_id, row_data")
+    .eq("id", run.source_id)
+    .eq("manager_user_id", run.owner_user_id)
+    .maybeSingle();
+  let read = await readJob().catch((e: unknown) => ({ data: null, error: { message: e instanceof Error ? e.message : String(e) } }));
+  if (read.error) {
+    console.error("vendor accept service read failed, retrying", { runId: run.id, sourceId: run.source_id, message: read.error.message });
+    read = await readJob().catch((e: unknown) => ({ data: null, error: { message: e instanceof Error ? e.message : String(e) } }));
+  }
+  if (read.error) {
+    console.error("vendor accept service unreadable; resident notice skipped", { runId: run.id, sourceId: run.source_id, message: read.error.message });
+    return;
+  }
+  const workOrder = read.data as { resident_user_id?: string | null; row_data?: DemoManagerWorkOrderRow } | null;
+  const residentUserId = workOrder?.resident_user_id?.trim();
   const residentText = composeResidentAcceptedText({
     vendorName: contact.name,
     tradeLabel: trade?.label ?? "vendor",
     whenLabel: scheduledIso ? formatPacificShort(new Date(scheduledIso), now) : null,
   });
-  const texted = await sendResidentDispatchText(db, {
+  const texted = residentUserId ? await sendResidentDispatchText(db, {
     ownerUserId: run.owner_user_id,
     workspaceId: run.workspace_id,
-    residentEmail,
+    residentUserId,
     text: residentText,
     dedupeKey: `dispatch-resident-accepted-${run.id}`,
-  }).catch(() => ({ ok: false as const, reason: "send_failed" }));
+  }).catch(() => ({ ok: false as const, reason: "send_failed" })) : null;
 
   if (run.source_type === "work_order" && assigned === "assigned") {
-    const { data: record } = await db
-      .from("portal_work_order_records")
-      .select("row_data")
-      .eq("id", run.source_id)
-      .eq("manager_user_id", run.owner_user_id)
-      .maybeSingle();
-    const row = (record as { row_data?: DemoManagerWorkOrderRow } | null)?.row_data;
+    const row = workOrder?.row_data;
     if (row) {
       const sender = await ownerSender(db, run.owner_user_id);
       await workOrderEvent(db, {
@@ -235,7 +248,7 @@ async function announceAcceptance(
           emergency: row.priority === "Emergency",
         },
         // The vendor was just texted directly; the resident only gets the usual notice when the text could not go.
-        recipients: texted.ok ? [] : [{ audience: "resident" as const, email: residentEmail }],
+        recipients: !residentUserId || texted?.ok ? [] : [{ audience: "resident" as const, userId: residentUserId }],
       }).catch(() => undefined);
     }
   }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isAxisIntentSessionId } from "@/lib/manager-signup-intent";
-import { recordPaidManagerCheckoutSession } from "@/lib/manager-purchase-from-session";
+import { checkoutSessionIndicatesPaidPurchase, recordPaidManagerCheckoutSession } from "@/lib/manager-purchase-from-session";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { getStripe } from "@/lib/stripe";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -56,16 +56,11 @@ export async function GET(req: Request) {
     try {
       session = await stripe.checkout.sessions.retrieve(sessionId);
     } catch (stripeErr) {
-      const fromDb = await previewFromPurchaseRow(sessionId);
-      if (fromDb) return fromDb;
       const message = stripeErr instanceof Error ? stripeErr.message : "Could not load checkout session.";
       return NextResponse.json({ error: message }, { status: 500 });
     }
 
-    const paid =
-      session.payment_status === "paid" ||
-      session.payment_status === "no_payment_required" ||
-      session.status === "complete";
+    const paid = checkoutSessionIndicatesPaidPurchase(session);
     if (!paid) {
       return NextResponse.json({ error: "Checkout is not complete yet." }, { status: 400 });
     }

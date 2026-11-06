@@ -76,5 +76,7 @@ const route = createJsonRecordRoute({
   },
 });
 
-export const GET = route.GET;
+export async function GET(req: Request) {
+  return route.GET(req);
+}
 export const POST = route.POST;

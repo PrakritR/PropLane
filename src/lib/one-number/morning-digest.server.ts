@@ -15,7 +15,7 @@ import {
   type DigestFacts,
 } from "@/lib/one-number/ops-text";
 import { sendManagerNotificationSms } from "@/lib/manager-notification-routing.server";
-import { pacificCalendarDateYmd } from "@/lib/pacific-time";
+import { pacificCalendarDateYmd, pacificHourOfDay } from "@/lib/pacific-time";
 import { resolveManagerSmsAccess } from "@/lib/sms/manager-sms-access.server";
 import { resolveWorkspaceTeamMembersWithGrants } from "@/lib/team-comms.server";
 import type { AgentContext } from "@/lib/tools/context";
@@ -41,10 +41,8 @@ export function morningDigestWanted(stored: boolean | null | undefined, isOwner:
   return typeof stored === "boolean" ? stored : isOwner;
 }
 
-export function pacificHour(now: Date): number {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "2-digit", hourCycle: "h23" }).formatToParts(now);
-  return Number(parts.find((p) => p.type === "hour")?.value ?? "-1");
-}
+/** One definition of "what hour is it in Pacific", shared with the check-in digest. */
+export const pacificHour = pacificHourOfDay;
 
 export type MorningDigestSummary = {
   workspaces: number;

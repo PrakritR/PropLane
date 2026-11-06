@@ -56,6 +56,7 @@ export function FormPromoCodesDialog({
         defaultAppliesTo={kind}
         defaultPropertyIds={id ? [id] : undefined}
         show={kind}
+        listPropertyId={id || undefined}
       />
     </PortalDialog>
   );
@@ -68,6 +69,10 @@ const API = "/api/manager/application-fee-waivers";
  * through the EXISTING waive-code API as a full waive of THIS form's fee (application fee on an application,
  * lease fee on a lease), limited to this property. The codes already on the form list underneath as plain
  * rows: the code, what it does (the waive model has one effect, "Free"), its uses, and a ⋯ menu.
+ *
+ * A code the server marked `readOnly` (the owner's own portfolio-wide code, or one covering a house this caller
+ * holds no edit grant on) keeps Copy - handing the text to an applicant is the everyday action and it really does
+ * waive on this house - and loses only the write entries, which would be refused.
  *
  * The client sends only the code text, the fee and the property id; the server re-derives the manager from
  * the session and refuses a property that is not theirs. A brand-new draft has no property id yet, so it is
@@ -106,13 +111,15 @@ export function FormPromoCodesRow({
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(API, { credentials: "include" });
+      // With a property the server lists the codes of that property's OWNER that cover it, so a teammate or
+      // PropLane staff seated on the workspace sees the same codes the owner does.
+      const res = await fetch(scopeId ? `${API}?propertyId=${encodeURIComponent(scopeId)}` : API, { credentials: "include" });
       const data = (await res.json().catch(() => ({}))) as { codes?: ApplicationFeeWaiverCode[] };
       if (res.ok && Array.isArray(data.codes)) setCodes(data.codes);
     } catch {
       // The list is a convenience; typing a code still works without it.
     }
-  }, []);
+  }, [scopeId]);
 
   useEffect(() => {
     // /demo never writes real rows, so it never reads them either (the row stays, inert); a draft with no id has none yet.
@@ -265,12 +272,16 @@ export function FormPromoCodesRow({
                 <DropdownMenuItem data-attr="form-promo-code-copy" onSelect={() => void copy(code.code)}>
                   Copy
                 </DropdownMenuItem>
-                <DropdownMenuItem data-attr="form-promo-code-manage" onSelect={() => setManageOpen(true)}>
-                  Manage codes
-                </DropdownMenuItem>
-                <DropdownMenuItem className="text-danger" data-attr="form-promo-code-off" onSelect={() => setOffId(code.id)}>
-                  Turn off
-                </DropdownMenuItem>
+                {code.readOnly ? null : (
+                  <>
+                    <DropdownMenuItem data-attr="form-promo-code-manage" onSelect={() => setManageOpen(true)}>
+                      Manage codes
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="text-danger" data-attr="form-promo-code-off" onSelect={() => setOffId(code.id)}>
+                      Turn off
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}

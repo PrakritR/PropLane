@@ -85,10 +85,10 @@ export default function InviteLinkClient({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
   const [claimed, setClaimed] = useState(false);
   const [needManagerAccount, setNeedManagerAccount] = useState(false);
-  // Property owner invite: sign up inline (an owner needs no manager account).
-  const [ownerName, setOwnerName] = useState("");
+  // Property owner invite: start an account inline (an owner needs no manager account). Email
+  // first — the account is created and confirmed only by the emailed `token_hash` link.
   const [ownerEmail, setOwnerEmail] = useState("");
-  const [ownerPassword, setOwnerPassword] = useState("");
+  const [ownerLinkSent, setOwnerLinkSent] = useState(false);
 
   const invitePath = `/invite/${token}`;
   const createManagerHref = `/auth/create-account?mode=create&role=manager&tier=free&next=${encodeURIComponent(invitePath)}`;
@@ -217,37 +217,41 @@ export default function InviteLinkClient({ token }: { token: string }) {
     }
   }, [router, selectJoinedWorkspace, token, isOwnerInvite]);
 
-  const createOwnerAccountAndJoin = async () => {
+  /**
+   * Start an owner account from the invite screen, email first.
+   *
+   * It used to POST `{ email, password }` to `/api/auth/signup` anonymously and then
+   * `signInWithPassword`. That is the exact flow this release retired: `/api/auth/signup` now
+   * refuses any caller who is not already a verified, signed-in mailbox owner, so the form answered
+   * 403 and the screen had no way forward. More importantly, it set a password on an address nobody
+   * had proven — a holder of the link could open an account on the invited address.
+   *
+   * So the mailbox is proven first: this mails a `token_hash` link, the link signs them in and
+   * completes the account, and the invite is redeemed afterwards by the signed-in subject. The
+   * token stays bound to its invited address either way — `checkBoundInviteeEmail` re-derives the
+   * redeemer's CONFIRMED email server-side and refuses anyone else.
+   */
+  const startOwnerAccount = async () => {
+    const email = ownerEmail.trim().toLowerCase();
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/auth/signup", {
+      const res = await fetch("/api/auth/email-onboarding/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: ownerEmail, password: ownerPassword, fullName: ownerName }),
+        body: JSON.stringify({ email, intent: "generic" }),
       });
       const out = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
-        setError(out.error ?? "Could not create your account.");
+        setError(out.error ?? "Could not send your verification link.");
         return;
       }
-      const supabase = createSupabaseBrowserClient();
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: ownerEmail.trim().toLowerCase(),
-        password: ownerPassword,
-      });
-      if (signInError) {
-        setError("Account created. Sign in to finish joining.");
-        return;
-      }
-      setSignedIn(true);
+      setOwnerLinkSent(true);
     } catch {
-      setError("Could not create your account.");
-      return;
+      setError("Could not send your verification link.");
     } finally {
       setBusy(false);
     }
-    await accept();
   };
 
   if (notFound) {
@@ -426,33 +430,40 @@ export default function InviteLinkClient({ token }: { token: string }) {
       {error ? <p className="mt-4 text-center text-sm text-rose-600">{error}</p> : null}
 
       <div className="mt-6">
-        {signedIn === false && isOwner ? (
+        {signedIn === false && isOwner && ownerLinkSent ? (
+          <div className="grid gap-3" data-attr="invite-link-owner-sent">
+            <p className="text-center text-[15px] text-foreground/80" role="status">
+              Check your email for a link to verify your address and finish your account. Then open
+              this invite again to join.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full rounded-full py-2.5 text-[15px] font-semibold"
+              data-attr="invite-link-owner-resend"
+              onClick={() => setOwnerLinkSent(false)}
+            >
+              Use another email
+            </Button>
+          </div>
+        ) : signedIn === false && isOwner ? (
           <form
             className="grid gap-3"
             data-attr="invite-link-owner-signup"
             onSubmit={(e) => {
               e.preventDefault();
-              void createOwnerAccountAndJoin();
+              void startOwnerAccount();
             }}
           >
-            <Input aria-label="Your name" placeholder="Your name" autoComplete="name" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} />
-            <Input aria-label="Email" placeholder="Email" type="email" autoComplete="email" value={ownerEmail} readOnly={Boolean(preview.inviteeEmail)} onChange={(e) => setOwnerEmail(e.target.value)} />
-            <Input
-              aria-label="Password"
-              placeholder="Password"
-              type="password"
-              autoComplete="new-password"
-              value={ownerPassword}
-              onChange={(e) => setOwnerPassword(e.target.value)}
-            />
+            <Input aria-label="Email" placeholder="Email" type="email" autoComplete="email" autoCapitalize="none" inputMode="email" value={ownerEmail} readOnly={Boolean(preview.inviteeEmail)} onChange={(e) => setOwnerEmail(e.target.value)} />
             <Button
               type="submit"
               className="w-full rounded-full py-2.5 text-[15px] font-semibold"
               data-attr="invite-link-owner-create"
               loading={busy}
-              disabled={!ownerEmail.includes("@") || ownerPassword.length < 8}
+              disabled={!ownerEmail.includes("@")}
             >
-              Create account and join
+              Email me a link
             </Button>
             <Button
               type="button"

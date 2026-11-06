@@ -66,24 +66,22 @@ export async function resolveVendorPortalUserId(): Promise<
 export function resolvePortalApiActorRole(
   ctx: Pick<Awaited<ReturnType<typeof getPortalAccessContext>>, "effectiveRole" | "roles" | "profile">,
 ): string {
-  if (ctx.effectiveRole) return ctx.effectiveRole;
+  if (ctx.effectiveRole && ctx.roles.includes(ctx.effectiveRole)) return ctx.effectiveRole;
   if (ctx.roles.length === 1) return ctx.roles[0]!;
-  return String(ctx.profile?.role ?? "").toLowerCase();
+  return "";
 }
 
 /**
  * Acting role for the mixed manager/vendor work-order routes: the portal the request came from
- * (`profile_roles` + active-portal cookie), falling back to the legacy `profiles.role` only when
- * the portal context cannot name one. `profiles.role` alone reads a manager+vendor as "manager"
+ * (`profile_roles` + active-portal cookie). An unresolved or unreadable role denies access. `profiles.role` alone reads a manager+vendor as "manager"
  * forever, which locked that account out of its own vendor jobs.
  */
 export async function resolveSessionActorRole(legacyRole: unknown): Promise<string> {
-  const legacy = String(legacyRole ?? "").trim().toLowerCase();
+  void legacyRole;
   try {
     const ctx = await getPortalAccessContext();
-    const role = resolvePortalApiActorRole(ctx).trim().toLowerCase();
-    return role || legacy;
+    return resolvePortalApiActorRole(ctx).trim().toLowerCase();
   } catch {
-    return legacy;
+    return "";
   }
 }

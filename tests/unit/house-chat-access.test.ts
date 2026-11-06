@@ -39,6 +39,7 @@ function access(input: { userId: string; email: string; level?: "read" | "edit" 
     {
       resolveScope: async () => over.scope ?? scopeFor(input.userId),
       residents: async () => residentsOf(over.stays ?? [MAYA, NOAH]),
+      subjectEvidence: async () => true,
       houseExists: async () => over.houseExists ?? true,
     },
   );
@@ -185,7 +186,7 @@ describe("what a housemate sees and per-viewer mailbox state", () => {
       { access: async () => ({ ok: true, kind: "resident", parsed: { ownerManagerUserId: OWNER, workspaceId: WS, propertyId: HOUSE }, canPost: true, resident: residentsOf([MAYA, NOAH]).find((r) => r.email === "noah@example.com")! }) },
     );
     const asMaya = { userId: "user-maya", email: "maya@example.com", inboxScope: "axis_portal_inbox_resident_v1" };
-    const live = (stays: ReturnType<typeof leaseStay>[]) => ({ residents: async () => residentsOf(stays), houseExists: async () => true });
+    const live = (stays: ReturnType<typeof leaseStay>[]) => ({ residents: async () => residentsOf(stays), houseExists: async () => true, subjectEvidence: async () => true });
 
     const rows = await houseRowsForResident(db.db, asMaya, live([MAYA, NOAH]));
     expect(rows).toHaveLength(1);
@@ -205,7 +206,7 @@ describe("what a housemate sees and per-viewer mailbox state", () => {
       assertHouseThreadAccess(
         db.db,
         { threadId, userId: "user-maya", email: "maya@example.com", level: "edit" },
-        { residents: async () => residentsOf([MAYA, NOAH]), houseExists: async () => true },
+        { residents: async () => residentsOf([MAYA, NOAH]), houseExists: async () => true, subjectEvidence: async () => true },
       );
     expect(await asAlias(residentId)).toMatchObject({ ok: true, kind: "resident", parsed: { ownerManagerUserId: OWNER, propertyId: HOUSE } });
     expect(await asAlias(`house-chat:${"f".repeat(32)}`)).toEqual({ ok: false });
@@ -219,7 +220,7 @@ describe("what a housemate sees and per-viewer mailbox state", () => {
     const db = chatDb();
     await syncHouseChat(db.db, { workspaceId: WS, ownerUserId: OWNER, propertyId: HOUSE, houseLabel: "12 Pine St" }, { stays: [MAYA], now: () => NOON });
     const asMaya = { userId: "user-maya", email: "maya@example.com", inboxScope: "axis_portal_inbox_resident_v1" };
-    const live = { residents: async () => residentsOf([MAYA]), houseExists: async () => true };
+    const live = { residents: async () => residentsOf([MAYA]), houseExists: async () => true, subjectEvidence: async () => true };
 
     // A chat created before the opaque id existed: the list mints one rather than falling back.
     const row = threadRows(db).find((r) => r.id === THREAD)!;

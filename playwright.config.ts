@@ -55,6 +55,7 @@ export default defineConfig({
     ? undefined
     : {
         command: "npm run build && npm run start",
+        stdout: "pipe",
         url: baseURL,
         reuseExistingServer: !process.env.CI,
         // The CI production build (`npm run build`) alone now exceeds 3 minutes, so allow 7.

@@ -321,7 +321,7 @@ export function ApplicationsSettingsPanel({
               className="w-28 rounded-xl border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground sm:w-32"
               value={feeDollars}
               disabled={disabled || !onApplicationSettingsChange}
-              placeholder="50"
+              placeholder="0"
               data-attr="manager-application-settings-fee"
               onChange={(e) => {
                 const raw = e.target.value.trim().replace(/[^0-9.]/g, "");

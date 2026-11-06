@@ -1,3 +1,5 @@
+import { recoverInboundEnvelopes } from "@/lib/sms/inbound-envelope.server";
+import { processAcceptedInbound } from "@/lib/sms/process-accepted-inbound.server";
 import { NextResponse } from "next/server";
 import { recoverInboundReceipts } from "@/lib/sms/inbound-pipeline.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -15,11 +17,16 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
   try {
-    const result = await recoverInboundReceipts(createSupabaseServiceRoleClient(), {
-      deadline: Date.now() + START_DEADLINE_MS,
-    });
+    const db = createSupabaseServiceRoleClient();
+    const deadline = Date.now() + START_DEADLINE_MS;
+    const envelopes = await recoverInboundEnvelopes(db, { process: processAcceptedInbound, deadline });
+    const result = await recoverInboundReceipts(db, { deadline });
+    const { error: retentionError } = await db.rpc("purge_sms_ingress_retention");
+    if (retentionError) throw new Error("SMS ingress retention unavailable");
     if (result.failed > 0 || result.dropped > 0) console.warn("sms inbound recovery", result);
-    return NextResponse.json({ ok: result.failed === 0, ...result }, { status: result.failed === 0 ? 200 : 503 });
+    const ok = result.failed === 0 && envelopes.needsReview === 0;
+    if (envelopes.needsReview) console.warn("sms ingress needs review", envelopes);
+    return NextResponse.json({ ok, ...result, envelopes }, { status: ok ? 200 : 503 });
   } catch (error) {
     console.error("sms inbound recovery failed", error instanceof Error ? error.message : String(error));
     return NextResponse.json({ error: "Inbound SMS recovery failed." }, { status: 503 });

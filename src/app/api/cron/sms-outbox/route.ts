@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   dispatchOwnerSmsOutbox,
+  expireStaleManagerNotices,
   loadUnknownSmsInventory,
   reconcileSubmittedSmsConversationLogs,
 } from "@/lib/sms/owner-sms-dispatcher.server";
@@ -35,6 +36,9 @@ export async function GET(req: Request) {
       error: error instanceof Error ? error.message : "projection_recovery_unavailable",
     };
   }
+  // Once per invocation, ahead of the batches: a manager-facing relay or notice that has been queued
+  // for six hours is no longer news, and the rows it scans for cannot age inside one run.
+  const staleNoticesExpired = await expireStaleManagerNotices(db);
   const total = { claimed: 0, submitted: 0, blocked: 0, unknown: 0 };
   const infrastructureErrors = new Set<string>();
   let capacityReached = false;
@@ -105,6 +109,7 @@ export async function GET(req: Request) {
     provisioning,
     conversationLogRepair,
     projectionRecovery,
+    staleNoticesExpired,
     unknownInventory,
     dueBacklogCount: dueBacklogCount ?? null,
     quarantinedNumberCount: quarantinedNumberCount ?? null,

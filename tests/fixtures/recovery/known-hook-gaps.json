@@ -1,0 +1,1009 @@
+{
+  "admin_team_grants": {
+    "reason": "admin_team_grants: Never restore this row; review deletion capture and revocation so stale authority cannot survive.",
+    "current_policy": "never_restore",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "agent_user_preferences": {
+    "reason": "agent_user_preferences: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "both_named_enabled",
+    "decision": "pending individual review"
+  },
+  "application_fee_payment_claims": {
+    "reason": "application_fee_payment_claims: Payment or autopay state may replay a charge, refund, or payout; preserve source evidence and verify provider state.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "application_form_requests": {
+    "reason": "application_form_requests: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "comms_account_pools": {
+    "reason": "comms_account_pools: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog",
+    "decision": "pending individual review"
+  },
+  "comms_funder_workspace_spend": {
+    "reason": "comms_funder_workspace_spend: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog",
+    "decision": "pending individual review"
+  },
+  "comms_pool_credit_adjustments": {
+    "reason": "comms_pool_credit_adjustments: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog",
+    "decision": "pending individual review"
+  },
+  "comms_pool_credit_purchases": {
+    "reason": "comms_pool_credit_purchases: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog",
+    "decision": "pending individual review"
+  },
+  "comms_workspace_funding": {
+    "reason": "comms_workspace_funding: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog",
+    "decision": "pending individual review"
+  },
+  "communication_dismissed_contacts": {
+    "reason": "communication_dismissed_contacts: Personal identity or membership may be restored to the wrong subject; verify ownership and revocation.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog",
+    "decision": "pending individual review"
+  },
+  "email_onboarding_handoffs": {
+    "reason": "email_onboarding_handoffs: Session or capability may restore revoked access; require explicit expiry, revocation, and subject policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog",
+    "decision": "pending individual review"
+  },
+  "google_calendar_pending_changes": {
+    "reason": "google_calendar_pending_changes: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "house_group_members": {
+    "reason": "house_group_members: Personal identity or membership may be restored to the wrong subject; verify ownership and revocation.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "listing_channel_connections": {
+    "reason": "listing_channel_connections: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "listing_channel_posts": {
+    "reason": "listing_channel_posts: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "listing_prefill_usage": {
+    "reason": "listing_prefill_usage: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "managed_rent_allocations": {
+    "reason": "managed_rent_allocations: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "managed_workspace_fee_policies": {
+    "reason": "managed_workspace_fee_policies: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "manager_assistant_email_aliases": {
+    "reason": "manager_assistant_email_aliases: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "manager_comms_credit_adjustments": {
+    "reason": "manager_comms_credit_adjustments: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "both_named_enabled",
+    "decision": "pending individual review"
+  },
+  "manager_comms_credit_purchases": {
+    "reason": "manager_comms_credit_purchases: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "both_named_enabled",
+    "decision": "pending individual review"
+  },
+  "manager_comms_workspace_wallets": {
+    "reason": "manager_comms_workspace_wallets: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "manager_door_count_snapshots": {
+    "reason": "manager_door_count_snapshots: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "manager_expense_reversals": {
+    "reason": "manager_expense_reversals: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "manager_house_public_links": {
+    "reason": "manager_house_public_links: Never restore this row; review deletion capture and revocation so stale authority cannot survive.",
+    "current_policy": "never_restore",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "manager_payees": {
+    "reason": "manager_payees: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "manager_plan_addons": {
+    "reason": "manager_plan_addons: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "manager_portfolio_import_records": {
+    "reason": "manager_portfolio_import_records: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "manager_portfolio_imports": {
+    "reason": "manager_portfolio_imports: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "manager_sms_conversation_houses": {
+    "reason": "manager_sms_conversation_houses: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "manager_syndication_feeds": {
+    "reason": "manager_syndication_feeds: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "manager_tour_followup_controls": {
+    "reason": "manager_tour_followup_controls: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "both_named_enabled",
+    "decision": "pending individual review"
+  },
+  "manager_vendor_preferences": {
+    "reason": "manager_vendor_preferences: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "meta_messenger_replies": {
+    "reason": "meta_messenger_replies: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "number_credit_accounts": {
+    "reason": "number_credit_accounts: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "number_credit_adjustments": {
+    "reason": "number_credit_adjustments: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "number_credit_purchases": {
+    "reason": "number_credit_purchases: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "number_credit_usage_events": {
+    "reason": "number_credit_usage_events: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "number_subscriptions": {
+    "reason": "number_subscriptions: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "owner_expenses": {
+    "reason": "owner_expenses: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "owner_statements": {
+    "reason": "owner_statements: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "payout_destination_cache_refreshes": {
+    "reason": "payout_destination_cache_refreshes: Payment or autopay state may replay a charge, refund, or payout; preserve source evidence and verify provider state.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "payout_destinations_cache": {
+    "reason": "payout_destinations_cache: Payment or autopay state may replay a charge, refund, or payout; preserve source evidence and verify provider state.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "payout_identity_status": {
+    "reason": "payout_identity_status: Payment or autopay state may replay a charge, refund, or payout; preserve source evidence and verify provider state.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "platform_hold_refund_attempts": {
+    "reason": "platform_hold_refund_attempts: Payment or autopay state may replay a charge, refund, or payout; preserve source evidence and verify provider state.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "platform_hold_refund_transfer_legs": {
+    "reason": "platform_hold_refund_transfer_legs: Payment or autopay state may replay a charge, refund, or payout; preserve source evidence and verify provider state.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "platform_hold_transfer_attempts": {
+    "reason": "platform_hold_transfer_attempts: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "platform_payment_holds": {
+    "reason": "platform_payment_holds: Payment or autopay state may replay a charge, refund, or payout; preserve source evidence and verify provider state.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "platform_service_settings": {
+    "reason": "platform_service_settings: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "platform_source_consumption_legs": {
+    "reason": "platform_source_consumption_legs: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "portal_workspaces": {
+    "reason": "portal_workspaces: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "proplane_balance_accounts": {
+    "reason": "proplane_balance_accounts: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog",
+    "decision": "pending individual review"
+  },
+  "prospect_sms_bursts": {
+    "reason": "prospect_sms_bursts: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "prospect_sms_ingress": {
+    "reason": "prospect_sms_ingress: Restoring queued communication or automation can resend or act twice; define cancellation and idempotency.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "prospect_sms_inline_actions": {
+    "reason": "prospect_sms_inline_actions: Restoring queued communication or automation can resend or act twice; define cancellation and idempotency.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "prospect_sms_shadow_jobs": {
+    "reason": "prospect_sms_shadow_jobs: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "prospect_sms_tour_reminders": {
+    "reason": "prospect_sms_tour_reminders: Restoring queued communication or automation can resend or act twice; define cancellation and idempotency.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "prospect_tour_bookings": {
+    "reason": "prospect_tour_bookings: Restoring queued communication or automation can resend or act twice; define cancellation and idempotency.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "prospect_tour_google_calendar_cleanup": {
+    "reason": "prospect_tour_google_calendar_cleanup: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "prospect_tour_google_calendar_create_intents": {
+    "reason": "prospect_tour_google_calendar_create_intents: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "prospect_tour_scheduling_state": {
+    "reason": "prospect_tour_scheduling_state: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "rent_reporting_submissions": {
+    "reason": "rent_reporting_submissions: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "resident_account_links": {
+    "reason": "resident_account_links: Personal identity or membership may be restored to the wrong subject; verify ownership and revocation.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "resident_agent_numbers": {
+    "reason": "resident_agent_numbers: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "resident_autopay_runs": {
+    "reason": "resident_autopay_runs: Payment or autopay state may replay a charge, refund, or payout; preserve source evidence and verify provider state.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "resident_autopay_settings": {
+    "reason": "resident_autopay_settings: Payment or autopay state may replay a charge, refund, or payout; preserve source evidence and verify provider state.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "resident_checkout_attempts": {
+    "reason": "resident_checkout_attempts: Payment or autopay state may replay a charge, refund, or payout; preserve source evidence and verify provider state.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "resident_rent_reporting": {
+    "reason": "resident_rent_reporting: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "resident_workspace_bindings": {
+    "reason": "resident_workspace_bindings: Personal identity or membership may be restored to the wrong subject; verify ownership and revocation.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "service_share_links": {
+    "reason": "service_share_links: Never restore this row; review deletion capture and revocation so stale authority cannot survive.",
+    "current_policy": "never_restore",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "sms_entry_codes": {
+    "reason": "sms_entry_codes: Session or capability may restore revoked access; require explicit expiry, revocation, and subject policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "sms_line_shadow_decisions": {
+    "reason": "sms_line_shadow_decisions: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog",
+    "decision": "pending individual review"
+  },
+  "sms_phone_contacts": {
+    "reason": "sms_phone_contacts: Personal identity or membership may be restored to the wrong subject; verify ownership and revocation.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "sms_projection_aliases": {
+    "reason": "sms_projection_aliases: Restoring queued communication or automation can resend or act twice; define cancellation and idempotency.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog",
+    "decision": "pending individual review"
+  },
+  "sms_projection_ambiguous_aliases": {
+    "reason": "sms_projection_ambiguous_aliases: Restoring queued communication or automation can resend or act twice; define cancellation and idempotency.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog",
+    "decision": "pending individual review"
+  },
+  "sms_projection_conversations": {
+    "reason": "sms_projection_conversations: Restoring queued communication or automation can resend or act twice; define cancellation and idempotency.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog",
+    "decision": "pending individual review"
+  },
+  "sms_projection_deleted_events": {
+    "reason": "sms_projection_deleted_events: Restoring queued communication or automation can resend or act twice; define cancellation and idempotency.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog",
+    "decision": "pending individual review"
+  },
+  "sms_projection_pending": {
+    "reason": "sms_projection_pending: Restoring queued communication or automation can resend or act twice; define cancellation and idempotency.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog",
+    "decision": "pending individual review"
+  },
+  "sms_projection_turns": {
+    "reason": "sms_projection_turns: Restoring queued communication or automation can resend or act twice; define cancellation and idempotency.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog",
+    "decision": "pending individual review"
+  },
+  "sms_projection_view_state": {
+    "reason": "sms_projection_view_state: Restoring queued communication or automation can resend or act twice; define cancellation and idempotency.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog",
+    "decision": "pending individual review"
+  },
+  "sms_setup_links": {
+    "reason": "sms_setup_links: Session or capability may restore revoked access; require explicit expiry, revocation, and subject policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "sms_signup_sessions": {
+    "reason": "sms_signup_sessions: Session or capability may restore revoked access; require explicit expiry, revocation, and subject policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "sms_stay_offers": {
+    "reason": "sms_stay_offers: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "sms_vendor_leads": {
+    "reason": "sms_vendor_leads: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "tour_signup_capabilities": {
+    "reason": "tour_signup_capabilities: Session or capability may restore revoked access; require explicit expiry, revocation, and subject policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog",
+    "decision": "pending individual review"
+  },
+  "tour_slot_reservations": {
+    "reason": "tour_slot_reservations: Restoring queued communication or automation can resend or act twice; define cancellation and idempotency.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "vendor_account_tax_profiles": {
+    "reason": "vendor_account_tax_profiles: Personal identity or membership may be restored to the wrong subject; verify ownership and revocation.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "vendor_banking_disputes": {
+    "reason": "vendor_banking_disputes: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "vendor_banking_ledger_entries": {
+    "reason": "vendor_banking_ledger_entries: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "vendor_banking_reconciliation": {
+    "reason": "vendor_banking_reconciliation: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "vendor_banking_shortfalls": {
+    "reason": "vendor_banking_shortfalls: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "vendor_business_profiles": {
+    "reason": "vendor_business_profiles: Personal identity or membership may be restored to the wrong subject; verify ownership and revocation.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "vendor_calendar_feeds": {
+    "reason": "vendor_calendar_feeds: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "vendor_dispatch_handle_counters": {
+    "reason": "vendor_dispatch_handle_counters: Restoring queued communication or automation can resend or act twice; define cancellation and idempotency.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "vendor_dispatch_rules": {
+    "reason": "vendor_dispatch_rules: Restoring queued communication or automation can resend or act twice; define cancellation and idempotency.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "vendor_dispatch_runs": {
+    "reason": "vendor_dispatch_runs: Restoring queued communication or automation can resend or act twice; define cancellation and idempotency.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "vendor_expense_entries": {
+    "reason": "vendor_expense_entries: Financial or subscription records require exact retained source and external billing reconciliation before replay.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "vendor_integration_access_requests": {
+    "reason": "vendor_integration_access_requests: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "vendor_marketplace_accounts": {
+    "reason": "vendor_marketplace_accounts: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "vendor_payout_refunds": {
+    "reason": "vendor_payout_refunds: Payment or autopay state may replay a charge, refund, or payout; preserve source evidence and verify provider state.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "vendor_reviews": {
+    "reason": "vendor_reviews: Personal identity or membership may be restored to the wrong subject; verify ownership and revocation.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "vendor_work_identities": {
+    "reason": "vendor_work_identities: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "webhook_deliveries": {
+    "reason": "webhook_deliveries: Never restore this row; review deletion capture and revocation so stale authority cannot survive.",
+    "current_policy": "never_restore",
+    "scope": [],
+    "prod_catalog_status": "not_in_prod_catalog",
+    "decision": "pending individual review"
+  },
+  "webhook_subscriptions": {
+    "reason": "webhook_subscriptions: Never restore this row; review deletion capture and revocation so stale authority cannot survive.",
+    "current_policy": "never_restore",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "both_named_enabled",
+    "decision": "pending individual review"
+  },
+  "work_order_open_listings": {
+    "reason": "work_order_open_listings: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "workspace_automation_settings": {
+    "reason": "workspace_automation_settings: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  },
+  "workspace_work_number_recipients": {
+    "reason": "workspace_work_number_recipients: Table-specific ownership, retention, and recovery side effects remain unreviewed.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch",
+    "decision": "pending individual review"
+  }
+}

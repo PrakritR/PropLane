@@ -33,7 +33,7 @@ vi.mock("@/lib/supabase/service", () => ({
         return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { role: "manager" } }) }) }) };
       }
       if (table === "profile_roles") {
-        return { select: () => ({ eq: async () => ({ data: [{ role: "manager" }] }) }) };
+        return { select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { role: "manager" }, error: null }) }) }) }) };
       }
       if (table === "manager_property_records") {
         // `assertSettingsScopeOwned` resolves the property's own workspace

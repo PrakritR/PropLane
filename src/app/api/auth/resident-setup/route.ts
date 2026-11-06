@@ -1,14 +1,13 @@
 import { NextResponse, after } from "next/server";
-import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
 import {
-  consumeResidentSetupTokenOnApplication,
+  hashResidentSetupToken,
   findApplicationForResidentSetup,
   residentSetupIdFromUrlParams,
 } from "@/lib/auth/resident-setup-token";
 import { provisionResidentAccountByEmail } from "@/lib/auth/provision-resident-account";
-import { assertPasswordMatchesExistingAuthUser } from "@/lib/auth/verify-auth-password";
 import { sendResidentPropLaneAssistantIntro } from "@/lib/claw-onboarding-sms.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { normalizeE164 } from "@/lib/phone-e164";
 
 export const runtime = "nodejs";
@@ -84,8 +83,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
     }
 
+    const auth = await createSupabaseServerClient();
+    const { data: { user } } = await auth.auth.getUser();
+    if (!user?.email_confirmed_at || user.email?.trim().toLowerCase() !== email) {
+      return NextResponse.json({ error: "Verify your email and sign in before completing account setup.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
+    }
     const supabase = createSupabaseServiceRoleClient();
-    const lookup = await findApplicationForResidentSetup(supabase, { token, axisId });
+    const lookup = await findApplicationForResidentSetup(supabase, { token, axisId, consumedByUserId: user.id });
     if (!lookup.ok) {
       return NextResponse.json({ error: lookup.error }, { status: lookup.status });
     }
@@ -96,49 +100,19 @@ export async function POST(req: Request) {
       );
     }
 
-    const { data: created, error: createErr } = await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: {
-        role: "resident",
-        full_name: fullName || lookup.name || undefined,
-        axis_id: lookup.axisId,
-      },
-    });
-
-    let userId: string;
-
-    if (createErr) {
-      const exists =
-        createErr.message.toLowerCase().includes("already") ||
-        createErr.message.toLowerCase().includes("registered");
-      if (!exists) {
-        return NextResponse.json({ error: createErr.message }, { status: 400 });
-      }
-      const existingId = await findAuthUserIdByEmail(supabase, email);
-      if (!existingId) {
-        return NextResponse.json({ error: "Could not locate existing account for this email." }, { status: 400 });
-      }
-      const pwCheck = await assertPasswordMatchesExistingAuthUser(email, password);
-      if (!pwCheck.ok) {
-        return NextResponse.json({ error: pwCheck.message }, { status: 401 });
-      }
-      userId = existingId;
-    } else {
-      if (!created?.user?.id) {
-        return NextResponse.json({ error: "Could not create account." }, { status: 500 });
-      }
-      userId = created.user.id;
-    }
+    const userId = user.id;
+    const binding = await supabase.rpc("bind_resident_setup_subject", { p_application: lookup.axisId, p_user: userId, p_digest: hashResidentSetupToken(token) });
+    if (binding.error) return NextResponse.json({ error: "Could not complete account setup." }, { status: 503 });
+    if (binding.data !== true) return NextResponse.json({ error: "This setup link is invalid or has expired." }, { status: 403 });
 
     const provisioned = await provisionResidentAccountByEmail(supabase, {
       userId,
       email,
       fullName: fullName || lookup.name,
       phone,
-      // The one-time setup token proves email control — safe to inherit the
-      // matching application's identity/approval (default-deny opt-in).
+      // The verified session and exact setup capability bind this application.
+      emailProven: true,
+      applicationId: lookup.axisId,
       inheritFromApplication: true,
     });
     if (!provisioned.ok) {
@@ -146,7 +120,6 @@ export async function POST(req: Request) {
     }
 
     await supabase.from("profiles").update({ manager_id: lookup.axisId }).eq("id", userId);
-    await consumeResidentSetupTokenOnApplication(supabase, lookup.row);
 
     // First-account PropLane messaging assistant intro (Claw/Twilio) when phone
     // is on file — deferred so a cold relay can't stall the signup response.

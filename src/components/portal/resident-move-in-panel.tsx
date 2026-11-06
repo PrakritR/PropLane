@@ -12,6 +12,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export async function ResidentMoveInPanel({
   residentEmail,
+  residentUserId,
   basePath = RESIDENT_PORTAL_BASE_PATH,
   tabId = "placement",
   tabs: _tabs,
@@ -21,6 +22,7 @@ export async function ResidentMoveInPanel({
   inspectionsTypeFilter,
 }: {
   residentEmail?: string | null;
+  residentUserId?: string | null;
   basePath?: string;
   tabId?: string;
   tabs?: PortalTab[];
@@ -38,7 +40,7 @@ export async function ResidentMoveInPanel({
 }) {
   const email = residentEmail?.trim().toLowerCase() || "";
   // The inspections tab loads its own data, so it skips the (heavier) house projection.
-  const loaded = email && tabId !== "inspections" ? await loadResidentMoveInForEmail(email) : null;
+  const loaded = email && residentUserId && tabId !== "inspections" ? await loadResidentMoveInForEmail(email, { residentUserId }) : null;
   let resolved = loaded && formsLock ? redactMoveInDetails(loaded) : loaded;
 
   // The check-in reveal (`checkInReveal`): codes, the Wi-Fi password and the manager's free-text
@@ -49,10 +51,10 @@ export async function ResidentMoveInPanel({
   if (loaded && !formsLock) {
     const db = createSupabaseServiceRoleClient();
     const [context, leaseUnlocked] = await Promise.all([
-      loadTenancyCheckInContext(db, email).catch(() => null),
+      loadTenancyCheckInContext(db, email, { residentUserId }).catch(() => null),
       leaseSigned
         ? Promise.resolve(true)
-        : Promise.all([loadResidentLeaseSignedStatus(email), loadResidentManagerAttestedTenancy(email)])
+        : Promise.all([loadResidentLeaseSignedStatus(email, undefined, residentUserId ?? undefined), loadResidentManagerAttestedTenancy(email, undefined, residentUserId ?? undefined)])
             .then(([signed, attested]) => signed || attested)
             .catch(() => false),
     ]);

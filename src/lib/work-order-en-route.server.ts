@@ -21,7 +21,7 @@ export async function markVendorEnRoute(
   if (!workOrderId) return { ok: false, status: 400, error: "Work order id required." };
   const { data: workOrder } = await db
     .from("portal_work_order_records")
-    .select("manager_user_id, vendor_user_id, row_data")
+    .select("manager_user_id, vendor_user_id, resident_user_id, row_data")
     .eq("id", workOrderId)
     .maybeSingle();
   if (!workOrder) return { ok: false, status: 403, error: "Forbidden." };
@@ -44,8 +44,11 @@ export async function markVendorEnRoute(
   // Lost the race to another tap: already en route, nothing more to send.
   if (!updated) return { ok: true, alreadyEnRoute: true, workOrder: rowData };
 
-  const residentEmail = (rowData.residentEmail ?? "").trim();
-  if (residentEmail.includes("@")) {
+  // The row's bound Auth subject, never a payload email, names the resident — the same rule
+  // `markWorkOrderDoneByVendor` follows. An unbound row simply sends the resident nothing rather
+  // than mailing the service reference, house and ETA to whatever address the payload still holds.
+  const residentUserId = String(workOrder.resident_user_id ?? "").trim();
+  if (residentUserId) {
     await workOrderEvent(db, {
       eventId: `${workOrderId}:en_route:${now}`,
       event: "en_route",
@@ -62,7 +65,7 @@ export async function markVendorEnRoute(
         vendorName: actor.fullName || rowData.vendorName || undefined,
         etaMinutes: eta,
       },
-      recipients: [{ audience: "resident", email: residentEmail }],
+      recipients: [{ audience: "resident", userId: residentUserId }],
     }).catch(() => undefined);
   }
   return { ok: true, alreadyEnRoute: false, workOrder: next };

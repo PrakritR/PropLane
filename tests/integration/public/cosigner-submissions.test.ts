@@ -138,7 +138,7 @@ function seed(options: { applicationRow?: Record<string, unknown> | null; templa
       { id: "helper-1", role: "resident", email: "cosigner@example.com", full_name: "Co Signer" },
       { id: "manager-1", role: "manager", email: "m@example.com" },
     ],
-    profile_roles: [],
+    profile_roles: [{ user_id: "helper-1", role: "resident" }, { user_id: "manager-1", role: "manager" }],
     cosigner_submission_records: [],
   });
   return { db, templateId: template.id };

@@ -12,6 +12,7 @@ export type ResolvedManagerCheckoutPurchase = {
   userId: string | null;
   managerId: string;
   email: string;
+  sourceSessionId: string;
 };
 
 function checkoutEmail(session: Stripe.Checkout.Session): string {
@@ -31,7 +32,7 @@ export async function resolveManagerCheckoutPurchase(
   const managerId = session.metadata?.manager_id?.trim() ?? "";
   const claimedUserId = session.metadata?.userId?.trim() ?? "";
   const email = checkoutEmail(session);
-  const select = "id,user_id,manager_id,email";
+  const select = "id,user_id,manager_id,email,stripe_checkout_session_id";
 
   const { data: reserved, error: reservedError } = await db
     .from("manager_purchases")
@@ -45,6 +46,7 @@ export async function resolveManagerCheckoutPurchase(
     user_id?: string | null;
     manager_id?: string | null;
     email?: string | null;
+    stripe_checkout_session_id?: string | null;
   } | null;
   if (!stored && claimedUserId) {
     const { data, error } = await db
@@ -84,7 +86,9 @@ export async function resolveManagerCheckoutPurchase(
     throw new Error("Could not verify manager checkout ownership.");
   }
 
-  return { id: stored.id, userId: storedUserId || null, managerId: storedManagerId, email: storedEmail };
+  const sourceSessionId = String(stored.stripe_checkout_session_id ?? "").trim();
+  if (!sourceSessionId || (sourceSessionId !== session.id && !sourceSessionId.startsWith("axis_pending_"))) throw new Error("Could not verify manager checkout reservation.");
+  return { id: stored.id, userId: storedUserId || null, managerId: storedManagerId, email: storedEmail, sourceSessionId };
 }
 
 /** A completed Checkout session or subscription id alone is not payment.
@@ -259,11 +263,12 @@ export async function recordPaidManagerCheckoutSession(session: Stripe.Checkout.
       metadata: { operation: "manager_subscription_fulfillment" },
       db: supabase,
     })).captured) return;
-  const { error: verifiedUpdateError } = await writeManagerPurchasePatch(
+  const verifiedUpdate = await writeManagerPurchasePatch(
     { ...patch, manager_id: stored.managerId || managerId },
-    (next) => supabase.from("manager_purchases").update(next).eq("id", stored.id),
+    (next) => supabase.from("manager_purchases").update(next).eq("id", stored.id).eq("stripe_checkout_session_id", stored.sourceSessionId).select("id").maybeSingle(),
   );
-  if (verifiedUpdateError) throw new Error(verifiedUpdateError.message);
+  if (verifiedUpdate.error) throw new Error(verifiedUpdate.error.message);
+  if (!verifiedUpdate.data) throw new Error("Manager checkout reservation changed; reconciliation required.");
   // Money actually moved: a trial or a 100%-off session has amount_total 0 and never counts toward the lock's
   // "self-paid" proof. Stamped only while null, in its own write so a retry never rewrites the first payment.
   if (session.payment_status === "paid" && (session.amount_total ?? 0) > 0) {

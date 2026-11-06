@@ -88,11 +88,11 @@ for (const route of ROUTES) {
       expect(await res.json()).toEqual({ error: route.forbidden });
     });
 
-    it("still allows a legacy resident with no profile_roles row", async () => {
+    it("denies a legacy resident without a stored resident role", async () => {
       PROFILE = { email: EMAIL, role: "resident", full_name: "Legacy Resident" };
       PROFILE_ROLES = [];
       const res = await route.call();
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(403);
     });
 
     it("still answers 401 when unauthenticated", async () => {

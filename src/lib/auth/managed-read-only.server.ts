@@ -1,6 +1,5 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 
 /**
  * TS mirror of `public.managed_read_only_workspace_ids()` / `managed_read_only_owner_locked()`
@@ -57,7 +56,7 @@ export function hasSelfPaidPlan(rows: readonly PurchaseRowForPlan[] | null | und
 }
 
 /**
- * The ONE staff rule this lock knows: a platform admin by `profile_roles` (plus the always-admin ops address), or the
+ * The ONE staff rule this lock knows: a platform admin by `profile_roles`, or the
  * platform service owner. Every gate that wants to let staff past the lock must ask HERE.
  *
  * `profiles.role` and `user_metadata.role` are not evidence: the first is the role the account was CREATED as and is
@@ -67,17 +66,14 @@ export function hasSelfPaidPlan(rows: readonly PurchaseRowForPlan[] | null | und
 export async function managedReadOnlyStaffExempt(db: SupabaseClient, userId: string): Promise<boolean> {
   const uid = userId.trim();
   if (!uid) return false;
-  const [profileRes, rolesRes, serviceRes] = await Promise.all([
-    db.from("profiles").select("email").eq("id", uid).maybeSingle(),
+  const [rolesRes, serviceRes] = await Promise.all([
     db.from("profile_roles").select("role").eq("user_id", uid).eq("role", "admin"),
     db.from("platform_service_settings").select("owner_user_id").eq("owner_user_id", uid),
   ]);
-  for (const res of [profileRes, rolesRes, serviceRes]) {
+  for (const res of [rolesRes, serviceRes]) {
     if (res.error) throw new Error(res.error.message || "managed read-only lookup failed");
   }
-  const email = text((profileRes.data as { email?: string | null } | null)?.email).toLowerCase();
-  const isAdmin = (rolesRes.data ?? []).length > 0 || email === PRIMARY_ADMIN_EMAIL.toLowerCase();
-  return isAdmin || (serviceRes.data ?? []).length > 0;
+  return (rolesRes.data ?? []).length > 0 || (serviceRes.data ?? []).length > 0;
 }
 
 /**
