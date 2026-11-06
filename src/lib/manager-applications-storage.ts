@@ -890,7 +890,7 @@ export async function upsertApplicationRowToServerAwait(
   if (isDemoModeActive()) return { ok: true };
   const generation = applicationWriteGeneration;
   try {
-    const request = {
+    const request: RequestInit = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",

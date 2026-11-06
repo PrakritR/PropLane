@@ -49,7 +49,7 @@ const replaceRow = vi.fn();
 const writeRows = vi.fn();
 const upsertRow = vi.fn(async () => {
   order.push("upsert");
-  return { ok: true, row: { id: "app-1" } };
+  return { ok: true };
 });
 
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
@@ -104,6 +104,8 @@ describe("saving an edited resident", () => {
 
     expect(result.ok).toBe(true);
     expect(order).toContain("mirror-write");
+    expect(upsertRow).toHaveBeenCalledTimes(1);
+    expect(writeRows).not.toHaveBeenCalled();
     readGate.release();
   });
 
@@ -154,6 +156,8 @@ describe("saving an edited resident", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toBe("Could not save resident.");
+    expect(replaceRow).not.toHaveBeenCalled();
+    expect(writeRows).not.toHaveBeenCalled();
     // A failed save must not push charges built from a row the server rejected.
     expect(mirrorWrite).not.toHaveBeenCalled();
   });
