@@ -71,7 +71,10 @@ export function ReviewStep({
             <WizardLine label="Nothing changed yet" />
           ) : (
             editLines.map((line) => (
-              <WizardLine key={line.label} label={line.label} control={<span className="text-[13px] font-semibold">{line.before} → {line.after}</span>} />
+              <div key={line.label} className="min-w-0 border-b border-border/60 py-3 first:pt-0 last:border-b-0 last:pb-0">
+                <div className="text-[12px] text-muted">{line.label}</div>
+                <div className="min-w-0 break-words text-[13px] font-semibold">{line.before} → {line.after}</div>
+              </div>
             ))
           )}
         </WizardSection>
