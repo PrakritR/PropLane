@@ -2448,3 +2448,5 @@ boundary (`buildUpsert`), on every GET, and in every server writer. The lease
 templates print no "Date of birth". Executed `generatedHtml` is never rewritten
 (signature hash). Guard: `tests/unit/lease-identity-write-guard.test.ts`.
 Cleanup of stored rows: `20261016100000_strip_lease_application_identity.sql`.
+
+Resident edit Save awaits the authoritative application upsert, then stages and awaits only changed resident lease writes; a failed lease write triggers reconciliation before retry. These writes are not one transaction.

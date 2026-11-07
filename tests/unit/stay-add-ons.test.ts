@@ -13,7 +13,7 @@ const spies = vi.hoisted(() => ({
   enqueueOwnerSms: vi.fn(async (..._args: unknown[]) => ({ ok: true })),
   deliverPortalInboxMessage: vi.fn(async (..._args: unknown[]) => ({ ok: true })),
   refreshTurnoverCleaningTimes: vi.fn(async (..._args: unknown[]) => undefined),
-  refundPaidHouseholdCharge: vi.fn(async (..._args: unknown[]) => ({ refundId: "re_1", rail: "destination" as const })),
+  refundPaidHouseholdCharge: vi.fn(async (..._args: unknown[]) => ({ refundId: "re_1", rail: "destination" as const, status: "succeeded" as const })),
   ReviewError: class extends Error {},
   createHouseholdChargeCheckout: vi.fn(async (..._args: unknown[]) => ({ ok: true as const, mode: "hosted" as const, url: "https://checkout.stripe.test/c/cs_test_1" })),
 }));
@@ -376,6 +376,14 @@ describe("paid but no longer honorable: refunded automatically, once", () => {
     db.tables.portal_schedule_records!.push(otherStay("prev", "2026-10-17", "2026-10-20"));
   }
 
+  it("does not record a pending refund as completed", async () => {
+    const db = seeded();
+    await paidThenTaken(db);
+    spies.refundPaidHouseholdCharge.mockResolvedValueOnce({ refundId: "re_pending", rail: "destination", status: "pending" } as never);
+    await expect(applyPaidStayAddOn(db as never, { chargeId: stayAddOnChargeId(BLOCK, "early_check_in"), stripe, now: NOW })).rejects.toThrow("Refund requires reconciliation: pending");
+    expect(storedData(db).stayDetails.addOns!.early_check_in).not.toMatchObject({ status: "refunded" });
+  });
+
   it("refunds through the refund rail on a stable key, records `refunded`, texts the guest, tells the team", async () => {
     const db = seeded();
     await paidThenTaken(db);
@@ -518,7 +526,7 @@ describe("a refund that can never succeed does not wedge the webhook", () => {
     // a redelivery changes nothing and does not shout again
     expect(await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW })).toEqual({ outcome: "ignored", reason: "already_settled" });
     expect(spies.emitActionEvent).toHaveBeenCalledTimes(1);
-    spies.refundPaidHouseholdCharge.mockResolvedValue({ refundId: "re_1", rail: "destination" });
+    spies.refundPaidHouseholdCharge.mockResolvedValue({ refundId: "re_1", rail: "destination", status: "succeeded" });
   });
 
   it("no Stripe charge to refund against is terminal too (the payment intent had none)", async () => {

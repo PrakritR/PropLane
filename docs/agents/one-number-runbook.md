@@ -143,6 +143,15 @@ branch, and `db:push` applies it only once merged):
 | 20261027030000 | `portal_workspaces_archived_combine` | additive nullable `portal_workspaces.archived_at` plus `combine_portal_workspaces(owner, target, sources)` (SECURITY DEFINER, `search_path = ''`, service_role only): ONE transaction that moves only `manager_property_records.workspace_id` of the owner's other workspaces into the target and archives the emptied ones (Admin > Accounts > Managed by PropLane, combine). Code reads without the column until applied; combine refuses until then. |
 | 20261027120000 | `admin_team` | `manager_invite_links.kind` also allows `admin` and gains nullable `admin_grant` jsonb; new server-only table `admin_team_grants` (RLS on, no policy, no client grants; classified in the purge manifest) as the Admin team list and trail. Additive and idempotent. |
 | 20261029010000 | `promo_code_expiry` | additive: server-only table `manager_promo_code_policies` (code, expires_at, reason, updated_by; RLS on, no client policies) so staff can expire a payment-waiver code, and nullable `manager_purchases.promo_ends_at` for ending the promo on one account; expiry makes a waiver grant resolve to Free and never rewrites a row |
+| 20261030010000 | `deposit_return_reservations` | Reserves provider deposit returns and retains unmatched refund evidence under the deposit lock |
+| 20261030020000 | `settle_deposit_returns` | Settles provider returns only after canonical accounting exists |
+| 20261030030000 | `deposit_return_provider_status` | Binds provider refund status to reserved attempts without regressing terminal state |
+| 20261030040000 | `reconcile_external_deposit_refunds` | Adds unmatched refund review and reconciliation state |
+| 20261030120000 | `resident_identity_verification` | Adds resident identity subject, inquiry, webhook and manual-review records |
+| 20261030121000 | `resident_identity_events_rpc` | Adds transactional verified identity webhook event transitions |
+| 20261030122000 | `resident_identity_retry` | Allows serialized retry of expired identity inquiries |
+| 20261030123000 | `resident_identity_provider_state` | Requires provider state to agree with signed event transitions |
+| 20261030130000 | `resident_evidence_policies` | Adds versioned resident evidence policies per property |
 | 20261030141000 | `retire_unconfirmed_email_password` | function `retire_unconfirmed_email_password(user, email)`: retires a pre-verification password only while the Auth account has never signed in, has no confirmed channel or active session and exactly one email identity for that address; the guarded UPDATE locks the Auth row so a concurrent confirmation wins. Installs a function, changes no row |
 | 20261030142000 | `email_onboarding_handoffs` | new service-only table `email_onboarding_handoffs` (token digest, user, application / tour inquiry / purchase / property context) carrying the exact context an emailed onboarding link may resume. Additive |
 | 20261030143000 | `email_onboarding_vendor_invites` | additive `email_onboarding_handoffs.vendor_invite_id` and the `vendor_invite` intent: a vendor invite is a relationship reference, never proof of mailbox ownership |
@@ -161,6 +170,7 @@ branch, and `db:push` applies it only once merged):
 | 20261030145200 | `resident_dispatch_confirmation` | `resolve_resident_dispatch_confirmation`: a resident SMS completion is one subject-bound, service-only transaction |
 | 20261103101000 | `email_onboarding_tour_slot` | `email_onboarding_handoffs.tour_slot_key` (a prospect's pre-account tour pick rides the emailed handoff; prefill only, booking re-checks the slot) |
 | 20261104120000 | `sms_durable_ingress` | owner-neutral durable SMS envelopes and prepared platform replies; service-only claim, checkpoint, reconciliation, callback and bounded retention |
+| 20261106120000 | `identity_deposit_recovery_guards` | Attaches signature-checked recovery guards to six owned identity and deposit tables |
 
 Check after the push (SQL editor, read-only):
 

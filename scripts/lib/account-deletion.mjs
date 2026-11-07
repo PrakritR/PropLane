@@ -83,6 +83,13 @@ export const EMAIL_COLUMNS = [
 export const DELETE_ORDER = [
   "email_onboarding_handoffs",
   "tour_signup_capabilities",
+  // Identity children and return attempts precede their referenced subject or deposit.
+  "resident_identity_webhook_events",
+  "resident_identity_manual_reviews",
+  "resident_identity_inquiries",
+  "resident_identity_subjects",
+  "resident_evidence_policies",
+  "security_deposit_return_attempts",
   // 1. child rows, and the GL/vendor chains that must clear first
   "gl_journal_lines",
   "ledger_entries",

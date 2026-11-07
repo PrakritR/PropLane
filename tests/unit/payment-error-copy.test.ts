@@ -98,6 +98,6 @@ describe("both payment surfaces go through it", () => {
       join(process.cwd(), "src/components/marketing/application-fee-inline-payment.tsx"),
       "utf8",
     );
-    expect(source).toContain("{canRetry ? (");
+    expect(source).toMatch(/identityHref\s*\?[\s\S]*?:\s*canRetry\s*\?/);
   });
 });
