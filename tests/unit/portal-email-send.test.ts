@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sendPortalConversationEmails } from "@/lib/portal-email-send.server";
 
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveTestWorkspaceClassification: vi.fn(async () => ({ kind: "normal" })),
+}));
+vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn(() => ({})) }));
+
 const SENDER = "3f9a1b2c-4d5e-6f70-8192-a3b4c5d6e7f8";
 const ENV = ["RESEND_API_KEY", "RESEND_FROM", "RESEND_REPLY_DOMAIN", "RESEND_INBOUND_WEBHOOK_SECRET"] as const;
 const SECRET = `whsec_${Buffer.from("portal-email-send-test-key").toString("base64")}`;
@@ -84,6 +89,35 @@ describe("sendPortalConversationEmails", () => {
     expect((requests[0]!.body as unknown[]).length).toBe(100);
     expect((requests[1]!.body as unknown[]).length).toBe(50);
     expect([...results.values()].every((r) => r.sent)).toBe(true);
+  });
+
+  it("preserves the workspace From identity and personalized batch threading", async () => {
+    const requests = mockFetch(() => Response.json({ data: [{ id: "a" }, { id: "b" }] }));
+    await sendPortalConversationEmails({ senderUserId: SENDER, toEmails: ["a@example.com", "b@example.com"],
+      subject: "Service reply", text: "Reply text", html: "<p>Reply text</p>",
+      fromAddress: "Workspace <work@workspace.example>", threadingKey: "service-one" });
+    const payloads = requests[0]!.body as Array<Record<string, unknown>>;
+    expect(payloads).toEqual([
+      expect.objectContaining({ from: "Workspace <work@workspace.example>", to: ["a@example.com"], subject: "Service reply", text: "Reply text", html: "<p>Reply text</p>" }),
+      expect.objectContaining({ from: "Workspace <work@workspace.example>", to: ["b@example.com"], subject: "Service reply", text: "Reply text", html: "<p>Reply text</p>" }),
+    ]);
+    for (const payload of payloads) {
+      const headers = payload.headers as Record<string, string>;
+      expect(headers["In-Reply-To"]).toMatch(/^<pl-anchor-[0-9a-f]{24}@workspace\.example>$/);
+      expect(headers.References).toBe(headers["In-Reply-To"]);
+    }
+    expect(payloads[0]!.headers).not.toEqual(payloads[1]!.headers);
+  });
+
+  it("keeps failed batch chunks unsent while retaining successful chunk IDs", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let calls = 0;
+    mockFetch((_url, body) => ++calls === 1 ? new Response("unavailable", { status: 503 })
+      : Response.json({ data: (body as unknown[]).map((_, i) => ({ id: `second_${i}` })) }));
+    const emails = Array.from({ length: 150 }, (_, i) => `r${i}@example.com`);
+    const results = await send(emails);
+    expect(emails.slice(0, 100).map(email => results.get(email))).toEqual(Array.from({ length: 100 }, () => ({ sent: false, resendId: null })));
+    expect(emails.slice(100).map(email => results.get(email))).toEqual(Array.from({ length: 50 }, (_, i) => ({ sent: true, resendId: `second_${i}` })));
   });
 
   it("omits reply_to when RESEND_REPLY_DOMAIN is unset, keeps sending", async () => {

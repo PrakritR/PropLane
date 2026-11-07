@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Availability clock fixture review - November 7, 2026</title>
+<style>body{max-width:850px;margin:48px auto;padding:0 24px;font:16px/1.6 system-ui,sans-serif;color:#20252b}h1{line-height:1.2}h2{margin-top:30px;font-size:21px}code{overflow-wrap:anywhere;font-size:14px}.pass{color:#12643c;font-weight:700}table{border-collapse:collapse;width:100%}th,td{text-align:left;vertical-align:top;padding:10px;border:1px solid #ccd2d8}th{background:#f1f4f6}</style>
+</head>
+<body>
+<h1>Availability clock fixture review</h1>
+<p>November 7, 2026. Independent review of <code>tests/unit/room-capacity-availability.test.ts</code> in <code>/Users/akhilvemuri/coding/AXIS-2-vendor-release</code>.</p>
+<p class="pass">PASS - no issues found in the scoped fixture change.</p>
+<h2>Cause and correction</h2>
+<p>The public-catalog test expected <code>Available Nov 7</code> to remain a future opening while reading the real clock. On November 7, the production classifier correctly treats that opening as available today. The expectation therefore depended on the calendar date.</p>
+<p>The final describe block now fakes only Date and pins each test to November 1, 2026 at local noon. Its existing future-opening assertion remains exactly <code>Available Nov 7</code>. A new test advances the fixture to November 7 at local noon and expects <code>Available now</code>.</p>
+<h2>Independent source checks</h2>
+<ul>
+<li>The diff adds an afterEach import, a describe-scoped beforeEach/afterEach clock fixture, and one boundary test. It removes or weakens no existing assertion.</li>
+<li><code>vi.useFakeTimers({ toFake: ["Date"] })</code> leaves asynchronous timer APIs real. <code>afterEach(() =&gt; vi.useRealTimers())</code> restores the clock after each test, including an assertion failure.</li>
+<li>The clock hook is scoped to the final describe block. Other tests retain their existing behavior, and the top-level row-reset hook still runs.</li>
+<li>Local numeric Date constructors match the classifier's local-calendar comparisons. Noon avoids a midnight boundary in the fixture.</li>
+<li><code>classifyRoomOpening</code> in <code>src/lib/room-availability-style.ts</code> compares local today with the parsed opening using greater-than-or-equal. <code>applyApprovedAvailabilityToRichContent</code> in <code>src/lib/rental-application/data.ts</code> preserves a public catalog label only when it remains later or unavailable and the local label is now. These source files have no working-tree diff.</li>
+<li>The new case verifies the opening day itself. It does not claim coverage of later dates: existing parsing intentionally interprets a yearless date that is already past as its next annual occurrence.</li>
+</ul>
+<h2>Validation evidence</h2>
+<p>The following execution results were supplied by the implementation owner and reused rather than rerun. This reviewer independently inspected the complete test file, its diff, the two production functions, and the source checksum. The root agent retains ownership of heavy validation.</p>
+<table>
+<thead><tr><th>Check</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>CI run 42401837097 before correction</td><td>1 failed, 32,955 passed, 5 skipped; 3,858 files passed. The failing assertion at original line 358 expected Available Nov 7 and received Available now.</td></tr>
+<tr><td>Focused reproduction before correction</td><td>27 tests: 1 failed.</td></tr>
+<tr><td>Focused file after correction</td><td>28 passed; exit 0. Node 22, 512 MB heap, one worker.</td></tr>
+<tr><td>Focused ESLint after correction</td><td>Exit 0.</td></tr>
+<tr><td>Graph lookup</td><td>Unavailable: this worktree has neither graphify-out/graph.json nor .graphify/graph.json. Review used the direct source paths from the test imports.</td></tr>
+</tbody>
+</table>
+<h2>Reviewed source identity and scope</h2>
+<p>SHA-256 of <code>tests/unit/room-capacity-availability.test.ts</code>: <code>e42ecc8c46e3b92e05cb786df558c794ea53e78bbc023c2bc718ccd0d02dbee0</code>.</p>
+<p>This verdict covers only the clock fixture and added test. Other working-tree changes are outside this review. No application edits, provider or database operations, browser sessions, servers, builds, or broad test runs were performed by this reviewer.</p>
+</body>
+</html>

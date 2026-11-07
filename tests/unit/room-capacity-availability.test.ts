@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Drives the REAL availability gate — `isRoomChoiceAvailable` and friends in
@@ -343,6 +343,12 @@ describe("the rich listing label uses the D1 wording (channels-sync-1027)", () =
 });
 
 describe("the public catalog's label beats a browser store that knows only approved applications", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 10, 1, 12));
+  });
+  afterEach(() => vi.useRealTimers());
+
   const richFor = (catalogLabel: string, publicProjection: boolean) =>
     applyApprovedAvailabilityToRichContent(
       { id: "prop-1", publicProjection, listingSubmission: { v: 1, rooms: [{ id: "r1", availability: catalogLabel }] } } as never,
@@ -358,5 +364,10 @@ describe("the public catalog's label beats a browser store that knows only appro
     expect(richFor("Available Nov 7", true)).toBe("Available Nov 7");
     expect(richFor("Available now", true)).toBe("Available now");
     expect(richFor("Leased until May 15, 2027", false)).toBe("Available now");
+  });
+
+  it("normalizes a public opening that has arrived to Available now", () => {
+    vi.setSystemTime(new Date(2026, 10, 7, 12));
+    expect(richFor("Available Nov 7", true)).toBe("Available now");
   });
 });

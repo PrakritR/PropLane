@@ -12,6 +12,7 @@ vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: vi.fn(async () => fals
 vi.mock("@/lib/auth/resident-relationship", async (original) => ({ ...(await original<typeof import("@/lib/auth/resident-relationship")>()), managerOwnsResident: vi.fn(async () => false) }));
 vi.mock("@/lib/test-workspaces/index.server", () => ({
   resolveAuthenticatedBusinessAccess: vi.fn(async () => ({ kind: "normal" })),
+  resolveTestWorkspaceClassification: vi.fn(async () => ({ kind: "normal" })),
   assertTestWorkspacePrincipalCompatibility: vi.fn(async () => undefined),
 }));
 vi.mock("@/lib/vendor-quote-contact.server", () => ({

@@ -9,6 +9,8 @@ Private test workspaces let trusted operators exercise the real manager and resi
 - Root records persist `test_workspace_id`. Database triggers derive it from every populated account, email-backed profile, and named parent reference, and reject normal-to-test or cross-workspace relationships.
 - Public listing queries always require `test_workspace_id is null`. An active authenticated member may use the same listing and application UI through private, `no-store` responses scoped to their workspace.
 
+- Portal conversation email classifies the trusted `senderUserId` before single or batch provider delivery; ordinary requests retain capture evidence in `audit_log`, and classification/audit failures stay unsent (`portal-email-test-workspace-boundary.test.ts`).
+
 ## Access and provisioning
 
 - `PROPLANE_TEST_WORKSPACES_ENABLED=true` enables access. It defaults off.

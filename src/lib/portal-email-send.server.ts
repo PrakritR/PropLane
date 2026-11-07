@@ -25,6 +25,7 @@ import {
 } from "@/lib/inbound-email/reply-address.server";
 import { sharedPortalFromAddress } from "@/lib/manager-outbound-identity.server";
 import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
+import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 
 const RESEND_BATCH_LIMIT = 100;
 
@@ -83,6 +84,21 @@ export async function sendPortalConversationEmails(opts: {
     metadata: { recipientCount: opts.toEmails.length },
   })) {
     return new Map(opts.toEmails.map((email) => [email, { sent: true, resendId: "in_app_test" }]));
+  }
+  if (opts.toEmails.length === 0) return results;
+  try {
+    const capture = await captureTestWorkspaceEffectForUser({
+      userId: opts.senderUserId,
+      kind: "email",
+      summary: opts.subject.trim() || "Email delivery captured in the test conversation.",
+      metadata: { recipientCount: opts.toEmails.length },
+    });
+    if (capture.captured) {
+      return new Map(opts.toEmails.map((email) => [email, { sent: true, resendId: "test_workspace_captured" }]));
+    }
+  } catch {
+    // Classification and retained evidence must succeed before any provider handoff.
+    return results;
   }
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey || opts.toEmails.length === 0) return results;

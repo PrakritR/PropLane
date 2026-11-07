@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import type { PersistedInboxThread, InboxThreadMessage } from "@/lib/portal-inbox-storage";
 
 const boundary = vi.hoisted(() => ({
-  planReadable: true, auth: vi.fn(), service: vi.fn(), issueReply: vi.fn(), workEmail: vi.fn(), sendNumber: vi.fn(),
+  classify: vi.fn(), auditFails: false, planReadable: true, auth: vi.fn(), service: vi.fn(), issueReply: vi.fn(), workEmail: vi.fn(), sendNumber: vi.fn(),
   uiThreads: [] as PersistedInboxThread[], toast: vi.fn(),
   vendorSession: vi.fn(), vendorTurn: vi.fn(), notify: vi.fn(), loadReply: vi.fn(), outboundReply: vi.fn(),
 }));
@@ -17,6 +17,7 @@ vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: vi.fn(async () => fals
 vi.mock("@/lib/auth/resident-relationship", async (original) => ({ ...(await original<typeof import("@/lib/auth/resident-relationship")>()), managerOwnsResident: vi.fn(async () => false) }));
 vi.mock("@/lib/test-workspaces/index.server", () => ({
   resolveAuthenticatedBusinessAccess: vi.fn(async () => ({ kind: "normal" })),
+  resolveTestWorkspaceClassification: boundary.classify,
   assertTestWorkspacePrincipalCompatibility: vi.fn(async () => undefined),
 }));
 vi.mock("@/lib/manager-assistant-email/manager-assistant-email.server", () => ({ resolveWorkspaceWorkEmail: boundary.workEmail }));
@@ -125,7 +126,13 @@ function fixture(linkedVendor = true) {
         eq: vi.fn((key: string, value: unknown) => { filters.set(key, value); return query; }),
         in: vi.fn(() => query), ilike: vi.fn(() => query), or: vi.fn(() => query),
         order: vi.fn(() => query), limit: vi.fn(() => query), is: vi.fn(() => query), gt: vi.fn(() => query),
-        insert: vi.fn((row: Record<string, unknown>) => { const saved = { ...row, id: `issued-${issued.length}` }; issued.push(saved); writes.push({ table, row: saved }); return { select: () => ({ single: async () => ({ data: saved, error: null }) }) }; }),
+        insert: vi.fn((row: Record<string, unknown>) => {
+          if (table === "audit_log") {
+            if (boundary.auditFails) return { error: { message: "Audit unavailable" } };
+            writes.push({ table, row });
+            return { error: null };
+          }
+          const saved = { ...row, id: `issued-${issued.length}` }; issued.push(saved); writes.push({ table, row: saved }); return { select: () => ({ single: async () => ({ data: saved, error: null }) }) }; }),
         maybeSingle: vi.fn(async () => ({ data: rows()[0] ?? null, error: null })),
         then: (resolve: (result: unknown) => unknown) => Promise.resolve({ data: rows(), error: (table === "vendor_quote_email_permissions" && policyError) || (table === "portal_inbox_thread_records" && !filters.has("id") && personLookupError) ? { message: "unavailable" } : null }).then(resolve),
         upsert: vi.fn(async (row: Record<string, unknown>) => {
@@ -190,7 +197,8 @@ function reply(service: typeof services[number], toEmail = VENDOR_EMAIL, recordR
 
 describe("manager quote email roundtrip", () => {
   beforeEach(() => {
-    vi.clearAllMocks(); boundary.planReadable = true;
+    vi.clearAllMocks(); boundary.planReadable = true; boundary.auditFails = false;
+    boundary.classify.mockResolvedValue({ kind: "normal" });
     vi.stubEnv("RESEND_API_KEY", "re_test_key");
     vi.stubEnv("RESEND_REPLY_DOMAIN", "reply.example.test");
     vi.stubEnv("RESEND_INBOUND_WEBHOOK_SECRET", `whsec_${Buffer.from("test-secret-key").toString("base64")}`);
@@ -202,6 +210,45 @@ describe("manager quote email roundtrip", () => {
     boundary.sendNumber.mockResolvedValue("+15550000001");
     boundary.notify.mockResolvedValue(undefined);
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "private-test-key");
+  });
+
+  it("captures the authenticated manager despite body actor and workspace spoofing", async () => {
+    const { writes, threads } = fixture();
+    boundary.classify.mockResolvedValue({ kind: "classified", workspaceId: "durable-workspace", role: "manager", state: "active" });
+    const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+    const response = await reply(services[0], VENDOR_EMAIL, services[0].workOrderId, {
+      senderUserId: "forged-actor", managerUserId: "forged-manager", workspaceId: "forged-workspace",
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const result = await response.json();
+    expect(result).toMatchObject({ emailSent: true, deliveryState: "sent" });
+    expect(boundary.classify).toHaveBeenCalledWith(MANAGER, expect.anything());
+    expect(writes).toContainEqual({ table: "audit_log", row: expect.objectContaining({
+      landlord_id: MANAGER, actor_user_id: MANAGER, action: "test_workspace_effect_captured",
+      test_workspace_id: "durable-workspace", input_summary: { kind: "email" },
+    }) });
+    expect(writes).toContainEqual({ table: "portal_outbound_mail_records", row: expect.objectContaining({
+      row_data: expect.objectContaining({ emailSent: true, emailResendId: "test_workspace_captured" }),
+    }) });
+    expect(threads.get(threadId(services[0]))?.row_data.messages).toContainEqual(expect.objectContaining({ id: result.messageId, delivery: "sent" }));
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps the authorized quote reply failed when durable capture cannot retain audit evidence", async () => {
+    const { writes, threads } = fixture();
+    boundary.classify.mockResolvedValue({ kind: "classified", workspaceId: "durable-workspace", role: "manager", state: "active" });
+    boundary.auditFails = true;
+    const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+    const response = await reply(services[0]);
+    expect(response.status, await response.clone().text()).toBe(200);
+    const result = await response.json();
+    expect(result).toMatchObject({ emailSent: false, deliveryState: "unsent" });
+    expect(threads.get(threadId(services[0]))?.row_data.messages).toContainEqual(expect.objectContaining({ id: result.messageId, delivery: "failed" }));
+    expect(writes.filter(({ table }) => table === "audit_log")).toEqual([]);
+    expect(writes).toContainEqual({ table: "portal_outbound_mail_records", row: expect.objectContaining({
+      row_data: expect.objectContaining({ emailSent: false, emailResendId: null }),
+    }) });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it.each(services)("authorizes a selected folded source for $workOrderId and stores only on its canonical row", async (service) => {
