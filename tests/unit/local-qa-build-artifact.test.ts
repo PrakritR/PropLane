@@ -6,7 +6,8 @@ import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { execFileSync, spawnSync } from "node:child_process";
 import { parse } from "yaml";
-import { ArtifactRefusal, INVENTORY_DETAILS, ARCHIVE_DETAILS, formatArtifactRefusal, artifactRefusalCode, assertArtifactContext, configuredSecrets, encryptionKeyBytes, KEEPER_REF, QA_KEEPER_REFS, packageBuild, secretScanner } from "../../scripts/package-local-qa-build.mjs";
+import { gunzipSync } from "node:zlib";
+import { MAX_BYTES, MAX_ARCHIVE, ArtifactRefusal, INVENTORY_DETAILS, ARCHIVE_DETAILS, formatArtifactRefusal, artifactRefusalCode, assertArtifactContext, configuredSecrets, encryptionKeyBytes, KEEPER_REF, QA_KEEPER_REFS, packageBuild, secretScanner } from "../../scripts/package-local-qa-build.mjs";
 import { decryptArtifact, restoreRuntimeAliases } from "../../scripts/decrypt-local-qa-build.mjs";
 
 import { RUNTIME_ALIAS_SPECS, validateRuntimeAliases } from "../../scripts/lib/local-qa-runtime-aliases.mjs";
@@ -102,7 +103,7 @@ describe("encrypted local QA build transport", () => {
       Object.assign(error, { code: sentinel, detail: sentinel, stack: sentinel, message: sentinel });
       expect(formatArtifactRefusal(error)).not.toContain(sentinel);
     }
-    for (const [field, max] of [["bytes", 2 * 1024 ** 3], ["limit", 1024 ** 3], ["exitCode", 255]] as const) {
+    for (const [field, max] of [["bytes", MAX_BYTES * 2], ["limit", MAX_BYTES], ["exitCode", 255]] as const) {
       for (const value of [0, max]) expect(formatArtifactRefusal(new ArtifactRefusal("ARCHIVE", sentinel, "STREAM", { [field]: value }))).toContain(`${field}=${value}`);
       for (const value of [-1, max + 1, 1.5, NaN, Infinity, "123", sentinel]) expect(formatArtifactRefusal(new ArtifactRefusal("ARCHIVE", sentinel, "STREAM", { [field]: value }))).toContain(`${field}=UNKNOWN`);
     }
@@ -139,6 +140,9 @@ describe("encrypted local QA build transport", () => {
       expect(execFileSync("tar", ["-xOf", archive, relative], { encoding: "utf8" })).toBe(`content:${relative}`);
     }
     const manifest = JSON.parse(execFileSync("tar", ["-xOf", archive, "qa-manifest.json"], { encoding: "utf8" }));
+    expect(manifest.maxUncompressedBytes).toBe(4 * 1024 ** 3);
+    expect(manifest.maxArchiveBytes).toBe(500 * 1024 ** 2);
+    expect(MAX_ARCHIVE).toBe(500 * 1024 ** 2);
     expect(manifest.immutableFiles.map((file: { path: string }) => file.path).sort()).toEqual(entries.filter((entry) => entry !== "qa-manifest.json").sort());
   });
 
@@ -496,6 +500,30 @@ describe("encrypted local QA build transport", () => {
     const diagnostic = formatArtifactRefusal(error);
     expect(diagnostic).toMatch(new RegExp(`\\[ARCHIVE\\] detail=${detail} bytes=[0-9]+ limit=${limit} exitCode=UNKNOWN signal=UNKNOWN`));
     expect(diagnostic).not.toContain(input.root);
+    await expect(stat(input.output)).rejects.toThrow();
+  });
+
+  it.each([
+    { maxBytes: MAX_BYTES + 1 }, { maxBytes: Number.MAX_SAFE_INTEGER + 1 }, { maxBytes: 0 },
+    { maxArchive: MAX_ARCHIVE + 1 }, { maxArchive: 0 }, { maxArchive: 1.5 },
+  ])("refuses configured limits above shared ceilings or unsafe values: %j", async (bounds) => {
+    const input = await fixture();
+    const error = await packageBuild({ ...input, encryptionKey: KEY, ...bounds }).catch((error: unknown) => error);
+    expect(artifactRefusalCode(error)).toBe("PACKAGE_CONFIG");
+    await expect(stat(input.output)).rejects.toThrow();
+  });
+
+  it("enforces the complete raw tar boundary including manifest, padding and footer", async () => {
+    const input = await fixture();
+    await packageBuild({ ...input, encryptionKey: KEY });
+    const archive = path.join(input.root, "boundary.tar.gz");
+    await decryptArtifact({ artifactDir: input.output, sha: SHA, encryptionKey: KEY, output: archive });
+    const rawBytes = gunzipSync(await readFile(archive)).length;
+    await rm(input.output, { recursive: true });
+    await expect(packageBuild({ ...input, encryptionKey: KEY, maxBytes: rawBytes })).resolves.toBeDefined();
+    await rm(input.output, { recursive: true });
+    const error = await packageBuild({ ...input, encryptionKey: KEY, maxBytes: rawBytes - 1 }).catch((error: unknown) => error);
+    expect(formatArtifactRefusal(error)).toContain(`detail=TAR_BYTES bytes=${rawBytes} limit=${rawBytes - 1}`);
     await expect(stat(input.output)).rejects.toThrow();
   });
 

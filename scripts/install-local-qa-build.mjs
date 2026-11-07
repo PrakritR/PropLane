@@ -7,10 +7,10 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createGunzip } from 'node:zlib';
 import { pathToFileURL } from 'node:url';
-import { ARTIFACT_FORMAT, ARTIFACT_VERSION, QA_REPOSITORY, QA_KEEPER_REFS, QA_DEV_URL, QA_ORIGIN, encryptionKeyBytes } from './package-local-qa-build.mjs';
+import { ARTIFACT_FORMAT, ARTIFACT_VERSION, QA_REPOSITORY, QA_KEEPER_REFS, QA_DEV_URL, QA_ORIGIN, MAX_BYTES, MAX_ARCHIVE, MAX_FILES, MAX_ENTRIES, encryptionKeyBytes } from './package-local-qa-build.mjs';
 import { decryptArtifact, restoreRuntimeAliases } from './decrypt-local-qa-build.mjs';
 
-const MAX_ENTRIES = 50001, MAX_EXPANDED = 1024 ** 3, MAX_RECEIPT = 16 * 1024 ** 2;
+const MAX_EXPANDED = MAX_BYTES, MAX_RECEIPT = 16 * 1024 ** 2;
 const RECEIPT_AAD = Buffer.from('proplane-installed-local-qa/v1');
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 function assert(ok, message = 'Authenticated local QA build refused.') { if (!ok) throw new Error(message); }
@@ -68,7 +68,7 @@ export async function extractQaArchive({ archive, destination, maxEntries = MAX_
         const prefix = tarString(header.subarray(345, 500)); const name = `${prefix ? `${prefix}/` : ''}${tarString(header.subarray(0, 100))}`;
         assert(safeEntry(name) && !seen.has(name), 'Unsafe or duplicate archive entry.'); seen.add(name);
         remaining = octal(header.subarray(124, 136)); padding = (512 - remaining % 512) % 512;
-        assert(remaining <= MAX_EXPANDED && (name !== 'qa-manifest.json' || remaining <= MAX_RECEIPT), 'Archive entry size refused.');
+        assert(remaining <= maxExpanded && (name !== 'qa-manifest.json' || remaining <= MAX_RECEIPT), 'Archive entry size refused.');
         const target = path.join(destination, name); await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
         file = await open(target, 'wx', 0o600);
         if (!remaining) { await file.close(); file = undefined; }
@@ -88,22 +88,37 @@ async function fileDigest(file) {
   } finally { await handle.close(); }
   return { bytes, sha256: hash.digest('hex') };
 }
+/** Validate authenticated claims without allocating buffers for the declared inventory. */
+export function validateManifestBudget(manifest) {
+  assert(Number.isSafeInteger(manifest?.maxUncompressedBytes) && manifest.maxUncompressedBytes > 0 && manifest.maxUncompressedBytes <= MAX_BYTES);
+  assert(Number.isSafeInteger(manifest.maxArchiveBytes) && manifest.maxArchiveBytes > 0 && manifest.maxArchiveBytes <= MAX_ARCHIVE);
+  assert(Number.isSafeInteger(manifest.fileCount) && manifest.fileCount > 0 && manifest.fileCount <= MAX_FILES);
+  assert(Array.isArray(manifest.immutableFiles) && manifest.immutableFiles.length === manifest.fileCount);
+  assert(Number.isSafeInteger(manifest.fileBytes) && manifest.fileBytes >= 0 && manifest.fileBytes <= manifest.maxUncompressedBytes);
+  let bytes = 0;
+  for (const entry of manifest.immutableFiles) {
+    assert(Number.isSafeInteger(entry?.bytes) && entry.bytes >= 0 && entry.bytes <= manifest.maxUncompressedBytes);
+    bytes += entry.bytes;
+    assert(Number.isSafeInteger(bytes) && bytes <= manifest.maxUncompressedBytes);
+  }
+  assert(bytes === manifest.fileBytes);
+}
 async function validateManifest(manifest, root, sha, env) {
   assert(manifest?.format === ARTIFACT_FORMAT && manifest.version === ARTIFACT_VERSION && manifest.purpose === 'local-dev-qa-only' && manifest.githubSha === sha && manifest.provenance?.repository === QA_REPOSITORY && QA_KEEPER_REFS.includes(manifest.provenance.ref) && /^[1-9]\d{0,19}$/.test(manifest.provenance.runId) && /^[1-9]\d{0,5}$/.test(manifest.provenance.attempt));
   assert(manifest.nodeMajor === 22 && process.versions.node.split('.')[0] === '22' && manifest.target?.supabaseUrl === QA_DEV_URL && manifest.target.origin === QA_ORIGIN && env.NEXT_PUBLIC_SUPABASE_URL === QA_DEV_URL && env.NEXT_PUBLIC_APP_URL === QA_ORIGIN && env.NEXT_PUBLIC_SUPABASE_ANON_KEY && manifest.target.anonKeySha256 === sha256(env.NEXT_PUBLIC_SUPABASE_ANON_KEY), 'Artifact runtime target refused.');
   const lockBytes = await readFile(path.join(root, 'package-lock.json')); const lock = JSON.parse(lockBytes);
   const localNext = JSON.parse(await readFile(path.join(root, 'node_modules/next/package.json'), 'utf8'));
   assert(manifest.lockfileSha256 === sha256(lockBytes) && typeof manifest.nextVersion === 'string' && manifest.nextVersion === localNext.version && localNext.name === 'next' && lock.packages?.['node_modules/next']?.version === manifest.nextVersion, 'Artifact dependency binding refused.');
-  assert(Array.isArray(manifest.immutableFiles) && manifest.immutableFiles.length > 0 && manifest.immutableFiles.length <= MAX_ENTRIES - 1 && manifest.fileCount === manifest.immutableFiles.length);
+  validateManifestBudget(manifest);
   manifest.runtimeAliases = validateRuntimeAliases(manifest.runtimeAliases);
   for (const alias of manifest.runtimeAliases) await bindRuntimeAlias({ root, alias, allowMissingAliasParents: true });
   assert(JSON.stringify(manifest.excluded) === JSON.stringify(['.next/cache', '.next/dev', '.next/node_modules']) && manifest.runtime?.host === '127.0.0.1' && manifest.runtime.port === 3010 && manifest.runtime.maxOldSpaceSizeMiB === 512 && manifest.runtime.database === 'dev/test');
-  let bytes = 0; const paths = new Set();
+  const paths = new Set();
   for (const entry of manifest.immutableFiles) {
-    assert(safeEntry(entry?.path) && entry.path !== 'qa-manifest.json' && !paths.has(entry.path) && /^[a-f0-9]{64}$/.test(entry.sha256) && Number.isSafeInteger(entry.bytes) && entry.bytes >= 0);
-    paths.add(entry.path); bytes += entry.bytes; assert(bytes <= MAX_EXPANDED);
+    assert(safeEntry(entry?.path) && entry.path !== 'qa-manifest.json' && !paths.has(entry.path) && /^[a-f0-9]{64}$/.test(entry.sha256));
+    paths.add(entry.path);
   }
-  assert(bytes === manifest.fileBytes && paths.has('.next/BUILD_ID') && paths.has('.next/required-server-files.json'));
+  assert(paths.has('.next/BUILD_ID') && paths.has('.next/required-server-files.json'));
 }
 async function verifyTree(root, manifest, allowAliases) {
   const expected = new Map(manifest.immutableFiles.map((entry) => [entry.path, entry]));

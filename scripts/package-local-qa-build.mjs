@@ -25,8 +25,10 @@ const PRIVATE_MANIFEST_NAME = "qa-manifest.json";
 export const ENCRYPTION_KEY_HEX_LENGTH = 64;
 const NONCE_BYTES = 12;
 const MAX_ENVELOPE_BYTES = 4096;
-const MAX_BYTES = 1024 ** 3;
-const MAX_ARCHIVE = 500 * 1024 ** 2;
+export const MAX_BYTES = 4 * 1024 ** 3;
+export const MAX_ARCHIVE = 500 * 1024 ** 2;
+export const MAX_FILES = 50000;
+export const MAX_ENTRIES = MAX_FILES + 1;
 const REFUSAL_CODES = new Set([
   "CONTEXT", "KEY_CONFIG", "PACKAGE_CONFIG", "SOURCE", "INVENTORY", "MARKERS",
   "SCANNER", "ARCHIVE", "OUTPUT", "ENCRYPTION", "UNEXPECTED",
@@ -66,7 +68,7 @@ export class ArtifactRefusal extends Error {
       target: enumValue(metadata.target, ["EXPECTED_RELATIVE", "ABSOLUTE", "OTHER_RELATIVE", "UNREADABLE"]),
       errno: enumValue(metadata.errno, ["MISSING", "PERMISSION", "OTHER"]),
       visited: Number.isSafeInteger(metadata.visited) && metadata.visited >= 0 && metadata.visited <= 100001 ? metadata.visited : "UNKNOWN",
-      files: Number.isSafeInteger(metadata.files) && metadata.files >= 0 && metadata.files <= 50000 ? metadata.files : "UNKNOWN",
+      files: Number.isSafeInteger(metadata.files) && metadata.files >= 0 && metadata.files <= MAX_FILES ? metadata.files : "UNKNOWN",
       pathBytes: enumValue(metadata.pathBytes, ["LE100", "LE255", "LE2048", "GT2048"]),
     });
   }
@@ -271,7 +273,7 @@ export async function packageBuild({ root, output, sha, secrets, encryptionKey, 
         char === "/" && index <= 155 && relative.length - index - 1 <= 100)) {
         throw inventoryRefusal("PATH_USTAR_SPLIT", relative, stat);
       }
-      if (files.length >= 50000) throw inventoryRefusal("FILE_LIMIT", relative, stat);
+      if (files.length >= MAX_FILES) throw inventoryRefusal("FILE_LIMIT", relative, stat);
       if (relative.length > 2048) throw inventoryRefusal("WALK_PATH_LIMIT", relative, stat);
       if (scanSecrets.some((secret) => Buffer.from(relative).includes(secret))) throw inventoryRefusal("PATH_SECRET", relative, stat);
       const destination = path.join(stage, relative);

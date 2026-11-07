@@ -8,6 +8,7 @@ import { Writable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { pathToFileURL } from "node:url";
 import {
+  MAX_ARCHIVE,
   ARTIFACT_FORMAT,
   ARTIFACT_VERSION,
   ENCRYPTED_ARCHIVE_NAME,
@@ -16,7 +17,6 @@ import {
   encryptionKeyBytes,
 } from "./package-local-qa-build.mjs";
 
-const MAX_ARCHIVE = 500 * 1024 ** 2;
 const MAX_ENVELOPE_BYTES = 4096;
 const NONCE_HEX_LENGTH = 24;
 const AUTH_TAG_HEX_LENGTH = 32;

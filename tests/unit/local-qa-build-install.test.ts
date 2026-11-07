@@ -2,9 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile, symlink, readlink, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { gzipSync } from 'node:zlib';
-import { packageBuild, KEEPER_REF } from '../../scripts/package-local-qa-build.mjs';
-import { authenticatedGithubSource, extractQaArchive, installQaBuild, verifyInstalledQaBuild } from '../../scripts/install-local-qa-build.mjs';
+import { gzipSync, gunzipSync } from 'node:zlib';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import { packageBuild, KEEPER_REF, MAX_BYTES, MAX_ARCHIVE, MAX_FILES, artifactAad } from '../../scripts/package-local-qa-build.mjs';
+import { validateManifestBudget, authenticatedGithubSource, extractQaArchive, installQaBuild, verifyInstalledQaBuild } from '../../scripts/install-local-qa-build.mjs';
 
 const gitState = vi.hoisted(() => ({ sha: 'a'.repeat(40), dirty: '' }));
 vi.mock('node:child_process', async (original) => {
@@ -45,7 +46,58 @@ async function input(aliases = false) {
 function authenticateSource(manifest: { provenance: { runId: string; attempt: string } }, artifactId: string) { return { artifactId, ...manifest.provenance }; }
 async function install(aliases = false) { const args = await input(aliases); const receiptPath = await installQaBuild(args, { authenticateSource }); return { args, receiptPath }; }
 
+// Rewrite tiny fixture payloads with valid authentication to exercise the claim validator.
+function encrypt(bytes: Buffer, aad: Buffer) {
+  const nonce = randomBytes(12), cipher = createCipheriv('aes-256-gcm', Buffer.from(KEY, 'hex'), nonce);
+  cipher.setAAD(aad);
+  const ciphertext = Buffer.concat([cipher.update(bytes), cipher.final()]);
+  return { nonce: nonce.toString('hex'), tag: cipher.getAuthTag().toString('hex'), ciphertext };
+}
+function decrypt(ciphertext: Buffer, nonce: string, tag: string, aad: Buffer) {
+  const cipher = createDecipheriv('aes-256-gcm', Buffer.from(KEY, 'hex'), Buffer.from(nonce, 'hex'));
+  cipher.setAAD(aad); cipher.setAuthTag(Buffer.from(tag, 'hex'));
+  return Buffer.concat([cipher.update(ciphertext), cipher.final()]);
+}
+async function rewriteArtifactBudget(artifactDir: string, override: Record<string, unknown>) {
+  const envelopePath = path.join(artifactDir, 'manifest.json'), archivePath = path.join(artifactDir, 'next-build.tar.gz.enc');
+  const envelope = JSON.parse(await readFile(envelopePath, 'utf8'));
+  const raw = gunzipSync(decrypt(await readFile(archivePath), envelope.nonce, envelope.authTag, artifactAad(SHA)));
+  const entries = [];
+  for (let offset = 0; offset < raw.length && raw[offset];) {
+    const name = raw.subarray(offset, offset + 100).toString().replace(/\0.*$/, '');
+    const size = parseInt(raw.subarray(offset + 124, offset + 136).toString().replace(/\0.*$/, ''), 8);
+    let body = raw.subarray(offset + 512, offset + 512 + size).toString();
+    if (name === 'qa-manifest.json') body = JSON.stringify({ ...JSON.parse(body), ...override });
+    entries.push({ name, body }); offset += 512 + Math.ceil(size / 512) * 512;
+  }
+  const encrypted = encrypt(gzipSync(tar(entries)), artifactAad(SHA));
+  await writeFile(archivePath, encrypted.ciphertext);
+  await writeFile(envelopePath, JSON.stringify({ ...envelope, nonce: encrypted.nonce, authTag: encrypted.tag, ciphertextBytes: encrypted.ciphertext.length, ciphertextSha256: createHash('sha256').update(encrypted.ciphertext).digest('hex') }));
+}
+async function rewriteReceiptBudget(receiptPath: string, override: Record<string, unknown>) {
+  const envelope = JSON.parse(await readFile(receiptPath, 'utf8')), aad = Buffer.from('proplane-installed-local-qa/v1');
+  const receipt = JSON.parse(decrypt(Buffer.from(envelope.ciphertext, 'base64'), envelope.nonce, envelope.tag, aad).toString());
+  Object.assign(receipt.manifest, override);
+  const encrypted = encrypt(Buffer.from(JSON.stringify(receipt)), aad);
+  await writeFile(receiptPath, JSON.stringify({ ...envelope, nonce: encrypted.nonce, tag: encrypted.tag, ciphertext: encrypted.ciphertext.toString('base64') }));
+}
+
 describe('authenticated installed build', () => {
+  it.each([
+    { maxUncompressedBytes: MAX_BYTES + 1 }, { maxUncompressedBytes: '4294967296' },
+    { maxArchiveBytes: MAX_ARCHIVE + 1 }, { maxArchiveBytes: null }, { fileBytes: -1 }, { fileCount: 1.5 },
+  ])('refuses authenticated bad budget claims at install and receipt verification: %j', async (override) => {
+    const args = await input();
+    await rewriteArtifactBudget(args.artifactDir, override);
+    const authenticate = vi.fn(authenticateSource);
+    await expect(installQaBuild(args, { authenticateSource: authenticate })).rejects.toThrow('refused');
+    expect(authenticate).not.toHaveBeenCalled();
+    await expect(readFile(path.join(args.root, '.next/BUILD_ID'))).rejects.toThrow();
+    const installed = await install();
+    await rewriteReceiptBudget(installed.receiptPath, override);
+    await expect(verifyInstalledQaBuild({ ...installed.args, receiptPath: installed.receiptPath })).rejects.toThrow();
+  });
+
   it('installs only authenticated immutable bytes and validates its sealed receipt per run', async () => {
     const { args, receiptPath } = await install();
     expect(JSON.parse(await readFile(receiptPath, 'utf8'))).toMatchObject({ format: 'proplane-installed-local-qa', version: 1 });
@@ -128,6 +180,36 @@ async function extraction(entries: { name: string; type?: string; body?: string 
   await mkdir(destination, { mode: 0o700 }); await writeFile(archive, gzipSync(tar(entries)));
   return { archive, destination, ...limits };
 }
+describe('manifest inventory budget', () => {
+  function budget(bytes: number) {
+    return { maxUncompressedBytes: MAX_BYTES, maxArchiveBytes: MAX_ARCHIVE, fileBytes: bytes, fileCount: 2, immutableFiles: [{ bytes: Math.floor(bytes / 2) }, { bytes: Math.ceil(bytes / 2) }] };
+  }
+  it.each([1024 ** 3 + 1, 2 * 1024 ** 3 + 1, MAX_BYTES])('accepts safe cumulative metadata at %s bytes without allocating its contents', (bytes) => {
+    expect(() => validateManifestBudget(budget(bytes))).not.toThrow();
+  });
+  it('rejects source sums above the declared or global limit and mismatched totals/counts', () => {
+    expect(() => validateManifestBudget(budget(MAX_BYTES + 1))).toThrow();
+    expect(() => validateManifestBudget({ ...budget(20), fileBytes: 19, maxUncompressedBytes: 19 })).toThrow();
+    expect(() => validateManifestBudget({ ...budget(20), fileBytes: 19 })).toThrow();
+    expect(() => validateManifestBudget({ ...budget(20), fileCount: 1 })).toThrow();
+    expect(() => validateManifestBudget({ ...budget(20), immutableFiles: [{ bytes: MAX_BYTES + 1 }, { bytes: 0 }] })).toThrow();
+  });
+  for (const [field, max, positive] of [['maxUncompressedBytes', MAX_BYTES, true], ['maxArchiveBytes', MAX_ARCHIVE, true], ['fileBytes', MAX_BYTES, false], ['fileCount', MAX_FILES, true]] as const) {
+    it.each([undefined, null, -1, 1.5, '1', NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, max + 1, ...(positive ? [0] : [])])(`rejects unsafe ${field} claim: %s`, (value) => {
+      expect(() => validateManifestBudget({ ...budget(20), [field]: value })).toThrow();
+    });
+  }
+  it.each([undefined, null, -1, 1.5, '1', NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, MAX_BYTES + 1])('rejects unsafe per-file size: %s', (bytes) => {
+    expect(() => validateManifestBudget({ ...budget(20), immutableFiles: [{ bytes }, { bytes: 0 }] })).toThrow();
+  });
+  it.each([undefined, null, [], [{ bytes: 0 }]])('rejects missing or inconsistent inventory: %j', (immutableFiles) => {
+    expect(() => validateManifestBudget({ ...budget(20), immutableFiles })).toThrow();
+  });
+  it('accepts zero-byte files and totals within a positive declared budget', () => {
+    expect(() => validateManifestBudget(budget(0))).not.toThrow();
+  });
+});
+
 describe('closed ustar extraction', () => {
   it('extracts ordinary files under a new private directory', async () => {
     const args = await extraction([{ name: '.next/BUILD_ID' }, { name: 'qa-manifest.json', body: '{}' }]);
@@ -147,6 +229,29 @@ describe('closed ustar extraction', () => {
     await expect(extractQaArchive(await extraction(entries, { maxExpanded: 512 }))).rejects.toThrow();
     const args = await extraction(entries); await writeFile(args.archive, gzipSync(tar(entries).subarray(0, -1024)));
     await expect(extractQaArchive(args)).rejects.toThrow('Incomplete');
+  });
+  it.each([
+    { maxExpanded: MAX_BYTES + 1 }, { maxExpanded: Number.MAX_SAFE_INTEGER + 1 }, { maxExpanded: 0 }, { maxExpanded: 1.5 },
+    { maxEntries: MAX_FILES + 2 }, { maxEntries: 0 }, { maxEntries: '2' },
+  ])('refuses unsafe configured extraction bounds: %j', async (limits) => {
+    await expect(extractQaArchive(await extraction([{ name: 'qa-manifest.json', body: '{}' }], limits))).rejects.toThrow();
+  });
+  it('counts full raw tar overhead and trailing bytes at the exact configured expansion boundary', async () => {
+    const entries = [{ name: 'qa-manifest.json', body: '{}' }], bytes = tar(entries);
+    await expect(extractQaArchive(await extraction(entries, { maxExpanded: bytes.length }))).resolves.toEqual(new Set(['qa-manifest.json']));
+    await expect(extractQaArchive(await extraction(entries, { maxExpanded: bytes.length - 1 }))).rejects.toThrow('expansion bound');
+    const args = await extraction(entries, { maxExpanded: bytes.length });
+    await writeFile(args.archive, gzipSync(Buffer.concat([bytes, Buffer.alloc(1)])));
+    await expect(extractQaArchive(args)).rejects.toThrow('expansion bound');
+  });
+  it('refuses oversized declared entry size before opening the target', async () => {
+    const args = await extraction([{ name: 'qa-manifest.json', body: '{}' }], { maxExpanded: 1024 });
+    const header = tar([{ name: '.next/oversized' }]).subarray(0, 512);
+    header.write(`${(1025).toString(8).padStart(11, '0')}\0`, 124); header.fill(32, 148, 156);
+    const checksum = header.reduce((sum, byte) => sum + byte, 0); header.write(`${checksum.toString(8).padStart(6, '0')}\0 `, 148);
+    await writeFile(args.archive, gzipSync(header));
+    await expect(extractQaArchive(args)).rejects.toThrow('entry size');
+    await expect(readFile(path.join(args.destination, '.next/oversized'))).rejects.toThrow();
   });
   it('rejects a corrupt tar header even when gzip is valid', async () => {
     const args = await extraction([{ name: 'qa-manifest.json', body: '{}' }]); const bytes = tar([{ name: 'qa-manifest.json', body: '{}' }]); bytes[0] ^= 1; await writeFile(args.archive, gzipSync(bytes));
