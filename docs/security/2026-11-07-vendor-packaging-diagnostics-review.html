@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vendor packaging diagnostics independent review</title>
+<style>body{max-width:940px;margin:40px auto;padding:0 24px;font:16px/1.55 system-ui;color:#17202a}code{overflow-wrap:anywhere}td,th{border:1px solid #ccd3da;padding:8px;text-align:left}table{border-collapse:collapse;width:100%}</style>
+<h1>Vendor packaging diagnostics independent review</h1>
+<p><strong>PASS: no Critical or High blockers found in the diagnostic-only patch.</strong> This approves the scoped investigation change for the next CI attempt. It does not establish the cause of the prior inventory refusal or successful packaging of real Next build output.</p>
+<p>Reviewed November 7, 2026 in <code>/Users/akhilvemuri/coding/AXIS-2-vendor-release</code>, against HEAD <code>da32a1c90094c830cb30e618f24cf6016706fbf3</code> plus the uncommitted changes below. Read repository and Akhil instructions, the packaging correction plan, and the final diagnostics handoff.</p>
+<table><tr><th>Reviewed file</th><th>SHA-256</th></tr>
+<tr><td><code>scripts/package-local-qa-build.mjs</code></td><td><code>4bf2742382495978051334d9719d4e58686a674fc4c427937714ba21dfba9bf0</code></td></tr>
+<tr><td><code>tests/unit/local-qa-build-artifact.test.ts</code></td><td><code>09f350657b40db7cc46549ea1da20597896b67d9ae4e57917d9336b4d474e827</code></td></tr></table>
+<h2>Review conclusions</h2>
+<ul><li>Acceptance predicates remain equivalent. The alias regex still permits only pg/sharp with the exact suffix; duplicate/count checks, canonical relative target, real package directory, package name/version and lock binding remain enforced. Null JSON now gets a closed refusal instead of an incidental exception; it still fails.</li>
+<li>Symlink, special-file and hardlink checks still precede cache/dev exclusions. Path grammar, length/count limits, forbidden components, secret scanning, open-file identity checks, archive construction, encryption, provenance and output cleanup are unchanged.</li>
+<li>The formatter reads a private WeakMap record populated from closed enums and bounded integer counters. It does not consult supplied error messages, stacks or mutable arbitrary properties. Unknown objects and reasons return constant safe output. Known scope/canvas classifications are diagnostic only and do not add acceptance or child traversal.</li>
+<li>Regression tests include actual CLI stderr and exit status; hostile/forged errors; enum and counter boundaries; filesystem/path/package refusals with absent output; and successful pg/sharp authenticated round trips. Existing security tests remain present.</li></ul>
+<h2>Verification and limits</h2>
+<p>Reviewer ran <code>git diff --check</code>: exit 0. Final hashes above were rechecked after the implementation handoff arrived. Reused implementation evidence: pinned Node 22, heap 512 MiB, one Vitest worker, 42 focused artifact tests passed (exit 0), focused ESLint exit 0. Those commands were not rerun by this reviewer. Root remains sole owner of heavy validation. No build, server, browser, provider/database action or git mutation was performed.</p>
+<p>No graph file exists in this worktree. Coordinator reports required graphify hook exit 1 because its executable could not be determined. Review used the scoped source diff. Count-limit branches are tested at the formatter boundary, not with huge filesystem fixtures; permission/race-only paths are not reproduced.</p>
+<p>Next step: run exact-source CI and use its closed diagnostic if packaging refuses again. Keep the release unresolved until actual packaging, authenticated install and required QA succeed. This review makes no claim that the previous generic INVENTORY failure has been corrected.</p>
+</html>

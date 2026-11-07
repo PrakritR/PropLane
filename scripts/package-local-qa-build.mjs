@@ -31,19 +31,51 @@ const REFUSAL_CODES = new Set([
   "SCANNER", "ARCHIVE", "OUTPUT", "ENCRYPTION", "UNEXPECTED",
 ]);
 
-class ArtifactRefusal extends Error {
-  constructor(code, message) {
+export const INVENTORY_DETAILS = Object.freeze([
+  "ENTRY_LIMIT", "WALK_PATH_LIMIT", "FILE_LIMIT", "PATH_NON_ASCII", "PATH_USTAR_LENGTH",
+  "PATH_INVALID_COMPONENT", "PATH_ENV_COMPONENT", "PATH_SECRET", "SYMLINK", "HARDLINK",
+  "SPECIAL_FILE", "ALIAS_DIRECTORY_TYPE", "ALIAS_NAME", "ALIAS_DUPLICATE", "ALIAS_COUNT",
+  "ALIAS_NOT_SYMLINK", "ALIAS_TARGET", "ALIAS_PACKAGE_TYPE", "ALIAS_PACKAGE_NAME",
+  "ALIAS_PACKAGE_VERSION", "STAT", "READDIR", "READLINK", "PACKAGE_READ", "LOCK_READ",
+]);
+const diagnosticRecords = new WeakMap();
+const enumValue = (value, allowed) => allowed.includes(value) ? value : "UNKNOWN";
+
+export class ArtifactRefusal extends Error {
+  constructor(code, message, detail = "UNKNOWN", metadata = {}) {
     super(message);
     this.code = code;
+    const validCode = REFUSAL_CODES.has(code) ? code : "UNEXPECTED";
+    const validDetail = code === "INVENTORY" ? enumValue(detail, INVENTORY_DETAILS) : "UNKNOWN";
+    diagnosticRecords.set(this, {
+      code: validDetail === "UNKNOWN" && code === "INVENTORY" ? "UNEXPECTED" : validCode,
+      detail: validDetail,
+      phase: enumValue(metadata.phase, ["ROOT", "CACHE", "DEV", "ALIASES", "SERVER", "STATIC", "OTHER"]),
+      kind: enumValue(metadata.kind, ["FILE", "DIRECTORY", "SYMLINK", "OTHER"]),
+      alias: enumValue(metadata.alias, ["PG", "SHARP", "NAPI_SCOPE", "NAPI_CANVAS", "OTHER"]),
+      target: enumValue(metadata.target, ["EXPECTED_RELATIVE", "ABSOLUTE", "OTHER_RELATIVE", "UNREADABLE"]),
+      errno: enumValue(metadata.errno, ["MISSING", "PERMISSION", "OTHER"]),
+      visited: Number.isSafeInteger(metadata.visited) && metadata.visited >= 0 && metadata.visited <= 100001 ? metadata.visited : "UNKNOWN",
+      files: Number.isSafeInteger(metadata.files) && metadata.files >= 0 && metadata.files <= 50000 ? metadata.files : "UNKNOWN",
+      pathBytes: enumValue(metadata.pathBytes, ["LE100", "LE255", "LE2048", "GT2048"]),
+    });
   }
 }
 
-function refuse(code, message) {
-  return new ArtifactRefusal(code, message);
+function refuse(code, message, detail, metadata) {
+  return new ArtifactRefusal(code, message, detail, metadata);
 }
 
 export function artifactRefusalCode(error) {
   return error instanceof ArtifactRefusal && REFUSAL_CODES.has(error.code) ? error.code : "UNEXPECTED";
+}
+
+export function formatArtifactRefusal(error) {
+  const record = diagnosticRecords.get(error);
+  const fields = record?.code === "INVENTORY"
+    ? ` detail=${record.detail} phase=${record.phase} kind=${record.kind} alias=${record.alias} target=${record.target} errno=${record.errno} visited=${record.visited} files=${record.files} pathBytes=${record.pathBytes}`
+    : " detail=UNKNOWN";
+  return `Local QA packaging refused [${record?.code ?? "UNEXPECTED"}]${fields}. No artifact is eligible for upload.`;
 }
 
 export function encryptionKeyBytes(value) {
@@ -128,34 +160,58 @@ export async function packageBuild({ root, output, sha, secrets, encryptionKey, 
     const runtimeAliases = [];
     let fileBytes = 0;
     let entries = 0;
+    function inventoryRefusal(detail, relative, stat, extra = {}) {
+      const phase = relative === ".next" ? "ROOT" :
+        [["cache", "CACHE"], ["dev", "DEV"], ["node_modules", "ALIASES"], ["server", "SERVER"], ["static", "STATIC"]]
+          .find(([name]) => relative === `.next/${name}` || relative.startsWith(`.next/${name}/`))?.[1] ?? "OTHER";
+      const bytes = Buffer.byteLength(relative);
+      const message = detail === "ALIAS_DUPLICATE" ? "Duplicate Next.js runtime alias." : detail.startsWith("ALIAS_") ? "Unexpected Next.js runtime alias." : "Build artifact inventory refused.";
+      return refuse("INVENTORY", message, detail, {
+        phase, kind: stat ? stat.isSymbolicLink() ? "SYMLINK" : stat.isDirectory() ? "DIRECTORY" : stat.isFile() ? "FILE" : "OTHER" : "UNKNOWN",
+        visited: entries, files: files.length,
+        pathBytes: bytes <= 100 ? "LE100" : bytes <= 255 ? "LE255" : bytes <= 2048 ? "LE2048" : "GT2048", ...extra,
+      });
+    }
+    async function inventoryOperation(operation, relative, action, stat, extra) {
+      try { return await action(); } catch (error) {
+        const errno = ["ENOENT", "ENOTDIR"].includes(error?.code) ? "MISSING" : ["EACCES", "EPERM"].includes(error?.code) ? "PERMISSION" : "OTHER";
+        throw inventoryRefusal(operation, relative, stat, { ...extra, errno });
+      }
+    }
     async function captureRuntimeAliases(directory) {
       const seenPackages = new Set();
-      for (const name of (await readdir(directory)).sort()) {
+      const names = await inventoryOperation("READDIR", relativePath(directory), () => readdir(directory));
+      for (const name of names.sort()) {
+        const relative = `${relativePath(directory)}/${name}`;
+        const alias = /^pg-[a-f0-9]{16}$/.test(name) ? "PG" : /^sharp-[a-f0-9]{16}$/.test(name) ? "SHARP" : name === "@napi-rs" ? "NAPI_SCOPE" : /^canvas-[a-f0-9]{16}$/.test(name) ? "NAPI_CANVAS" : "OTHER";
+        const extra = { alias };
         const match = /^(pg|sharp)-([a-f0-9]{16})$/.exec(name);
-        if (!match) throw refuse("INVENTORY", "Unexpected Next.js runtime alias.");
+        if (!match) throw inventoryRefusal("ALIAS_NAME", relative, undefined, extra);
         const packageName = match[1];
-        if (seenPackages.has(packageName) || runtimeAliases.length >= 2) {
-          throw refuse("INVENTORY", "Duplicate Next.js runtime alias.");
-        }
+        if (seenPackages.has(packageName)) throw inventoryRefusal("ALIAS_DUPLICATE", relative, undefined, extra);
+        if (runtimeAliases.length >= 2) throw inventoryRefusal("ALIAS_COUNT", relative, undefined, extra);
         seenPackages.add(packageName);
         const aliasPath = path.join(directory, name);
-        const aliasStat = await lstat(aliasPath);
+        const aliasStat = await inventoryOperation("STAT", relative, () => lstat(aliasPath), undefined, extra);
+        // Preserve the original readlink attempt, including for a non-link entry.
         const target = await readlink(aliasPath).catch(() => null);
-        if (!aliasStat.isSymbolicLink() || target !== `../../node_modules/${packageName}` ||
-            path.resolve(directory, target) !== path.join(root, "node_modules", packageName)) {
-          throw refuse("INVENTORY", "Unexpected Next.js runtime alias.");
+        extra.target = target === null ? "UNREADABLE" : target === `../../node_modules/${packageName}` ? "EXPECTED_RELATIVE" : path.isAbsolute(target) ? "ABSOLUTE" : "OTHER_RELATIVE";
+        if (!aliasStat.isSymbolicLink()) throw inventoryRefusal("ALIAS_NOT_SYMLINK", relative, aliasStat, extra);
+        if (target === null) throw inventoryRefusal("READLINK", relative, aliasStat, extra);
+        if (target !== `../../node_modules/${packageName}` || path.resolve(directory, target) !== path.join(root, "node_modules", packageName)) {
+          throw inventoryRefusal("ALIAS_TARGET", relative, aliasStat, extra);
         }
         const packageDirectory = path.join(root, "node_modules", packageName);
-        const packageStat = await lstat(packageDirectory);
-        const packageJson = JSON.parse(await readFile(path.join(packageDirectory, "package.json"), "utf8"));
-        const lock = JSON.parse(await readFile(path.join(root, "package-lock.json"), "utf8"));
-        const lockedVersion = lock.packages?.[`node_modules/${packageName}`]?.version;
-        if (!packageStat.isDirectory() || packageJson.name !== packageName ||
-            typeof packageJson.version !== "string" || packageJson.version.length > 100 ||
-            packageJson.version !== lockedVersion) {
-          throw refuse("INVENTORY", "Next.js runtime alias package binding changed.");
+        const packageStat = await inventoryOperation("STAT", relative, () => lstat(packageDirectory), aliasStat, extra);
+        const packageJson = await inventoryOperation("PACKAGE_READ", relative, async () => JSON.parse(await readFile(path.join(packageDirectory, "package.json"), "utf8")), aliasStat, extra);
+        const lock = await inventoryOperation("LOCK_READ", relative, async () => JSON.parse(await readFile(path.join(root, "package-lock.json"), "utf8")), aliasStat, extra);
+        const lockedVersion = lock?.packages?.[`node_modules/${packageName}`]?.version;
+        if (!packageStat.isDirectory()) throw inventoryRefusal("ALIAS_PACKAGE_TYPE", relative, aliasStat, extra);
+        if (packageJson?.name !== packageName) throw inventoryRefusal("ALIAS_PACKAGE_NAME", relative, aliasStat, extra);
+        if (typeof packageJson.version !== "string" || packageJson.version.length > 100 || packageJson.version !== lockedVersion) {
+          throw inventoryRefusal("ALIAS_PACKAGE_VERSION", relative, aliasStat, extra);
         }
-        runtimeAliases.push({ path: `${relativePath(directory)}/${name}`, target, package: packageName, version: packageJson.version });
+        runtimeAliases.push({ path: relative, target, package: packageName, version: packageJson.version });
       }
     }
     function relativePath(value) {
@@ -163,30 +219,34 @@ export async function packageBuild({ root, output, sha, secrets, encryptionKey, 
     }
     async function visit(relative) {
       entries += 1;
-      if (entries > 100000 || relative.length > 2048) throw refuse("INVENTORY", "Build artifact inventory is too large.");
+      if (entries > 100000) throw inventoryRefusal("ENTRY_LIMIT", relative);
+      if (relative.length > 2048) throw inventoryRefusal("WALK_PATH_LIMIT", relative);
       const src = path.join(root, relative);
-      const stat = await lstat(src);
+      const stat = await inventoryOperation("STAT", relative, () => lstat(src));
       if (relative === ".next/node_modules") {
-        if (!stat.isDirectory()) throw refuse("INVENTORY", "Unexpected Next.js runtime alias directory.");
+        if (!stat.isDirectory()) throw inventoryRefusal("ALIAS_DIRECTORY_TYPE", relative, stat);
         await captureRuntimeAliases(src);
         return;
       }
-      if (stat.isSymbolicLink() || (!stat.isDirectory() && !stat.isFile()) || (stat.isFile() && stat.nlink !== 1)) {
-        throw refuse("INVENTORY", "Build artifact links and special files are forbidden.");
-      }
+      if (stat.isSymbolicLink()) throw inventoryRefusal("SYMLINK", relative, stat);
+      if (!stat.isDirectory() && !stat.isFile()) throw inventoryRefusal("SPECIAL_FILE", relative, stat);
+      if (stat.isFile() && stat.nlink !== 1) throw inventoryRefusal("HARDLINK", relative, stat);
       if (relative === ".next/cache" || relative === ".next/dev") return;
-      if (/[^\x20-\x7e]/.test(relative) || relative.length > 255) throw refuse("INVENTORY", "Build path exceeds the closed ustar grammar.");
+      if (/[^\x20-\x7e]/.test(relative)) throw inventoryRefusal("PATH_NON_ASCII", relative, stat);
+      if (relative.length > 255) throw inventoryRefusal("PATH_USTAR_LENGTH", relative, stat);
       if (stat.isDirectory()) {
-        for (const name of (await readdir(src)).sort()) {
-          if (!name || name === "." || name === ".." || /[\\/\x00-\x1f\x7f]/.test(name) || name.startsWith(".env")) {
-            throw refuse("INVENTORY", "Unexpected build artifact path.");
+        for (const name of (await inventoryOperation("READDIR", relative, () => readdir(src), stat)).sort()) {
+          if (!name || name === "." || name === ".." || /[\\/\x00-\x1f\x7f]/.test(name)) {
+            throw inventoryRefusal("PATH_INVALID_COMPONENT", `${relative}/${name}`, stat);
           }
+          if (name.startsWith(".env")) throw inventoryRefusal("PATH_ENV_COMPONENT", `${relative}/${name}`, stat);
           await visit(`${relative}/${name}`);
         }
         return;
       }
-      if (files.length >= 50000 || relative.length > 2048) throw refuse("INVENTORY", "Build artifact inventory is too large.");
-      if (scanSecrets.some((secret) => Buffer.from(relative).includes(secret))) throw refuse("INVENTORY", "Unsafe build artifact path.");
+      if (files.length >= 50000) throw inventoryRefusal("FILE_LIMIT", relative, stat);
+      if (relative.length > 2048) throw inventoryRefusal("WALK_PATH_LIMIT", relative, stat);
+      if (scanSecrets.some((secret) => Buffer.from(relative).includes(secret))) throw inventoryRefusal("PATH_SECRET", relative, stat);
       const destination = path.join(stage, relative);
       const fileHash = createHash("sha256");
       await mkdir(path.dirname(destination), { recursive: true });
@@ -296,7 +356,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     console.log("Encrypted local QA build packaged and scanned.");
   } catch (error) {
     // Never echo filenames, child diagnostics, env values, or secret-containing bytes.
-    console.error(`Local QA packaging refused [${artifactRefusalCode(error)}]. No artifact is eligible for upload.`);
+    console.error(formatArtifactRefusal(error));
     process.exitCode = 1;
   }
 }

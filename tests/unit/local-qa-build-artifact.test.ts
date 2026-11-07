@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, writeFile, readFile, readdir, readlink, rm, symlink, stat } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, readdir, readlink, rm, symlink, stat, link } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { parse } from "yaml";
-import { artifactRefusalCode, assertArtifactContext, configuredSecrets, encryptionKeyBytes, KEEPER_REF, QA_KEEPER_REFS, packageBuild, secretScanner } from "../../scripts/package-local-qa-build.mjs";
+import { ArtifactRefusal, INVENTORY_DETAILS, formatArtifactRefusal, artifactRefusalCode, assertArtifactContext, configuredSecrets, encryptionKeyBytes, KEEPER_REF, QA_KEEPER_REFS, packageBuild, secretScanner } from "../../scripts/package-local-qa-build.mjs";
 import { decryptArtifact, restoreRuntimeAliases } from "../../scripts/decrypt-local-qa-build.mjs";
 
 const SHA = "a".repeat(40);
@@ -35,6 +35,120 @@ function scan(chunks: Buffer[]) {
 }
 
 describe("encrypted local QA build transport", () => {
+  it("formats every closed reason and never reflects untrusted error properties", () => {
+    const sentinel = "/private/secret-token-never-print";
+    for (const detail of INVENTORY_DETAILS) {
+      const error = new ArtifactRefusal("INVENTORY", sentinel, detail, {
+        phase: "ALIASES", kind: "SYMLINK", alias: "PG", target: "EXPECTED_RELATIVE", errno: "OTHER",
+        visited: 5, files: 2, pathBytes: "LE100", ignored: sentinel,
+      });
+      error.stack = sentinel;
+      expect(formatArtifactRefusal(error)).toBe(`Local QA packaging refused [INVENTORY] detail=${detail} phase=ALIASES kind=SYMLINK alias=PG target=EXPECTED_RELATIVE errno=OTHER visited=5 files=2 pathBytes=LE100. No artifact is eligible for upload.`);
+      Object.assign(error, { code: sentinel, detail: sentinel, metadata: sentinel });
+      expect(formatArtifactRefusal(error)).not.toContain(sentinel);
+    }
+    const unknown = "Local QA packaging refused [UNEXPECTED] detail=UNKNOWN. No artifact is eligible for upload.";
+    for (const error of [new Error(sentinel), { code: "INVENTORY", detail: "SYMLINK", message: sentinel }, new ArtifactRefusal("INVENTORY", sentinel, sentinel), new ArtifactRefusal(sentinel, sentinel), null, undefined, sentinel]) {
+      expect(formatArtifactRefusal(error)).toBe(unknown);
+    }
+    const error = new ArtifactRefusal("INVENTORY", sentinel, "ALIAS_TARGET", {
+      phase: sentinel, kind: sentinel, alias: sentinel, target: sentinel, errno: sentinel,
+      visited: Number.MAX_SAFE_INTEGER, files: -1, pathBytes: sentinel,
+    });
+    expect(formatArtifactRefusal(error)).toBe("Local QA packaging refused [INVENTORY] detail=ALIAS_TARGET phase=UNKNOWN kind=UNKNOWN alias=UNKNOWN target=UNKNOWN errno=UNKNOWN visited=UNKNOWN files=UNKNOWN pathBytes=UNKNOWN. No artifact is eligible for upload.");
+    const hostile = Object.create(null, { code: { get() { throw new Error(sentinel); } } });
+    expect(formatArtifactRefusal(hostile)).toBe(unknown);
+  });
+
+  it("formats each allowed metadata enum and validates numeric boundaries", () => {
+    const enums = {
+      phase: ["ROOT", "CACHE", "DEV", "ALIASES", "SERVER", "STATIC", "OTHER"],
+      kind: ["FILE", "DIRECTORY", "SYMLINK", "OTHER"],
+      alias: ["PG", "SHARP", "NAPI_SCOPE", "NAPI_CANVAS", "OTHER"],
+      target: ["EXPECTED_RELATIVE", "ABSOLUTE", "OTHER_RELATIVE", "UNREADABLE"],
+      errno: ["MISSING", "PERMISSION", "OTHER"],
+      pathBytes: ["LE100", "LE255", "LE2048", "GT2048"],
+    };
+    for (const [field, values] of Object.entries(enums)) {
+      for (const value of values) {
+        expect(formatArtifactRefusal(new ArtifactRefusal("INVENTORY", "private", "STAT", { [field]: value }))).toContain(`${field}=${value}`);
+      }
+    }
+    for (const [field, max] of [["visited", 100001], ["files", 50000]] as const) {
+      for (const value of [0, max]) {
+        expect(formatArtifactRefusal(new ArtifactRefusal("INVENTORY", "private", "ENTRY_LIMIT", { [field]: value }))).toContain(`${field}=${value}`);
+      }
+      for (const value of [-1, max + 1, 1.5, NaN, Infinity, "123", "/private/token"]) {
+        expect(formatArtifactRefusal(new ArtifactRefusal("INVENTORY", "private", "FILE_LIMIT", { [field]: value }))).toContain(`${field}=UNKNOWN`);
+      }
+    }
+  });
+
+  it.each(["symlink", "cache-link", "dev-link", "hardlink", "special", "env", "control", "non-ascii", "long", "secret", "alias-directory", "unknown-alias", "scope-alias", "alias-file", "alias-target", "missing-package", "package-name", "package-version", "package-json", "lock-json"])("diagnoses %s without publishing paths or secrets", async (kind) => {
+    const input = await fixture();
+    let detail = "";
+    if (["symlink", "cache-link", "dev-link"].includes(kind)) {
+      await symlink("server", path.join(input.root, ".next", kind === "symlink" ? "private-link" : kind === "cache-link" ? "cache" : "dev"));
+      detail = "SYMLINK";
+    } else if (kind === "hardlink") {
+      await link(path.join(input.root, ".next/server/page.js"), path.join(input.root, ".next/server/private-hardlink"));
+      detail = "HARDLINK";
+    } else if (kind === "special") {
+      execFileSync("mkfifo", [path.join(input.root, ".next/server/private-fifo")]);
+      detail = "SPECIAL_FILE";
+    } else if (["env", "control", "non-ascii", "long", "secret"].includes(kind)) {
+      const names: Record<string, string> = { env: ".env.private", control: "private\nname", "non-ascii": "private-é", long: "x".repeat(245), secret: SECRET.toString() };
+      await writeFile(path.join(input.root, ".next/server", names[kind]), "clean");
+      detail = ({ env: "PATH_ENV_COMPONENT", control: "PATH_INVALID_COMPONENT", "non-ascii": "PATH_NON_ASCII", long: "PATH_USTAR_LENGTH", secret: "PATH_SECRET" } as Record<string, string>)[kind];
+    } else if (kind === "alias-directory") {
+      await writeFile(path.join(input.root, ".next/node_modules"), "clean");
+      detail = "ALIAS_DIRECTORY_TYPE";
+    } else {
+      await mkdir(path.join(input.root, ".next/node_modules"));
+      const name = kind === "unknown-alias" ? "private-unknown" : kind === "scope-alias" ? "@napi-rs" : "pg-0123456789abcdef";
+      const aliasPath = path.join(input.root, ".next/node_modules", name);
+      if (kind === "scope-alias") await mkdir(aliasPath);
+      else if (kind === "alias-file") await writeFile(aliasPath, "clean");
+      else await symlink(kind === "alias-target" ? "/private/secret-target" : "../../node_modules/pg", aliasPath);
+      const details: Record<string, string> = { "unknown-alias": "ALIAS_NAME", "scope-alias": "ALIAS_NAME", "alias-file": "ALIAS_NOT_SYMLINK", "alias-target": "ALIAS_TARGET", "missing-package": "STAT", "package-name": "ALIAS_PACKAGE_NAME", "package-version": "ALIAS_PACKAGE_VERSION", "package-json": "PACKAGE_READ", "lock-json": "LOCK_READ" };
+      detail = details[kind];
+      if (["package-name", "package-version", "package-json", "lock-json"].includes(kind)) {
+        await mkdir(path.join(input.root, "node_modules/pg"));
+        await writeFile(path.join(input.root, "node_modules/pg/package.json"), kind === "package-json" ? "invalid" : JSON.stringify({ name: kind === "package-name" ? "private-name" : "pg", version: "8.22.0" }));
+        await writeFile(path.join(input.root, "package-lock.json"), kind === "lock-json" ? "invalid" : JSON.stringify({ packages: { "node_modules/pg": { version: kind === "package-version" ? "wrong" : "8.22.0" } } }));
+      }
+    }
+    let caught: unknown;
+    try { await packageBuild({ ...input, encryptionKey: KEY }); } catch (error) { caught = error; }
+    expect(artifactRefusalCode(caught)).toBe("INVENTORY");
+    const diagnostic = formatArtifactRefusal(caught);
+    expect(diagnostic).toContain(`detail=${detail} `);
+    expect(diagnostic).not.toContain(input.root);
+    expect(diagnostic).not.toContain("private");
+    expect(diagnostic).not.toContain(SECRET.toString());
+    if (kind === "scope-alias") expect(diagnostic).toContain("alias=NAPI_SCOPE");
+    if (kind === "alias-target") expect(diagnostic).toContain("target=ABSOLUTE");
+    if (kind === "missing-package") expect(diagnostic).toContain("errno=MISSING");
+    if (kind === "cache-link") expect(diagnostic).toContain("phase=CACHE");
+    if (kind === "dev-link") expect(diagnostic).toContain("phase=DEV");
+    await expect(stat(input.output)).rejects.toThrow();
+  });
+
+  it("uses only the safe diagnostic line in the actual CLI", async () => {
+    const input = await fixture();
+    await symlink("/private/secret-cli-target", path.join(input.root, ".next/cache"));
+    const result = spawnSync(process.execPath, [path.resolve("scripts/package-local-qa-build.mjs")], {
+      cwd: input.root, encoding: "utf8", env: { ...process.env, ...context, QA_ARTIFACT_ENCRYPTION_KEY: KEY, QA_BUILD_SERVICE_ROLE_KEY: SECRET.toString() },
+    });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toMatch(/^Local QA packaging refused \[INVENTORY\] detail=SYMLINK phase=CACHE kind=SYMLINK alias=UNKNOWN target=UNKNOWN errno=UNKNOWN visited=3 files=1 pathBytes=LE100\. No artifact is eligible for upload\.\n$/);
+    expect(result.stderr).not.toContain(input.root);
+    expect(result.stderr).not.toContain("private");
+    expect(result.stderr).not.toContain(SECRET.toString());
+    expect(result.stderr).not.toContain(KEY);
+  });
+
   it("requires manual keeper context and an exact commit", () => {
     const env = context;
     expect(() => assertArtifactContext(env)).not.toThrow();
@@ -91,15 +205,15 @@ describe("encrypted local QA build transport", () => {
     expect(JSON.parse(await readFile(path.join(input.output, "manifest.json"), "utf8"))).toEqual(envelope);
   });
 
-  it("records exact Next.js runtime aliases without archiving links and recreates them after authentication", async () => {
+  it.each(["pg", "sharp"])("records exact %s runtime aliases without archiving links and recreates them after authentication", async (packageName) => {
     const input = await fixture();
     const version = "8.22.0";
     await mkdir(path.join(input.root, ".next/node_modules"));
-    await mkdir(path.join(input.root, "node_modules/pg"), { recursive: true });
-    await writeFile(path.join(input.root, "node_modules/pg/package.json"), JSON.stringify({ name: "pg", version }));
-    await writeFile(path.join(input.root, "package-lock.json"), JSON.stringify({ packages: { "node_modules/pg": { version } } }));
-    const aliasName = "pg-0123456789abcdef";
-    await symlink("../../node_modules/pg", path.join(input.root, ".next/node_modules", aliasName), "dir");
+    await mkdir(path.join(input.root, `node_modules/${packageName}`), { recursive: true });
+    await writeFile(path.join(input.root, `node_modules/${packageName}/package.json`), JSON.stringify({ name: packageName, version }));
+    await writeFile(path.join(input.root, "package-lock.json"), JSON.stringify({ packages: { [`node_modules/${packageName}`]: { version } } }));
+    const aliasName = `${packageName}-0123456789abcdef`;
+    await symlink(`../../node_modules/${packageName}`, path.join(input.root, ".next/node_modules", aliasName), "dir");
     await packageBuild({ ...input, encryptionKey: KEY });
 
     const decrypted = path.join(input.root, "private", "next-build.tar.gz");
@@ -107,15 +221,15 @@ describe("encrypted local QA build transport", () => {
     const entries = execFileSync("tar", ["-tzf", decrypted], { encoding: "utf8" }).trim().split("\n");
     expect(entries).not.toContain(`.next/node_modules/${aliasName}`);
     const privateManifest = JSON.parse(execFileSync("tar", ["-xOf", decrypted, "qa-manifest.json"], { encoding: "utf8" }));
-    expect(privateManifest.runtimeAliases).toEqual([{ path: `.next/node_modules/${aliasName}`, target: "../../node_modules/pg", package: "pg", version }]);
+    expect(privateManifest.runtimeAliases).toEqual([{ path: `.next/node_modules/${aliasName}`, target: `../../node_modules/${packageName}`, package: packageName, version }]);
 
     const restored = path.join(input.root, "restored");
     await mkdir(path.join(restored, ".next"), { recursive: true });
-    await mkdir(path.join(restored, "node_modules/pg"), { recursive: true });
-    await writeFile(path.join(restored, "node_modules/pg/package.json"), JSON.stringify({ name: "pg", version }));
-    await writeFile(path.join(restored, "package-lock.json"), JSON.stringify({ packages: { "node_modules/pg": { version } } }));
+    await mkdir(path.join(restored, `node_modules/${packageName}`), { recursive: true });
+    await writeFile(path.join(restored, `node_modules/${packageName}/package.json`), JSON.stringify({ name: packageName, version }));
+    await writeFile(path.join(restored, "package-lock.json"), JSON.stringify({ packages: { [`node_modules/${packageName}`]: { version } } }));
     await expect(restoreRuntimeAliases({ root: restored, privateManifest })).resolves.toBe(1);
-    expect(await readlink(path.join(restored, ".next/node_modules", aliasName))).toBe("../../node_modules/pg");
+    expect(await readlink(path.join(restored, ".next/node_modules", aliasName))).toBe(`../../node_modules/${packageName}`);
   });
 
   it("rejects unknown or retargeted Next.js runtime aliases", async () => {
