@@ -1,5 +1,5 @@
 {
-  "sha256": "c3ffb8b666917b2493776b4e347b52c936641f6f381bab9f47021e37b1bab4b1",
+  "sha256": "b31cd14380b6da7e421c560234a2aeaaa1c4e6a7b00a25f9fbed59104673573c",
   "selection": "SQL migrations containing account_recovery_, resident_move_in_forms, CREATE/DROP/ALTER TABLE and admin_team_atomic_revoke; plus purge manifest and recovery policy",
   "missing_dev_catalog": [
     "payment_reminder_occurrences",
@@ -7,10 +7,10 @@
     "scheduled_inbox_channel_deliveries"
   ],
   "reviewed_change": {
-    "date": "2026-11-04",
-    "reason": "Reviewed owner-neutral SMS transport migration, two ACCOUNT_PURGE_RETAINED annotations, and the additive email_onboarding_handoffs.tour_slot_key column only; recoverable table selection, catalog, known hook gaps and missing_dev_catalog are unchanged.",
-    "migration_sha256": "37ee641a1886840e79b615879686d8205e4714e72c37f50913e5dc342e18d113",
-    "selected_source_paths": 330,
-    "baseline_reproduced_sha256": "ceb4f7d539c749aa8a06988f9d64aa42399b3969d4e58d5415be201d70bde636"
+    "date": "2026-11-06",
+    "reason": "Six owned identity/deposit tables receive recovery guard attachments; purge manifest retention audited. Historical dev snapshot remains unchanged; live catalog verification is pending.",
+    "selected_source_paths": 336,
+    "baseline_reproduced_sha256": "c3ffb8b666917b2493776b4e347b52c936641f6f381bab9f47021e37b1bab4b1",
+    "migration_sha256": "1f62ec00ff11b39fa8b4affef27fddc161c3c8c31a4a9e87411d9480a983adba"
   }
 }
