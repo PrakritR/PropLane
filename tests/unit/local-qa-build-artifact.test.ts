@@ -6,11 +6,19 @@ import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { execFileSync, spawnSync } from "node:child_process";
 import { parse } from "yaml";
-import { ArtifactRefusal, INVENTORY_DETAILS, formatArtifactRefusal, artifactRefusalCode, assertArtifactContext, configuredSecrets, encryptionKeyBytes, KEEPER_REF, QA_KEEPER_REFS, packageBuild, secretScanner } from "../../scripts/package-local-qa-build.mjs";
+import { ArtifactRefusal, INVENTORY_DETAILS, ARCHIVE_DETAILS, formatArtifactRefusal, artifactRefusalCode, assertArtifactContext, configuredSecrets, encryptionKeyBytes, KEEPER_REF, QA_KEEPER_REFS, packageBuild, secretScanner } from "../../scripts/package-local-qa-build.mjs";
 import { decryptArtifact, restoreRuntimeAliases } from "../../scripts/decrypt-local-qa-build.mjs";
 
 import { RUNTIME_ALIAS_SPECS, validateRuntimeAliases } from "../../scripts/lib/local-qa-runtime-aliases.mjs";
 const restoreFault = vi.hoisted(() => ({ remaining: 0 }));
+const archiveFault = vi.hoisted(() => ({ gzip: false }));
+vi.mock("node:zlib", async (original) => {
+  const actual = await original<typeof import("node:zlib")>();
+  return { ...actual, createGzip: (...args: Parameters<typeof actual.createGzip>) => {
+    if (archiveFault.gzip) throw new Error("/private/secret-stream-failure");
+    return actual.createGzip(...args);
+  } };
+});
 vi.mock('node:fs/promises', async (original) => {
   const actual = await original<typeof import('node:fs/promises')>();
   return { ...actual, symlink: vi.fn(async (...args: Parameters<typeof actual.symlink>) => {
@@ -24,7 +32,7 @@ const KEY = "ab".repeat(32);
 const WRONG_KEY = "cd".repeat(32);
 const roots: string[] = [];
 const context = { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: KEEPER_REF, GITHUB_SHA: SHA, GITHUB_REPOSITORY: 'PrakritR/PropLane', GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1', NEXT_PUBLIC_SUPABASE_URL: 'https://emstjswhotsnyksqhqyf.supabase.co', NEXT_PUBLIC_APP_URL: 'http://localhost:3010', NEXT_PUBLIC_SUPABASE_ANON_KEY: 'public-fixture-anon' };
-afterEach(async () => { restoreFault.remaining = 0; await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { restoreFault.remaining = 0; archiveFault.gzip = false; vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
 async function fixture() {
   const root = await mkdtemp(path.join(tmpdir(), "qa-artifact-test-"));
@@ -84,6 +92,77 @@ describe("encrypted local QA build transport", () => {
     expect(formatArtifactRefusal(error)).toBe("Local QA packaging refused [INVENTORY] detail=ALIAS_TARGET phase=UNKNOWN kind=UNKNOWN alias=UNKNOWN target=UNKNOWN errno=UNKNOWN visited=UNKNOWN files=UNKNOWN pathBytes=UNKNOWN. No artifact is eligible for upload.");
     const hostile = Object.create(null, { code: { get() { throw new Error(sentinel); } } });
     expect(formatArtifactRefusal(hostile)).toBe(unknown);
+  });
+
+  it("closes archive diagnostics over fixed details and bounded metadata", () => {
+    const sentinel = "/private/secret-token-never-print";
+    for (const detail of ARCHIVE_DETAILS) {
+      const error = new ArtifactRefusal("ARCHIVE", sentinel, detail, { bytes: 1024, limit: 512, exitCode: 7, signal: "SIGTERM", ignored: sentinel });
+      expect(formatArtifactRefusal(error)).toBe(`Local QA packaging refused [ARCHIVE] detail=${detail} bytes=1024 limit=512 exitCode=7 signal=SIGTERM. No artifact is eligible for upload.`);
+      Object.assign(error, { code: sentinel, detail: sentinel, stack: sentinel, message: sentinel });
+      expect(formatArtifactRefusal(error)).not.toContain(sentinel);
+    }
+    for (const [field, max] of [["bytes", 2 * 1024 ** 3], ["limit", 1024 ** 3], ["exitCode", 255]] as const) {
+      for (const value of [0, max]) expect(formatArtifactRefusal(new ArtifactRefusal("ARCHIVE", sentinel, "STREAM", { [field]: value }))).toContain(`${field}=${value}`);
+      for (const value of [-1, max + 1, 1.5, NaN, Infinity, "123", sentinel]) expect(formatArtifactRefusal(new ArtifactRefusal("ARCHIVE", sentinel, "STREAM", { [field]: value }))).toContain(`${field}=UNKNOWN`);
+    }
+    expect(formatArtifactRefusal(new ArtifactRefusal("ARCHIVE", sentinel, "STREAM", { signal: sentinel }))).toContain("signal=UNKNOWN");
+    expect(formatArtifactRefusal(new ArtifactRefusal("ARCHIVE", sentinel, sentinel))).toBe("Local QA packaging refused [UNEXPECTED] detail=UNKNOWN. No artifact is eligible for upload.");
+  });
+
+  it.each([
+    `.next/server/${"x".repeat(101)}`,
+    `.next/${"x".repeat(150)}/${"y".repeat(94)}/z`,
+  ])("refuses an unrepresentable USTAR path before publication: %s", async (relative) => {
+    const input = await fixture();
+    await mkdir(path.dirname(path.join(input.root, relative)), { recursive: true });
+    await writeFile(path.join(input.root, relative), "clean");
+    const error = await packageBuild({ ...input, encryptionKey: KEY }).catch((error: unknown) => error);
+    expect(formatArtifactRefusal(error)).toContain("[INVENTORY] detail=PATH_USTAR_SPLIT ");
+    expect(formatArtifactRefusal(error)).not.toContain(relative);
+    await expect(stat(input.output)).rejects.toThrow();
+  });
+
+  it("round trips USTAR name and prefix boundaries without silently omitting files", async () => {
+    const input = await fixture();
+    const paths = [`.next/server/${"x".repeat(100)}`, `.next/${"y".repeat(149)}/${"z".repeat(99)}`];
+    for (const relative of paths) {
+      await mkdir(path.dirname(path.join(input.root, relative)), { recursive: true });
+      await writeFile(path.join(input.root, relative), `content:${relative}`);
+    }
+    await packageBuild({ ...input, encryptionKey: KEY });
+    const archive = path.join(input.root, "private/build.tar.gz");
+    await decryptArtifact({ artifactDir: input.output, sha: SHA, encryptionKey: KEY, output: archive });
+    const entries = execFileSync("tar", ["-tzf", archive], { encoding: "utf8" }).trim().split("\n");
+    for (const relative of paths) {
+      expect(entries).toContain(relative);
+      expect(execFileSync("tar", ["-xOf", archive, relative], { encoding: "utf8" })).toBe(`content:${relative}`);
+    }
+    const manifest = JSON.parse(execFileSync("tar", ["-xOf", archive, "qa-manifest.json"], { encoding: "utf8" }));
+    expect(manifest.immutableFiles.map((file: { path: string }) => file.path).sort()).toEqual(entries.filter((entry) => entry !== "qa-manifest.json").sort());
+  });
+
+  it("keeps stream failures private and does not report its cleanup kill as the cause", async () => {
+    const input = await fixture();
+    archiveFault.gzip = true;
+    const error = await packageBuild({ ...input, encryptionKey: KEY }).catch((error: unknown) => error);
+    expect(formatArtifactRefusal(error)).toBe("Local QA packaging refused [ARCHIVE] detail=STREAM bytes=UNKNOWN limit=UNKNOWN exitCode=UNKNOWN signal=UNKNOWN. No artifact is eligible for upload.");
+    await expect(stat(input.output)).rejects.toThrow();
+  });
+
+  it.each(["spawn", "exit", "signal"])("diagnoses tar %s without reflecting child stderr", async (kind) => {
+    const input = await fixture();
+    const bin = path.join(input.root, "bin");
+    await mkdir(bin);
+    if (kind !== "spawn") await writeFile(path.join(bin, "tar"), `#!/bin/sh\necho /private/secret-child-token >&2\n${kind === "exit" ? "exit 7" : "kill -TERM $$"}\n`, { mode: 0o700 });
+    vi.stubEnv("PATH", bin);
+    const error = await packageBuild({ ...input, encryptionKey: KEY }).catch((error: unknown) => error);
+    expect(formatArtifactRefusal(error)).toContain(`detail=TAR_${kind.toUpperCase()} `);
+    if (kind === "exit") expect(formatArtifactRefusal(error)).toContain("exitCode=7");
+    if (kind === "signal") expect(formatArtifactRefusal(error)).toContain("signal=SIGTERM");
+    expect(formatArtifactRefusal(error)).not.toContain("private");
+    expect(formatArtifactRefusal(error)).not.toContain(input.root);
+    await expect(stat(input.output)).rejects.toThrow();
   });
 
   it("formats each allowed metadata enum and validates numeric boundaries", () => {
@@ -406,11 +485,17 @@ describe("encrypted local QA build transport", () => {
     await expect(stat(input.output)).rejects.toThrow();
   });
 
-  it("enforces both expansion and compressed bounds and removes partial output", async () => {
+  it.each([
+    { maxBytes: 10, detail: "SOURCE_BYTES", limit: 10 },
+    { maxBytes: 100, detail: "TAR_BYTES", limit: 100 },
+    { maxArchive: 10, detail: "GZIP_BYTES", limit: 10 },
+  ])("diagnoses $detail and removes partial output", async ({ detail, limit, ...bounds }) => {
     const input = await fixture();
-    await expect(packageBuild({ ...input, encryptionKey: KEY, maxBytes: 10 })).rejects.toThrow("byte limit");
-    await expect(stat(input.output)).rejects.toThrow();
-    await expect(packageBuild({ ...input, encryptionKey: KEY, maxArchive: 10 })).rejects.toThrow("byte limit");
+    const error = await packageBuild({ ...input, encryptionKey: KEY, ...bounds }).catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(ArtifactRefusal);
+    const diagnostic = formatArtifactRefusal(error);
+    expect(diagnostic).toMatch(new RegExp(`\\[ARCHIVE\\] detail=${detail} bytes=[0-9]+ limit=${limit} exitCode=UNKNOWN signal=UNKNOWN`));
+    expect(diagnostic).not.toContain(input.root);
     await expect(stat(input.output)).rejects.toThrow();
   });
 

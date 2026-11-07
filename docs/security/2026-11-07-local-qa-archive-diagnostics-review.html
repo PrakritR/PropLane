@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local QA archive diagnostics independent review</title>
+<style>body{font:16px/1.5 system-ui;max-width:920px;margin:40px auto;padding:0 24px;color:#202020}code,pre{background:#f3f3f3}pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:16px}h1,h2{line-height:1.2}</style>
+<h1>Local QA archive diagnostics independent review</h1>
+<p><strong>Verdict: accepted for this bounded change. No blocking findings.</strong> Reviewed the complete two-file diff and surrounding packager control flow against HEAD <code>8a18aa9affa06d9d9c327a90ca9ee3a108053677</code>. Implementation was not edited.</p>
+<h2>Exact reviewed files</h2>
+<pre>SHA-256
+45956cf05c58148740276cebdffa0d8cdbbe6fae8a823c14776bf8150259c1c3  scripts/package-local-qa-build.mjs
+0a336f249854ddf2681ecc52a453324fe42b3a37602dc40eee98d3c374dbf647  tests/unit/local-qa-build-artifact.test.ts</pre>
+<h2>Findings</h2>
+<ul>
+<li>The new regular-file predicate correctly requires a name of at most 100 bytes or an actual slash split with prefix at most 155 bytes and suffix at most 100 bytes. Earlier ASCII validation makes character indices equal byte indices. The existing 255-byte policy remains. Validation precedes copying and tar execution; directory entries remain excluded. This closes the reproduced BSD tar omission for the rejected path classes.</li>
+<li>ARCHIVE diagnostics use the existing private WeakMap, closed detail/signal enums, and bounded safe integers. Formatting does not read mutable error properties, raw messages, paths, child stderr, environment values, or stacks. Child stderr remains ignored.</li>
+<li>Source, raw tar, and gzip byte ceilings remain enforced. A recorded originating refusal survives the cleanup kill; an unknown stream failure gets fixed STREAM output. Spawn failures, child exit codes, and signals have separate bounded diagnostics. The catch path waits for the child result before stage cleanup.</li>
+<li>Encrypted-only publication, source/context binding, secret scanning, alias validation, output nonreplacement, and temporary-stage cleanup are unchanged. Regressions verify invalid splitting, accepted boundary paths with extracted contents and manifest equality, all three size phases, child failure classes, stream faults, privacy, and absence of published output on failure.</li>
+</ul>
+<h2>Independent validation</h2>
+<p>Read repository and Akhil instructions, the archive failure plan, and the implementation handoff. Confirmed HEAD and both SHA-256 hashes. Used pinned Node 22.23.0, a 512 MiB heap, and one worker. Root retains heavy-validation ownership.</p>
+<pre>/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin/node --max-old-space-size=512 node_modules/vitest/vitest.mjs run tests/unit/local-qa-build-artifact.test.ts tests/unit/local-qa-build-install.test.ts --maxWorkers=1
+Exit 0: 2 files, 143 tests passed, 3.14 seconds.</pre>
+<p>The implementation handoff separately reports focused lint and diff checks passing; those checks were not rerun by this reviewer. No build, browser, server, database, provider, CI mutation, commit, or push was performed.</p>
+<h2>Release limitation</h2>
+<p>This acceptance covers the reviewed correction, not release readiness. CI run 42405708287 previously passed its application build but refused packaging with ARCHIVE UNKNOWN. Its actual cause remains unproven. A fresh exact-SHA CI packaging result must establish the next outcome; successful packaging remains a release gate. No archive-format migration or ceiling increase is approved by this review.</p>
+</html>

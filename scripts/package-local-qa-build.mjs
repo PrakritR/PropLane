@@ -34,11 +34,16 @@ const REFUSAL_CODES = new Set([
 
 export const INVENTORY_DETAILS = Object.freeze([
   "ENTRY_LIMIT", "WALK_PATH_LIMIT", "FILE_LIMIT", "PATH_NON_ASCII", "PATH_USTAR_LENGTH",
-  "PATH_INVALID_COMPONENT", "PATH_ENV_COMPONENT", "PATH_SECRET", "SYMLINK", "HARDLINK",
+  "PATH_USTAR_SPLIT", "PATH_INVALID_COMPONENT", "PATH_ENV_COMPONENT", "PATH_SECRET", "SYMLINK", "HARDLINK",
   "SPECIAL_FILE", "ALIAS_DIRECTORY_TYPE", "ALIAS_NAME", "ALIAS_DUPLICATE", "ALIAS_COUNT",
   "ALIAS_NOT_SYMLINK", "ALIAS_TARGET", "ALIAS_PACKAGE_TYPE", "ALIAS_PACKAGE_NAME",
   "ALIAS_PACKAGE_VERSION", "STAT", "READDIR", "READLINK", "PACKAGE_READ", "LOCK_READ",
 ]);
+export const ARCHIVE_DETAILS = Object.freeze([
+  "SOURCE_BYTES", "TAR_BYTES", "GZIP_BYTES", "TAR_SPAWN", "TAR_EXIT", "TAR_SIGNAL", "STREAM",
+]);
+const ARCHIVE_SIGNALS = ["SIGABRT", "SIGALRM", "SIGBUS", "SIGFPE", "SIGHUP", "SIGILL", "SIGINT", "SIGKILL", "SIGPIPE", "SIGQUIT", "SIGSEGV", "SIGTERM", "SIGUSR1", "SIGUSR2", "SIGXCPU", "SIGXFSZ"];
+const boundedInteger = (value, max) => Number.isSafeInteger(value) && value >= 0 && value <= max ? value : "UNKNOWN";
 const diagnosticRecords = new WeakMap();
 const enumValue = (value, allowed) => allowed.includes(value) ? value : "UNKNOWN";
 
@@ -47,10 +52,14 @@ export class ArtifactRefusal extends Error {
     super(message);
     this.code = code;
     const validCode = REFUSAL_CODES.has(code) ? code : "UNEXPECTED";
-    const validDetail = code === "INVENTORY" ? enumValue(detail, INVENTORY_DETAILS) : "UNKNOWN";
+    const validDetail = code === "INVENTORY" ? enumValue(detail, INVENTORY_DETAILS) : code === "ARCHIVE" ? enumValue(detail, ARCHIVE_DETAILS) : "UNKNOWN";
     diagnosticRecords.set(this, {
-      code: validDetail === "UNKNOWN" && code === "INVENTORY" ? "UNEXPECTED" : validCode,
+      code: validDetail === "UNKNOWN" && ["INVENTORY", "ARCHIVE"].includes(code) ? "UNEXPECTED" : validCode,
       detail: validDetail,
+      bytes: boundedInteger(metadata.bytes, MAX_BYTES * 2),
+      limit: boundedInteger(metadata.limit, MAX_BYTES),
+      exitCode: boundedInteger(metadata.exitCode, 255),
+      signal: enumValue(metadata.signal, ARCHIVE_SIGNALS),
       phase: enumValue(metadata.phase, ["ROOT", "CACHE", "DEV", "ALIASES", "SERVER", "STATIC", "OTHER"]),
       kind: enumValue(metadata.kind, ["FILE", "DIRECTORY", "SYMLINK", "OTHER"]),
       alias: enumValue(metadata.alias, ["PG", "SHARP", "NAPI_SCOPE", "NAPI_CANVAS", "OTHER"]),
@@ -75,7 +84,9 @@ export function formatArtifactRefusal(error) {
   const record = diagnosticRecords.get(error);
   const fields = record?.code === "INVENTORY"
     ? ` detail=${record.detail} phase=${record.phase} kind=${record.kind} alias=${record.alias} target=${record.target} errno=${record.errno} visited=${record.visited} files=${record.files} pathBytes=${record.pathBytes}`
-    : " detail=UNKNOWN";
+    : record?.code === "ARCHIVE"
+      ? ` detail=${record.detail} bytes=${record.bytes} limit=${record.limit} exitCode=${record.exitCode} signal=${record.signal}`
+      : " detail=UNKNOWN";
   return `Local QA packaging refused [${record?.code ?? "UNEXPECTED"}]${fields}. No artifact is eligible for upload.`;
 }
 
@@ -117,12 +128,12 @@ export function secretScanner(secrets) {
   });
 }
 
-function byteLimit(max, onBytes) {
+function byteLimit(max, onBytes, detail, before = 0) {
   let count = 0;
   return new Transform({
     transform(chunk, _encoding, callback) {
       count += chunk.length;
-      if (count > max) return callback(refuse("ARCHIVE", "Build artifact exceeds its byte limit."));
+      if (count > max) return callback(refuse("ARCHIVE", "Build artifact exceeds its byte limit.", detail, { bytes: before + count, limit: before + max }));
       onBytes(count);
       callback(null, chunk);
     },
@@ -254,6 +265,12 @@ export async function packageBuild({ root, output, sha, secrets, encryptionKey, 
         }
         return;
       }
+      // USTAR needs either a name of 100 bytes or a slash separating a
+      // prefix of 155 bytes and a name of 100 bytes. Full length alone is insufficient.
+      if (relative.length > 100 && ![...relative].some((char, index) =>
+        char === "/" && index <= 155 && relative.length - index - 1 <= 100)) {
+        throw inventoryRefusal("PATH_USTAR_SPLIT", relative, stat);
+      }
       if (files.length >= 50000) throw inventoryRefusal("FILE_LIMIT", relative, stat);
       if (relative.length > 2048) throw inventoryRefusal("WALK_PATH_LIMIT", relative, stat);
       if (scanSecrets.some((secret) => Buffer.from(relative).includes(secret))) throw inventoryRefusal("PATH_SECRET", relative, stat);
@@ -268,7 +285,7 @@ export async function packageBuild({ root, output, sha, secrets, encryptionKey, 
         }
         const before = fileBytes;
         await pipeline(handle.createReadStream({ autoClose: false }), secretScanner(scanSecrets),
-          byteLimit(maxBytes - before, (size) => { fileBytes = before + size; }),
+          byteLimit(maxBytes - before, (size) => { fileBytes = before + size; }, "SOURCE_BYTES", before),
           new Transform({ transform(chunk, _encoding, callback) { fileHash.update(chunk); callback(null, chunk); } }),
           createWriteStream(destination, { flags: "wx", mode: 0o600 }));
       } finally {
@@ -294,22 +311,33 @@ export async function packageBuild({ root, output, sha, secrets, encryptionKey, 
     const list = path.join(stage, "files.list");
     await writeFile(list, `${[...files, PRIVATE_MANIFEST_NAME].join("\0")}\0`, { mode: 0o600 });
     const stagedArchive = path.join(stage, "next-build.tar.gz");
-    const tar = spawn("tar", ["--format=ustar", "--no-recursion", "-cf", "-", "-C", stage, "--null", "-T", list],
-      { stdio: ["ignore", "pipe", "ignore"], env: { PATH: process.env.PATH, LANG: "C" } });
+    let tar;
+    try {
+      tar = spawn("tar", ["--format=ustar", "--no-recursion", "-cf", "-", "-C", stage, "--null", "-T", list],
+        { stdio: ["ignore", "pipe", "ignore"], env: { PATH: process.env.PATH, LANG: "C" } });
+    } catch {
+      throw refuse("ARCHIVE", "Build archive creation failed.", "TAR_SPAWN");
+    }
     const done = new Promise((resolve, reject) => {
-      tar.once("error", () => reject(refuse("ARCHIVE", "Build archive creation failed.")));
-      tar.once("close", (code) => code === 0 ? resolve() : reject(refuse("ARCHIVE", "Build archive creation failed.")));
+      tar.once("error", () => reject(refuse("ARCHIVE", "Build archive creation failed.", "TAR_SPAWN")));
+      tar.once("close", (code, signal) => code === 0 ? resolve() : reject(
+        refuse("ARCHIVE", "Build archive creation failed.", signal ? "TAR_SIGNAL" : "TAR_EXIT", { exitCode: code, signal })));
     });
     // Attach immediately, including when the stream fails before the child exits.
     const settled = done.then(() => null, (error) => error);
     try {
-      await pipeline(tar.stdout, byteLimit(maxBytes, () => {}), createGzip(),
-        byteLimit(maxArchive, () => {}),
+      await pipeline(tar.stdout, byteLimit(maxBytes, () => {}, "TAR_BYTES"), createGzip(),
+        byteLimit(maxArchive, () => {}, "GZIP_BYTES"),
         createWriteStream(stagedArchive, { flags: "wx", mode: 0o600 }));
     } catch (error) {
-      if (tar.exitCode === null) tar.kill("SIGKILL");
-      await settled;
-      throw error;
+      const originalRefusal = diagnosticRecords.has(error);
+      const childAlreadyExited = tar.exitCode !== null || tar.signalCode !== null;
+      if (!childAlreadyExited) tar.kill("SIGKILL");
+      const childError = await settled;
+      // A limit/scanner refusal caused the kill, so its diagnostic takes priority.
+      if (originalRefusal) throw error;
+      if (childError && (childAlreadyExited || diagnosticRecords.get(childError)?.detail === "TAR_SPAWN")) throw childError;
+      throw refuse("ARCHIVE", "Build archive stream failed.", "STREAM");
     }
     const archiveError = await settled;
     if (archiveError) throw archiveError;
