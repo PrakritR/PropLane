@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, writeFile, readFile, readdir, readlink, rm, symlink, stat, link } from "node:fs/promises";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, mkdir, writeFile, readFile, readdir, readlink, rm, symlink, stat, link, lstat, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -9,13 +9,22 @@ import { parse } from "yaml";
 import { ArtifactRefusal, INVENTORY_DETAILS, formatArtifactRefusal, artifactRefusalCode, assertArtifactContext, configuredSecrets, encryptionKeyBytes, KEEPER_REF, QA_KEEPER_REFS, packageBuild, secretScanner } from "../../scripts/package-local-qa-build.mjs";
 import { decryptArtifact, restoreRuntimeAliases } from "../../scripts/decrypt-local-qa-build.mjs";
 
+import { RUNTIME_ALIAS_SPECS, validateRuntimeAliases } from "../../scripts/lib/local-qa-runtime-aliases.mjs";
+const restoreFault = vi.hoisted(() => ({ remaining: 0 }));
+vi.mock('node:fs/promises', async (original) => {
+  const actual = await original<typeof import('node:fs/promises')>();
+  return { ...actual, symlink: vi.fn(async (...args: Parameters<typeof actual.symlink>) => {
+    if (restoreFault.remaining && --restoreFault.remaining === 0) throw new Error('simulated later creation failure');
+    return actual.symlink(...args);
+  }) };
+});
 const SHA = "a".repeat(40);
 const SECRET = Buffer.from("server-secret-fixture-only");
 const KEY = "ab".repeat(32);
 const WRONG_KEY = "cd".repeat(32);
 const roots: string[] = [];
 const context = { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: KEEPER_REF, GITHUB_SHA: SHA, GITHUB_REPOSITORY: 'PrakritR/PropLane', GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1', NEXT_PUBLIC_SUPABASE_URL: 'https://emstjswhotsnyksqhqyf.supabase.co', NEXT_PUBLIC_APP_URL: 'http://localhost:3010', NEXT_PUBLIC_SUPABASE_ANON_KEY: 'public-fixture-anon' };
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { restoreFault.remaining = 0; await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
 async function fixture() {
   const root = await mkdtemp(path.join(tmpdir(), "qa-artifact-test-"));
@@ -28,6 +37,23 @@ async function fixture() {
   await writeFile(path.join(root, 'node_modules/next/package.json'), JSON.stringify({ name: 'next', version: '16.0.0' }));
   await writeFile(path.join(root, 'package-lock.json'), JSON.stringify({ packages: { 'node_modules/next': { version: '16.0.0' } } }));
   return { root, output: path.join(root, "artifact"), sha: SHA, secrets: [SECRET], context };
+}
+
+async function addAliases(root: string, packages = ['pg', 'sharp', '@napi-rs/canvas']) {
+  const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
+  const records = [];
+  for (const packageName of packages) {
+    const spec = RUNTIME_ALIAS_SPECS.find((value: { package: string }) => value.package === packageName)!;
+    const aliasPath = `.next/node_modules/${packageName}-0123456789abcdef`;
+    await mkdir(path.dirname(path.join(root, aliasPath)), { recursive: true });
+    await mkdir(path.join(root, 'node_modules', packageName), { recursive: true });
+    await writeFile(path.join(root, 'node_modules', packageName, 'package.json'), JSON.stringify({ name: packageName, version: '1.0.9' }));
+    lock.packages[`node_modules/${packageName}`] = { version: '1.0.9' };
+    await symlink(spec.target, path.join(root, aliasPath));
+    records.push({ package: packageName, path: aliasPath, target: spec.target, version: '1.0.9' });
+  }
+  await writeFile(path.join(root, 'package-lock.json'), JSON.stringify(lock));
+  return records;
 }
 
 function scan(chunks: Buffer[]) {
@@ -205,31 +231,20 @@ describe("encrypted local QA build transport", () => {
     expect(JSON.parse(await readFile(path.join(input.output, "manifest.json"), "utf8"))).toEqual(envelope);
   });
 
-  it.each(["pg", "sharp"])("records exact %s runtime aliases without archiving links and recreates them after authentication", async (packageName) => {
+  it.each([["pg"], ["sharp"], ["@napi-rs/canvas"], ["pg", "sharp", "@napi-rs/canvas"]])("round trips closed aliases %j without archiving their tree", async (...packages) => {
     const input = await fixture();
-    const version = "8.22.0";
-    await mkdir(path.join(input.root, ".next/node_modules"));
-    await mkdir(path.join(input.root, `node_modules/${packageName}`), { recursive: true });
-    await writeFile(path.join(input.root, `node_modules/${packageName}/package.json`), JSON.stringify({ name: packageName, version }));
-    await writeFile(path.join(input.root, "package-lock.json"), JSON.stringify({ packages: { [`node_modules/${packageName}`]: { version } } }));
-    const aliasName = `${packageName}-0123456789abcdef`;
-    await symlink(`../../node_modules/${packageName}`, path.join(input.root, ".next/node_modules", aliasName), "dir");
+    const records = await addAliases(input.root, packages);
     await packageBuild({ ...input, encryptionKey: KEY });
-
-    const decrypted = path.join(input.root, "private", "next-build.tar.gz");
-    await decryptArtifact({ artifactDir: input.output, sha: SHA, encryptionKey: KEY, output: decrypted });
-    const entries = execFileSync("tar", ["-tzf", decrypted], { encoding: "utf8" }).trim().split("\n");
-    expect(entries).not.toContain(`.next/node_modules/${aliasName}`);
-    const privateManifest = JSON.parse(execFileSync("tar", ["-xOf", decrypted, "qa-manifest.json"], { encoding: "utf8" }));
-    expect(privateManifest.runtimeAliases).toEqual([{ path: `.next/node_modules/${aliasName}`, target: `../../node_modules/${packageName}`, package: packageName, version }]);
-
-    const restored = path.join(input.root, "restored");
-    await mkdir(path.join(restored, ".next"), { recursive: true });
-    await mkdir(path.join(restored, `node_modules/${packageName}`), { recursive: true });
-    await writeFile(path.join(restored, `node_modules/${packageName}/package.json`), JSON.stringify({ name: packageName, version }));
-    await writeFile(path.join(restored, "package-lock.json"), JSON.stringify({ packages: { [`node_modules/${packageName}`]: { version } } }));
-    await expect(restoreRuntimeAliases({ root: restored, privateManifest })).resolves.toBe(1);
-    expect(await readlink(path.join(restored, ".next/node_modules", aliasName))).toBe(`../../node_modules/${packageName}`);
+    const archive = path.join(input.root, "private/build.tar.gz");
+    await decryptArtifact({ artifactDir: input.output, sha: SHA, encryptionKey: KEY, output: archive });
+    const entries = execFileSync("tar", ["-tzf", archive], { encoding: "utf8" }).trim().split("\n");
+    expect(entries.every((entry) => !entry.includes('node_modules'))).toBe(true);
+    const privateManifest = JSON.parse(execFileSync("tar", ["-xOf", archive, "qa-manifest.json"], { encoding: "utf8" }));
+    expect(privateManifest.runtimeAliases).toEqual(expect.arrayContaining(records));
+    expect(privateManifest.runtimeAliases).toHaveLength(packages.length);
+    await rm(path.join(input.root, '.next/node_modules'), { recursive: true });
+    await expect(restoreRuntimeAliases({ root: input.root, privateManifest })).resolves.toBe(packages.length);
+    for (const record of records) expect(await readlink(path.join(input.root, record.path))).toBe(record.target);
   });
 
   it("rejects unknown or retargeted Next.js runtime aliases", async () => {
@@ -253,6 +268,82 @@ describe("encrypted local QA build transport", () => {
     await symlink("../../node_modules/pg", path.join(input.root, ".next/node_modules/pg-fedcba9876543210"), "dir");
     await expect(packageBuild({ ...input, encryptionKey: KEY })).rejects.toThrow("Duplicate Next.js runtime alias");
     await expect(stat(input.output)).rejects.toThrow();
+  });
+
+  it('validates every record before restoration writes, including duplicates and strict fields', async () => {
+    const input = await fixture(), [record] = await addAliases(input.root, ['@napi-rs/canvas']);
+    await rm(path.join(input.root, '.next/node_modules'), { recursive: true });
+    const malformed = [
+      [{ ...record, extra: true }], [{ ...record, version: '' }], [{ ...record, package: '@other/canvas' }],
+      [{ ...record, path: record.path.toUpperCase() }], [{ ...record, path: record.path + 'a' }], [{ ...record, path: record.path + '\n' }],
+      [{ ...record, path: record.path + '/nested' }], [{ ...record, path: record.path.replace('@napi-rs/', '') }],
+      [{ ...record, path: '/'+record.path }], [{ ...record, path: record.path.replace('/', '\\') }],
+      [{ ...record, target: '../../../node_modules/@napi-rs/./canvas' }], [record, record],
+      [record, { ...record, path: record.path.replace('0123456789abcdef', 'fedcba9876543210') }],
+      [record, record, record, record], [record, null], Array(1),
+    ];
+    expect(validateRuntimeAliases([])).toEqual([]);
+    for (const runtimeAliases of malformed) {
+      expect(() => validateRuntimeAliases(runtimeAliases)).toThrow();
+      await expect(restoreRuntimeAliases({ root: input.root, privateManifest: { runtimeAliases } })).rejects.toThrow();
+      await expect(lstat(path.join(input.root, '.next/node_modules'))).rejects.toThrow();
+    }
+  });
+
+  it.each(['empty', 'sibling', 'duplicate', 'nested', 'uppercase', 'short', 'scope-link', 'leaf-file', 'leaf-directory', 'absolute', 'escaping', 'deep', 'wrong-package', 'equivalent', 'alias-root', 'dependency-root', 'dependency-scope', 'dependency-leaf', 'metadata-link', 'metadata-hardlink', 'lock-link', 'lock-hardlink', 'missing', 'wrong-name', 'wrong-version', 'wrong-lock'])('refuses canvas %s before publishing', async (kind) => {
+    const input = await fixture(), [record] = await addAliases(input.root, ['@napi-rs/canvas']);
+    const leaf = path.join(input.root, record.path), scope = path.dirname(leaf), dependency = path.join(input.root, 'node_modules/@napi-rs/canvas');
+    if (['empty', 'nested', 'uppercase', 'short', 'leaf-file', 'leaf-directory', 'absolute', 'escaping', 'deep', 'wrong-package', 'equivalent'].includes(kind)) await rm(leaf);
+    if (kind === 'sibling') await symlink(record.target, path.join(scope, 'other-0123456789abcdef'));
+    if (kind === 'duplicate') await symlink(record.target, path.join(scope, 'canvas-fedcba9876543210'));
+    if (kind === 'nested') await mkdir(path.join(leaf, 'nested'), { recursive: true });
+    if (kind === 'uppercase' || kind === 'short') await symlink(record.target, kind === 'uppercase' ? path.join(scope, 'canvas-0123456789ABCDEF') : leaf.slice(0, -1));
+    if (kind === 'leaf-file') await writeFile(leaf, 'data');
+    if (kind === 'leaf-directory') await mkdir(leaf);
+    const targets: Record<string, string> = { absolute: dependency, escaping: '../../../../outside', deep: '../../../../node_modules/@napi-rs/canvas', 'wrong-package': '../../../node_modules/pg', equivalent: '../../../node_modules/@napi-rs/./canvas' };
+    if (targets[kind]) await symlink(targets[kind], leaf);
+    const parents: Record<string, string> = { 'scope-link': scope, 'alias-root': path.join(input.root, '.next/node_modules'), 'dependency-root': path.join(input.root, 'node_modules'), 'dependency-scope': path.dirname(dependency), 'dependency-leaf': dependency };
+    if (parents[kind]) { await rename(parents[kind], parents[kind] + '-real'); await symlink(parents[kind] + '-real', parents[kind]); }
+    const metadata = kind.startsWith('lock-') ? path.join(input.root, 'package-lock.json') : path.join(dependency, 'package.json');
+    if (kind.endsWith('-link') && !parents[kind]) { await rename(metadata, metadata + '-real'); await symlink(metadata + '-real', metadata); }
+    if (kind.endsWith('-hardlink')) await link(metadata, metadata + '-other');
+    if (kind === 'missing') await rm(dependency, { recursive: true });
+    if (kind === 'wrong-name' || kind === 'wrong-version') await writeFile(path.join(dependency, 'package.json'), JSON.stringify({ name: kind === 'wrong-name' ? 'pg' : record.package, version: kind === 'wrong-version' ? 'different' : record.version }));
+    if (kind === 'wrong-lock') await writeFile(path.join(input.root, 'package-lock.json'), '{}');
+    await expect(packageBuild({ ...input, encryptionKey: KEY })).rejects.toThrow();
+    await expect(lstat(input.output)).rejects.toThrow();
+  });
+
+  it.each(['.next/node_modules', '.next/node_modules/@napi-rs', 'node_modules', 'node_modules/@napi-rs', 'node_modules/@napi-rs/canvas'])('restoration refuses linked parent %s without following it', async (relative) => {
+    const input = await fixture(), records = await addAliases(input.root, ['@napi-rs/canvas']);
+    await rm(path.join(input.root, records[0].path));
+    const parent = path.join(input.root, relative);
+    await rename(parent, parent + '-real'); await symlink(parent + '-real', parent);
+    await expect(restoreRuntimeAliases({ root: input.root, privateManifest: { runtimeAliases: records } })).rejects.toThrow();
+    expect((await lstat(parent)).isSymbolicLink()).toBe(true);
+    await expect(lstat(path.join(input.root, records[0].path))).rejects.toThrow();
+  });
+
+  it.each(['file', 'link', 'directory'])('preserves an existing alias destination %s', async (kind) => {
+    const input = await fixture(), [record] = await addAliases(input.root, ['@napi-rs/canvas']);
+    const leaf = path.join(input.root, record.path); await rm(leaf);
+    if (kind === 'file') await writeFile(leaf, 'keep');
+    if (kind === 'link') await symlink('keep-target', leaf);
+    if (kind === 'directory') await mkdir(leaf);
+    const before = await lstat(leaf);
+    await expect(restoreRuntimeAliases({ root: input.root, privateManifest: { runtimeAliases: [record] } })).rejects.toThrow();
+    expect((await lstat(leaf)).ino).toBe(before.ino);
+  });
+
+  it.each([false, true])('rolls back created links and scoped parents on later failure; existing root=%s', async (existing) => {
+    const input = await fixture(), records = await addAliases(input.root, ['@napi-rs/canvas', 'pg']);
+    await rm(path.join(input.root, '.next/node_modules'), { recursive: true });
+    if (existing) await mkdir(path.join(input.root, '.next/node_modules'));
+    restoreFault.remaining = 2;
+    await expect(restoreRuntimeAliases({ root: input.root, privateManifest: { runtimeAliases: records } })).rejects.toThrow('simulated');
+    if (existing) expect(await readdir(path.join(input.root, '.next/node_modules'))).toEqual([]);
+    else await expect(lstat(path.join(input.root, '.next/node_modules'))).rejects.toThrow();
+    expect(await readFile(path.join(input.root, '.next/BUILD_ID'), 'utf8')).toBe('build-id');
   });
 
   it("rejects leaked secrets without publishing output", async () => {

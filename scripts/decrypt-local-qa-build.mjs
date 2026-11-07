@@ -1,7 +1,8 @@
+import { validateRuntimeAliases, runtimeAliasSpec, realAliasDirectory, bindRuntimeAlias } from "./lib/local-qa-runtime-aliases.mjs";
 /** Verify and decrypt a local QA artifact into a private archive file. This never extracts files. */
 import { createDecipheriv, createHash, timingSafeEqual } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, rm, symlink, unlink } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, rm, rmdir, symlink, unlink } from "node:fs/promises";
 import path from "node:path";
 import { Writable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -142,48 +143,48 @@ export async function decryptArtifact({ artifactDir, sha, encryptionKey, output 
 
 /** Recreate only authenticated Next.js external aliases after the caller safely extracts the archive. */
 export async function restoreRuntimeAliases({ root, privateManifest }) {
-  if (typeof root !== "string" || !path.isAbsolute(root) || !privateManifest ||
-      !Array.isArray(privateManifest.runtimeAliases) || privateManifest.runtimeAliases.length > 2) {
-    throw new Error("Invalid QA runtime alias manifest.");
+  if (typeof root !== "string" || !path.isAbsolute(root)) throw new Error("Invalid QA runtime alias root.");
+  const aliases = validateRuntimeAliases(privateManifest?.runtimeAliases);
+  await realAliasDirectory(path.join(root, ".next"));
+  // Finish every manifest/dependency/destination check before creating anything.
+  for (const alias of aliases) {
+    await bindRuntimeAlias({ root, alias, allowMissingAliasParents: true });
+    try { await lstat(path.join(root, alias.path)); throw new Error("Existing alias destination refused."); }
+    catch (error) { if (error.code !== "ENOENT") throw error; }
   }
-  const nextDirectory = path.join(root, ".next");
-  if (!(await lstat(nextDirectory)).isDirectory()) throw new Error("Invalid extracted Next.js directory.");
-  const aliasDirectory = path.join(nextDirectory, "node_modules");
-  await mkdir(aliasDirectory, { mode: 0o700 }).catch((error) => {
-    if (error?.code !== "EEXIST") throw error;
-  });
-  if (!(await lstat(aliasDirectory)).isDirectory()) throw new Error("Invalid Next.js runtime alias directory.");
-  const lock = JSON.parse(await readFile(path.join(root, "package-lock.json"), "utf8"));
-  const created = [];
-  const seen = new Set();
+  const links = [], directories = [], parentIdentities = new Map();
+  parentIdentities.set(path.join(root, ".next"), await realAliasDirectory(path.join(root, ".next")));
+  async function stillOwned(destination, before) {
+    try {
+      for (const [directory, identity] of parentIdentities) {
+        if (destination === directory || destination.startsWith(directory + path.sep)) {
+          const current = await realAliasDirectory(directory);
+          if (current.ino !== identity.ino || current.dev !== identity.dev) return false;
+        }
+      }
+      const current = await lstat(destination);
+      return current.ino === before.ino && current.dev === before.dev;
+    } catch { return false; }
+  }
   try {
-    for (const alias of privateManifest.runtimeAliases) {
-      const keys = alias && typeof alias === "object" ? Object.keys(alias).sort().join("\0") : "";
-      const match = typeof alias?.path === "string"
-        ? /^\.next\/node_modules\/(pg|sharp)-[a-f0-9]{16}$/.exec(alias.path)
-        : null;
-      const packageName = match?.[1];
-      if (keys !== "package\0path\0target\0version" || !packageName || alias.package !== packageName ||
-          alias.target !== `../../node_modules/${packageName}` || typeof alias.version !== "string" ||
-          alias.version.length > 100 || seen.has(packageName)) {
-        throw new Error("Invalid QA runtime alias manifest.");
+    for (const alias of aliases) {
+      for (const relative of runtimeAliasSpec(alias.package).parents) {
+        const directory = path.join(root, relative);
+        try {
+          await mkdir(directory, { mode: 0o700 });
+          directories.push([directory, await realAliasDirectory(directory)]);
+        }
+        catch (error) { if (error.code !== "EEXIST") throw error; }
+        parentIdentities.set(directory, await realAliasDirectory(directory));
       }
-      seen.add(packageName);
-      const destination = path.join(root, ...alias.path.split("/"));
-      if (path.dirname(destination) !== aliasDirectory) throw new Error("Invalid QA runtime alias path.");
-      const packageDirectory = path.join(root, "node_modules", packageName);
-      const packageStat = await lstat(packageDirectory);
-      const packageJson = JSON.parse(await readFile(path.join(packageDirectory, "package.json"), "utf8"));
-      if (!packageStat.isDirectory() || packageJson.name !== packageName ||
-          packageJson.version !== alias.version || lock.packages?.[`node_modules/${packageName}`]?.version !== alias.version) {
-        throw new Error("QA runtime dependency does not match the authenticated manifest.");
-      }
-      await symlink(alias.target, destination, "dir");
-      created.push(destination);
+      await bindRuntimeAlias({ root, alias });
+      const destination = path.join(root, alias.path);
+      await symlink(alias.target, destination, "dir"); links.push([destination, await lstat(destination)]);
     }
-    return privateManifest.runtimeAliases.length;
+    return aliases.length;
   } catch (error) {
-    for (const destination of created.reverse()) await unlink(destination).catch(() => undefined);
+    for (const [destination, identity] of links.reverse()) if (await stillOwned(destination, identity)) await unlink(destination).catch(() => undefined);
+    for (const [directory, identity] of directories.reverse()) if (await stillOwned(directory, identity)) await rmdir(directory).catch(() => undefined);
     throw error;
   }
 }

@@ -1,3 +1,4 @@
+import { RUNTIME_ALIAS_SPECS, MAX_RUNTIME_ALIASES, bindRuntimeAlias } from "./lib/local-qa-runtime-aliases.mjs";
 import { decodeArtifactKey } from "./lib/qa-artifact-key.mjs";
 /** Encrypted, SHA-bound local QA transport. This never deploys or loads runtime env files. */
 import { constants, createReadStream, createWriteStream } from "node:fs";
@@ -180,38 +181,47 @@ export async function packageBuild({ root, output, sha, secrets, encryptionKey, 
     }
     async function captureRuntimeAliases(directory) {
       const seenPackages = new Set();
+      function countEntry(relative, extra) {
+        if (++entries > 100000) throw inventoryRefusal("ENTRY_LIMIT", relative, undefined, extra);
+      }
+      async function leaf(relative, aliasPath, spec, extra) {
+        if (!spec) throw inventoryRefusal("ALIAS_NAME", relative, undefined, extra);
+        if (seenPackages.has(spec.package)) throw inventoryRefusal("ALIAS_DUPLICATE", relative, undefined, extra);
+        if (runtimeAliases.length >= MAX_RUNTIME_ALIASES) throw inventoryRefusal("ALIAS_COUNT", relative, undefined, extra);
+        seenPackages.add(spec.package);
+        const aliasStat = await inventoryOperation("STAT", relative, () => lstat(aliasPath), undefined, extra);
+        const target = await readlink(aliasPath).catch(() => null);
+        extra.target = target === null ? "UNREADABLE" : target === spec.target ? "EXPECTED_RELATIVE" : path.isAbsolute(target) ? "ABSOLUTE" : "OTHER_RELATIVE";
+        if (!aliasStat.isSymbolicLink()) throw inventoryRefusal("ALIAS_NOT_SYMLINK", relative, aliasStat, extra);
+        if (target === null) throw inventoryRefusal("READLINK", relative, aliasStat, extra);
+        if (target !== spec.target) throw inventoryRefusal("ALIAS_TARGET", relative, aliasStat, extra);
+        const record = { path: relative, target, package: spec.package };
+        try { record.version = await bindRuntimeAlias({ root, alias: record }); } catch (error) {
+          const errno = ["ENOENT", "ENOTDIR"].includes(error.code) ? "MISSING" : ["EACCES", "EPERM"].includes(error.code) ? "PERMISSION" : "OTHER";
+          throw inventoryRefusal(error.reason ?? "STAT", relative, aliasStat, { ...extra, errno });
+        }
+        runtimeAliases.push(record);
+      }
       const names = await inventoryOperation("READDIR", relativePath(directory), () => readdir(directory));
       for (const name of names.sort()) {
         const relative = `${relativePath(directory)}/${name}`;
-        const alias = /^pg-[a-f0-9]{16}$/.test(name) ? "PG" : /^sharp-[a-f0-9]{16}$/.test(name) ? "SHARP" : name === "@napi-rs" ? "NAPI_SCOPE" : /^canvas-[a-f0-9]{16}$/.test(name) ? "NAPI_CANVAS" : "OTHER";
-        const extra = { alias };
-        const match = /^(pg|sharp)-([a-f0-9]{16})$/.exec(name);
-        if (!match) throw inventoryRefusal("ALIAS_NAME", relative, undefined, extra);
-        const packageName = match[1];
-        if (seenPackages.has(packageName)) throw inventoryRefusal("ALIAS_DUPLICATE", relative, undefined, extra);
-        if (runtimeAliases.length >= 2) throw inventoryRefusal("ALIAS_COUNT", relative, undefined, extra);
-        seenPackages.add(packageName);
-        const aliasPath = path.join(directory, name);
-        const aliasStat = await inventoryOperation("STAT", relative, () => lstat(aliasPath), undefined, extra);
-        // Preserve the original readlink attempt, including for a non-link entry.
-        const target = await readlink(aliasPath).catch(() => null);
-        extra.target = target === null ? "UNREADABLE" : target === `../../node_modules/${packageName}` ? "EXPECTED_RELATIVE" : path.isAbsolute(target) ? "ABSOLUTE" : "OTHER_RELATIVE";
-        if (!aliasStat.isSymbolicLink()) throw inventoryRefusal("ALIAS_NOT_SYMLINK", relative, aliasStat, extra);
-        if (target === null) throw inventoryRefusal("READLINK", relative, aliasStat, extra);
-        if (target !== `../../node_modules/${packageName}` || path.resolve(directory, target) !== path.join(root, "node_modules", packageName)) {
-          throw inventoryRefusal("ALIAS_TARGET", relative, aliasStat, extra);
-        }
-        const packageDirectory = path.join(root, "node_modules", packageName);
-        const packageStat = await inventoryOperation("STAT", relative, () => lstat(packageDirectory), aliasStat, extra);
-        const packageJson = await inventoryOperation("PACKAGE_READ", relative, async () => JSON.parse(await readFile(path.join(packageDirectory, "package.json"), "utf8")), aliasStat, extra);
-        const lock = await inventoryOperation("LOCK_READ", relative, async () => JSON.parse(await readFile(path.join(root, "package-lock.json"), "utf8")), aliasStat, extra);
-        const lockedVersion = lock?.packages?.[`node_modules/${packageName}`]?.version;
-        if (!packageStat.isDirectory()) throw inventoryRefusal("ALIAS_PACKAGE_TYPE", relative, aliasStat, extra);
-        if (packageJson?.name !== packageName) throw inventoryRefusal("ALIAS_PACKAGE_NAME", relative, aliasStat, extra);
-        if (typeof packageJson.version !== "string" || packageJson.version.length > 100 || packageJson.version !== lockedVersion) {
-          throw inventoryRefusal("ALIAS_PACKAGE_VERSION", relative, aliasStat, extra);
-        }
-        runtimeAliases.push({ path: relative, target, package: packageName, version: packageJson.version });
+        const spec = RUNTIME_ALIAS_SPECS.find((candidate) => candidate.pattern.test(relative));
+        const extra = { alias: spec?.diagnostic ?? (name === "@napi-rs" ? "NAPI_SCOPE" : /^canvas-[a-f0-9]{16}$/.test(name) ? "NAPI_CANVAS" : "OTHER") };
+        countEntry(relative, extra);
+        if (name === "@napi-rs") {
+          const scope = path.join(directory, name);
+          const info = await inventoryOperation("STAT", relative, () => lstat(scope), undefined, extra);
+          if (!info.isDirectory() || info.isSymbolicLink()) throw inventoryRefusal("ALIAS_DIRECTORY_TYPE", relative, info, extra);
+          const children = await inventoryOperation("READDIR", relative, () => readdir(scope), info, extra);
+          if (!children.length) throw inventoryRefusal("ALIAS_NAME", relative, info, extra);
+          for (const child of children.sort()) {
+            const childRelative = `${relative}/${child}`;
+            const childSpec = RUNTIME_ALIAS_SPECS.find((candidate) => candidate.pattern.test(childRelative));
+            const childExtra = { alias: childSpec ? "NAPI_CANVAS" : "NAPI_SCOPE" };
+            countEntry(childRelative, childExtra);
+            await leaf(childRelative, path.join(scope, child), childSpec, childExtra);
+          }
+        } else await leaf(relative, path.join(directory, name), spec, extra);
       }
     }
     function relativePath(value) {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile, symlink, readlink, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { gzipSync } from 'node:zlib';
@@ -17,7 +17,7 @@ const SHA = 'a'.repeat(40), KEY = 'ab'.repeat(32), roots: string[] = [];
 const context = { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: KEEPER_REF, GITHUB_SHA: SHA, GITHUB_REPOSITORY: 'PrakritR/PropLane', GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1', NEXT_PUBLIC_SUPABASE_URL: 'https://emstjswhotsnyksqhqyf.supabase.co', NEXT_PUBLIC_APP_URL: 'http://localhost:3010', NEXT_PUBLIC_SUPABASE_ANON_KEY: 'public-fixture-anon' };
 afterEach(async () => { gitState.sha = SHA; gitState.dirty = ''; await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 async function privateRoot() { const root = await realpath(await mkdtemp(path.join(tmpdir(), 'qa-install-'))); roots.push(root); return root; }
-async function input() {
+async function input(aliases = false) {
   const root = await privateRoot();
   await mkdir(path.join(root, '.next/server'), { recursive: true });
   await writeFile(path.join(root, '.next/BUILD_ID'), 'build-id'); await writeFile(path.join(root, '.next/required-server-files.json'), '{}');
@@ -25,13 +25,25 @@ async function input() {
   await mkdir(path.join(root, 'node_modules/next'), { recursive: true });
   await writeFile(path.join(root, 'node_modules/next/package.json'), JSON.stringify({ name: 'next', version: '16.0.0' }));
   await writeFile(path.join(root, 'package-lock.json'), JSON.stringify({ packages: { 'node_modules/next': { version: '16.0.0' } } }));
+  if (aliases) {
+    const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
+    for (const packageName of ['pg', 'sharp', '@napi-rs/canvas']) {
+      const alias = path.join(root, `.next/node_modules/${packageName}-0123456789abcdef`);
+      await mkdir(path.dirname(alias), { recursive: true });
+      await mkdir(path.join(root, 'node_modules', packageName), { recursive: true });
+      await writeFile(path.join(root, 'node_modules', packageName, 'package.json'), JSON.stringify({ name: packageName, version: '1.0.9' }));
+      lock.packages[`node_modules/${packageName}`] = { version: '1.0.9' };
+      await symlink(packageName.startsWith('@') ? `../../../node_modules/${packageName}` : `../../node_modules/${packageName}`, alias);
+    }
+    await writeFile(path.join(root, 'package-lock.json'), JSON.stringify(lock));
+  }
   const artifactDir = path.join(root, 'ciphertext');
   await packageBuild({ root, output: artifactDir, sha: SHA, context, secrets: [Buffer.from('server-secret-test')], encryptionKey: KEY });
   await rm(path.join(root, '.next'), { recursive: true });
   return { root, artifactDir, artifactId: '456', sha: SHA, encryptionKey: KEY, receiptDirectory: path.join(root, 'private-receipt'), env: context };
 }
 function authenticateSource(manifest: { provenance: { runId: string; attempt: string } }, artifactId: string) { return { artifactId, ...manifest.provenance }; }
-async function install() { const args = await input(); const receiptPath = await installQaBuild(args, { authenticateSource }); return { args, receiptPath }; }
+async function install(aliases = false) { const args = await input(aliases); const receiptPath = await installQaBuild(args, { authenticateSource }); return { args, receiptPath }; }
 
 describe('authenticated installed build', () => {
   it('installs only authenticated immutable bytes and validates its sealed receipt per run', async () => {
@@ -41,6 +53,35 @@ describe('authenticated installed build', () => {
     await expect(verifyInstalledQaBuild({ ...args, receiptPath })).resolves.toMatchObject({ sha: SHA, artifactId: '456', runId: '123', origin: context.NEXT_PUBLIC_APP_URL });
     await mkdir(path.join(args.root, '.next/cache'), { mode: 0o700 }); await writeFile(path.join(args.root, '.next/cache/runtime-cache'), 'mutable');
     await expect(verifyInstalledQaBuild({ ...args, receiptPath })).resolves.toMatchObject({ sha: SHA });
+  });
+  it('installs and receipt-verifies all three aliases through authenticated safe extraction', async () => {
+    const { args, receiptPath } = await install(true);
+    for (const packageName of ['pg', 'sharp', '@napi-rs/canvas']) {
+      expect(await readlink(path.join(args.root, `.next/node_modules/${packageName}-0123456789abcdef`))).toBe(packageName.startsWith('@') ? `../../../node_modules/${packageName}` : `../../node_modules/${packageName}`);
+    }
+    await expect(verifyInstalledQaBuild({ ...args, receiptPath })).resolves.toMatchObject({ sha: SHA });
+  });
+  it.each(['target', 'missing', 'package-version', 'lock-version', 'sibling', 'empty-scope', 'scope-parent', 'dependency-scope', 'alias-root', 'metadata-link', 'metadata-hardlink'])('refuses installed canvas tampering: %s', async (kind) => {
+    const { args, receiptPath } = await install(true);
+    const scope = path.join(args.root, '.next/node_modules/@napi-rs'), alias = path.join(scope, 'canvas-0123456789abcdef');
+    const pkg = path.join(args.root, 'node_modules/@napi-rs/canvas/package.json');
+    if (kind === 'target' || kind === 'missing') await rm(alias);
+    if (kind === 'target') await symlink('../../../node_modules/@napi-rs/./canvas', alias);
+    if (kind === 'package-version') await writeFile(pkg, JSON.stringify({ name: '@napi-rs/canvas', version: 'different' }));
+    if (kind === 'lock-version') await writeFile(path.join(args.root, 'package-lock.json'), '{}');
+    if (kind === 'sibling') await writeFile(path.join(scope, 'unknown'), 'data');
+    if (kind === 'empty-scope') await mkdir(path.join(args.root, '.next/node_modules/@unknown'));
+    if (kind === 'metadata-link') { await rename(pkg, pkg + '-real'); await symlink(pkg + '-real', pkg); }
+    if (kind === 'metadata-hardlink') { const { link } = await import('node:fs/promises'); await link(pkg, pkg + '-other'); }
+    const parents: Record<string, string> = { 'scope-parent': scope, 'dependency-scope': path.join(args.root, 'node_modules/@napi-rs'), 'alias-root': path.dirname(scope) };
+    if (parents[kind]) { await rename(parents[kind], parents[kind] + '-real'); await symlink(parents[kind] + '-real', parents[kind]); }
+    await expect(verifyInstalledQaBuild({ ...args, receiptPath })).rejects.toThrow();
+  });
+  it('refuses changed alias dependencies before publishing any build', async () => {
+    const args = await input(true);
+    await writeFile(path.join(args.root, 'node_modules/@napi-rs/canvas/package.json'), JSON.stringify({ name: '@napi-rs/canvas', version: 'different' }));
+    await expect(installQaBuild(args, { authenticateSource })).rejects.toThrow('refused');
+    await expect(readFile(path.join(args.root, '.next/BUILD_ID'))).rejects.toThrow();
   });
   it.each(['wrong-key', 'forged-receipt', 'changed-bytes', 'extra-file', 'dirty-source', 'wrong-head', 'lockfile', 'origin', 'dev-url', 'anon-key', 'native-version'])('refuses %s before prebuilt execution', async (kind) => {
     const { args, receiptPath } = await install();
@@ -96,7 +137,7 @@ describe('closed ustar extraction', () => {
   it.each([
     [{ name: '/absolute' }], [{ name: '.next/../outside' }], [{ name: '.next/a', type: '2' }], [{ name: '.next/a', type: '1' }],
     [{ name: '.next/a', type: '5' }], [{ name: '.next/a', type: 'x' }], [{ name: '.next/a', type: 'g' }],
-    [{ name: '.next/a' }, { name: '.next/a' }], [{ name: '.next/cache/hidden' }], [{ name: '.next/node_modules/alias' }], [{ name: 'unexpected' }],
+    [{ name: '.next/a' }, { name: '.next/a' }], [{ name: '.next/cache/hidden' }], [{ name: '.next/node_modules/alias' }], [{ name: '.next/node_modules', type: '5' }], [{ name: '.next/node_modules/@napi-rs', type: '5' }], [{ name: 'unexpected' }],
   ])('refuses unsafe/link/special/duplicate/extension paths: %j', async (...entries) => {
     const args = await extraction(entries); await expect(extractQaArchive(args)).rejects.toThrow();
   });

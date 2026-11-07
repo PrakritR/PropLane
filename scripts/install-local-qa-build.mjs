@@ -1,3 +1,4 @@
+import { validateRuntimeAliases, bindRuntimeAlias } from './lib/local-qa-runtime-aliases.mjs';
 /** Authenticated, bounded install and per-run verification. No local compilation. */
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { constants, createReadStream } from 'node:fs';
@@ -93,7 +94,9 @@ async function validateManifest(manifest, root, sha, env) {
   const lockBytes = await readFile(path.join(root, 'package-lock.json')); const lock = JSON.parse(lockBytes);
   const localNext = JSON.parse(await readFile(path.join(root, 'node_modules/next/package.json'), 'utf8'));
   assert(manifest.lockfileSha256 === sha256(lockBytes) && typeof manifest.nextVersion === 'string' && manifest.nextVersion === localNext.version && localNext.name === 'next' && lock.packages?.['node_modules/next']?.version === manifest.nextVersion, 'Artifact dependency binding refused.');
-  assert(Array.isArray(manifest.immutableFiles) && manifest.immutableFiles.length > 0 && manifest.immutableFiles.length <= MAX_ENTRIES - 1 && manifest.fileCount === manifest.immutableFiles.length && Array.isArray(manifest.runtimeAliases) && manifest.runtimeAliases.length <= 2);
+  assert(Array.isArray(manifest.immutableFiles) && manifest.immutableFiles.length > 0 && manifest.immutableFiles.length <= MAX_ENTRIES - 1 && manifest.fileCount === manifest.immutableFiles.length);
+  manifest.runtimeAliases = validateRuntimeAliases(manifest.runtimeAliases);
+  for (const alias of manifest.runtimeAliases) await bindRuntimeAlias({ root, alias, allowMissingAliasParents: true });
   assert(JSON.stringify(manifest.excluded) === JSON.stringify(['.next/cache', '.next/dev', '.next/node_modules']) && manifest.runtime?.host === '127.0.0.1' && manifest.runtime.port === 3010 && manifest.runtime.maxOldSpaceSizeMiB === 512 && manifest.runtime.database === 'dev/test');
   let bytes = 0; const paths = new Set();
   for (const entry of manifest.immutableFiles) {
@@ -104,12 +107,9 @@ async function validateManifest(manifest, root, sha, env) {
 }
 async function verifyTree(root, manifest, allowAliases) {
   const expected = new Map(manifest.immutableFiles.map((entry) => [entry.path, entry]));
-  const aliases = new Map();
-  for (const alias of manifest.runtimeAliases) {
-    assert(typeof alias?.path === 'string' && /^\.next\/node_modules\/(pg|sharp)-[a-f0-9]{16}$/.test(alias.path) && alias.path.split('/')[2].startsWith(`${alias.package}-`) && ['pg', 'sharp'].includes(alias.package) && alias.target === `../../node_modules/${alias.package}` && !aliases.has(alias.path)); aliases.set(alias.path, alias);
-  }
+  const aliases = new Map(validateRuntimeAliases(manifest.runtimeAliases).map((alias) => [alias.path, alias]));
   const expectedDirectories = new Set(['.next']);
-  for (const name of [...expected.keys(), ...aliases.keys()]) {
+  for (const name of [...expected.keys(), ...(allowAliases ? aliases.keys() : [])]) {
     let parent = path.posix.dirname(name);
     while (parent !== '.') { expectedDirectories.add(parent); parent = path.posix.dirname(parent); }
   }
@@ -119,10 +119,7 @@ async function verifyTree(root, manifest, allowAliases) {
     const target = path.join(root, relative), info = await lstat(target);
     if (allowAliases && aliases.has(relative)) {
       const alias = aliases.get(relative); assert(info.isSymbolicLink() && await readlink(target) === alias.target);
-      const dependency = path.join(root, 'node_modules', alias.package); assert((await lstat(dependency)).isDirectory());
-      const pkg = JSON.parse(await readFile(path.join(dependency, 'package.json'), 'utf8'));
-      const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
-      assert(pkg.name === alias.package && pkg.version === alias.version && lock.packages?.[`node_modules/${alias.package}`]?.version === alias.version); seen.add(relative); return;
+      await bindRuntimeAlias({ root, alias }); seen.add(relative); return;
     }
     assert(!info.isSymbolicLink() && (info.isDirectory() || info.isFile()), 'Installed build links or special files refused.');
     // Cache is runtime mutable, never part of the executable inventory. Still reject links/special files.
@@ -131,7 +128,7 @@ async function verifyTree(root, manifest, allowAliases) {
       return;
     }
     if (info.isDirectory()) {
-      assert(expectedDirectories.has(relative) || relative === '.next/node_modules' && allowAliases, 'Unexpected installed directory.');
+      assert(expectedDirectories.has(relative), 'Unexpected installed directory.');
       for (const name of await readdir(target)) await visit(`${relative}/${name}`);
       return;
     }
