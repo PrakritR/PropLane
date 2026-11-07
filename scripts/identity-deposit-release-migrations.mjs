@@ -27,11 +27,11 @@ export function parseOptions(argv) {
   if (out.phase === "apply" && (!out.authorized || !/^[a-f0-9]{64}$/.test(out.postflightHash ?? "") || !out.backupFile)) throw new Error("Apply needs authorization, rehearsal postflight hash and backup path");
   if (out.phase !== "apply" && (out.authorized || out.postflightHash || out.backupFile)) throw new Error("Apply flags require apply phase");
   if (!["rehearsal", "apply"].includes(out.phase) && out.baseline) throw new Error("Baseline only applies to rehearsal or apply");
-  if (out.phase === "preflight" && !out.catalogFile) throw new Error("Preflight requires a private catalog artifact path");
-  if (out.phase !== "preflight" && out.catalogFile) throw new Error("Catalog artifact only applies to preflight");
+  if (["preflight", "rehearsal"].includes(out.phase) && !out.catalogFile) throw new Error("Preflight and rehearsal require a private catalog artifact path");
+  if (!["preflight", "rehearsal"].includes(out.phase) && out.catalogFile) throw new Error("Catalog artifact only applies to preflight or rehearsal");
   return out;
 }
-async function catalog(client, migrations, applied) {
+export async function catalog(client, migrations, applied) {
   const ledger = (await client.query("select version,name,statements from supabase_migrations.schema_migrations where version=any($1::text[]) or name=any($2::text[]) order by version", [migrations.map(m=>m.version), migrations.map(m=>m.name)])).rows;
   assertIdentityDepositLedger(ledger, migrations, applied);
   const prerequisites = (await client.query("select to_regclass('public.security_deposit_ledger') is not null deposit, to_regclass('public.manager_property_records') is not null property, to_regprocedure('public.account_recovery_write_guard()') is not null guard, to_regprocedure('public.account_recovery_capture_delete()') is not null capture")).rows[0];
@@ -39,11 +39,11 @@ async function catalog(client, migrations, applied) {
   const names = [...TABLES, "security_deposit_ledger"];
   const tables = (await client.query(`select c.relname name,c.relrowsecurity rls,
     has_table_privilege('anon',c.oid,'SELECT') anon_select, has_table_privilege('anon',c.oid,'INSERT') anon_insert,
-    has_table_privilege('anon',c.oid,'UPDATE') anon_update, has_table_privilege('anon',c.oid,'DELETE') anon_delete,
+    has_table_privilege('anon',c.oid,'UPDATE') anon_update, has_table_privilege('anon',c.oid,'DELETE') anon_delete, has_table_privilege('anon',c.oid,'TRUNCATE') anon_truncate, has_table_privilege('anon',c.oid,'REFERENCES') anon_references, has_table_privilege('anon',c.oid,'TRIGGER') anon_trigger,
     has_table_privilege('authenticated',c.oid,'SELECT') auth_select, has_table_privilege('authenticated',c.oid,'INSERT') auth_insert,
-    has_table_privilege('authenticated',c.oid,'UPDATE') auth_update, has_table_privilege('authenticated',c.oid,'DELETE') auth_delete,
+    has_table_privilege('authenticated',c.oid,'UPDATE') auth_update, has_table_privilege('authenticated',c.oid,'DELETE') auth_delete, has_table_privilege('authenticated',c.oid,'TRUNCATE') auth_truncate, has_table_privilege('authenticated',c.oid,'REFERENCES') auth_references, has_table_privilege('authenticated',c.oid,'TRIGGER') auth_trigger,
     has_table_privilege('service_role',c.oid,'SELECT') service_select, has_table_privilege('service_role',c.oid,'INSERT') service_insert,
-    has_table_privilege('service_role',c.oid,'UPDATE') service_update, has_table_privilege('service_role',c.oid,'DELETE') service_delete,
+    has_table_privilege('service_role',c.oid,'UPDATE') service_update, has_table_privilege('service_role',c.oid,'DELETE') service_delete, has_table_privilege('service_role',c.oid,'TRUNCATE') service_truncate, has_table_privilege('service_role',c.oid,'REFERENCES') service_references, has_table_privilege('service_role',c.oid,'TRIGGER') service_trigger,
     coalesce(c.relacl::text,'') acl from pg_class c join pg_namespace n on n.oid=c.relnamespace
     where n.nspname='public' and c.relname=any($1::text[]) and c.relkind in ('r','p') order by c.relname`, [names])).rows;
   const functions = (await client.query(`select p.proname name,oidvectortypes(p.proargtypes) arguments,pg_get_functiondef(p.oid) definition,
@@ -78,7 +78,7 @@ export function assertCatalog(state, applied) {
     if (targetTables.length || targets.length !== 1 || targets[0].name !== "commit_security_deposit_disposition" || targets[0].arguments !== SIGNATURES[0][1]) throw new Error("Unexpected existing target schema");
     return;
   }
-  if (targetTables.length !== TABLES.length || targetTables.some(t => !t.rls || ["select","insert","update","delete"].some(p=>t[`anon_${p}`] || !t[`service_${p}`]) || ["insert","update","delete"].some(p=>t[`auth_${p}`]) || t.auth_select !== t.name.startsWith("resident_"))) throw new Error("Table privilege or RLS mismatch");
+  if (targetTables.length !== TABLES.length || targetTables.some(t => !t.rls || ["select","insert","update","delete","truncate","references","trigger"].some(p=>t[`anon_${p}`] || !t[`service_${p}`]) || ["insert","update","delete","truncate","references","trigger"].some(p=>t[`auth_${p}`]) || t.auth_select !== t.name.startsWith("resident_"))) throw new Error("Table privilege or RLS mismatch");
   if (targets.length !== SIGNATURES.length) throw new Error("Function signature count differs");
   for (const [name,args] of SIGNATURES) {
     const f=targets.find(f=>f.name===name && f.arguments===args);
@@ -94,7 +94,9 @@ export function assertCatalog(state, applied) {
     ["resident_evidence_policies", "resident_evidence_policy_owner_read"],
   ];
   const targetPolicies=state.policies.filter(p=>TABLES.includes(p.table_name));
-  if (targetPolicies.length !== 5 || policyNames.some(([table,name])=>!targetPolicies.some(p=>p.table_name===table && p.name===name && p.cmd==="SELECT" && p.roles==="{authenticated}" && p.permissive==="PERMISSIVE" && p.with_check===null && !/\b(?:or|union|not)\b/i.test(p.qual ?? "") && (table === "resident_evidence_policies" ? /manager_property_records/.test(p.qual ?? "") && /manager_user_id\s*=\s*auth\.uid\(\)/.test(p.qual ?? "") && /p\.id\s*=\s*resident_evidence_policies\.property_id/.test(p.qual ?? "") : /^\(*resident_user_id\s*=\s*auth\.uid\(\)\)*$/.test(p.qual ?? ""))))) throw new Error("Owner read policy mismatch");
+  const evidenceQual = "(EXISTS ( SELECT 1 FROM manager_property_records p WHERE ((p.id = resident_evidence_policies.property_id) AND (p.manager_user_id = auth.uid()))))";
+  const normalizeQual = value => (value ?? "").replace(/\s+/g, "").toLowerCase();
+  if (targetPolicies.length !== 5 || policyNames.some(([table,name])=>!targetPolicies.some(p=>p.table_name===table && p.name===name && p.cmd==="SELECT" && p.roles==="{authenticated}" && p.permissive==="PERMISSIVE" && p.with_check===null && normalizeQual(p.qual) === normalizeQual(table === "resident_evidence_policies" ? evidenceQual : "(resident_user_id = auth.uid())")))) throw new Error("Owner read policy mismatch");
   for (const table of OWNED) for (const [name,type] of [["account_recovery_write_guard",31],["account_recovery_capture_delete",9]]) {
     const t=state.triggers.find(t=>t.table_name===table && t.name===name);
     if (!t || t.type!==type || t.enabled!=="O" || t.nargs!==0 || t.attributes!=="" || !t.unqualified || !t.unconstrained || t.function_name!==name || t.function_schema!=="public") throw new Error("Recovery trigger mismatch");
@@ -103,7 +105,7 @@ export function assertCatalog(state, applied) {
   if (!immutable || immutable.enabled!=="O" || immutable.type!==19 || immutable.function_name!=="prevent_resident_evidence_policy_update" || immutable.function_schema!=="public" || immutable.nargs!==0 || !immutable.unqualified || !immutable.unconstrained || immutable.attributes!=="") throw new Error("Evidence policy immutable trigger mismatch");
 }
 
-async function readOnly(client, migrations, applied) {
+export async function readOnly(client, migrations, applied) {
   await client.query("begin read only");
   try { await client.query("set local role postgres"); return await catalog(client, migrations, applied); }
   finally { await client.query("rollback").catch(()=>undefined); }
@@ -117,8 +119,8 @@ export async function transaction(client, migrations, options) {
     if (!(await client.query("select pg_try_advisory_xact_lock(20261106120000::bigint) acquired")).rows[0]?.acquired) throw new Error("Migration lock unavailable");
     if ((await catalog(client, migrations, false)).fingerprint !== options.baseline) throw new Error("Catalog differs from reviewed baseline");
     for (const m of migrations) { await client.query(m.sql); await client.query("insert into supabase_migrations.schema_migrations(version,name,statements) values($1,$2,$3)", [m.version,m.name,[m.sql]]); }
-    const post = (await catalog(client, migrations, true)).fingerprint;
-    if (options.phase === "apply" && post !== options.postflightHash) throw new Error("Postflight differs from reviewed rehearsal");
+    const post = await catalog(client, migrations, true);
+    if (options.phase === "apply" && post.fingerprint !== options.postflightHash) throw new Error("Postflight differs from reviewed rehearsal");
     if (options.phase === "apply") { committing = true; await client.query("commit"); } else await client.query("rollback");
     return post;
   } catch (error) { if (!committing) await client.query("rollback").catch(()=>undefined); throw error; }
@@ -153,11 +155,33 @@ async function main() {
     const post = await transaction(client, migrations, options);
     if (options.phase === "rehearsal") {
       if ((await readOnly(client, migrations, false)).fingerprint !== options.baseline) throw new Error("Rollback verification failed");
-      console.log(`target: ${options.target}\nphase: rehearsal\nrolledBack: true\npostflightHash: ${post}`); return;
+      const file = resolve(options.catalogFile); assertPrivateDirectory(file);
+      writeFileSync(file, JSON.stringify({ target: options.target, ref: options.confirmRef, baseline: options.baseline, fingerprint: post.fingerprint, catalog: post.state }, null, 2), { flag: "wx", mode: 0o600 });
+      console.log(`target: ${options.target}\nphase: rehearsal\nrolledBack: true\npostflightHash: ${post.fingerprint}`); return;
     }
     await client.end(); client = await connect(config);
-    if ((await readOnly(client, migrations, true)).fingerprint !== post) throw new Error("Committed postflight differs; inspect before retry");
-    console.log(`target: ${options.target}\nphase: apply\noutcome: committed_and_verified\nfingerprint: ${post}`);
+    if ((await readOnly(client, migrations, true)).fingerprint !== post.fingerprint) throw new Error("Committed postflight differs; inspect before retry");
+    console.log(`target: ${options.target}\nphase: apply\noutcome: committed_and_verified\nfingerprint: ${post.fingerprint}`);
   } finally { await client.end().catch(()=>undefined); }
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main().catch((error)=>{ const safe = error instanceof Error && /^(Unknown flag|Duplicate flag|Target and exact|Reviewed baseline|Apply needs|Apply flags|Baseline only|Preflight requires|Catalog artifact|Release phases|Catalog directory|Unexpected existing target|Prerequisite missing|Migration source changed)/.test(error.message) ? error.message : "Operation failed; inspect the target and backup before retry"; console.log(`error: ${safe}\n${HELP}`); process.exitCode=1; });
+const SAFE_ERRORS = new Set([
+  "Duplicate flag", "Unknown flag or missing value", "Target and exact confirmation reference required",
+  "Reviewed baseline fingerprint required", "Apply needs authorization, rehearsal postflight hash and backup path",
+  "Apply flags require apply phase", "Baseline only applies to rehearsal or apply",
+  "Preflight and rehearsal require a private catalog artifact path", "Catalog artifact only applies to preflight or rehearsal",
+  "Release phases are disabled pending independent catalog review", "Artifact directory must be private",
+  "Prerequisite missing", "Unexpected existing target schema", "Table privilege or RLS mismatch",
+  "Function signature count differs", "Expected function signature missing", "Function security mismatch",
+  "Retired function remains callable", "Owner read policy mismatch", "Recovery trigger mismatch",
+  "Evidence policy immutable trigger mismatch", "Migration lock unavailable", "Catalog differs from reviewed baseline",
+  "Postflight differs from reviewed rehearsal", "Backup permissions mismatch", "Rollback verification failed",
+  "Committed postflight differs; inspect before retry", "Credential bootstrap failed", "Credential shape invalid",
+  "Credential target mismatch", "Database TLS root changed", "Database identity/role mismatch", "Database backup failed",
+  "Database backup archive invalid",
+]);
+export function safeErrorMessage(error) {
+  const message = error instanceof Error ? error.message : "";
+  if (SAFE_ERRORS.has(message) || /^(?:Migration source changed|Unexpected migration ledger entry|Migration ledger differs): [0-9]{14}$/.test(message)) return message;
+  return "Operation failed; inspect the target and backup before retry";
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main().catch((error)=>{ console.log(`error: ${safeErrorMessage(error)}\n${HELP}`); process.exitCode=1; });

@@ -2,7 +2,7 @@ import { mkdtempSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { assertCatalog, assertPrivateDirectory, parseOptions, transaction } from "../../scripts/identity-deposit-release-migrations.mjs";
+import { assertCatalog, assertPrivateDirectory, parseOptions, transaction, safeErrorMessage } from "../../scripts/identity-deposit-release-migrations.mjs";
 
 const ref = "xwszcafaontidfgznlxd";
 const base = ["--target", "staging", "--confirm-ref", ref];
@@ -25,6 +25,10 @@ describe("release transport refusal", () => {
     expect(() => assertCatalog({ ...state, tables: [{ name: "security_deposit_return_attempts" }] }, false)).toThrow();
     expect(() => assertCatalog({ ...state, prerequisites: { deposit: false } }, false)).toThrow();
   });
+  it("reports bounded refusals but never passes raw database errors", () => {
+    expect(safeErrorMessage(new Error("Owner read policy mismatch"))).toBe("Owner read policy mismatch");
+    expect(safeErrorMessage(new Error("password=secret in driver output"))).not.toContain("secret");
+  });
   it("rolls back a failed lock before any migration executes", async () => {
     const calls: string[] = [];
     const client = { query: async (query: string) => { calls.push(query); return { rows: query.includes("pg_try_advisory") ? [{ acquired: false }] : [] }; } };
@@ -37,7 +41,7 @@ describe("release transport refusal", () => {
 describe("postflight drift", () => {
   function validCatalog() {
     const owned = ["resident_identity_subjects", "resident_identity_inquiries", "resident_identity_webhook_events", "resident_identity_manual_reviews", "resident_evidence_policies", "security_deposit_return_attempts"];
-    const tables = [...owned, "security_deposit_unmatched_refunds"].map(name => ({ name, rls: true, anon_select: false, anon_insert: false, anon_update: false, anon_delete: false, auth_select: name.startsWith("resident_"), auth_insert: false, auth_update: false, auth_delete: false, service_select: true, service_insert: true, service_update: true, service_delete: true }));
+    const tables = [...owned, "security_deposit_unmatched_refunds"].map(name => ({ name, rls: true, anon_select: false, anon_insert: false, anon_update: false, anon_delete: false, auth_select: name.startsWith("resident_"), auth_insert: false, auth_update: false, auth_delete: false, auth_truncate: false, auth_references: false, auth_trigger: false, anon_truncate: false, anon_references: false, anon_trigger: false, service_truncate: true, service_references: true, service_trigger: true, service_select: true, service_insert: true, service_update: true, service_delete: true }));
     const signatures = [
       ["commit_security_deposit_disposition", "uuid, uuid, bigint, bigint, bigint, text, date, jsonb, text, jsonb"],
       ["commit_security_deposit_disposition_unreserved", "uuid, uuid, bigint, bigint, bigint, text, date, jsonb, text, jsonb"],
@@ -51,7 +55,7 @@ describe("postflight drift", () => {
       ["resident_identity_subjects", "resident_identity_subject_owner_read"], ["resident_identity_inquiries", "resident_identity_inquiry_owner_read"],
       ["resident_identity_webhook_events", "resident_identity_event_owner_read"], ["resident_identity_manual_reviews", "resident_identity_review_owner_read"],
       ["resident_evidence_policies", "resident_evidence_policy_owner_read"],
-    ].map(([table_name,name]) => ({ table_name,name,cmd:"SELECT",roles:"{authenticated}",permissive:"PERMISSIVE",with_check:null,qual: table_name === "resident_evidence_policies" ? "EXISTS (SELECT 1 FROM manager_property_records p WHERE p.id = resident_evidence_policies.property_id AND p.manager_user_id = auth.uid())" : "(resident_user_id = auth.uid())" }));
+    ].map(([table_name,name]) => ({ table_name,name,cmd:"SELECT",roles:"{authenticated}",permissive:"PERMISSIVE",with_check:null,qual: table_name === "resident_evidence_policies" ? "(EXISTS ( SELECT 1 FROM manager_property_records p WHERE ((p.id = resident_evidence_policies.property_id) AND (p.manager_user_id = auth.uid()))))" : "(resident_user_id = auth.uid())" }));
     const triggers = owned.flatMap(table_name => [["account_recovery_write_guard",31],["account_recovery_capture_delete",9]].map(([name,type]) => ({ table_name,name,type,enabled:"O",nargs:0,attributes:"",unqualified:true,unconstrained:true,function_name:name,function_schema:"public" })));
     triggers.push({ table_name:"resident_evidence_policies",name:"resident_evidence_policy_immutable",type:19,enabled:"O",nargs:0,attributes:"",unqualified:true,unconstrained:true,function_name:"prevent_resident_evidence_policy_update",function_schema:"public" });
     return { prerequisites: { deposit:true }, tables, functions, policies, triggers };
@@ -60,6 +64,9 @@ describe("postflight drift", () => {
     const state=validCatalog(); expect(() => assertCatalog(state,true)).not.toThrow();
     for (const mutate of [
       (s: ReturnType<typeof validCatalog>) => { s.tables[0].service_delete=false; },
+      (s: ReturnType<typeof validCatalog>) => { s.tables[0].anon_truncate=true; },
+      (s: ReturnType<typeof validCatalog>) => { s.tables[0].auth_references=true; },
+      (s: ReturnType<typeof validCatalog>) => { s.tables[0].service_trigger=false; },
       (s: ReturnType<typeof validCatalog>) => { s.functions[0].auth_execute=true; },
       (s: ReturnType<typeof validCatalog>) => { s.functions[0].arguments="wrong"; },
       (s: ReturnType<typeof validCatalog>) => { s.policies[0].qual="true"; },
