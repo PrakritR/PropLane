@@ -7,6 +7,7 @@ import dotenv from "dotenv";
 import { stopOwnedChild } from "./signup-proof-process.mjs";
 import { preflightSignupCleanup } from "../../../scripts/signup-proof-cleanup-preflight.mjs";
 import { encryptionKeyBytes } from "../../../scripts/package-local-qa-build.mjs";
+import { verifyInstalledQaBuild } from "../../../scripts/install-local-qa-build.mjs";
 encryptionKeyBytes(process.env.QA_ARTIFACT_ENCRYPTION_KEY);
 const origin = process.env.NEXT_PUBLIC_APP_URL;
 const dir = process.env.AUTH_PROOF_CAPTURE_DIR;
@@ -25,6 +26,8 @@ for (const key of Object.keys(env)) if (/^(TWILIO_|CLAW_)/.test(key)) keys.add(k
 for (const key of keys) env[key] = "";
 delete env.NODE_OPTIONS;
 delete env.QA_ARTIFACT_ENCRYPTION_KEY;
+delete env.QA_ARTIFACT_ENCRYPTION_KEY_FILE;
+delete env.SIGNUP_PROOF_PREBUILT_RECEIPT;
 delete env.SIGNUP_PROOF_OBSERVER_URL;
 delete env.SUPABASE_ACCESS_TOKEN;
 let child;
@@ -42,9 +45,15 @@ function assertOwnedPortClosed() {
 await assertOwnedPortClosed();
 await preflightSignupCleanup();
 try {
+if (process.env.SIGNUP_PROOF_PREBUILT_RECEIPT) {
+  if (origin !== 'http://localhost:3010' || process.env.PLAYWRIGHT_SKIP_WEBSERVER) throw new Error('Prebuilt signup origin refused.');
+  await verifyInstalledQaBuild({ root: repo, receiptPath: process.env.SIGNUP_PROOF_PREBUILT_RECEIPT, encryptionKey: process.env.QA_ARTIFACT_ENCRYPTION_KEY });
+} else {
 const build = await run(["--max-old-space-size=6144", "node_modules/next/dist/bin/next", "build"]);
 if (stopping || build.code !== 0) throw new Error("Signup proof server build failed.");
-child = spawn(process.execPath, ["--import", path.resolve("tests/e2e/support/no-delivery-preload.mjs"), "node_modules/next/dist/bin/next", "start", "-p", new URL(origin).port, "-H", "127.0.0.1"], { env, stdio: "inherit", detached: true });
+}
+if (stopping) throw new Error('Signup proof server stopped before startup.');
+child = spawn(process.execPath, ["--max-old-space-size=512", "--import", path.resolve("tests/e2e/support/no-delivery-preload.mjs"), "node_modules/next/dist/bin/next", "start", "-p", new URL(origin).port, "-H", "127.0.0.1"], { env, stdio: "inherit", detached: true });
 let exited = false;
 const exit = new Promise((resolve) => { child.once("exit", (code, signal) => { exited = true; resolve({ code, signal }); }); });
 for (let attempt = 0; attempt < 100; attempt++) {

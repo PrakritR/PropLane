@@ -347,3 +347,57 @@ describe("replying keeps authorize-then-append", () => {
     await waitFor(() => expect(screen.getAllByText("It is due on the 1st.").length).toBeGreaterThan(0));
   });
 });
+
+describe("admin compose recipient request lifecycle", () => {
+  const directory = { managers: [{ id: "manager-1", name: "Directory manager", email: "manager@example.test" }], residents: [] };
+  function delayDirectory() {
+    let resolve!: (response: Response) => void;
+    const pending = new Promise<Response>((done) => { resolve = done; });
+    fetchMock.mockImplementation((url: string) => String(url).includes("/api/admin/portal-users")
+      ? pending.then((response) => response.clone()) : Promise.resolve(Response.json({ residents: [], messages: [], rows: [] })));
+    return resolve;
+  }
+  it("populates delayed recipients without resetting the typed draft or audience", async () => {
+    const resolve = delayDirectory();
+    render(<AdminCommunication />);
+    fireEvent.click(screen.getByRole("button", { name: "New message" }));
+    await screen.findByText("Loading recipients…");
+    fireEvent.change(screen.getByPlaceholderText("Subject"), { target: { value: "Keep my subject" } });
+    fireEvent.change(screen.getByPlaceholderText(/write your message/i), { target: { value: "Keep my message" } });
+    expect((screen.getByRole("button", { name: "Send message", exact: true }) as HTMLButtonElement).disabled).toBe(true);
+    resolve(Response.json(directory));
+    await screen.findAllByText("Directory manager");
+    expect((screen.getByPlaceholderText("Subject") as HTMLInputElement).value).toBe("Keep my subject");
+    expect((screen.getByPlaceholderText(/write your message/i) as HTMLTextAreaElement).value).toBe("Keep my message");
+    await waitFor(() => expect((screen.getByRole("button", { name: "Send message", exact: true }) as HTMLButtonElement).disabled).toBe(false));
+  });
+  it("exposes a failed read for explicit retry without a request loop", async () => {
+    let reads = 0;
+    fetchMock.mockImplementation((url: string) => {
+      if (String(url).includes("/api/admin/portal-users")) {
+        reads += 1;
+        return Promise.resolve(reads === 1 ? Response.json({}, { status: 500 }) : Response.json(directory));
+      }
+      return Promise.resolve(Response.json({ residents: [], messages: [], rows: [] }));
+    });
+    render(<AdminCommunication />);
+    fireEvent.click(screen.getByRole("button", { name: "New message" }));
+    const retry = await screen.findByRole("button", { name: "Retry recipients" });
+    expect(reads).toBe(1);
+    fireEvent.click(retry);
+    await screen.findAllByText("Directory manager");
+    expect(reads).toBe(2);
+  });
+  it("ignores a closed request and reads again when reopened", async () => {
+    const resolve = delayDirectory();
+    render(<AdminCommunication />);
+    fireEvent.click(screen.getByRole("button", { name: "New message" }));
+    await screen.findByText("Loading recipients…");
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close", exact: true }));
+    resolve(Response.json(directory));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "New message" }));
+    await screen.findAllByText("Directory manager");
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/api/admin/portal-users"))).toHaveLength(2);
+  });
+});

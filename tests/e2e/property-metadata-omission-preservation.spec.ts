@@ -6,7 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { test, expect, type Page, type Request } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { signInAsManager } from "../helpers/auth";
+import { signInWritableSoftwareManager } from "../helpers/owned-manager-workspace-e2e";
 import { E2E_ACCOUNTS } from "../fixtures";
 
 const enabled = process.env.E2E_TESTS_ENABLED === "1";
@@ -247,7 +247,7 @@ test.describe("property metadata omission preservation", () => {
     const { data: manager, error: managerError } = await db
       .from("profiles")
       .select("id")
-      .eq("email", E2E_ACCOUNTS.manager.email)
+      .eq("email", E2E_ACCOUNTS.manager2.email)
       .maybeSingle();
     if (managerError || !manager?.id) throw new Error("Seeded manager must exist in the dev/test project.");
     const managerId = String(manager.id);
@@ -259,7 +259,7 @@ test.describe("property metadata omission preservation", () => {
     try {
       // Authenticate before the fixture exists so sign-in hydration cannot
       // mirror it before the exact request/response observers are attached.
-      await signInAsManager(page);
+      await signInWritableSoftwareManager(page);
       const priorWorkspace = await page.request.get("/api/workspaces");
       if (!priorWorkspace.ok()) throw new Error(`Property fixture could not read the active workspace: HTTP ${priorWorkspace.status()}`);
       const priorPayload = await priorWorkspace.json() as { activeWorkspaceId?: unknown };

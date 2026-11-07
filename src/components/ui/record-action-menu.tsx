@@ -225,6 +225,7 @@ export function RecordActionMenu({ label, activate, disabled = false, onOpen }: 
   const [openScope, setOpenScope] = useState<string | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const actionClosingRef = useRef(false);
+  const sheetBackdropDismissRef = useRef(false);
   const openedAtRef = useRef(0);
   // True from the trigger's pointerdown until its pointerup (or a press inside the menu). Opening the menu
   // selects the row (`activate`), which can reflow the list so the menu lands UNDER the still-held pointer;
@@ -280,6 +281,7 @@ export function RecordActionMenu({ label, activate, disabled = false, onOpen }: 
     <DropdownMenu modal={false} open={open} onOpenChange={(next) => {
       if (next) {
         actionClosingRef.current = false;
+        sheetBackdropDismissRef.current = false;
         openedAtRef.current = Date.now();
         flushSync(() => context.clear());
         if (!disabled) flushSync(activate);
@@ -292,7 +294,22 @@ export function RecordActionMenu({ label, activate, disabled = false, onOpen }: 
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        onCloseAutoFocus={(event) => { if (actionClosingRef.current) event.preventDefault(); }}
+        onInteractOutside={(event) => {
+          sheetBackdropDismissRef.current = event.target instanceof Element &&
+            Boolean(event.target.closest("[data-menu-sheet-backdrop]"));
+        }}
+        onCloseAutoFocus={(event) => {
+          if (actionClosingRef.current) {
+            event.preventDefault();
+            return;
+          }
+          if (!event.defaultPrevented && sheetBackdropDismissRef.current) {
+            event.preventDefault();
+            const trigger = triggerRef.current;
+            if (trigger?.isConnected && !trigger.disabled) trigger.focus();
+          }
+          sheetBackdropDismissRef.current = false;
+        }}
         onPointerDownCapture={() => { triggerHeldRef.current = false; strayReleaseRef.current = false; }}
         onPointerUpCapture={() => { strayReleaseRef.current = triggerHeldRef.current; triggerHeldRef.current = false; }}
         onClickCapture={(event) => {

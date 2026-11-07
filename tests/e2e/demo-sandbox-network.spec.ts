@@ -88,8 +88,21 @@ test.describe("public software demo isolation", () => {
     }
   });
 
-  test("phone viewport renders the three current software portal cards without loading a hidden embed", async ({ page }) => {
+  test("phone viewport keeps Software hidden without loading a demo or private request", async ({ page }) => {
+    const demoRequests: string[] = [];
+    page.on("request", (request) => {
+      const pathname = new URL(request.url()).pathname;
+      if (pathname.startsWith("/demo") || isBannedRequest(request.url(), request.method())) demoRequests.push(pathname);
+    });
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/");
+    await expect(page.locator("#dashboard")).toBeHidden();
+    await expect(page.locator('iframe[title="PropLane portal demo"]')).toHaveCount(0);
+    expect(demoRequests).toEqual([]);
+  });
+
+  test("tablet viewport renders the three current software portal cards without an embed", async ({ page }) => {
+    await page.setViewportSize({ width: 768, height: 1024 });
     await page.goto("/");
     await page.locator("#dashboard").scrollIntoViewIfNeeded();
     for (const label of ["Resident", "Property", "Vendor"]) {

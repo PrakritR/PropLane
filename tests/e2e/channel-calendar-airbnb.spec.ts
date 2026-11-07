@@ -1,8 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
-import { E2E_ACCOUNTS } from "../fixtures";
-import { signIn, establishActivePortal } from "../helpers/auth";
+import { signInWritableSoftwareManager } from "../helpers/owned-manager-workspace-e2e";
 
-const QA_PROPERTY_ID = "mgr-demo-emerald";
+const QA_PROPERTY_ID = "mgr-test-magnolia";
 
 const BOOKING_CALENDARS_PATH = `/portal/properties/listed/${encodeURIComponent(QA_PROPERTY_ID)}/bookings`;
 
@@ -16,11 +15,11 @@ async function openAirbnbFromBookings(page: Page) {
   await expect(page.getByRole("heading", { name: "Connect Airbnb", exact: true })).toBeVisible();
 }
 
-function emeraldRoom(page: Page) {
-  // The seed names mgr-demo-emerald "Emerald Court" and room-1 "Unit 3".
-  return page.getByRole("region", { name: "Emerald Court", exact: true })
+function softwareFixtureRoom(page: Page) {
+  // The seed names mgr-test-magnolia "Magnolia House — 5 rooms" and room-1 "Room 1".
+  return page.getByRole("region", { name: "Magnolia House — 5 rooms", exact: true })
     .locator('[data-attr="channel-calendar-room-row"]')
-    .filter({ has: page.getByText("Unit 3", { exact: true }) });
+    .filter({ has: page.getByText("Room 1", { exact: true }) });
 }
 
 /**
@@ -34,38 +33,33 @@ function emeraldRoom(page: Page) {
  */
 test.describe("Channel calendars (Airbnb iCal)", () => {
   test("manager can reach Link calendars from the property Bookings tab", async ({ page }) => {
-    await signIn(
-      page,
-      E2E_ACCOUNTS.manager.email,
-      E2E_ACCOUNTS.manager.password,
-      BOOKING_CALENDARS_PATH,
-    );
-    await establishActivePortal(
-      page,
-      "manager",
-      BOOKING_CALENDARS_PATH,
-    );
+    await signInWritableSoftwareManager(page);
 
     await page.goto(BOOKING_CALENDARS_PATH, { waitUntil: "domcontentloaded" });
 
     await openAirbnbFromBookings(page);
 
-    const room = emeraldRoom(page);
+    const room = softwareFixtureRoom(page);
     await expect(room).toHaveCount(1);
     await expect(room.getByRole("textbox", { name: /Airbnb calendar link/ })).toBeVisible();
     await expect(page.locator('[data-attr="channel-calendar-link-save"]')).toBeVisible();
   });
 
   test("link a room and round-trip its export URL", async ({ page }) => {
-    await signIn(page, E2E_ACCOUNTS.manager.email, E2E_ACCOUNTS.manager.password, "/portal/dashboard");
-    await establishActivePortal(page, "manager", "/portal/dashboard");
+    await signInWritableSoftwareManager(page);
 
+    const prior = await page.request.get(`/api/portal/channel-calendar/connections?propertyId=${QA_PROPERTY_ID}`);
+    expect(prior.ok()).toBe(true);
+    const priorBody = await prior.json() as { connections: { propertyId: string; roomId: string }[] };
+    expect(priorBody.connections.filter((connection) => connection.propertyId === QA_PROPERTY_ID && connection.roomId === "room-1"), "Do not overwrite an existing shared fixture connection").toHaveLength(0);
+    let createdConnectionId: string | undefined;
+    try {
     await page.goto(BOOKING_CALENDARS_PATH, { waitUntil: "domcontentloaded" });
 
     await openAirbnbFromBookings(page);
 
-    // The current dialog lists each writable room; scope the change to Emerald's Unit 3.
-    const room = emeraldRoom(page);
+    // The current dialog lists each writable room; scope the change to Magnolia's Room 1.
+    const room = softwareFixtureRoom(page);
     await expect(room).toHaveCount(1);
     const importLink = room.getByRole("textbox", { name: /Airbnb calendar link/ });
     await expect(importLink).toBeEnabled();
@@ -79,8 +73,10 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
     await page.locator('[data-attr="channel-calendar-link-save"]').click();
     const saved = await savedResponse;
     expect(saved.ok()).toBe(true);
-    const savedBody = await saved.json() as { results: { ok: boolean; connection?: { propertyId: string; roomId: string; hasImportUrl: boolean } }[] };
+    const savedBody = await saved.json() as { results: { ok: boolean; connection?: { id: string; propertyId: string; roomId: string; hasImportUrl: boolean } }[] };
+    createdConnectionId = savedBody.results[0]?.connection?.id;
     expect(savedBody.results).toHaveLength(1);
+    expect(createdConnectionId).toBeTruthy();
     expect(savedBody.results[0].ok).toBe(true);
     expect(savedBody.results[0].connection?.propertyId).toBe(QA_PROPERTY_ID);
     expect(savedBody.results[0].connection?.hasImportUrl).toBe(true);
@@ -103,5 +99,15 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
     }, { propertyId: QA_PROPERTY_ID, roomId: savedRoomId });
 
     expect(exportRes.ok, JSON.stringify(exportRes)).toBe(true);
+    } finally {
+      if (createdConnectionId) {
+        const removed = await page.request.delete(`/api/portal/channel-calendar/connections?id=${encodeURIComponent(createdConnectionId)}`);
+        expect(removed.ok(), "Remove only this test-created connection").toBe(true);
+        const remaining = await page.request.get(`/api/portal/channel-calendar/connections?propertyId=${QA_PROPERTY_ID}`);
+        expect(remaining.ok()).toBe(true);
+        const body = await remaining.json() as { connections: { id: string }[] };
+        expect(body.connections.some((connection) => connection.id === createdConnectionId)).toBe(false);
+      }
+    }
   });
 });

@@ -7,7 +7,7 @@
  * portal spec here.
  */
 import { test, expect, type Request } from "@playwright/test";
-import { signInAsManager } from "../helpers/auth";
+import { signInWritableSoftwareManager } from "../helpers/owned-manager-workspace-e2e";
 
 const enabled = process.env.E2E_TESTS_ENABLED === "1";
 
@@ -50,7 +50,9 @@ test.describe("listing editor — save on close, no typing timer", () => {
   }) => {
     const marker = `Close-save QA ${Date.now()}`;
 
-    await signInAsManager(page);
+    await signInWritableSoftwareManager(page);
+    let savedDraftId: string | undefined;
+    try {
     await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
 
     // Open the editor via the primary Create action.
@@ -87,6 +89,7 @@ test.describe("listing editor — save on close, no typing timer", () => {
     await page.getByRole("button", { name: /^Close$/ }).click();
     const savedDraft = propertyWriteBody(await closeWrite);
     const draftId = typeof savedDraft?.id === "string" ? savedDraft.id : "";
+    savedDraftId = draftId || undefined;
     expect(draftId, "close write must carry the persisted draft id").not.toBe("");
     await expect(nameField).not.toBeVisible();
     // Give any (unwanted) extra writes a moment to arrive, then assert one.
@@ -101,5 +104,15 @@ test.describe("listing editor — save on close, no typing timer", () => {
     // The draft is in Drafts, carrying the text that was typed.
     await page.goto("/portal/properties/drafts", { waitUntil: "domcontentloaded" });
     await expect(page.getByText(marker).first()).toBeVisible({ timeout: 30_000 });
+    await page.goto(`/portal/properties/drafts/${encodeURIComponent(draftId)}/preview`, { waitUntil: "domcontentloaded" });
+    await page.locator('[data-attr="listing-edit-full"]').first().click();
+    await expect(page.getByPlaceholder("Magnolia House")).toHaveValue(marker);
+    } finally {
+      if (savedDraftId) {
+        await page.goto("/portal/dashboard", { waitUntil: "domcontentloaded" });
+        const removed = await page.request.post("/api/property-records", { data: { action: "delete", id: savedDraftId } });
+        expect(removed.ok(), "Remove only this test-created draft").toBe(true);
+      }
+    }
   });
 });

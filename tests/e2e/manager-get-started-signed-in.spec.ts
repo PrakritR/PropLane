@@ -122,7 +122,11 @@ test.describe('"Get started" while signed in', () => {
     await page.goto("/");
     const cta = page.getByRole("link", { name: /start free/i }).first();
     // This manager CTA declares the role explicitly.
-    await expect(cta).toHaveAttribute("href", "/auth/create-account?mode=create&role=manager");
+    const destination = new URL((await cta.getAttribute("href"))!, page.url());
+    expect(destination.pathname).toBe("/auth/create-account");
+    expect(destination.searchParams.get("mode")).toBe("create");
+    expect(destination.searchParams.get("role")).toBe("manager");
+    expect(destination.searchParams.get("tier")).toBe("free");
     const [response] = await Promise.all([
       page.waitForNavigation({ waitUntil: "domcontentloaded" }),
       cta.click(),
@@ -131,7 +135,10 @@ test.describe('"Get started" while signed in', () => {
     const chain = redirectChain(response, page.url());
     // No silent bounce to a portal — the create surface always loads.
     expect(chain.join(" -> ")).not.toMatch(/\/portal/);
-    expect(new URL(page.url()).pathname).toBe("/auth/create-account");
+    const reached = new URL(page.url());
+    expect(reached.pathname).toBe("/auth/create-account");
+    expect(reached.searchParams.get("role")).toBe("manager");
+    expect(reached.searchParams.get("tier")).toBe("free");
 
     // The declared manager intent opens the current account form directly.
     await expectManagerCreateForm(page, { signedIn: true });

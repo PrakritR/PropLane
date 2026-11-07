@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { signInAsManager } from "../helpers/auth";
-import { selectOwnedManagerWorkspace, expectOwnedWorkspaceReady } from "../helpers/owned-manager-workspace-e2e";
+import { CANONICAL_RESIDENT_TOUR } from "../helpers/seed-canonical-resident-tour.mjs";
+import { signInWritableSoftwareManager, expectOwnedWorkspaceReady } from "../helpers/owned-manager-workspace-e2e";
 
 test("assistant reply composer stays clickable above phone navigation with a portal banner", async ({ page }) => {
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Requires the seeded dev/test manager");
@@ -35,19 +36,18 @@ test("assistant reply composer stays clickable above phone navigation with a por
 
 test("resident reply composer supports draft controls at every target width", async ({ page }) => {
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Requires the seeded dev/test manager");
-  await signInAsManager(page);
-  const workspace = await selectOwnedManagerWorkspace(page);
+  const workspace = await signInWritableSoftwareManager(page);
   await page.goto("/portal/communication/active");
   await expectOwnedWorkspaceReady(page, workspace);
 
-  // test:seed creates this exact single-owner resident and its inbox thread.
-  // The primary resident is shared across other journeys and is not isolated.
+  // The bounded tour prerequisite creates this exact manager2 conversation.
+  // The resident may hold other tours; only this owned thread is the fixture.
   const inbox = await page.request.get("/api/portal-inbox-threads?scope=manager");
   expect(inbox.ok()).toBe(true);
-  const payload = await inbox.json() as { rows?: { email: string; from: string }[] };
-  const fixtureThread = payload.rows?.find((row) => row.email === "jordan.lee.workflow@test.proplane.local");
+  const payload = await inbox.json() as { rows?: { id: string; email: string; from: string }[] };
+  const fixtureThread = payload.rows?.find((row) => row.id === CANONICAL_RESIDENT_TOUR.managerThreadId && row.email === CANONICAL_RESIDENT_TOUR.residentEmail);
   expect(fixtureThread, "Owned seeded resident conversation must be present").toBeTruthy();
-  expect(fixtureThread!.from).toBe("Jordan Lee");
+  expect(fixtureThread!.from).toBeTruthy();
   const conversationLabel = fixtureThread!.from;
   const residentRow = page.locator(".portal-inbox-row").filter({ hasText: conversationLabel }).getByRole("button").first();
   await expect(residentRow).toBeVisible();

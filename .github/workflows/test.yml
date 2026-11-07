@@ -221,7 +221,7 @@ jobs:
           name: signup-proof-reconciliation-encrypted
           path: ${{ env.SIGNUP_PROOF_RECOVERY_FILE }}
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 14
       - name: Run property metadata E2E scope
         if: github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'property_metadata'
         run: npx playwright test tests/e2e/property-metadata-omission-preservation.spec.ts
@@ -310,7 +310,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Bind local QA build origin
-        if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919'
+        if: success() && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/akhil/test-workspace-release-20260919' || github.ref == 'refs/heads/agent/assistant-chrome-polish')
         run: echo "NEXT_PUBLIC_APP_URL=http://localhost:3010" >> "$GITHUB_ENV"
       # The type gate, on its own process. This project's check needs the full
       # 6 GB heap `typecheck` gives it; inside `next build` it gets that heap in a
@@ -335,15 +335,17 @@ jobs:
         if: success() && github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'property_metadata'
         run: npm run ship:preflight
       - name: Package encrypted local QA build
-        if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919'
+        if: success() && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/akhil/test-workspace-release-20260919' || github.ref == 'refs/heads/agent/assistant-chrome-polish')
         run: node scripts/package-local-qa-build.mjs
         env:
           # This is the only server-only input passed to the build above. Public
           # URL/anon inputs are intentionally public and are not scan targets.
           QA_BUILD_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
           QA_ARTIFACT_ENCRYPTION_KEY: ${{ secrets.PROPLANE_LOCAL_QA_ARTIFACT_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
       - name: Upload encrypted local QA build
-        if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919'
+        if: success() && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/akhil/test-workspace-release-20260919' || github.ref == 'refs/heads/agent/assistant-chrome-polish')
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: local-qa-build-${{ github.sha }}

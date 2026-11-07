@@ -35,12 +35,12 @@ test.describe("UI consistency — authenticated portal shell", () => {
 
   test("portal payments section renders without legacy empty state", async ({ page }) => {
     await page.goto("/portal/payments");
-    await expect(page.getByRole("heading", { name: /^payments$/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Incoming payments", exact: true })).toBeVisible();
     await expect(page.locator("main")).toBeVisible();
   });
 });
 
-test.describe("UI consistency — dark mode portal routes", () => {
+test.describe("UI consistency — stored dark preference with light-only product", () => {
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
   test.use({ storageState: path.join(__dirname, "../.auth/manager.json") });
@@ -54,11 +54,20 @@ test.describe("UI consistency — dark mode portal routes", () => {
   const routes = ["/portal/communication/active", "/portal/payments", "/portal/services/requests"] as const;
 
   for (const route of routes) {
-    test(`${route} renders in dark mode`, async ({ page }) => {
+    test(`${route} forces light mode after reload despite a stored dark preference`, async ({ page }) => {
       await page.goto(route);
       await expect(page.getByRole("heading").first()).toBeVisible();
-      const theme = await page.evaluate(() => document.documentElement.getAttribute("data-theme"));
-      expect(theme).toBe("dark");
+      await page.reload();
+      await expect(page.getByRole("heading").first()).toBeVisible();
+      await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+      expect(await page.locator("html").evaluate((root) => getComputedStyle(root).colorScheme)).toBe("light");
+      const control = page.locator("main").getByRole("button").first();
+      await expect(control).toBeVisible();
+      const colors = await control.evaluate((element) => ({
+        foreground: getComputedStyle(element).color,
+        background: getComputedStyle(document.body).backgroundColor,
+      }));
+      expect(colors.foreground).not.toBe(colors.background);
     });
   }
 });

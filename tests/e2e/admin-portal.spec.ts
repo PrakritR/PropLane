@@ -67,10 +67,28 @@ test.describe("Admin portal", () => {
   });
 
   test("unified inbox archives a message and Delete all archived empties it", async ({ page }) => {
-    // Keep the compose flow from delivering to real recipient inboxes/push devices.
-    await page.route("**/api/portal/send-inbox-message", (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) }),
-    );
+    // This chrome test uses a browser-local mailbox. No shared archived row can
+    // be deleted, and the oversight query must never escape the send interceptor.
+    let interceptedSends = 0;
+    let mailbox: Record<string, unknown>[] = [];
+    await page.route((url) => url.pathname === "/api/portal/send-inbox-message", (route) => {
+      expect(route.request().method()).toBe("POST");
+      const payload = route.request().postDataJSON();
+      expect(payload.deliverViaEmail).toBe(false);
+      expect(payload.toUserIds.length).toBeGreaterThan(0);
+      interceptedSends += 1;
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
+    });
+    await page.route((url) => url.pathname === "/api/portal-inbox-threads", (route) => {
+      if (route.request().method() === "POST") {
+        const payload = route.request().postDataJSON();
+        if (payload.action === "replace") mailbox = payload.rows;
+        else if (payload.action === "deleteIds") mailbox = mailbox.filter((row) => !payload.ids.includes(row.id));
+        else throw new Error("Unexpected mailbox mutation");
+        return route.fulfill({ json: { ok: true } });
+      }
+      return route.fulfill({ json: { rows: mailbox } });
+    });
     const evidenceDir = process.env.E2E_EVIDENCE_DIR;
 
     // Communication is the manager's unified inbox over admin's data: Active | Archived
@@ -122,6 +140,7 @@ test.describe("Admin portal", () => {
     });
     await page.getByRole("button", { name: "Send message", exact: true }).click();
     await expect.poll(() => sent).toBeDefined();
+    expect(interceptedSends).toBe(1);
     expect(sent?.subject).toBe(subject);
     expect(sent?.text).toBe("Automated trash-tab check.");
     expect(sent?.toUserIds?.length).toBeGreaterThan(0);

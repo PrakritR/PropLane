@@ -156,3 +156,18 @@ describe("mobileSheet prop removed from DropdownMenuContent", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe("RecordActionMenu dismissal focus", () => {
+  it("keeps focus in an editor opened by an action", async () => {
+    const editor = document.createElement("input");
+    editor.setAttribute("aria-label", "Opened editor");
+    document.body.append(editor);
+    try {
+      render(<Harness onEdit={() => editor.focus()} />);
+      openMenu();
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(document.activeElement).toBe(editor);
+    } finally { editor.remove(); }
+  });
+});

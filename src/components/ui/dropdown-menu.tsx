@@ -101,6 +101,7 @@ export function DropdownMenuContent({
               asSheet ? "bg-black/35" : "pointer-events-none",
             )}
             data-testid="dropdown-menu-backdrop"
+            data-menu-sheet-backdrop={asSheet ? "" : undefined}
             aria-hidden
           />
         </DropdownMenuPrimitive.Portal>

@@ -123,7 +123,7 @@ function assertGuardedFullSuite(document: WorkflowDocument): WorkflowStep {
   expect(upload.uses).toBe(UPLOAD_ARTIFACT);
   expect(upload.if).toBe("always() && env.SIGNUP_PROOF_RECOVERY_FILE != ''");
   expect(upload.with).toEqual({ name: "signup-proof-reconciliation-encrypted",
-    path: "${{ env.SIGNUP_PROOF_RECOVERY_FILE }}", "if-no-files-found": "error", "retention-days": 1 });
+    path: "${{ env.SIGNUP_PROOF_RECOVERY_FILE }}", "if-no-files-found": "error", "retention-days": 14 });
   expect(upload["continue-on-error"]).toBeUndefined();
   expect(full.steps.indexOf(finalizer)).toBeGreaterThan(full.steps.indexOf(runner));
   expect(full.steps.indexOf(packaging)).toBeGreaterThan(full.steps.indexOf(finalizer));

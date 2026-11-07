@@ -12,6 +12,10 @@ import { createGzip } from "node:zlib";
 import { pathToFileURL } from "node:url";
 
 export const KEEPER_REF = "refs/heads/akhil/test-workspace-release-20260919";
+export const QA_KEEPER_REFS = Object.freeze([KEEPER_REF, "refs/heads/agent/assistant-chrome-polish"]);
+export const QA_REPOSITORY = "PrakritR/PropLane";
+export const QA_DEV_URL = "https://emstjswhotsnyksqhqyf.supabase.co";
+export const QA_ORIGIN = "http://localhost:3010";
 export const ARTIFACT_FORMAT = "proplane-local-qa-build";
 export const ARTIFACT_VERSION = 1;
 export const ENCRYPTED_ARCHIVE_NAME = "next-build.tar.gz.enc";
@@ -93,13 +97,17 @@ function byteLimit(max, onBytes) {
 }
 
 export function assertArtifactContext(env) {
-  if (env.GITHUB_EVENT_NAME !== "workflow_dispatch" || env.GITHUB_REF !== KEEPER_REF ||
+  if (env.GITHUB_EVENT_NAME !== "workflow_dispatch" || !QA_KEEPER_REFS.includes(env.GITHUB_REF) ||
+      env.GITHUB_REPOSITORY !== QA_REPOSITORY || !/^[1-9]\d{0,19}$/.test(env.GITHUB_RUN_ID ?? "") || !/^[1-9]\d{0,5}$/.test(env.GITHUB_RUN_ATTEMPT ?? "") ||
+      env.NEXT_PUBLIC_SUPABASE_URL !== QA_DEV_URL || env.NEXT_PUBLIC_APP_URL !== QA_ORIGIN || !env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
       !/^[a-f0-9]{40}$/.test(env.GITHUB_SHA ?? "")) {
     throw refuse("CONTEXT", "Local QA artifacts require a manual keeper run and exact commit SHA.");
   }
 }
 
-export async function packageBuild({ root, output, sha, secrets, encryptionKey, maxBytes = MAX_BYTES, maxArchive = MAX_ARCHIVE }) {
+export async function packageBuild({ root, output, sha, secrets, encryptionKey, context = process.env, maxBytes = MAX_BYTES, maxArchive = MAX_ARCHIVE }) {
+  assertArtifactContext(context);
+  if (context.GITHUB_SHA !== sha || process.versions.node.split(".")[0] !== "22") throw refuse("CONTEXT", "Exact source and Node 22 required.");
   if (!/^[a-f0-9]{40}$/.test(sha) || !secrets.length || secrets.some((s) => !Buffer.isBuffer(s) || !s.length)) {
     throw refuse("PACKAGE_CONFIG", "Invalid build artifact configuration.");
   }
@@ -116,6 +124,7 @@ export async function packageBuild({ root, output, sha, secrets, encryptionKey, 
   const createdOutputFiles = [];
   try {
     const files = [];
+    const immutableFiles = [];
     const runtimeAliases = [];
     let fileBytes = 0;
     let entries = 0;
@@ -166,6 +175,7 @@ export async function packageBuild({ root, output, sha, secrets, encryptionKey, 
         throw refuse("INVENTORY", "Build artifact links and special files are forbidden.");
       }
       if (relative === ".next/cache" || relative === ".next/dev") return;
+      if (/[^\x20-\x7e]/.test(relative) || relative.length > 255) throw refuse("INVENTORY", "Build path exceeds the closed ustar grammar.");
       if (stat.isDirectory()) {
         for (const name of (await readdir(src)).sort()) {
           if (!name || name === "." || name === ".." || /[\\/\x00-\x1f\x7f]/.test(name) || name.startsWith(".env")) {
@@ -178,6 +188,7 @@ export async function packageBuild({ root, output, sha, secrets, encryptionKey, 
       if (files.length >= 50000 || relative.length > 2048) throw refuse("INVENTORY", "Build artifact inventory is too large.");
       if (scanSecrets.some((secret) => Buffer.from(relative).includes(secret))) throw refuse("INVENTORY", "Unsafe build artifact path.");
       const destination = path.join(stage, relative);
+      const fileHash = createHash("sha256");
       await mkdir(path.dirname(destination), { recursive: true });
       const handle = await open(src, constants.O_RDONLY | constants.O_NOFOLLOW);
       try {
@@ -188,17 +199,24 @@ export async function packageBuild({ root, output, sha, secrets, encryptionKey, 
         const before = fileBytes;
         await pipeline(handle.createReadStream({ autoClose: false }), secretScanner(scanSecrets),
           byteLimit(maxBytes - before, (size) => { fileBytes = before + size; }),
+          new Transform({ transform(chunk, _encoding, callback) { fileHash.update(chunk); callback(null, chunk); } }),
           createWriteStream(destination, { flags: "wx", mode: 0o600 }));
       } finally {
         await handle.close();
       }
       files.push(relative);
+      immutableFiles.push({ path: relative, bytes: (await lstat(destination)).size, sha256: fileHash.digest("hex") });
     }
     await visit(".next");
     if (!files.includes(".next/BUILD_ID") || !files.includes(".next/required-server-files.json")) {
       throw refuse("MARKERS", "Completed Next.js build markers are missing.");
     }
     const privateManifest = { format: ARTIFACT_FORMAT, version: ARTIFACT_VERSION, purpose: "local-dev-qa-only",
+      provenance: { repository: QA_REPOSITORY, ref: context.GITHUB_REF, runId: context.GITHUB_RUN_ID, attempt: context.GITHUB_RUN_ATTEMPT },
+      lockfileSha256: createHash("sha256").update(await readFile(path.join(root, "package-lock.json"))).digest("hex"),
+      nodeMajor: 22, nextVersion: JSON.parse(await readFile(path.join(root, "node_modules/next/package.json"), "utf8")).version,
+      target: { supabaseUrl: QA_DEV_URL, origin: QA_ORIGIN, anonKeySha256: createHash("sha256").update(context.NEXT_PUBLIC_SUPABASE_ANON_KEY).digest("hex") },
+      immutableFiles,
       githubSha: sha, fileBytes, fileCount: files.length, maxUncompressedBytes: maxBytes,
       maxArchiveBytes: maxArchive, excluded: [".next/cache", ".next/dev", ".next/node_modules"], runtimeAliases,
       runtime: { host: "127.0.0.1", port: 3010, maxOldSpaceSizeMiB: 512, database: "dev/test" } };
@@ -206,7 +224,7 @@ export async function packageBuild({ root, output, sha, secrets, encryptionKey, 
     const list = path.join(stage, "files.list");
     await writeFile(list, `${[...files, PRIVATE_MANIFEST_NAME].join("\0")}\0`, { mode: 0o600 });
     const stagedArchive = path.join(stage, "next-build.tar.gz");
-    const tar = spawn("tar", ["--format=posix", "--no-recursion", "-cf", "-", "-C", stage, "--null", "-T", list],
+    const tar = spawn("tar", ["--format=ustar", "--no-recursion", "-cf", "-", "-C", stage, "--null", "-T", list],
       { stdio: ["ignore", "pipe", "ignore"], env: { PATH: process.env.PATH, LANG: "C" } });
     const done = new Promise((resolve, reject) => {
       tar.once("error", () => reject(refuse("ARCHIVE", "Build archive creation failed.")));

@@ -13,10 +13,12 @@ export async function signInSeededStageResident(page: Page, stage: "unsigned" | 
   if (url !== "https://emstjswhotsnyksqhqyf.supabase.co" || !key) throw new Error("Resident stage fixtures require the dedicated DEV project.");
   const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
   const owner = await db.from("profiles").select("id").eq("email", E2E_ACCOUNTS.manager.email).single();
-  const resident = await db.from("profiles").select("id,manager_id").eq("email", fixture.email).single();
+  const resident = await db.from("profiles").select("id,manager_id,phone,phone_verified_at").eq("email", fixture.email).single();
   expect(owner.error, "Canonical manager must exist").toBeNull();
   expect(resident.error, "Dedicated stage resident must be seeded").toBeNull();
   expect(resident.data?.manager_id).toBe(fixture.axisId);
+  expect(resident.data?.phone, "Existing stage actor requires its seeded phone prerequisite").toBe(stage === "unsigned" ? "+12025550132" : "+12025550133");
+  expect(resident.data?.phone_verified_at, "Seeded verification is synthetic setup, never delivery proof").toBeTruthy();
   const applications = await db.from("manager_application_records").select("id,manager_user_id,row_data").eq("resident_email", fixture.email);
   expect(applications.error).toBeNull();
   expect(applications.data?.length).toBeGreaterThan(0);
@@ -37,5 +39,9 @@ export async function signInSeededStageResident(page: Page, stage: "unsigned" | 
   // This is the documented dev/test-only seed password, not a signup proof.
   await signIn(page, fixture.email, "123Password$", "/resident/dashboard");
   await establishActivePortal(page, "resident", "/resident/dashboard");
+  const phoneStatus = await page.request.get("/api/auth/phone");
+  expect(phoneStatus.ok(), "Actual phone identity resolver must load").toBe(true);
+  const identity = await phoneStatus.json() as { enabled?: boolean; verified?: boolean };
+  if (identity.enabled) expect(identity.verified, "Actual phone resolver must accept the seeded fixture").toBe(true);
   return fixture;
 }

@@ -6,7 +6,7 @@ import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { execFileSync } from "node:child_process";
 import { parse } from "yaml";
-import { artifactRefusalCode, assertArtifactContext, configuredSecrets, encryptionKeyBytes, KEEPER_REF, packageBuild, secretScanner } from "../../scripts/package-local-qa-build.mjs";
+import { artifactRefusalCode, assertArtifactContext, configuredSecrets, encryptionKeyBytes, KEEPER_REF, QA_KEEPER_REFS, packageBuild, secretScanner } from "../../scripts/package-local-qa-build.mjs";
 import { decryptArtifact, restoreRuntimeAliases } from "../../scripts/decrypt-local-qa-build.mjs";
 
 const SHA = "a".repeat(40);
@@ -14,6 +14,7 @@ const SECRET = Buffer.from("server-secret-fixture-only");
 const KEY = "ab".repeat(32);
 const WRONG_KEY = "cd".repeat(32);
 const roots: string[] = [];
+const context = { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: KEEPER_REF, GITHUB_SHA: SHA, GITHUB_REPOSITORY: 'PrakritR/PropLane', GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1', NEXT_PUBLIC_SUPABASE_URL: 'https://emstjswhotsnyksqhqyf.supabase.co', NEXT_PUBLIC_APP_URL: 'http://localhost:3010', NEXT_PUBLIC_SUPABASE_ANON_KEY: 'public-fixture-anon' };
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
 async function fixture() {
@@ -23,7 +24,10 @@ async function fixture() {
   await writeFile(path.join(root, ".next/BUILD_ID"), "build-id");
   await writeFile(path.join(root, ".next/required-server-files.json"), "{}");
   await writeFile(path.join(root, ".next/server/page.js"), "module.exports = 'clean';");
-  return { root, output: path.join(root, "artifact"), sha: SHA, secrets: [SECRET] };
+  await mkdir(path.join(root, 'node_modules/next'), { recursive: true });
+  await writeFile(path.join(root, 'node_modules/next/package.json'), JSON.stringify({ name: 'next', version: '16.0.0' }));
+  await writeFile(path.join(root, 'package-lock.json'), JSON.stringify({ packages: { 'node_modules/next': { version: '16.0.0' } } }));
+  return { root, output: path.join(root, "artifact"), sha: SHA, secrets: [SECRET], context };
 }
 
 function scan(chunks: Buffer[]) {
@@ -32,9 +36,11 @@ function scan(chunks: Buffer[]) {
 
 describe("encrypted local QA build transport", () => {
   it("requires manual keeper context and an exact commit", () => {
-    const env = { GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_REF: KEEPER_REF, GITHUB_SHA: SHA };
+    const env = context;
     expect(() => assertArtifactContext(env)).not.toThrow();
-    for (const patch of [{ GITHUB_EVENT_NAME: "push" }, { GITHUB_REF: "refs/heads/main" }, { GITHUB_SHA: "short" }]) {
+    expect(QA_KEEPER_REFS).toEqual([KEEPER_REF, 'refs/heads/agent/assistant-chrome-polish']);
+    expect(() => assertArtifactContext({ ...env, GITHUB_REF: QA_KEEPER_REFS[1] })).not.toThrow();
+    for (const patch of [{ GITHUB_EVENT_NAME: "push" }, { GITHUB_REF: "refs/heads/main" }, { GITHUB_REF: 'refs/heads/production' }, { GITHUB_SHA: "short" }, { GITHUB_REPOSITORY: 'other/repo' }, { GITHUB_RUN_ID: '' }, { GITHUB_RUN_ATTEMPT: '' }, { NEXT_PUBLIC_SUPABASE_URL: 'https://production.invalid' }, { NEXT_PUBLIC_APP_URL: 'http://localhost:3000' }]) {
       expect(() => assertArtifactContext({ ...env, ...patch })).toThrow();
     }
   });
@@ -79,6 +85,9 @@ describe("encrypted local QA build transport", () => {
     expect(entries.sort()).toEqual([".next/BUILD_ID", ".next/required-server-files.json", ".next/server/page.js", "qa-manifest.json"]);
     const privateManifest = JSON.parse(execFileSync("tar", ["-xOf", decrypted, "qa-manifest.json"], { encoding: "utf8" }));
     expect(privateManifest).toMatchObject({ githubSha: SHA, fileBytes: expect.any(Number), fileCount: 3, runtime: { port: 3010, database: "dev/test" } });
+    expect(privateManifest).toMatchObject({ provenance: { repository: 'PrakritR/PropLane', ref: KEEPER_REF, runId: '123', attempt: '1' }, nodeMajor: 22, nextVersion: '16.0.0', lockfileSha256: expect.stringMatching(/^[a-f0-9]{64}$/), target: { supabaseUrl: context.NEXT_PUBLIC_SUPABASE_URL, origin: context.NEXT_PUBLIC_APP_URL, anonKeySha256: expect.stringMatching(/^[a-f0-9]{64}$/) } });
+    expect(privateManifest.immutableFiles).toHaveLength(3);
+    expect(privateManifest.immutableFiles.every((file: { sha256: string; bytes: number }) => /^[a-f0-9]{64}$/.test(file.sha256) && Number.isSafeInteger(file.bytes))).toBe(true);
     expect(JSON.parse(await readFile(path.join(input.output, "manifest.json"), "utf8"))).toEqual(envelope);
   });
 
@@ -218,7 +227,7 @@ describe("encrypted local QA build transport", () => {
     const upload = steps[packageIndex + 1];
     expect(buildIndex).toBeGreaterThanOrEqual(0);
     expect(packageIndex).toBeGreaterThan(buildIndex);
-    const gate = "success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919'";
+    const gate = "success() && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/akhil/test-workspace-release-20260919' || github.ref == 'refs/heads/agent/assistant-chrome-polish')";
     expect(steps[packageIndex].if).toBe(gate);
     expect(upload.if).toBe(gate);
     expect(upload.uses).toBe("actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02");
@@ -228,9 +237,18 @@ describe("encrypted local QA build transport", () => {
     expect(steps[packageIndex].env).toEqual({
       QA_BUILD_SERVICE_ROLE_KEY: "${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}",
       QA_ARTIFACT_ENCRYPTION_KEY: "${{ secrets.PROPLANE_LOCAL_QA_ARTIFACT_KEY }}",
+      NEXT_PUBLIC_SUPABASE_URL: "${{ secrets.TEST_SUPABASE_URL }}",
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "${{ secrets.TEST_SUPABASE_ANON_KEY }}",
     });
     expect(JSON.stringify(steps[packageIndex])).not.toContain("toJSON(secrets)");
     expect(JSON.stringify(steps[packageIndex])).not.toContain("QA_REPOSITORY_PRIVATE");
     expect(workflow.jobs.check.needs).toEqual(["unit", "lint", "build"]);
+    for (const job of ['unit', 'lint', 'integration', 'e2e-full', 'check']) {
+      expect(workflow.jobs[job].if).not.toContain('agent/assistant-chrome-polish');
+    }
+    const recovery = workflow.jobs['e2e-full'].steps.find((step: { name?: string }) => step.name === 'Upload encrypted signup reconciliation');
+    expect(recovery.with['retention-days']).toBe(14);
+    const browser = workflow.jobs['e2e-full'].steps.find((step: { with?: { name?: string } }) => step.with?.name === 'e2e-full-test-results');
+    expect(browser.with['retention-days']).toBe(5);
   });
 });

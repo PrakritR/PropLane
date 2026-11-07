@@ -15,6 +15,14 @@ export const REVIEWED_REMINDER_CONSTRAINTS = Object.freeze({
   portal_reminder_records_lead_check: 'ad1f4d9d3302d953256be1091e162972cf27fc28a51fa95aba44eb079efd39ff',
   work_order_vendor_offers_status_check: 'ab04751a08a28adec1217a662d95a4454025d5bbd861dcb020ab1dbf5b5fb697',
 });
+export const REMINDER_SUCCESSOR = Object.freeze({
+  name:'stay_time_reminders', version:'20261018220001',
+  file:'20261018220001_stay_time_reminders.sql',
+  sourceSha256:'5a079c10b985fae42bb091f1417b7ecbdec0850e10cc09c6d2d080473f0a2740',
+  statementsSha256:'a18a5742af1c763fbfdffcc1161e0c7116007034f9d84203750f74286d5af874',
+  statementCount:1,
+  constraintSha256:'d88b6c646ec7646bbb44e9e1c9abff6be708fd32ce9c53f1d0828bfaeece9969',
+});
 export const REVIEWED_EXPIRY_INDEX = "CREATE INDEX work_order_vendor_offers_expires_idx ON public.work_order_vendor_offers USING btree (expires_at) WHERE (status = 'sent'::text)";
 
 // JSON string encoding comes from PostgreSQL, preserving spaces inside values.
@@ -37,7 +45,7 @@ export const REMINDER_SCHEMA_SQL = `select jsonb_build_object(
  where n.nspname='public' and c.relname='work_order_vendor_offers' and x.relname='work_order_vendor_offers_expires_idx')
 ) as evidence`;
 
-export function attestHistoricalReminderDuplicate({target,project,local,applied,sourceSha256,schema,problems}) {
+export function attestHistoricalReminderDuplicate({target,project,local,applied,sourceSha256,schema,problems,reminderSuccessorSourceSha256}) {
   const no = (reason) => ({accepted:false,reason});
   if (target!==REMINDER_ATTESTATION.target || project!==REMINDER_ATTESTATION.project) return no('target');
   if (sourceSha256!==REMINDER_ATTESTATION.sourceSha256) return no('source');
@@ -49,10 +57,16 @@ export function attestHistoricalReminderDuplicate({target,project,local,applied,
     !Object.hasOwn(REMINDER_ATTESTATION.statements,r.version) || r.statementsSha256!==REMINDER_ATTESTATION.statements[r.version])) return no('historical-pair');
   const duplicate=problems.filter((p)=>p.source==='database' && p.kind==='duplicate-name' && p.name===REMINDER_ATTESTATION.name);
   if (duplicate.length!==1 || !Object.hasOwn(REMINDER_ATTESTATION.statements,duplicate[0].version)) return no('duplicate-problem');
+  const successorRows = applied.filter((row) => row.name === REMINDER_SUCCESSOR.name);
+  const successorVerified = reminderSuccessorSourceSha256 === REMINDER_SUCCESSOR.sourceSha256 &&
+    successorRows.length === 1 && successorRows[0].version === REMINDER_SUCCESSOR.version &&
+    successorRows[0].statementsSha256 === REMINDER_SUCCESSOR.statementsSha256 && successorRows[0].statementCount === REMINDER_SUCCESSOR.statementCount;
+  // Supplying successor evidence selects only this reviewed state, never either hash.
+  if (reminderSuccessorSourceSha256 !== undefined && !successorVerified) return no('reminder-successor');
   if (!schema || !Array.isArray(schema.constraints) || schema.constraints.length!==4 || Object.entries(REVIEWED_REMINDER_CONSTRAINTS).some(([name,hash])=>{
     const matches=schema.constraints.filter((c)=>c.name===name);
     const table=name.startsWith('portal_')?'portal_reminder_records':'work_order_vendor_offers';
-    return matches.length!==1 || matches[0].table!==table || matches[0].sha256!==hash || matches[0].validated!==true;
+    return matches.length!==1 || matches[0].table!==table || matches[0].sha256!==(successorVerified && name==='portal_reminder_records_kind_check' ? REMINDER_SUCCESSOR.constraintSha256 : hash) || matches[0].validated!==true;
   })) return no('constraints');
   if (!Array.isArray(schema.columns) || schema.columns.length!==1 || schema.columns[0].type!=='timestamp with time zone'
     || schema.columns[0].notNull!==false || schema.columns[0].default!==null) return no('expiry-column');

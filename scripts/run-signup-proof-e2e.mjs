@@ -9,6 +9,15 @@ import { preflightSignupCleanup } from "./signup-proof-cleanup-preflight.mjs";
 import { stopOwnedChild, finishOwnedProof } from "../tests/e2e/support/signup-proof-process.mjs";
 
 if (process.versions.node.split(".")[0] !== "22" || process.env.SIGNUP_PROOF_ENABLED !== "1") throw new Error("Guarded signup runner configuration refused.");
+const testArgs = process.argv.slice(2);
+const prebuiltIndex = testArgs.indexOf('--prebuilt');
+let prebuiltReceipt;
+if (prebuiltIndex !== -1) {
+  prebuiltReceipt = testArgs[prebuiltIndex + 1];
+  if (!prebuiltReceipt || !path.isAbsolute(prebuiltReceipt) || testArgs.filter((arg) => arg === '--prebuilt').length !== 1 || process.env.PLAYWRIGHT_SKIP_WEBSERVER) throw new Error('Authenticated prebuilt signup runner configuration refused.');
+  testArgs.splice(prebuiltIndex, 2);
+}
+if (process.env.SIGNUP_PROOF_PREBUILT_RECEIPT) throw new Error('Pass the authenticated receipt through --prebuilt.');
 encryptionKeyBytes(process.env.QA_ARTIFACT_ENCRYPTION_KEY);
 await preflightSignupCleanup();
 const dir = process.env.AUTH_PROOF_CAPTURE_DIR ?? realpathSync(mkdtempSync(path.join(os.tmpdir(), "signup-proof-")));
@@ -20,7 +29,8 @@ if (recoveryDir) {
 }
 const recoveryFile = process.env.SIGNUP_PROOF_RECOVERY_FILE ?? (recoveryDir ? path.join(recoveryDir, `${randomBytes(16).toString("hex")}.enc`) : `${dir}.recovery.enc`);
 const env = { ...process.env, AUTH_PROOF_CAPTURE_DIR: dir, SIGNUP_PROOF_RUN_NONCE: process.env.SIGNUP_PROOF_RUN_NONCE ?? randomBytes(16).toString("hex"), SIGNUP_PROOF_RUNNER_PID: String(process.pid), GITHUB_SHA: process.env.GITHUB_SHA ?? execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(), SIGNUP_PROOF_RECOVERY_FILE: recoveryFile };
-const child = spawn(process.execPath, ["node_modules/@playwright/test/cli.js", "test", ...process.argv.slice(2)], { env, stdio: "inherit", detached: true });
+if (prebuiltReceipt) env.SIGNUP_PROOF_PREBUILT_RECEIPT = prebuiltReceipt;
+const child = spawn(process.execPath, ["node_modules/@playwright/test/cli.js", "test", ...testArgs], { env, stdio: "inherit", detached: true });
 child.on("error", () => undefined);
 let interrupted = false;
 const stop = () => { interrupted = true; void stopOwnedChild(child, { timeoutMs: 10_000 }).catch(() => undefined); };

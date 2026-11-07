@@ -1,12 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { signInAsManager } from "../helpers/auth";
+import { signInWritableSoftwareManager } from "../helpers/owned-manager-workspace-e2e";
 
 // Real authenticated dev/test rows. Network gates simulate slow and failed
 // source reads; they do not substitute demo data or send messages.
 test.use({ storageState: { cookies: [], origins: [] } });
 test.describe("Portal loading and record actions", () => {
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Requires seeded dev/test manager");
-  test.beforeEach(async ({ page }) => { await signInAsManager(page); });
+  test.beforeEach(async ({ page }) => { await signInWritableSoftwareManager(page); });
 
   test("Residents never shows an empty result while membership sources are pending", async ({ page }) => {
     let release!: () => void;

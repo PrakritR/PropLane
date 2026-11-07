@@ -22,6 +22,8 @@ import { createHash } from "node:crypto";
 import { REMINDER_ATTESTATION, REVIEWED_REMINDER_CONSTRAINTS, COMPACT_STATEMENTS_SHA_SQL,
   REMINDER_SCHEMA_SQL, attestHistoricalReminderDuplicate } from "./historical-migration-parity-attestation.mjs";
 
+import { attestHistoricalSources, historicalSourceHashes, readHistoricalSourceSnapshot, historicalProof } from "./historical-source-parity-attestation.mjs";
+
 const MIGRATIONS_DIR = join(process.cwd(), "supabase", "migrations");
 const FILE_RE = /^(\d{14})_(.+)\.sql$/;
 const PROJECT_REF_RE = /^[a-z0-9]{20}$/;
@@ -131,7 +133,10 @@ export function diffMigrationsWithAttestation(local, applied, evidence) {
   if (!attestation.accepted && evidence?.target==='production' && applied.some((r)=>r.name===REMINDER_ATTESTATION.name)) {
     problems.push({source:'database',kind:'historical-attestation-failed',name:REMINDER_ATTESTATION.name,version:'20260915120000'});
   }
-  return {...result, problems, attestations:attestation.accepted ? [attestation.warning] : []};
+  const historical = attestHistoricalSources({...evidence, local, applied, problems});
+  const accepted = new Set(historical.accepted.map((row) => `${row.version}_${row.name}`));
+  return {...result, rawMissing:result.missing, missing:result.missing.filter((row) => !accepted.has(`${row.version}_${row.name}`)),
+    problems, attestations:[...(attestation.accepted ? [attestation.warning] : []), ...historical.warnings]};
 }
 
 function parseConnectionUrl(dbUrl) {
@@ -217,16 +222,20 @@ export async function readParitySnapshot(client,target) {
     const ledger=await client.query("select 1 from information_schema.tables where table_schema='supabase_migrations' and table_name='schema_migrations'");
     if (ledger.rowCount===0) return null;
     const production=target==='production';
-    const {rows}=await client.query(production
-      ? `select version,coalesce(name,'') as name,case when name=$1 then ${COMPACT_STATEMENTS_SHA_SQL} else null end as "statementsSha256" from supabase_migrations.schema_migrations order by version`
+    const historical = historicalProof(target);
+    const executionNames = historical ? Object.entries(historical.objects).filter(([id]) => id.startsWith('execution:') || id.startsWith('successor:')).map(([, {contract}]) => contract.remoteName ?? contract.name) : [];
+    if (production) executionNames.push(REMINDER_ATTESTATION.name, 'stay_time_reminders');
+    const {rows}=await client.query(executionNames.length
+      ? `select version,coalesce(name,'') as name,case when name=any($1::text[]) then ${COMPACT_STATEMENTS_SHA_SQL} else null end as "statementsSha256",case when name=any($1::text[]) then cardinality(statements) else null end as "statementCount" from supabase_migrations.schema_migrations order by version`
       : "select version,coalesce(name,'') as name from supabase_migrations.schema_migrations order by version",
-      production ? [REMINDER_ATTESTATION.name] : []);
+      executionNames.length ? [executionNames] : []);
     let schema;
     if (production) {
       const result=await client.query(REMINDER_SCHEMA_SQL,[Object.keys(REVIEWED_REMINDER_CONSTRAINTS)]);
       schema=result.rows[0]?.evidence;
     }
-    return {applied:rows.map((row)=>({version:String(row.version),name:String(row.name),statementsSha256:row.statementsSha256})),schema};
+    const historicalSnapshot = await readHistoricalSourceSnapshot(client, target);
+    return {applied:rows.map((row)=>({version:String(row.version),name:String(row.name),statementsSha256:row.statementsSha256,statementCount:row.statementCount})),schema,historical:historicalSnapshot};
   } finally {
     await client.query("ROLLBACK");
   }
@@ -314,7 +323,10 @@ async function main() {
     ? createHash('sha256').update(readFileSync(join(MIGRATIONS_DIR,REMINDER_ATTESTATION.file))).digest('hex') : undefined;
   const result = diffMigrationsWithAttestation(local, applied.applied, {
     target,project:TARGET_PROJECT_REFS[target],sourceSha256,schema:applied.schema,
+    sourceHashes:historicalSourceHashes(MIGRATIONS_DIR), historical:applied.historical,
+    reminderSuccessorSourceSha256:target==='production' ? createHash('sha256').update(readFileSync(join(MIGRATIONS_DIR,'20261018220001_stay_time_reminders.sql'))).digest('hex') : undefined,
   });
+  for (const row of result.rawMissing) console.log(`  raw missing ${row.version} ${row.name}`);
   for (const warning of result.attestations) console.log(`  audited warning: ${warning.name} [${warning.versions.join(', ')}] - ${warning.message}`);
   const { missing, extra, problems } = result;
   if (extra.length > 0) {
@@ -334,7 +346,7 @@ async function main() {
   }
 
   console.log(
-    `migration parity: OK${label(target)} - all ${local.length} repo migration names are applied` +
+    `migration parity: OK${label(target)} - all ${local.length} repo migration names are applied or explicitly attested` +
       ` (newest repo version ${local[local.length - 1].version}).`,
   );
   return 0;

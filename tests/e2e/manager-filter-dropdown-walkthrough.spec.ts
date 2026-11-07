@@ -1,7 +1,6 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
-import path from "node:path";
 import { mockStripeAllRoutes } from "../helpers/auth";
-import { expectOwnedWorkspaceReady, selectOwnedManagerWorkspace } from "../helpers/owned-manager-workspace-e2e";
+import { expectOwnedWorkspaceReady, signInWritableSoftwareManager } from "../helpers/owned-manager-workspace-e2e";
 import type { PortalWorkspace } from "../../src/lib/workspaces/types";
 
 /**
@@ -35,20 +34,30 @@ async function openFilterPanel(page: Page) {
 async function exerciseFieldDropdown(page: Page, scope: Locator, fieldMatcher: RegExp) {
   const fieldTrigger = scope.getByRole("button", { name: fieldMatcher }).first();
   await expect(fieldTrigger).toBeVisible({ timeout: 8_000 });
-  const triggerBox = await fieldTrigger.boundingBox();
-  expect(triggerBox).toBeTruthy();
   await fieldTrigger.click();
   const listId = await fieldTrigger.getAttribute("aria-controls");
   expect(listId).toBeTruthy();
   const listbox = page.locator(`[id="${listId}"]`).getByRole("listbox");
   await expect(listbox).toBeVisible({ timeout: 8_000 });
-  const listboxBox = await listbox.boundingBox();
-  expect(listboxBox).toBeTruthy();
-  if (triggerBox && listboxBox) {
-    expect(listboxBox.y).toBeGreaterThanOrEqual(triggerBox.y - 4);
-  }
+  const shell = page.locator(`[id="${listId}"]`);
+  const bounds = await shell.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const host = element.closest('[data-slot="portal-filter-dropdown-panel"], [data-slot="vaul-bottom-sheet"]');
+    const chrome = host?.querySelector('[data-field-select-host-chrome]')?.getBoundingClientRect();
+    const footer = host?.querySelector('[data-field-select-host-footer]')?.getBoundingClientRect();
+    return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom,
+      viewportWidth: innerWidth, viewportHeight: innerHeight,
+      chromeBottom: chrome?.bottom ?? 0, footerTop: footer?.top ?? innerHeight };
+  });
+  expect(bounds.left).toBeGreaterThanOrEqual(0);
+  expect(bounds.right).toBeLessThanOrEqual(bounds.viewportWidth);
+  expect(bounds.top).toBeGreaterThanOrEqual(Math.max(0, bounds.chromeBottom) - 1);
+  expect(bounds.bottom).toBeLessThanOrEqual(Math.min(bounds.viewportHeight, bounds.footerTop) + 1);
   await expect(listbox).toHaveCSS("overflow-y", "auto");
   await expect(listbox.getByRole("option").first()).toBeVisible();
+  const lastOption = listbox.getByRole("option").last();
+  await lastOption.scrollIntoViewIfNeeded();
+  await expect(lastOption).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(listbox).toBeHidden();
 }
@@ -56,12 +65,12 @@ async function exerciseFieldDropdown(page: Page, scope: Locator, fieldMatcher: R
 test.describe("Manager portal filter dropdowns", () => {
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Set E2E_TESTS_ENABLED=1 after npm run test:seed");
 
-  test.use({ storageState: path.join(__dirname, "../.auth/manager.json") });
+  test.use({ storageState: { cookies: [], origins: [] } });
 
   let workspace: PortalWorkspace;
   test.beforeEach(async ({ page }) => {
     await mockStripeAllRoutes(page);
-    workspace = await selectOwnedManagerWorkspace(page);
+    workspace = await signInWritableSoftwareManager(page);
   });
 
   test("Applications filter panel stays right of the sidebar at 1440px", async ({ page }) => {
@@ -116,6 +125,9 @@ test.describe("Manager portal filter dropdowns", () => {
     const chosen = labels[index]!.trim();
     await options.nth(index).click();
     await expect(options.nth(index)).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("Escape");
+    await expect(listbox).toBeHidden();
+    await expect(panel).toBeVisible();
     await panel.locator('[data-attr="portal-filter-save"]').click();
     await expect.poll(async () => rows.count()).toBeLessThan(before.length);
     const filtered = await rows.allTextContents();
@@ -130,7 +142,7 @@ test.describe("Manager portal filter dropdowns", () => {
   });
 
   for (const section of FILTER_SECTIONS) {
-    test(`${section.label}: filter fields open down and scroll`, async ({ page }) => {
+    test(`${section.label}: filter fields stay within visible chrome and scroll`, async ({ page }) => {
       test.setTimeout(90_000);
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto(section.path, { waitUntil: "domcontentloaded" });

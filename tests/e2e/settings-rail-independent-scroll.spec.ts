@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { signInAsManager } from "../helpers/auth";
+import { expectOwnedWorkspaceReady, signInWritableSoftwareManager } from "../helpers/owned-manager-workspace-e2e";
 
 /**
  * The settings rail scrolls independently of the content on the right
@@ -11,18 +11,24 @@ import { signInAsManager } from "../helpers/auth";
  */
 test.describe("Settings rail — independent scroll", () => {
   test(
-    "at 1280x600 the rail reaches Spreadsheets on its own, and content scroll leaves it put",
+    "Integrations stays reachable at 600px and the rail scrolls independently at a short desktop height",
     { tag: "@ladder-smoke" },
     async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 600 });
-      await signInAsManager(page);
+      const workspace = await signInWritableSoftwareManager(page);
       await page.goto("/portal/profile?tab=workspaces", { waitUntil: "domcontentloaded" });
+      await expectOwnedWorkspaceReady(page, workspace);
 
       const rail = page.locator('nav[aria-label="Settings sections"]');
       await expect(rail).toBeVisible();
       await expect(page.locator('[data-attr="settings-nav-spreadsheets"]')).toHaveCount(1);
 
-      // The rail is its own scroll container, and Spreadsheets starts below its fold.
+      const integrations = page.locator('[data-attr="settings-nav-spreadsheets"]');
+      await integrations.scrollIntoViewIfNeeded();
+      await expect(integrations).toBeInViewport();
+      await page.setViewportSize({ width: 1280, height: 460 });
+      await rail.evaluate((nav) => { nav.scrollTop = 0; });
+      // The real rail now overflows; no test-injected rows or style changes.
       const before = await page.evaluate(() => {
         const nav = document.querySelector('nav[aria-label="Settings sections"]') as HTMLElement;
         const svc = document.querySelector('[data-attr="settings-nav-spreadsheets"]') as HTMLElement;

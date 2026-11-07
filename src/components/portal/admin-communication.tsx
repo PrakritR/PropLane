@@ -13,7 +13,7 @@
  * (`communication-adapters/admin-inbox-adapter.tsx`). There is no admin-only
  * inbox component any more, and no table exception.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MessageSquarePlus } from "lucide-react";
 import { CommunicationFilterSortFields } from "@/components/portal/communication-filter-sort-fields";
 import { createAdminInboxAdapter } from "@/components/portal/communication-adapters/admin-inbox-adapter";
@@ -105,26 +105,40 @@ export function AdminCommunication({
     managers: AdminComposeRecipient[];
     residents: AdminComposeRecipient[];
   }>({ managers: [], residents: [] });
-  const [recipientsLoaded, setRecipientsLoaded] = useState(false);
+  const [recipientsStatus, setRecipientsStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const recipientsReadyRef = useRef(false);
+  const [recipientAttempt, setRecipientAttempt] = useState(0);
   useEffect(() => {
     // The people admin can write to are read when the compose first opens.
-    if (!composeOpen || recipientsLoaded || isDemoModeActive()) return;
-    setRecipientsLoaded(true);
+    if (!composeOpen || recipientsReadyRef.current || isDemoModeActive()) return;
+    setRecipientsStatus("loading");
     let cancelled = false;
     void (async () => {
       try {
         const res = await fetch("/api/admin/portal-users", { credentials: "include" });
         const body = (await res.json()) as { managers?: AdminComposeRecipient[]; residents?: AdminComposeRecipient[] };
-        if (!res.ok || cancelled) return;
-        setRecipients({ managers: body.managers ?? [], residents: body.residents ?? [] });
+        if (cancelled) return;
+        if (!res.ok || !Array.isArray(body.managers) || !Array.isArray(body.residents) ||
+          ![...body.managers, ...body.residents].every((person) => person &&
+            typeof person.id === "string" && person.id.trim() &&
+            typeof person.name === "string" && person.name.trim() &&
+            typeof person.email === "string" && person.email.trim())) {
+          setRecipientsStatus("error");
+          return;
+        }
+        setRecipients({ managers: body.managers, residents: body.residents });
+        recipientsReadyRef.current = true;
+        setRecipientsStatus("ready");
       } catch {
-        if (!cancelled) setRecipientsLoaded(false);
+        if (!cancelled) setRecipientsStatus("error");
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [composeOpen, recipientsLoaded]);
+    // Status changes must not cancel the request that produced them. Reopening
+    // or an explicit retry starts a new attempt after failure.
+  }, [composeOpen, recipientAttempt]);
 
   const filterTouchCount =
     (filters.status && filters.status !== "active" ? 1 : 0) + (listSort !== "recent" ? 1 : 0) + (workspaceFilter ? 1 : 0);
@@ -217,6 +231,8 @@ export function AdminCommunication({
           void refreshAdminScheduled();
         }}
         recipients={recipients}
+        recipientsStatus={recipientsStatus === "idle" ? "loading" : recipientsStatus}
+        onRetryRecipients={() => setRecipientAttempt((attempt) => attempt + 1)}
       />
       <ManagerUnifiedInbox
         adapter={adapter}

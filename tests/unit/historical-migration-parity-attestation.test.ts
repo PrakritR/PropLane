@@ -5,10 +5,10 @@ import { diffMigrations, diffMigrationsWithAttestation, hasFatalMigrationDrift, 
 import { REMINDER_ATTESTATION, REVIEWED_REMINDER_CONSTRAINTS, REVIEWED_EXPIRY_INDEX, COMPACT_STATEMENTS_SHA_SQL } from '../../scripts/historical-migration-parity-attestation.mjs';
 
 const local=[{version:'20260915120000',name:REMINDER_ATTESTATION.name}];
-const pair=()=>Object.entries(REMINDER_ATTESTATION.statements).map(([version,statementsSha256])=>({version,name:REMINDER_ATTESTATION.name,statementsSha256}));
+const pair=()=>Object.entries(REMINDER_ATTESTATION.statements).map(([version,statementsSha256])=>({version,name:REMINDER_ATTESTATION.name,statementsSha256:String(statementsSha256)}));
 function evidence() {
   return {target:'production',project:REMINDER_ATTESTATION.project,sourceSha256:REMINDER_ATTESTATION.sourceSha256,schema:{
-    constraints:Object.entries(REVIEWED_REMINDER_CONSTRAINTS).map(([name,sha256])=>({name,sha256,table:name.startsWith('portal_')?'portal_reminder_records':'work_order_vendor_offers',validated:true})),
+    constraints:Object.entries(REVIEWED_REMINDER_CONSTRAINTS).map(([name,sha256])=>({name,sha256:String(sha256),table:name.startsWith('portal_')?'portal_reminder_records':'work_order_vendor_offers',validated:true})),
     columns:[{type:'timestamp with time zone',notNull:false,default:null}],
     indexes:[{definition:REVIEWED_EXPIRY_INDEX,valid:true,ready:true}],
   }};
@@ -109,7 +109,8 @@ describe('bounded private evidence reads',()=>{
     const result=await readParitySnapshot({query},'production');
     expect(query.mock.calls[0][0]).toBe('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
     expect(query.mock.calls.at(-1)?.[0]).toBe('ROLLBACK');
-    expect(result).toEqual({applied:pair(),schema:evidence().schema});
+    expect(result).toMatchObject({applied:pair(),schema:evidence().schema});
+    expect(result?.historical).toBeDefined();
     expect(query.mock.calls.some(([sql])=>sql.includes("SET LOCAL statement_timeout = '15s'"))).toBe(true);
     expect(COMPACT_STATEMENTS_SHA_SQL).toContain("coalesce(to_json(item)::text,'null')");
     expect(COMPACT_STATEMENTS_SHA_SQL).not.toContain('replace(');

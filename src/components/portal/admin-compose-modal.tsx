@@ -20,6 +20,7 @@ import {
 } from "@/components/portal/portal-message-compose-fields";
 import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { Select } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { appendInboxMessage, type AdminComposeSendMode } from "@/lib/demo-admin-partner-inbox";
 
@@ -47,11 +48,15 @@ export function AdminComposeModal({
   onSent,
   recipients,
   initialSchedule,
+  recipientsStatus = "ready",
+  onRetryRecipients,
 }: {
   open: boolean;
   onClose: () => void;
   onSent: () => void;
   recipients: { managers: AdminComposeRecipient[]; residents: AdminComposeRecipient[] };
+  recipientsStatus?: "loading" | "ready" | "error";
+  onRetryRecipients?: () => void;
   /** Open pre-set to "Schedule for later". */
   initialSchedule?: boolean;
 }) {
@@ -64,21 +69,25 @@ export function AdminComposeModal({
   const [sendMode, setSendMode] = useState<"now" | "schedule">("now");
   const [sendAtLocal, setSendAtLocal] = useState(defaultScheduleAtLocal());
   const wasOpen = useRef(false);
+  const submittingRef = useRef(false);
+  const composeSession = useRef(0);
 
   const pickPool = useMemo(() => {
-    if (mode === "pick_managers") return recipients.managers;
-    if (mode === "pick_residents") return recipients.residents;
-    return [] as AdminComposeRecipient[];
+    const pool = mode === "pick_managers" ? recipients.managers : mode === "pick_residents" ? recipients.residents : [];
+    return [...new Map(pool.map((person) => [person.id, person])).values()];
   }, [mode, recipients]);
 
   useEffect(() => {
     if (!open) {
+      if (wasOpen.current) composeSession.current += 1;
       wasOpen.current = false;
       return;
     }
     if (wasOpen.current) return;
     wasOpen.current = true;
+    const session = ++composeSession.current;
     queueMicrotask(() => {
+      if (composeSession.current !== session) return;
       setTopic("");
       setBody("");
       setMode("pick_managers");
@@ -109,85 +118,52 @@ export function AdminComposeModal({
     mode === "pick_managers" ? "Which managers" : mode === "pick_residents" ? "Which residents" : null;
 
   const resolvePicked = (): AdminComposeRecipient[] => {
-    if (mode === "all_portal") return [...recipients.managers, ...recipients.residents];
-    if (mode === "all_managers") return recipients.managers;
-    if (mode === "all_residents") return recipients.residents;
-    const pool = mode === "pick_managers" ? recipients.managers : recipients.residents;
-    return pool.filter((p) => selectedIds.has(p.id));
+    const pool = mode === "all_portal" ? [...recipients.managers, ...recipients.residents]
+      : mode === "all_managers" || mode === "pick_managers" ? recipients.managers : recipients.residents;
+    if (pool.some((person) => !person || !person.id?.trim() || !person.name?.trim() || !person.email?.trim())) return [];
+    // A selection that disappeared from the current directory must be re-picked.
+    if (mode.startsWith("pick") && [...selectedIds].some((id) => !pool.some((person) => person.id === id))) return [];
+    return [...new Map(pool.filter((person) => !mode.startsWith("pick") || selectedIds.has(person.id))
+      .map((person) => [person.id, person])).values()];
   };
 
-  const submitSendNow = (topicTrim: string, bodyTrim: string) => {
-    let toUserIds: string[] = [];
-
-    if (mode === "all_portal" || mode === "all_managers" || mode === "all_residents") {
-      const label =
-        mode === "all_portal"
-          ? "All managers & residents"
-          : mode === "all_managers"
-            ? "All managers"
-            : "All residents";
-      const emailStub =
-        mode === "all_portal"
-          ? "all-portal@axis.local"
-          : mode === "all_managers"
-            ? "all-managers@axis.local"
-            : "all-residents@axis.local";
-      appendInboxMessage({
-        name: "Broadcast",
-        email: emailStub,
-        topic: topicTrim,
-        body: bodyTrim,
-        folder: "sent",
-        senderRole: "admin",
-        composeAudience: mode === "all_portal" ? "all" : mode,
-        composeRecipientLabel: label,
-      });
-      toUserIds = resolvePicked().map((p) => p.id);
-    } else {
-      const picked = resolvePicked();
-      if (picked.length === 0) {
-        showToast("Select at least one recipient.");
-        return false;
-      }
-      const roleLabel = mode === "pick_managers" ? "Manager" : "Resident";
-      appendInboxMessage({
-        name: picked.length === 1 ? picked[0]!.name : `${picked.length} recipients`,
-        email: picked.map((p) => p.email).filter(Boolean).join("; "),
-        topic: topicTrim,
-        body: bodyTrim,
-        folder: "sent",
-        senderRole: "admin",
-        composeAudience: picked.length > 1 ? "multi" : mode === "pick_managers" ? "manager" : "resident",
-        composeRecipientLabel:
-          picked.length === 1
-            ? `${picked[0]!.name} (${roleLabel})`
-            : `${picked.length} ${roleLabel.toLowerCase()}s (${picked.map((p) => p.name).join(", ")})`,
-      });
-      toUserIds = picked.map((p) => p.id);
-    }
-
-    // Deliver to each recipient's real portal inbox (admin's own "Sent" record above is separate).
-    if (toUserIds.length > 0) {
-      // Admin Communication operates the admin surface, so its sends ASK for oversight
-      // (`?oversight=admin`); the server still confirms the stored admin role
-      // (`resolveAdminOversight`). Without it a seated Overall admin — who holds the admin row and
-      // no manager row — is refused on the manager portal send, and the picker above would have
-      // invited a compose that always 403s.
-      void fetch(adminOversightUrl("/api/portal/send-inbox-message"), {
+  const submitSendNow = async (topicTrim: string, bodyTrim: string) => {
+    const picked = resolvePicked();
+    if (picked.length === 0) return false;
+    const broadcast = !mode.startsWith("pick");
+    const roleLabel = mode === "pick_managers" ? "Manager" : "Resident";
+    const label = mode === "all_portal" ? "All managers & residents" : mode === "all_managers" ? "All managers" : "All residents";
+    const message: Parameters<typeof appendInboxMessage>[0] = {
+      name: broadcast ? "Broadcast" : picked.length === 1 ? picked[0]!.name : `${picked.length} recipients`,
+      email: broadcast ? mode === "all_portal" ? "all-portal@axis.local" : mode === "all_managers" ? "all-managers@axis.local" : "all-residents@axis.local" : picked.map((person) => person.email).join("; "),
+      topic: topicTrim,
+      body: bodyTrim,
+      folder: "sent",
+      senderRole: "admin",
+      composeAudience: broadcast ? mode === "all_portal" ? "all" : mode === "all_managers" ? "all_managers" : "all_residents" : picked.length > 1 ? "multi" : mode === "pick_managers" ? "manager" : "resident",
+      composeRecipientLabel: broadcast ? label : picked.length === 1 ? `${picked[0]!.name} (${roleLabel})` : `${picked.length} ${roleLabel.toLowerCase()}s (${picked.map((person) => person.name).join(", ")})`,
+    };
+    try {
+      const response = await fetch(adminOversightUrl("/api/portal/send-inbox-message"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
           fromName: "PropLane Admin",
-          toUserIds,
+          toUserIds: picked.map((person) => person.id),
           subject: topicTrim,
           text: bodyTrim,
           deliverViaEmail: false,
           senderPortal: "manager",
         }),
-      }).catch(() => undefined);
+      });
+      const result = await response.json() as { ok?: boolean } | null;
+      if (!response.ok || result?.ok !== true) throw new Error("Send refused");
+    } catch {
+      showToast("Message could not be sent.");
+      return false;
     }
-
+    appendInboxMessage(message);
     showToast("Message sent. It appears under Sent.");
     return true;
   };
@@ -240,8 +216,12 @@ export function AdminComposeModal({
   };
 
   const submit = async () => {
-    const isPick = mode.startsWith("pick");
-    if (isPick && selectedIds.size === 0) {
+    if (submittingRef.current) return;
+    if (recipientsStatus !== "ready") {
+      showToast("Recipients are not ready.");
+      return;
+    }
+    if (resolvePicked().length === 0) {
       showToast("Select at least one recipient.");
       return;
     }
@@ -253,14 +233,18 @@ export function AdminComposeModal({
       return;
     }
 
+    const session = composeSession.current;
+    submittingRef.current = true;
     setBusy(true);
     try {
       const ok =
-        sendMode === "schedule" ? await submitSchedule(topicTrim, bodyTrim) : submitSendNow(topicTrim, bodyTrim);
+        sendMode === "schedule" ? await submitSchedule(topicTrim, bodyTrim) : await submitSendNow(topicTrim, bodyTrim);
       if (!ok) return;
       onSent();
-      onClose();
+      // An accepted send still refreshes Sent, but owns only its original draft.
+      if (wasOpen.current && composeSession.current === session) onClose();
     } finally {
+      submittingRef.current = false;
       setBusy(false);
     }
   };
@@ -276,7 +260,10 @@ export function AdminComposeModal({
   return (
     <PortalDialog
       open={open}
-      onClose={onClose}
+      onClose={() => {
+        composeSession.current += 1;
+        onClose();
+      }}
       title={initialSchedule ? "Schedule message" : "New message"}
       contextPanel={<PopupRecordPreview rows={[{ label: "Audience", value: ADMIN_COMPOSE_MODE_OPTIONS.find((option) => option.value === mode)?.label }, { label: "Recipients", value: recipientSummary }]} />}
       previewLabel="Message preview"
@@ -285,12 +272,14 @@ export function AdminComposeModal({
       primaryAction={{
         label: sendMode === "schedule" ? "Schedule" : "Send message",
         onClick: () => submit(),
-        disabled: busy,
+        disabled: busy || recipientsStatus !== "ready" || resolvePicked().length === 0,
         loading: busy,
         dataAttr: "admin-compose-send",
       }}
     >
       <PortalMessageComposeModalBody>
+        {recipientsStatus === "loading" ? <span role="status">Loading recipients…</span> : null}
+        {recipientsStatus === "error" ? <Button type="button" variant="ghost" onClick={onRetryRecipients}>Retry recipients</Button> : null}
         <div>
           <label className={portalMessageFieldLabel()} htmlFor="admin-compose-audience">To</label>
           <Select

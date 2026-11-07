@@ -1,6 +1,7 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+import { signInWritableSoftwareManager } from "../helpers/owned-manager-workspace-e2e";
 import { mockStripeAllRoutes } from "../helpers/auth";
 import { fieldSelectTrigger, pickFieldSelect } from "../helpers/field-select";
 
@@ -51,10 +52,11 @@ async function openPromotionSection(page: Page) {
 test.describe("Promotion UX", () => {
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Set E2E_TESTS_ENABLED=1 after npm run test:seed");
 
-  test.use({ storageState: path.join(__dirname, "../.auth/manager.json") });
+  test.use({ storageState: { cookies: [], origins: [] } });
 
   test.beforeEach(async ({ page }) => {
     await mockStripeAllRoutes(page);
+    await signInWritableSoftwareManager(page);
   });
 
   for (const viewport of [
@@ -97,7 +99,7 @@ test.describe("Promotion UX", () => {
         });
 
         await openPromotionStep(dialog, "Kind");
-        await selectPromotionKind(page, dialog, "Text");
+        await selectPromotionKind(page, dialog, "Post or blurb");
         await expect(dialog.getByText("New promotion", { exact: true })).toBeVisible();
         await dialog.getByRole("button", { name: "Next: Content", exact: true }).click();
         await expect(dialog.getByLabel("Channel / format", { exact: true })).toBeVisible();
@@ -123,7 +125,7 @@ test.describe("Promotion UX", () => {
         });
 
         await openPromotionStep(dialog, "Kind");
-        await selectPromotionKind(page, dialog, "Text");
+        await selectPromotionKind(page, dialog, "Post or blurb");
         const confirm = page.getByRole("dialog", { name: "Switch type", exact: true });
         await expect(confirm.getByText("Switch promotion type?", { exact: true })).toBeVisible();
         await expect(confirm.getByText("The content you've entered will be discarded.", { exact: true })).toBeVisible();
@@ -135,9 +137,9 @@ test.describe("Promotion UX", () => {
         await expect(headlineInput(dialog)).toHaveValue("Sunlit 2BR — first month free");
 
         await openPromotionStep(dialog, "Kind");
-        await selectPromotionKind(page, dialog, "Text");
+        await selectPromotionKind(page, dialog, "Post or blurb");
         await page.getByRole("dialog", { name: "Switch type", exact: true }).getByRole("button", { name: "Switch", exact: true }).click();
-        await expect(kind).toContainText("Text");
+        await expect(kind).toContainText("Post or blurb");
         await openPromotionStep(dialog, "Content");
         await expect(dialog.getByLabel("Channel / format", { exact: true })).toBeVisible();
 
@@ -159,7 +161,7 @@ test.describe("Promotion UX", () => {
 
         await page.locator('[data-attr="promotion-new"]').click();
         const dialog = page.getByRole("dialog");
-        await selectPromotionKind(page, dialog, "Text");
+        await selectPromotionKind(page, dialog, "Post or blurb");
 
         const propertyTrigger = fieldSelectTrigger(dialog, "promotion-new-property");
         if (await propertyTrigger.isVisible().catch(() => false)) {

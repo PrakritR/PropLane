@@ -2,6 +2,7 @@
  * Addendum verification against a running dev server (e.g. localhost:3013).
  */
 import { test, expect } from "@playwright/test";
+import { CANONICAL_RESIDENT_TOUR } from "../helpers/seed-canonical-resident-tour.mjs";
 import { signInAsResident } from "../helpers/auth";
 import { signInSeededStageResident } from "../helpers/seeded-resident-stage-e2e";
 
@@ -32,13 +33,14 @@ test.describe("Tour-resident addendum verification", () => {
     expect(toursResponse.ok()).toBe(true);
     const toursPayload = await toursResponse.json() as { tours?: { inquiryId: string; propertyId: string; managerUserId: string }[] };
     expect(toursPayload.tours?.length, "Canonical resident must have a linked seeded tour").toBeGreaterThan(0);
-    const tour = toursPayload.tours![0]!;
-    expect(tour.propertyId).toBeTruthy();
-    expect(tour.managerUserId).toBeTruthy();
-    const threadResponse = await page.request.get(`/api/portal-resident-tours/thread?inquiryId=${encodeURIComponent(tour.inquiryId)}`);
+    const tour = toursPayload.tours!.find((row) => row.inquiryId === CANONICAL_RESIDENT_TOUR.inquiryId);
+    expect(tour, "Exact bounded canonical tour must be present alongside other tour history").toBeTruthy();
+    expect(tour!.propertyId).toBe(CANONICAL_RESIDENT_TOUR.propertyId);
+    expect(tour!.managerUserId).toBeTruthy();
+    const threadResponse = await page.request.get(`/api/portal-resident-tours/thread?inquiryId=${encodeURIComponent(tour!.inquiryId)}`);
     expect(threadResponse.ok()).toBe(true);
     const { threadId } = await threadResponse.json() as { threadId: string | null };
-    expect(threadId, "The linked tour must resolve its resident/manager conversation").toBeTruthy();
+    expect(threadId, "The linked tour must resolve its resident/manager conversation").toBe(CANONICAL_RESIDENT_TOUR.residentThreadId);
     const inboxResponse = await page.request.get("/api/portal-inbox-threads?scope=resident");
     expect(inboxResponse.ok()).toBe(true);
     const inbox = await inboxResponse.json() as { rows?: { id: string; messages?: { body: string }[] }[] };

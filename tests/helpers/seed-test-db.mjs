@@ -60,6 +60,28 @@ import {
   workOrderDbRow,
 } from "./build-seed-resident-portal-extras.mjs";
 
+if (process.argv.includes("--public-tour-fixture")) {
+  const { runPublicTourPreparation } = await import("./seed-public-tour-fixture.mjs");
+  try { await runPublicTourPreparation(); }
+  catch { console.error("Public tour fixture preparation failed; inspect the private reviewed inventory."); process.exit(1); }
+  process.exit(0);
+}
+
+if (process.argv.includes("--resident-tour-prerequisite")) {
+  const { runCanonicalResidentTourPreparation } = await import("./seed-canonical-resident-tour.mjs");
+  try { await runCanonicalResidentTourPreparation(); }
+  catch { console.error("Canonical resident tour preparation failed; inspect the private reviewed inventory."); process.exit(1); }
+  process.exit(0);
+}
+
+// Bounded mode exits before Stripe setup, account pruning or portfolio seeding.
+if (process.argv.includes("--phone-prerequisites")) {
+  const { runCanonicalPhonePreparation } = await import("./seed-canonical-phone-prerequisites.mjs");
+  try { await runCanonicalPhonePreparation(); }
+  catch { console.error("Canonical phone preparation failed; inspect the private reviewed inventory."); process.exit(1); }
+  process.exit(0);
+}
+
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const testRunId = process.argv[2]?.trim() || `seed-${Date.now()}`;
