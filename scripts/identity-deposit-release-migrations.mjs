@@ -110,16 +110,16 @@ export async function readOnly(client, migrations, applied) {
   try { await client.query("set local role postgres"); return await catalog(client, migrations, applied); }
   finally { await client.query("rollback").catch(()=>undefined); }
 }
-export async function transaction(client, migrations, options) {
+export async function transaction(client, migrations, options, inspect = catalog) {
   await client.query("begin"); let committing = false;
   try {
     await client.query("set local role postgres");
     await client.query("set local lock_timeout='5s'");
     await client.query("set local statement_timeout='60s'");
     if (!(await client.query("select pg_try_advisory_xact_lock(20261106120000::bigint) acquired")).rows[0]?.acquired) throw new Error("Migration lock unavailable");
-    if ((await catalog(client, migrations, false)).fingerprint !== options.baseline) throw new Error("Catalog differs from reviewed baseline");
+    if ((await inspect(client, migrations, false)).fingerprint !== options.baseline) throw new Error("Catalog differs from reviewed baseline");
     for (const m of migrations) { await client.query(m.sql); await client.query("insert into supabase_migrations.schema_migrations(version,name,statements) values($1,$2,$3)", [m.version,m.name,[m.sql]]); }
-    const post = await catalog(client, migrations, true);
+    const post = await inspect(client, migrations, true);
     if (options.phase === "apply" && post.fingerprint !== options.postflightHash) throw new Error("Postflight differs from reviewed rehearsal");
     if (options.phase === "apply") { committing = true; await client.query("commit"); } else await client.query("rollback");
     return post;

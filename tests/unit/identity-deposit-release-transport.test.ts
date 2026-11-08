@@ -29,6 +29,22 @@ describe("release transport refusal", () => {
     expect(safeErrorMessage(new Error("Owner read policy mismatch"))).toBe("Owner read policy mismatch");
     expect(safeErrorMessage(new Error("password=secret in driver output"))).not.toContain("secret");
   });
+  it.each([
+    { name: "baseline drift", phase: "rehearsal", before: "b", after: "p", expected: "p", commits: false, writes: false },
+    { name: "postflight drift", phase: "apply", before: "a", after: "wrong", expected: "p", commits: false, writes: true },
+    { name: "rehearsal", phase: "rehearsal", before: "a", after: "p", expected: "p", commits: false, writes: true },
+    { name: "apply", phase: "apply", before: "a", after: "p", expected: "p", commits: true, writes: true },
+  ])("handles $name with the required commit boundary", async ({ phase, before, after, expected, commits, writes }) => {
+    const calls: string[] = [];
+    const client = { query: async (query: string) => { calls.push(query); return { rows: query.includes("pg_try_advisory") ? [{ acquired: true }] : [] }; } };
+    const inspect = async (_client: unknown, _migrations: unknown, applied: boolean) => ({ fingerprint: applied ? after : before });
+    const work = transaction(client, [{ sql: "MIGRATION", version: "v", name: "n" }], { phase, baseline: "a", postflightHash: expected }, inspect);
+    if (before !== "a" || (phase === "apply" && after !== expected)) await expect(work).rejects.toThrow();
+    else await expect(work).resolves.toMatchObject({ fingerprint: after });
+    expect(calls.includes("MIGRATION")).toBe(writes);
+    expect(calls.includes("commit")).toBe(commits);
+    expect(calls.includes("rollback")).toBe(!commits);
+  });
   it("rolls back a failed lock before any migration executes", async () => {
     const calls: string[] = [];
     const client = { query: async (query: string) => { calls.push(query); return { rows: query.includes("pg_try_advisory") ? [{ acquired: false }] : [] }; } };
