@@ -1,7 +1,11 @@
+import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
+import { getPropertyById } from "@/lib/rental-application/data";
+import { approvalPlacementBlocker } from "@/lib/application-approval-placement";
 import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-portal";
 import { normalizeApplicationAxisId, readManagerApplicationRows, writeManagerApplicationRows } from "@/lib/manager-applications-storage";
 import {
   recordApprovedApplicationCharges,
+  mirrorHouseholdChargesToServerAwait,
   recordSubmittedApplicationFeeCharge,
   removeAllApplicationCharges,
   removeApprovedApplicationCharges,
@@ -172,6 +176,14 @@ export async function transitionApplicationBucket(
       : r,
   );
   const updatedRow = next.find((r) => r.id === id) ?? row;
+  if (nextBucket === "approved" && !isDemoModeActive()) {
+    const propertyId = updatedRow.assignedPropertyId?.trim() || updatedRow.propertyId?.trim() || updatedRow.application?.propertyId?.trim() || "";
+    const synced = await syncPropertyPipelineFromServer({ force: true, userId: opts.userId, linkedPropertyIds: propertyId ? [propertyId] : [] }).catch(() => false);
+    if (!synced) return { row, welcomeSent: false, blocked: "error", message: "Could not verify this property's pricing. Refresh and try again." };
+    const property = getPropertyById(propertyId);
+    const placementError = approvalPlacementBlocker(updatedRow, property?.publicProjection ? undefined : property?.listingSubmission);
+    if (placementError) return { row, welcomeSent: false, blocked: "error", message: placementError };
+  }
   // Reserve the bed on the server BEFORE local publication, charges or lease sync.
   if (nextBucket === "approved" && !isDemoModeActive()) {
     try {
@@ -204,6 +216,9 @@ export async function transitionApplicationBucket(
   try {
     if (nextBucket === "approved") {
       recordApprovedApplicationCharges(updatedRow, opts.userId ?? null);
+      if (!isDemoModeActive() && !(await mirrorHouseholdChargesToServerAwait())) {
+        return { row: updatedRow, welcomeSent: false, blocked: "error", message: "Approval saved, but payments could not be synchronized. Retry to finish setup." };
+      }
     } else if (nextBucket === "pending") {
       removeApprovedApplicationCharges(id, opts.userId ?? null);
       recordSubmittedApplicationFeeCharge(updatedRow, opts.userId ?? null);
@@ -211,7 +226,7 @@ export async function transitionApplicationBucket(
       removeAllApplicationCharges(id, opts.userId ?? null);
     }
   } catch {
-    /* Keep approval flow moving even if charge reconciliation fails. */
+    if (nextBucket === "approved") return { row: updatedRow, welcomeSent: false, blocked: "error", message: "Approval saved, but payments could not be synchronized. Retry to finish setup." };
   }
 
   // The application is now authoritative. A profile-sync failure cannot revoke

@@ -1,3 +1,4 @@
+import { approvalPlacementServerBlocker } from "@/lib/application-approval-placement.server";
 import { shortStayApprovalBlocker } from "@/lib/short-stay-pricing-gate.server";
 import { resolveBaselineResidentIdentity } from "@/lib/resident-identity/baseline.server";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
@@ -1094,6 +1095,8 @@ export async function POST(req: Request) {
           guarded.row,
           (stored?.row_data ?? null) as DemoApplicantRow | null,
         );
+        const placementError = await approvalPlacementServerBlocker(db, anchored, (stored?.row_data ?? null) as DemoApplicantRow | null);
+        if (placementError) { stayPricingError = placementError; continue; }
         // Same re-check the single-row upsert applies (PLAN-0920-0631): a room
         // priced per resident re-derives openness here too, since a mirror
         // batch can carry a fresh approval same as the single-row path can.
@@ -1589,6 +1592,8 @@ export async function POST(req: Request) {
         );
       }
       row = slotCheck.row;
+      const placementError = await approvalPlacementServerBlocker(db, row, (storedLoad.record?.row_data ?? null) as DemoApplicantRow | null);
+      if (placementError) return NextResponse.json({ error: placementError, blocked: "placement" }, { status: 409 });
       const pricingError = await shortStayApprovalBlocker(db, row, (storedLoad.record?.row_data ?? null) as DemoApplicantRow | null);
       if (pricingError) return NextResponse.json({ error: pricingError, blocked: "stay-pricing" }, { status: 409 });
     }

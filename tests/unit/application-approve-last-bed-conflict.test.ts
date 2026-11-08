@@ -6,6 +6,8 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 
 let ROWS: DemoApplicantRow[] = [];
 const writes: DemoApplicantRow[][] = [];
+const syncProperty = vi.fn(async () => true);
+const mirrorCharges = vi.fn(async () => true);
 
 vi.mock("@/lib/manager-applications-storage", () => ({
   normalizeApplicationAxisId: (id: string) => id,
@@ -17,10 +19,14 @@ vi.mock("@/lib/manager-applications-storage", () => ({
 }));
 vi.mock("@/lib/household-charges", () => ({
   recordApprovedApplicationCharges: () => true,
+  mirrorHouseholdChargesToServerAwait: () => mirrorCharges(),
   recordSubmittedApplicationFeeCharge: () => true,
   removeAllApplicationCharges: () => undefined,
   removeApprovedApplicationCharges: () => undefined,
 }));
+vi.mock("@/lib/demo-property-pipeline", () => ({ syncPropertyPipelineFromServer: () => syncProperty() }));
+vi.mock("@/lib/rental-application/data", () => ({ getPropertyById: () => ({ listingSubmission: {} }) }));
+vi.mock("@/lib/application-approval-placement", () => ({ approvalPlacementBlocker: () => null }));
 vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => false }));
 
 import { transitionApplicationBucket } from "@/lib/application-review";
@@ -51,10 +57,33 @@ function mockFetch(handler: (url: string, init?: RequestInit) => { status: numbe
 beforeEach(() => {
   ROWS = [row()];
   writes.length = 0;
+  syncProperty.mockReset().mockResolvedValue(true);
+  mirrorCharges.mockReset().mockResolvedValue(true);
 });
 afterEach(() => vi.unstubAllGlobals());
 
 describe("approving a bed that was just taken", () => {
+  it.each(["false", "reject"])("refuses before the approval write when property sync returns %s", async (failure) => {
+    if (failure === "false") syncProperty.mockResolvedValueOnce(false);
+    else syncProperty.mockRejectedValueOnce(new Error("offline"));
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const result = await transitionApplicationBucket("AP1", "approved", { userId: "u1" });
+    expect(result?.message).toMatch(/verify/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
+  });
+
+  it("reports a saved approval when billing mirror fails and leaves retry possible", async () => {
+    mirrorCharges.mockResolvedValueOnce(false);
+    mockFetch(() => ({ status: 200, body: { ok: true } }));
+    const result = await transitionApplicationBucket("AP1", "approved", { userId: "u1" });
+    expect(result?.message).toMatch(/Approval saved, but payments/);
+    expect(ROWS[0]!.bucket).toBe("approved");
+    const retry = await transitionApplicationBucket("AP1", "approved", { userId: "u1", skipWelcomeEmail: true });
+    expect(retry?.blocked).toBeUndefined();
+  });
+
   it("answers blocked: capacity with the bed and the holder, and writes nothing locally", async () => {
     mockFetch(() => ({ status: 409, body: { ok: false, blocked: "capacity", error: "That rent is already held by Nora Vance", conflict: { slot: 2, holderName: "Nora Vance" } } }));
     const result = await transitionApplicationBucket("AP1", "approved", { userId: "u1" });
