@@ -1,14 +1,15 @@
 /**
  * Addendum verification against a running dev server (e.g. localhost:3013).
  */
-import { test, expect, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import { signInAsResident } from "../helpers/auth";
-import { cleanupSyntheticPublicTourManager, createSyntheticPublicTourManager } from "../helpers/synthetic-public-tour-manager";
+import { cleanupSyntheticPublicTourManager, createSyntheticPublicTourManager, type SyntheticPublicTourManager } from "../helpers/synthetic-public-tour-manager";
 import { syntheticFixtureActorId } from "../helpers/synthetic-property-e2e";
 
 const residentInboxScope = "axis_portal_inbox_resident_v1";
-type TourFixture = { propertyId: string; propertyName: string; actorId: string; managerPage: Page; managerContext: BrowserContext; inquiryId?: string; residentThreadId?: string };
+type TourFixture = { propertyId: string; propertyName: string; actorId: string; manager: SyntheticPublicTourManager; inquiryId?: string; residentThreadId?: string };
 const tourFixtures = new WeakMap<object, TourFixture>();
+const phoneRestores = new WeakMap<object, () => Promise<void>>();
 
 test.describe("Tour-resident addendum verification", () => {
   test("req 5: signed-in resident application opens on routed detail page", async ({ page }) => {
@@ -38,14 +39,13 @@ test.describe("Tour-resident addendum verification", () => {
   test("resident Communication shows the thread for a linked tour request", async ({ browser, page }) => {
     test.setTimeout(180_000);
     test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Requires the isolated dev/test E2E server.");
-    const manager = await createSyntheticPublicTourManager(browser);
+    const manager = await createSyntheticPublicTourManager(browser, { onPhoneFixtureReady: (phone) => { phoneRestores.set(page, phone.restore); } });
     const property = manager.property;
     const fixture: TourFixture = {
       propertyId: property.id,
       propertyName: property.name,
       actorId: manager.actorId,
-      managerPage: manager.page,
-      managerContext: manager.context,
+      manager,
     };
     tourFixtures.set(page, fixture);
 
@@ -80,22 +80,28 @@ test.describe("Tour-resident addendum verification", () => {
     await booking.click();
     const result = await createResponse;
     expect(result.status()).toBe(200);
-    const responseBody = await result.json() as { row?: { id?: string } };
+    const responseBody = await result.json() as { row?: { id?: string; propertyId?: string; managerUserId?: string } };
     expect(responseBody.row?.id).toBeTruthy();
+    expect(responseBody.row?.propertyId).toBe(property.id);
+    expect(responseBody.row?.managerUserId).toBe(manager.actorId);
     fixture.inquiryId = responseBody.row!.id!;
     await expect(page.getByRole("heading", { name: "Your tour request is in", exact: true })).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('[data-attr="tour-request-not-confirmed-notice"]')).toBeVisible();
 
+    // Wait for the durable copy, then reload before asserting the persisted UI.
     await page.goto("/resident/communication");
-    await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 20_000 });
-    const inbox = await page.request.get(`/api/portal-inbox-threads?scope=${residentInboxScope}`);
-    expect(inbox.ok()).toBe(true);
-    const inboxBody = await inbox.json() as { rows?: Array<{ id?: string; body?: string; messages?: Array<{ text?: string; body?: string }> }> };
-    const matchingThread = (inboxBody.rows ?? []).find((row) =>
-      row.body?.includes(marker) || row.messages?.some((message) => `${message.text ?? ""} ${message.body ?? ""}`.includes(marker)),
-    );
-    expect(matchingThread?.id).toBeTruthy();
+    let matchingThread: { id?: string } | undefined;
+    await expect.poll(async () => {
+      const inbox = await page.request.get(`/api/portal-inbox-threads?scope=${residentInboxScope}`);
+      if (!inbox.ok()) return false;
+      const body = await inbox.json() as { rows?: Array<{ id?: string; propertyId?: string; managerUserId?: string; body?: string; messages?: Array<{ text?: string; body?: string }> }> };
+      const matches = (body.rows ?? []).filter((row) => row.propertyId === property.id && row.managerUserId === manager.actorId &&
+        (row.body?.includes(marker) || row.messages?.some((message) => `${message.text ?? ""} ${message.body ?? ""}`.includes(marker))));
+      matchingThread = matches.length === 1 ? matches[0] : undefined;
+      return Boolean(matchingThread?.id);
+    }, { timeout: 30_000 }).toBe(true);
     fixture.residentThreadId = matchingThread!.id!;
+    await page.reload({ waitUntil: "domcontentloaded" });
     const threadRow = page.locator(".portal-inbox-row").filter({ hasText: marker });
     await expect(threadRow).toHaveCount(1, { timeout: 20_000 });
     await expect(threadRow).toBeVisible({ timeout: 20_000 });
@@ -105,7 +111,9 @@ test.describe("Tour-resident addendum verification", () => {
 
   test.afterEach(async ({ page }) => {
     const fixture = tourFixtures.get(page);
-    if (!fixture) return;
+    const failures: unknown[] = [];
+    if (fixture) {
+    try {
     await page.context().clearCookies();
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
@@ -120,7 +128,9 @@ test.describe("Tour-resident addendum verification", () => {
       const body = await readback.json() as { rows?: Array<{ id?: string }> };
       if ((body.rows ?? []).some((row) => row.id === fixture.residentThreadId)) throw new Error("Linked tour inbox thread remained after cleanup.");
     }
-    const managerPage = fixture.managerPage;
+    } catch (error) { failures.push(error); }
+    const managerPage = fixture.manager.page;
+    try {
     await managerPage.goto("/portal/properties", { waitUntil: "domcontentloaded" });
     if (fixture.actorId !== await syntheticFixtureActorId(managerPage) || !fixture.propertyId.startsWith("e2e-safe-") || !fixture.propertyName.startsWith("E2E Safe ")) {
       throw new Error("Linked tour fixture cleanup ownership mismatch.");
@@ -138,12 +148,14 @@ test.describe("Tour-resident addendum verification", () => {
       const inquiryRows = scheduleBody.rows?.find((row) => row.id === "axis_admin_partner_inquiries_v1")?.payload ?? [];
       if (inquiryRows.some((row) => row.id === fixture.inquiryId)) throw new Error("Linked tour inquiry remained after cleanup.");
     }
-    await cleanupSyntheticPublicTourManager({
-      page: managerPage,
-      context: fixture.managerContext,
-      property: { id: fixture.propertyId, name: fixture.propertyName },
-      actorId: fixture.actorId,
-    });
+    } catch (error) { failures.push(error); }
+    try { await cleanupSyntheticPublicTourManager(fixture.manager); } catch (error) { failures.push(error); }
+    }
+    try { await phoneRestores.get(page)?.(); } catch (error) { failures.push(error); }
+    phoneRestores.delete(page);
     tourFixtures.delete(page);
+    if (failures.length) {
+      throw new AggregateError(failures, "Tour fixture cleanup failed.");
+    }
   });
 });

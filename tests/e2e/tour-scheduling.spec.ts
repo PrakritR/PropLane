@@ -9,9 +9,10 @@ test.describe("Tour scheduling", () => {
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
   const publicFixtureByPage = new WeakMap<object, SyntheticPublicTourManager>();
+  const phoneRestores = new WeakMap<object, () => Promise<void>>();
   async function openOwnedPublicTourLink(browser: import("@playwright/test").Browser, page: Page, tab?: "message") {
     test.setTimeout(180_000);
-    const manager = await createSyntheticPublicTourManager(browser);
+    const manager = await createSyntheticPublicTourManager(browser, { onPhoneFixtureReady: (phone) => { phoneRestores.set(page, phone.restore); } });
     publicFixtureByPage.set(page, manager);
     // Keep the public surface signed out so these assertions exercise its
     // intended prospect gate while the linked property is a valid owned row.
@@ -24,10 +25,15 @@ test.describe("Tour scheduling", () => {
   }
 
   test.afterEach(async ({ page }) => {
+    const failures: unknown[] = [];
     const fixture = publicFixtureByPage.get(page);
-    if (!fixture) return;
-    await cleanupSyntheticPublicTourManager(fixture);
+    try { if (fixture) await cleanupSyntheticPublicTourManager(fixture); } catch (error) { failures.push(error); }
+    try { await phoneRestores.get(page)?.(); } catch (error) { failures.push(error); }
     publicFixtureByPage.delete(page);
+    phoneRestores.delete(page);
+    if (failures.length) {
+      throw new AggregateError(failures, "Tour fixture cleanup failed.");
+    }
   });
 
   test("tours-contact page requires a resident account before submitting", async ({ browser, page }) => {
