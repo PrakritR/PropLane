@@ -81,7 +81,9 @@ async function sessionUserFromCookies(page: Page): Promise<{ id: string; email: 
 
 async function expectManagerCreateForm(page: Page, opts: { signedIn: boolean }) {
   if (opts.signedIn) {
-    await expect(page.getByLabel("Verified email", { exact: true })).toHaveValue(E2E_ACCOUNTS.manager.email);
+    const verifiedEmail = page.getByLabel("Verified email", { exact: true });
+    await expect(verifiedEmail).toHaveValue(E2E_ACCOUNTS.manager.email);
+    await expect(verifiedEmail).toHaveAttribute("readonly", "");
     await expect(page.getByRole("button", { name: "Create a different property account" })).toBeVisible();
   } else {
     await expect(page.getByRole("heading", { name: "Create your property account" })).toBeVisible();
