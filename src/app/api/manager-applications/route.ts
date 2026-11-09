@@ -1660,7 +1660,7 @@ export async function POST(req: Request) {
             row: prepareApplicantIdentityWrite(row, null, row.id),
             ...(linkedForms.length > 0 ? { linkedForms } : {}),
           }
-        : { ok: true, id: row.id, ...(row.bucket === "approved" ? { residentAccess: "invitation_required" } : {}) },
+        : { ok: true, id: row.id, row, ...(row.bucket === "approved" ? { residentAccess: "invitation_required" } : {}) },
     );
   } catch (e) {
     const mapped = applicationWriteErrorResponse(e, "Failed to save application.");

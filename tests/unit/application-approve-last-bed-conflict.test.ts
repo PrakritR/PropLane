@@ -8,8 +8,12 @@ let ROWS: DemoApplicantRow[] = [];
 const writes: DemoApplicantRow[][] = [];
 const syncProperty = vi.fn(async () => true);
 const mirrorCharges = vi.fn(async () => true);
+const recordCharges = vi.fn(() => true);
+const readCharges = vi.fn<() => { applicationId: string }[]>(() => []);
+const upsertNegotiated = vi.fn();
 
 vi.mock("@/lib/manager-applications-storage", () => ({
+  upsertApplicationRowToServerAwait: (...args: unknown[]) => upsertNegotiated(...args),
   normalizeApplicationAxisId: (id: string) => id,
   readManagerApplicationRows: () => ROWS,
   writeManagerApplicationRows: (rows: DemoApplicantRow[]) => {
@@ -18,8 +22,9 @@ vi.mock("@/lib/manager-applications-storage", () => ({
   },
 }));
 vi.mock("@/lib/household-charges", () => ({
-  recordApprovedApplicationCharges: () => true,
+  recordApprovedApplicationCharges: () => recordCharges(),
   mirrorHouseholdChargesToServerAwait: () => mirrorCharges(),
+  readChargesForManager: () => readCharges(),
   recordSubmittedApplicationFeeCharge: () => true,
   removeAllApplicationCharges: () => undefined,
   removeApprovedApplicationCharges: () => undefined,
@@ -59,6 +64,9 @@ beforeEach(() => {
   writes.length = 0;
   syncProperty.mockReset().mockResolvedValue(true);
   mirrorCharges.mockReset().mockResolvedValue(true);
+  recordCharges.mockReset().mockReturnValue(true);
+  readCharges.mockReset().mockReturnValue([]);
+  upsertNegotiated.mockReset();
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -74,14 +82,52 @@ describe("approving a bed that was just taken", () => {
     expect(writes).toEqual([]);
   });
 
+  it("does not mirror unchanged charges", async () => {
+    recordCharges.mockReturnValueOnce(false);
+    mockFetch(() => ({ status: 200, body: { ok: true } }));
+    const result = await transitionApplicationBucket("AP1", "approved", { userId: "u1", skipWelcomeEmail: true });
+    expect(result?.approvalSaved).toBe(true);
+    expect(mirrorCharges).not.toHaveBeenCalled();
+  });
+
   it("reports a saved approval when billing mirror fails and leaves retry possible", async () => {
     mirrorCharges.mockResolvedValueOnce(false);
     mockFetch(() => ({ status: 200, body: { ok: true } }));
     const result = await transitionApplicationBucket("AP1", "approved", { userId: "u1" });
     expect(result?.message).toMatch(/Approval saved, but payments/);
+    expect(result?.approvalSaved).toBe(true);
     expect(ROWS[0]!.bucket).toBe("approved");
     const retry = await transitionApplicationBucket("AP1", "approved", { userId: "u1", skipWelcomeEmail: true });
     expect(retry?.blocked).toBeUndefined();
+  });
+
+  it("retries a failed mirror even when the second reconciliation is unchanged", async () => {
+    recordCharges.mockReturnValueOnce(true).mockReturnValueOnce(false);
+    mirrorCharges.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    readCharges.mockReturnValue([{ applicationId: "AP1" }]);
+    mockFetch(() => ({ status: 200, body: { ok: true } }));
+    expect((await transitionApplicationBucket("AP1", "approved", { userId: "u1" }))?.blocked).toBe("error");
+    expect((await transitionApplicationBucket("AP1", "approved", { userId: "u1", skipWelcomeEmail: true }))?.blocked).toBeUndefined();
+    expect(mirrorCharges).toHaveBeenCalledTimes(2);
+  });
+
+  it("persists negotiated rent before charges and uses the server-confirmed row", async () => {
+    mockFetch(() => ({ status: 200, body: { ok: true } }));
+    upsertNegotiated.mockImplementation(async (next) => ({ ok: true, row: next }));
+    const result = await transitionApplicationBucket("AP1", "approved", { userId: "u1", negotiatedRent: 900, skipWelcomeEmail: true });
+    expect(result?.blocked).toBeUndefined();
+    expect(upsertNegotiated).toHaveBeenCalledOnce();
+    expect(upsertNegotiated.mock.invocationCallOrder[0]).toBeLessThan(recordCharges.mock.invocationCallOrder[0]!);
+    expect(ROWS[0]!.application?.managerRentOverride).toBe("900");
+  });
+
+  it("stops downstream work after an unconfirmed negotiated rent write", async () => {
+    mockFetch(() => ({ status: 200, body: { ok: true } }));
+    upsertNegotiated.mockResolvedValue({ ok: false });
+    const result = await transitionApplicationBucket("AP1", "approved", { userId: "u1", negotiatedRent: 900 });
+    expect(result).toMatchObject({ approvalSaved: true, blocked: "error" });
+    expect(recordCharges).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
   });
 
   it("answers blocked: capacity with the bed and the holder, and writes nothing locally", async () => {

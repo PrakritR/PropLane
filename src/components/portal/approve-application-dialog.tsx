@@ -1,5 +1,9 @@
 "use client";
 
+import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { approvalPlacementBlocker } from "@/lib/application-approval-placement";
+
 /**
  * The ONE Approve popup. Every way into approving an application — the
  * Applications list row ⋯ and record header, the Residents row ⋯ and its
@@ -21,7 +25,7 @@
  * the server accepts).
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pencil } from "lucide-react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PreviewPanel } from "@/components/portal/add-workspace/parts";
@@ -48,8 +52,6 @@ import {
   readManagerApplicationRows,
   residentSlotOverrideFields,
   syncManagerApplicationsFromServer,
-  upsertApplicationRowToServerAwait,
-  writeManagerApplicationRows,
 } from "@/lib/manager-applications-storage";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { resolvePlacementValuesForRow } from "@/lib/rental-application/placement-values";
@@ -107,15 +109,34 @@ function ApproveApplicationDialogBody({ row, userId, automation, onClose, onAppr
   const { channelsFor } = useManagerCommunicationDeliverVia();
   const channels = channelsFor("applications");
   const [tick, setTick] = useState(0);
+  const [propertyAttempt, setPropertyAttempt] = useState(0);
+  const [propertyState, setPropertyState] = useState<"loading" | "ready" | "error">("loading");
+  const [propertyError, setPropertyError] = useState("");
+  const propertyId = row.assignedPropertyId?.trim() || row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
+  useEffect(() => {
+    let cancelled = false;
+    setPropertyState("loading");
+    void (async () => {
+      const demo = isDemoModeActive();
+      const synced = demo || await syncPropertyPipelineFromServer({ force: true, userId, linkedPropertyIds: propertyId ? [propertyId] : [] }).catch(() => false);
+      const property = getPropertyById(propertyId);
+      const issue = demo ? null : synced ? approvalPlacementBlocker(row, property?.publicProjection ? undefined : property?.listingSubmission) : "Could not verify this property's pricing. Refresh and try again.";
+      if (cancelled) return;
+      setPropertyError(issue ?? "");
+      setPropertyState(issue ? "error" : "ready");
+      if (!issue) setTick((value) => value + 1);
+    })();
+    return () => { cancelled = true; };
+  }, [propertyAttempt, propertyId, row, userId]);
   const slots = useMemo(() => {
     void tick;
     return residentSlotsForApplicationRow(row);
   }, [row, tick]);
   const beds = useMemo(() => approvalBedOptions(row, slots), [row, slots]);
   const shared = slots.length > 0;
-  const perResident = useMemo(() => applicationRoomPricesPerResident(row), [row]);
+  const perResident = useMemo(() => { void tick; return applicationRoomPricesPerResident(row); }, [row, tick]);
   const room = roomForApplicationRow(row);
-  const placement = useMemo(() => resolvePlacementValuesForRow(row), [row]);
+  const placement = useMemo(() => { void tick; return resolvePlacementValuesForRow(row); }, [row, tick]);
 
   const initialSlot = useMemo(() => {
     const own = Number(row.application?.residentSlot);
@@ -144,23 +165,9 @@ function ApproveApplicationDialogBody({ row, userId, automation, onClose, onAppr
 
   // A bed that stopped being open (someone else was approved while the popup sat open) is no longer pickable.
   useEffect(() => {
-    if (slot != null && !beds.some((b) => b.slot === slot)) setSlot(beds[0]?.slot ?? null);
+    if ((slot == null || !beds.some((b) => b.slot === slot)) && beds.length > 0) setSlot(beds[0]!.slot);
   }, [beds, slot]);
 
-  const persistNegotiatedRent = useCallback(
-    async (rowId: string, rent: number) => {
-      const current = readManagerApplicationRows().find((r) => r.id === rowId);
-      if (!current?.application) return;
-      const next = { ...current, application: { ...current.application, managerRentOverride: String(rent) } };
-      writeManagerApplicationRows(
-        readManagerApplicationRows().map((r) => (r.id === rowId ? next : r)),
-        { serverConfirmed: true, skipLeaseSeed: true },
-      );
-      // A second write on an already-placed bed: the server keeps the placement and takes the typed rent.
-      await upsertApplicationRowToServerAwait(next);
-    },
-    [],
-  );
 
   // Forms the manager marked "needed before review" that are still owed ask for one confirm, never a hard block.
   const { requests: linkedForms } = useLinkedFormRequests(row.id);
@@ -172,7 +179,7 @@ function ApproveApplicationDialogBody({ row, userId, automation, onClose, onAppr
   const approvalBlock = useApprovalFormsBlock(userId, row.id);
 
   const approve = async () => {
-    if (busy) return;
+    if (busy || propertyState !== "ready") return;
     if (shared && slot == null) {
       setError("No bed is open in this room.");
       return;
@@ -185,58 +192,59 @@ function ApproveApplicationDialogBody({ row, userId, automation, onClose, onAppr
     setBusy(true);
     setError(null);
     const picked = slot != null ? slots.find((s) => s.slot === slot) : undefined;
-    const result = await transitionApplicationBucket(row.id, "approved", {
-      userId,
-      automation,
-      applicationPatch: picked ? residentSlotOverrideFields(picked.price) : undefined,
-      welcomeNote: sendsMessage ? note : undefined,
-      skipWelcomeEmail: !channels.viaEmail,
-      approvalNotification: { viaEmail: channels.viaEmail, viaSms: channels.viaSms },
-    });
-    if (!result) {
-      setBusy(false);
-      setError("Approval could not be saved. Refresh and retry.");
-      return;
-    }
-    if (result.blocked === "capacity") {
-      // Refresh who holds what before offering another bed — the winner is now on the server.
-      await syncManagerApplicationsFromServer({ force: true, managerUserId: userId }).catch(() => undefined);
-      setTick((n) => n + 1);
-      setBusy(false);
-      setConflict({
-        slot: result.conflict?.slot ?? slot ?? undefined,
-        holderName: result.conflict?.holderName,
-        message: result.message ?? "That bed was just taken.",
+    try {
+      const result = await transitionApplicationBucket(row.id, "approved", {
+        userId,
+        automation,
+        applicationPatch: picked ? residentSlotOverrideFields(picked.price) : undefined,
+        negotiatedRent: perResident && picked && parseMoneyAmount(rentValue) > 0 && parseMoneyAmount(rentValue) !== picked.price.monthlyRent ? parseMoneyAmount(rentValue) : undefined,
+        welcomeNote: sendsMessage ? note : undefined,
+        skipWelcomeEmail: !channels.viaEmail,
+        approvalNotification: { viaEmail: channels.viaEmail, viaSms: channels.viaSms },
       });
-      return;
-    }
-    if (result.blocked) {
+      if (!result) {
+        setBusy(false);
+        setError("Approval could not be saved. Refresh and retry.");
+        return;
+      }
+      if (result.blocked === "capacity") {
+        // Refresh who holds what before offering another bed — the winner is now on the server.
+        await syncManagerApplicationsFromServer({ force: true, managerUserId: userId }).catch(() => undefined);
+        setTick((n) => n + 1);
+        setBusy(false);
+        setConflict({
+          slot: result.conflict?.slot ?? slot ?? undefined,
+          holderName: result.conflict?.holderName,
+          message: result.message ?? "That bed was just taken.",
+        });
+        return;
+      }
+      if (result.blocked) {
+        setError(result.message ?? "Approval could not be saved. Refresh and retry.");
+        return;
+      }
       setBusy(false);
-      setError(result.message ?? "Approval could not be saved. Refresh and retry.");
-      return;
+      const approvedRow = readManagerApplicationRows().find((r) => r.id === row.id) ?? row;
+      const after = residentSlotsForApplicationRow(approvedRow);
+      const open = after.filter((s) => !s.holder).length;
+      const roomName = room?.name?.trim() || "The room";
+      const roomNote = shared ? (open === 0 ? `${roomName} is now full` : `${roomName} · ${open} bed${open === 1 ? "" : "s"} open`) : null;
+      if (result.approvalSms && result.approvalSms.sms !== "submitted") {
+        const outcome = result.approvalSms.sms === "queued" ? "queued" : result.approvalSms.sms === "unknown" ? "outcome is not yet known" : "failed";
+        showToast(`Approved. Text message ${outcome}${result.approvalSms.error ? `: ${result.approvalSms.error}` : "."}`);
+      } else {
+        showToast(roomNote ? `Approved · ${roomNote}` : "Approved", {
+          actionLabel: "Send lease",
+          undo: () => onSendLease?.(row.id),
+        });
+      }
+      onApproved?.(result, approvedRow);
+      onClose();
+    } catch {
+      setError("Could not finish approval. Refresh and retry.");
+    } finally {
+      setBusy(false);
     }
-    // A rent the manager typed over the bed's price is their negotiated figure for this resident.
-    const typed = parseMoneyAmount(rentValue);
-    if (perResident && picked && typed > 0 && typed !== picked.price.monthlyRent) {
-      await persistNegotiatedRent(row.id, typed).catch(() => undefined);
-    }
-    setBusy(false);
-    const approvedRow = readManagerApplicationRows().find((r) => r.id === row.id) ?? row;
-    const after = residentSlotsForApplicationRow(approvedRow);
-    const open = after.filter((s) => !s.holder).length;
-    const roomName = room?.name?.trim() || "The room";
-    const roomNote = shared ? (open === 0 ? `${roomName} is now full` : `${roomName} · ${open} bed${open === 1 ? "" : "s"} open`) : null;
-    if (result.approvalSms && result.approvalSms.sms !== "submitted") {
-      const outcome = result.approvalSms.sms === "queued" ? "queued" : result.approvalSms.sms === "unknown" ? "outcome is not yet known" : "failed";
-      showToast(`Approved. Text message ${outcome}${result.approvalSms.error ? `: ${result.approvalSms.error}` : "."}`);
-    } else {
-      showToast(roomNote ? `Approved · ${roomNote}` : "Approved", {
-        actionLabel: "Send lease",
-        undo: () => onSendLease?.(row.id),
-      });
-    }
-    onApproved?.(result, approvedRow);
-    onClose();
   };
 
   const openBedsForMove = useMemo(
@@ -310,7 +318,7 @@ function ApproveApplicationDialogBody({ row, userId, automation, onClose, onAppr
           sub={house}
           facts={[
             { label: "Room", value: placeLine(row) || "Not assigned", warn: !placeLine(row) },
-            { label: "Rent", value: (() => { const typed = perResident ? parseMoneyAmount(rentValue) : baseRent; return typed > 0 ? `${formatRoomPriceAmount(typed)} / month` : "Not set"; })() },
+            { label: "Rent", value: (() => { const typed = perResident ? parseMoneyAmount(rentValue) : baseRent; return propertyState !== "ready" ? "Loading" : typed > 0 ? `${formatRoomPriceAmount(typed)} / month` : "Not set"; })() },
             { label: "Message", value: sendsMessage ? channelsLabel(channels.viaEmail, channels.viaSms) : "None" },
           ]}
         />
@@ -318,12 +326,14 @@ function ApproveApplicationDialogBody({ row, userId, automation, onClose, onAppr
       primaryAction={{
         label: owedConfirmed && owedForms.length > 0 ? "Approve anyway" : "Approve",
         loading: busy,
-        disabled: busy || (shared && slot == null) || approvalBlock.blocked,
+        disabled: busy || propertyState !== "ready" || (shared && slot == null) || approvalBlock.blocked,
         dataAttr: "approve-application-confirm",
         onClick: () => void approve(),
       }}
     >
       <div className="space-y-1" data-attr="approve-application-body">
+        {propertyState === "loading" ? <p role="status" className="pb-2 text-sm text-muted">Loading property pricing…</p> : null}
+        {propertyState === "error" ? <div role="alert" className="pb-2 text-sm text-danger">{propertyError} <button type="button" className="font-semibold text-primary" onClick={() => setPropertyAttempt((value) => value + 1)}>Retry</button></div> : null}
         {approvalBlock.blocked ? (
           <p className="pb-2 text-sm font-semibold text-foreground" role="alert" data-attr="approve-application-forms-block">
             Waiting on {approvalBlock.names.join(", ")} before you can approve
@@ -381,7 +391,7 @@ function ApproveApplicationDialogBody({ row, userId, automation, onClose, onAppr
             </span>
           ) : (
             <span className="text-sm font-bold text-foreground" data-attr="approve-application-rent-static">
-              {baseRent > 0 ? `${formatRoomPriceAmount(baseRent)} / month` : "Not set"}
+              {propertyState !== "ready" ? "Loading" : baseRent > 0 ? `${formatRoomPriceAmount(baseRent)} / month` : "Not set"}
             </span>
           )}
         </ApproveRow>

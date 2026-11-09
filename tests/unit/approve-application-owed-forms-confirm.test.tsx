@@ -7,6 +7,9 @@ import type { LinkedFormRequestView } from "@/lib/application-linked-form-reques
 const mocks = vi.hoisted(() => ({
   requests: [] as LinkedFormRequestView[],
   transition: vi.fn(async () => ({ ok: true, approvalSms: null })),
+  syncProperty: vi.fn(async () => true),
+  sharedReady: false,
+  demo: false,
 }));
 
 vi.mock("@/hooks/use-linked-form-requests", () => ({
@@ -15,6 +18,15 @@ vi.mock("@/hooks/use-linked-form-requests", () => ({
 vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ showToast: vi.fn() }) }));
 vi.mock("@/hooks/use-manager-communication-deliver-via", () => ({
   useManagerCommunicationDeliverVia: () => ({ channelsFor: () => ({ viaEmail: false, viaSms: false }) }),
+}));
+vi.mock("@/lib/demo-property-pipeline", () => ({ syncPropertyPipelineFromServer: () => mocks.syncProperty() }));
+vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => mocks.demo }));
+vi.mock("@/lib/rental-application/data", () => ({ getPropertyById: () => ({ listingSubmission: {} }) }));
+vi.mock("@/lib/application-approval-placement", () => ({ approvalPlacementBlocker: () => null }));
+vi.mock("@/lib/rental-application/placement-values", () => ({ resolvePlacementValuesForRow: () => ({ signedMonthlyRent: 1250, roomLabel: "" }) }));
+vi.mock("@/lib/application-approval-slots", () => ({
+  applicationRoomPricesPerResident: () => mocks.sharedReady, approvalBedOptions: () => mocks.sharedReady ? [{ slot: 1, label: "Bed A · $1,250/mo", monthlyRent: 1250 }] : [], bedLabelForSlot: () => "Bed A",
+  residentSlotsForApplicationRow: () => mocks.sharedReady ? [{ slot: 1, price: { slot: 1, monthlyRent: 1250 }, holder: null }] : [], roomForApplicationRow: () => null,
 }));
 vi.mock("@/lib/application-review", () => ({ transitionApplicationBucket: mocks.transition }));
 vi.mock("@/lib/manager-applications-storage", () => ({
@@ -75,6 +87,34 @@ function open() {
 describe("approving with a needed-before-review form still owed", () => {
   beforeEach(() => {
     mocks.requests = [];
+    mocks.sharedReady = false;
+    mocks.demo = false;
+    mocks.syncProperty.mockReset().mockResolvedValue(true);
+  });
+
+  it("blocks approval during a failed property load and retries before showing the rate", async () => {
+    mocks.syncProperty.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    open();
+    expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not verify");
+    expect(mocks.transition).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled());
+    expect(screen.getAllByText(/1,250/).length).toBeGreaterThan(0);
+  });
+
+  it("keeps demo approval available without a property sync", async () => {
+    mocks.demo = true;
+    open();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled());
+    expect(mocks.syncProperty).not.toHaveBeenCalled();
+  });
+
+  it("selects the first bed when shared-room data arrives after opening", async () => {
+    mocks.syncProperty.mockImplementationOnce(async () => { mocks.sharedReady = true; return true; });
+    open();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled());
+    expect(screen.getByText(/Bed A/)).toBeInTheDocument();
   });
 
   it("says plainly that the application is waiting on a form", () => {
@@ -86,6 +126,7 @@ describe("approving with a needed-before-review form still owed", () => {
   it("asks one confirm, then approves anyway: a soft stop, never a hard block", async () => {
     mocks.requests = [owed()];
     open();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect(mocks.transition).not.toHaveBeenCalled();
     expect(await screen.findByText(/Waiting on 1 form\. Approve without it\?/)).toBeInTheDocument();
@@ -98,6 +139,7 @@ describe("approving with a needed-before-review form still owed", () => {
     mocks.requests = [owed({ status: "done" }), owed({ id: "r2", neededBeforeReview: false })];
     open();
     expect(screen.queryByText(/Waiting on/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() => expect(mocks.transition).toHaveBeenCalledTimes(1));
   });
