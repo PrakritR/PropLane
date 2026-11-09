@@ -65,7 +65,7 @@ export async function createSyntheticPublicTourManager(browser: Browser, options
     await completeManagerSignupOnboarding(page);
     const planResponse = await page.request.get("/api/manager/subscription");
     const plan = await planResponse.json() as { effectiveTier?: unknown; planUnknown?: unknown };
-    if (!planResponse.ok() || plan.planUnknown === true || plan.effectiveTier !== tier) throw new Error("Synthetic manager's effective plan was not confirmed.");
+    if (!planResponse.ok() || plan.planUnknown !== false || plan.effectiveTier !== tier) throw new Error("Synthetic manager's effective plan was not confirmed.");
     const property = options.createProperty === false ? null : await createSyntheticProperty(page);
     const actorId = await syntheticFixtureActorId(page);
     return { page, context, property, actorId, phoneFixture };

@@ -47,7 +47,7 @@ test.describe("listing editor — save on close, no typing timer", () => {
 
   test("typing writes nothing; ✕ writes exactly one draft that reopens with the text", async ({ browser }) => {
     const marker = `Close-save QA ${Date.now()}`;
-    const manager = await createWritableSyntheticManager(browser);
+    const manager = await createWritableSyntheticManager(browser, { properties: 0 });
     const page = manager.page;
 
     try {
@@ -85,8 +85,10 @@ test.describe("listing editor — save on close, no typing timer", () => {
       (request) => writeCarriesMarker(request, marker),
       { timeout: 20_000 },
     );
+    const closeResponse = page.waitForResponse((response) => writeCarriesMarker(response.request(), marker), { timeout: 20_000 });
     await page.getByRole("button", { name: /^Close$/ }).click();
     const savedDraft = propertyWriteBody(await closeWrite);
+    expect((await closeResponse).ok()).toBe(true);
     draftId = typeof savedDraft?.id === "string" ? savedDraft.id : "";
     expect(draftId, "close write must carry the persisted draft id").not.toBe("");
     await expect(nameField).not.toBeVisible();
@@ -102,6 +104,14 @@ test.describe("listing editor — save on close, no typing timer", () => {
     // The draft is in Drafts, carrying the text that was typed.
     await page.goto("/portal/properties/drafts", { waitUntil: "domcontentloaded" });
     await expect(page.getByText(marker).first()).toBeVisible({ timeout: 30_000 });
+    const planReady = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/manager/subscription" && response.ok(), { timeout: 30_000 });
+    await page.goto(`/portal/properties/drafts/${encodeURIComponent(draftId)}/preview`, { waitUntil: "domcontentloaded" });
+    await planReady;
+    const resume = page.locator('[data-attr="draft-continue-editing"]').filter({ visible: true }).first();
+    await expect(resume).toBeVisible({ timeout: 30_000 });
+    await resume.click();
+    await expect(page.getByPlaceholder("Magnolia House")).toHaveValue(marker, { timeout: 30_000 });
+    await page.goto("/portal/properties/drafts", { waitUntil: "domcontentloaded" });
     } finally {
       // Remove only the exact draft this test created, through its normal owner-scoped route.
       const snapshotResponse = await page.request.get("/api/property-records");
