@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { signInAsManager } from "../helpers/auth";
-import { createSyntheticProperty } from "../helpers/synthetic-property-e2e";
+import { cleanupSyntheticProperties, createSyntheticProperty } from "../helpers/synthetic-property-e2e";
 
 /**
  * Per-property Operations settings (PLAN-0916-1040): pick a house, edit it, and
@@ -26,6 +26,10 @@ const call = (page: Page, url: string, init?: RequestInit): Promise<Resp> =>
     [url, init] as const,
   );
 const before = (r: Resp) => (r.body.settings?.rules?.inspection?.timings ?? []).filter((t) => t.startsWith("before:"));
+
+test.afterEach(async ({ page }) => {
+  await cleanupSyntheticProperties(page);
+});
 
 test.describe("Settings — per-property Operations scope", () => {
   test("pick a house -> edit -> All properties unchanged -> reload keeps it -> reset restores", async ({ page }) => {

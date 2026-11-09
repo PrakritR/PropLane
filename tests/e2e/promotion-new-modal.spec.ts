@@ -1,7 +1,7 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import path from "node:path";
 import { mockStripeAllRoutes } from "../helpers/auth";
-import { createSyntheticProperty } from "../helpers/synthetic-property-e2e";
+import { cleanupSyntheticProperties, createSyntheticProperty } from "../helpers/synthetic-property-e2e";
 import { fieldSelectTrigger, pickFieldSelect } from "../helpers/field-select";
 
 /**
@@ -44,6 +44,10 @@ async function openPromotionSection(page: Page) {
   });
   return page.locator('[data-slot="portal-page-shell"]').first();
 }
+
+test.afterEach(async ({ page }) => {
+  await cleanupSyntheticProperties(page);
+});
 
 test.describe("Promotion UX", () => {
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Set E2E_TESTS_ENABLED=1 after npm run test:seed");
