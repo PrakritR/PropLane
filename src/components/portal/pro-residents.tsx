@@ -2580,11 +2580,9 @@ export function ManagerResidents({
     nextRow = preserveUnchangedResidentPlacement(existing, nextRow, editResidentForm, {
       propertyId, roomId, bundleId, moveInDate, moveOutDate, leaseTerm, leaseTermCustomMode,
     });
-    const next = [...rows];
-    next[idx] = nextRow;
     setErSaving(true);
     return persistResidentProfileEdit({
-      rows: next,
+      rows,
       nextRow,
       managerUserId: userId ?? null,
       voidSentLeases: options?.voidSentLeases,

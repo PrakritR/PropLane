@@ -27,7 +27,7 @@ const defer = () => {
   return { promise, release };
 };
 
-const mirrorWrite = vi.fn(async () => {
+const mirrorWrite = vi.fn(async (..._args: unknown[]) => {
   order.push("mirror-write");
   return true;
 });
@@ -64,7 +64,7 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
 }));
 vi.mock("@/lib/household-charges", () => ({
   mirrorHouseholdChargesToServerAwait: () => mirrorWrite(),
-  mirrorApplicationHouseholdChargesAwait: () => mirrorWrite(),
+  mirrorApplicationHouseholdChargesAwait: (row: unknown, previous: unknown) => mirrorWrite(row, previous),
   syncHouseholdChargesFromServer: () => syncCharges(),
   recordApprovedApplicationCharges: () => true,
 }));
@@ -102,6 +102,14 @@ beforeEach(() => {
 });
 
 describe("saving an edited resident", () => {
+  it("passes the original identity and property to scoped billing after a move", async () => {
+    const old = { id: "app-1", email: "old@example.invalid", propertyId: "old-property" } as never;
+    const updated = { id: "app-1", email: "new@example.invalid", propertyId: "new-property" } as never;
+    expect((await persistResidentProfileEdit({ rows: [old], nextRow: updated, managerUserId: "mgr-1" })).ok).toBe(true);
+    expect(mirrorWrite).toHaveBeenCalledWith(updated, old);
+    readGate.release();
+  });
+
   it("does not wait on the read-back before reporting success", async () => {
     // The applications re-read is held open. If the save awaited it, this would never resolve.
     const result = await persistResidentProfileEdit({

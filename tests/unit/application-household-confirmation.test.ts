@@ -15,17 +15,20 @@ it("confirms only mutable application and matching recurring rows, and refuses i
     { ...base, id: "app-charge", applicationId: "app", kind: "security_deposit" },
     { ...base, id: "recurring", recurringRentProfileId: "profile", rentMonth: "2026-01" },
     { ...base, id: "paid", applicationId: "app", status: "paid" },
+    { ...base, id: "old-pending", residentEmail: "old@example.invalid", propertyId: "old-p", rentMonth: "2026-02", recurringRentProfileId: "old-profile", status: "pending" },
+    { ...base, id: "old-cancelled", residentEmail: "old@example.invalid", propertyId: "old-p", rentMonth: "2026-03", recurringRentProfileId: "old-profile", status: "cancelled" },
+    { ...base, id: "old-paid", residentEmail: "old@example.invalid", propertyId: "old-p", rentMonth: "2026-04", recurringRentProfileId: "old-profile", status: "paid" },
     { ...base, id: "other", applicationId: "other" },
   ], [profile, { ...profile, id: "old-profile", residentEmail: "old@example.invalid", propertyId: "old-p" }]);
   const fetchMock = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, confirmedChargeIds: ["app-charge"], confirmedProfileIds: ["profile", "old-profile"] }) })
-    .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, confirmedChargeIds: ["app-charge", "recurring"], confirmedProfileIds: ["profile", "old-profile"] }) });
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, confirmedChargeIds: ["app-charge", "recurring", "old-pending", "old-cancelled"], confirmedProfileIds: ["profile", "old-profile"] }) });
   vi.stubGlobal("fetch", fetchMock);
   const row = { id: "app", email: base.residentEmail, propertyId: "p", managerUserId: "owner" } as DemoApplicantRow;
   const previous = { ...row, email: "old@example.invalid", propertyId: "old-p" };
   expect(await mirrorApplicationHouseholdChargesAwait(row, previous)).toBe(false);
   expect(await mirrorApplicationHouseholdChargesAwait(row, previous)).toBe(true);
   const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
-  expect(body.charges.map((charge: HouseholdCharge) => charge.id).sort()).toEqual(["app-charge", "recurring"]);
+  expect(body.charges.map((charge: HouseholdCharge) => charge.id).sort()).toEqual(["app-charge", "old-cancelled", "old-pending", "recurring"]);
   expect(body.rentProfiles.map((item: RecurringRentProfile) => item.id)).toEqual(["profile", "old-profile"]);
   expect(body.charges.every((charge: HouseholdCharge) => charge.managerUserId === "owner")).toBe(true);
   expect(body.rentProfiles.every((item: RecurringRentProfile) => item.managerUserId === "owner")).toBe(true);
