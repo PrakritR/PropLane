@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { preserveUnchangedResidentPlacement } from "@/lib/resident-edit-placement";
 
-const controls = { propertyId: "house", roomId: "room", bundleId: "", moveInDate: "2026-11-04", moveOutDate: "" };
+const controls = { propertyId: "house", roomId: "room", bundleId: "", moveInDate: "2026-11-04", moveOutDate: "", leaseTerm: "12 months", leaseTermCustomMode: false };
 const previous = {
   id: "fixture", application: { propertyId: "house", roomChoice1: "house::room", leaseStart: "2026-11-04", leaseEnd: "" },
   manualResidentDetails: {},
@@ -26,7 +26,7 @@ describe("resident edit placement preservation", () => {
     expect(result.manualResidentDetails).toMatchObject({ monthlyUtilities: 0, moveInFee: 0 });
     expect(result.application).toMatchObject({ managerUtilitiesOverride: "0", managerMoveInFeeOverride: "0" });
   });
-  it.each([{ roomId: "other" }, { moveInDate: "2026-11-05" }, { propertyId: "other" }, { bundleId: "bundle" }, { moveOutDate: "2027-01-01" }])("retains new placement when controls change: %o", (change) => {
+  it.each([{ roomId: "other" }, { moveInDate: "2026-11-05" }, { propertyId: "other" }, { bundleId: "bundle" }, { moveOutDate: "2027-01-01" }, { leaseTerm: "24 months" }, { leaseTermCustomMode: true }])("retains new placement when controls change: %o", (change) => {
     expect(preserveUnchangedResidentPlacement(previous, next, controls, { ...controls, ...change })).toBe(next);
   });
   it("keeps non-placement fields on a manually added row with no prior application", () => {

@@ -2578,7 +2578,7 @@ export function ManagerResidents({
     }
 
     nextRow = preserveUnchangedResidentPlacement(existing, nextRow, editResidentForm, {
-      propertyId, roomId, bundleId, moveInDate, moveOutDate,
+      propertyId, roomId, bundleId, moveInDate, moveOutDate, leaseTerm, leaseTermCustomMode,
     });
     const next = [...rows];
     next[idx] = nextRow;

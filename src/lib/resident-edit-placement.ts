@@ -1,6 +1,6 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
 
-type PlacementControls = { propertyId: string; roomId: string; bundleId: string; moveInDate: string; moveOutDate: string };
+type PlacementControls = { propertyId: string; roomId: string; bundleId: string; moveInDate: string; moveOutDate: string; leaseTerm: string; leaseTermCustomMode: boolean };
 
 /** Preserve the stored occupancy representation when no placement control changed. */
 export function preserveUnchangedResidentPlacement(
