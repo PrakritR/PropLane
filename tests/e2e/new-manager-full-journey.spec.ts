@@ -4,8 +4,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { mockStripeAllRoutes } from "../helpers/auth";
 import { requestManagerEmailProof, finishManagerEmailProof } from "../helpers/email-onboarding-e2e";
-import { completeManagerSignupOnboarding, pickListingSelect } from "../helpers/manager-onboarding-e2e";
+import { completeManagerSignupOnboarding } from "../helpers/manager-onboarding-e2e";
 import { clearManagerPhoneGate, type SyntheticPhoneVerification } from "../helpers/synthetic-phone-verification";
+import { syntheticFixtureActorId } from "../helpers/synthetic-property-e2e";
 
 /**
  * End-to-end walkthrough: brand-new manager from pricing → account creation →
@@ -122,23 +123,40 @@ test.describe("New manager — full journey from scratch", () => {
     const createBtn = page.locator('[data-attr="manager-properties-add-top"], [data-attr="manager-properties-create"]');
     await expect(createBtn).toBeEnabled({ timeout: 60_000 });
     await createBtn.click();
-    await expect(page.locator("#manager-add-listing-form")).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText(/new listing · home/i)).toBeVisible();
+    const editor = page.getByRole("dialog", { name: "Listing editor" });
+    await expect(editor).toBeVisible({ timeout: 20_000 });
     await shot(page, "06-listing-wizard-open");
 
-    await pickListingSelect(page, "Property type", "House");
-    await page.getByPlaceholder("e.g. Maple Court").fill(`Journey House ${stamp}`);
-    await page.getByPlaceholder("Start typing a street address").fill("400 Broad St");
-    await page.getByRole("button", { name: /South Lake Union/i }).first().click();
-    await pickListingSelect(page, "Number of floors", "Single level (1 floor)");
-    await pickListingSelect(page, "Total bathrooms", "1 bathroom");
+    const listingName = `Journey House ${stamp}`;
+    await editor.locator('[data-attr="listing-v2-kind-house"]').click();
+    await editor.getByPlaceholder("Magnolia House").fill(listingName);
+    await editor.getByPlaceholder("142 Ash St").fill("400 Broad St");
+    await editor.getByLabel("City").fill("Seattle");
+    await editor.getByLabel("State").fill("WA");
+    await editor.getByLabel("ZIP").fill("98109");
     await shot(page, "07-listing-home-step");
 
-    await page.getByRole("button", { name: /save & close/i }).click();
-    await expect(page.locator("#manager-add-listing-form")).toBeHidden({ timeout: 45_000 });
+    const save = page.waitForResponse((response) => response.request().method() === "POST"
+      && new URL(response.url()).pathname === "/api/property-records"
+      && (response.request().postData() ?? "").includes(listingName), { timeout: 30_000 });
+    await editor.getByRole("button", { name: "Close", exact: true }).click();
+    const saved = await save;
+    expect(saved.ok()).toBe(true);
+    const savedBody = saved.request().postDataJSON() as { id?: unknown };
+    expect(typeof savedBody.id).toBe("string");
+    expect(savedBody.id).not.toBe("");
+    await expect(editor).toBeHidden({ timeout: 45_000 });
     await shot(page, "08-listing-draft-saved");
 
-    await expect(page.getByRole("button", { name: /Drafts\s+[1-9]/ })).toBeVisible({ timeout: 15_000 });
+    const actorId = await syntheticFixtureActorId(page);
+    const snapshotResponse = await page.request.get("/api/property-records");
+    expect(snapshotResponse.ok()).toBe(true);
+    const snapshot = await snapshotResponse.json() as { snapshot?: { pendingByUser?: Record<string, Array<{ id?: string; buildingName?: string }>> } };
+    expect(snapshot.snapshot?.pendingByUser?.[actorId]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: savedBody.id, buildingName: listingName }),
+    ]));
+    await page.goto("/portal/properties/drafts", { waitUntil: "domcontentloaded" });
+    await expect(page.getByText(listingName).first()).toBeVisible({ timeout: 30_000 });
     await shot(page, "09-drafts-tab-has-listing");
 
     // ── 5. Settings → Workspaces — team lives here (no Teams page) ──────────
