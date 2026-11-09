@@ -9,9 +9,9 @@ import { requestManagerEmailProof, finishManagerEmailProof, requestResidentEmail
 import { verifySyntheticManagerPhone, verifySyntheticResidentPhone, type SyntheticPhoneVerification, withSyntheticPhoneFixtureOwnership } from "../helpers/synthetic-phone-verification";
 import {
   completeManagerSignupOnboarding,
-  pickListingSelect,
 } from "../helpers/manager-onboarding-e2e";
 import { visibleLocator, fillCurrentRentalApplication } from "../helpers/rental-wizard-e2e";
+import { fillSyntheticListingBasics } from "../helpers/listing-editor-e2e";
 import { syntheticFixtureActorId } from "../helpers/synthetic-property-e2e";
 
 /**
@@ -81,56 +81,73 @@ async function createFreshManager(page: Page, stamp: number) {
 }
 
 async function publishFirstListing(page: Page, stamp: number): Promise<string> {
+  const initialPlanResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/manager/subscription", { timeout: 30_000 });
   await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
+  const initialPlanResult = await initialPlanResponse;
+  if (!initialPlanResult.ok()) throw new Error(`Could not resolve the manager subscription before Add (${initialPlanResult.status()}).`);
+  const initialPlan = await initialPlanResult.json() as { effectiveTier?: unknown; planUnknown?: unknown };
+  if (initialPlan.effectiveTier !== "pro" || initialPlan.planUnknown !== false) throw new Error("The listing editor requires a resolved Pro subscription before Add.");
   const createBtn = page.locator('[data-attr="manager-properties-add-top"], [data-attr="manager-properties-create"]');
   await expect(createBtn).toBeEnabled({ timeout: 60_000 });
   await createBtn.click();
-  await expect(page.locator("#manager-add-listing-form")).toBeVisible({ timeout: 20_000 });
+  const editor = page.getByRole("dialog", { name: "Listing editor" });
+  await expect(editor).toBeVisible({ timeout: 20_000 });
 
   const buildingName = `E2E House ${stamp}`;
-  await pickListingSelect(page, "Property type", "House");
-  await page.getByPlaceholder("e.g. Maple Court").fill(buildingName);
-  await page.getByPlaceholder("Start typing a street address").fill("400 Broad St");
-  await page.getByRole("button", { name: /South Lake Union/i }).first().click();
-  await pickListingSelect(page, "Number of floors", "Single level (1 floor)");
-  await pickListingSelect(page, "Total bathrooms", "1 bathroom");
+  await fillSyntheticListingBasics(editor, buildingName);
+  const longTerm = editor.locator('[data-attr="listing-v2-stay-long-term"]');
+  await expect(longTerm).toHaveAttribute("aria-checked", "true");
   await shot(page, "04-listing-home");
 
-  const nextBtn = page.getByRole("button", { name: /^continue$/i }).filter({ visible: true }).first();
-  for (let step = 0; step < 4; step += 1) {
-    await nextBtn.click();
-    await page.waitForTimeout(600);
+  await editor.locator('[data-attr="listing-v2-rail-review"]').click();
+  const publish = editor.locator('[data-attr="listing-v2-publish"]');
+  await expect(publish).toBeVisible();
+  await publish.click();
+  const setRent = editor.locator('[data-attr="listing-v2-open-pricing"]');
+  await expect(setRent, "the current listing flow should direct a missing rent to its Pricing page").toBeVisible();
+  await shot(page, "05-listing-review-rent-required");
+  await setRent.click();
+
+  await expect(page.locator('[data-attr="property-pricing"]')).toBeVisible({ timeout: 30_000 });
+  const pricingUrl = new URL(page.url());
+  const draftMatch = pricingUrl.pathname.match(/\/portal\/properties\/drafts\/([^/]+)\/pricing$/);
+  if (!draftMatch) throw new Error("The missing-rent action did not open the exact synthetic draft's Pricing tab.");
+  const propertyId = decodeURIComponent(draftMatch[1]!);
+  await page.locator('[data-attr="property-pricing-tab-whole"]').click();
+  await page.locator('[data-attr="property-pricing-add"]').click();
+  const wholeHouseRent = page.getByRole("textbox", { name: "Whole house rent", exact: true });
+  await expect(wholeHouseRent).toBeVisible();
+  await wholeHouseRent.fill("1800");
+  const savePricing = page.locator('[data-attr="property-room-pricing-save"]');
+  const saveResponse = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/property-records", { timeout: 60_000 });
+  await savePricing.click();
+  const pricingSavedResponse = await saveResponse;
+  if (!pricingSavedResponse.ok()) throw new Error(`Saving synthetic whole-house pricing failed (${pricingSavedResponse.status()}).`);
+  await expect(page.getByText("Pricing saved.", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('[data-attr="property-room-pricing-save"]')).toHaveCount(0, { timeout: 15_000 });
+
+  const pricedDraft = await db.from("manager_property_records").select("id,status,property_data").eq("id", propertyId).eq("manager_user_id", await syntheticFixtureActorId(page)).single();
+  if (pricedDraft.error || pricedDraft.data.status !== "draft" || (pricedDraft.data.property_data as { entireHomeMonthlyRent?: unknown }).entireHomeMonthlyRent !== 1800) {
+    throw new Error("The exact draft did not persist its whole-house rent through the Pricing UI.");
   }
 
-  const monthlyRent = page.getByRole("textbox", { name: /Monthly rent for Room 1/i }).filter({ visible: true }).first();
-  if (await monthlyRent.count()) {
-    await monthlyRent.fill("1800");
-    await monthlyRent.blur();
-  } else {
-    const wholePlaceRent = visibleLocator(page, "#monthlyRent, input[name='monthlyRent']").first();
-    if (await wholePlaceRent.count()) {
-      await wholePlaceRent.fill("1800");
-      await wholePlaceRent.blur();
-    }
-  }
-  const appFeeToggle = page.getByRole("checkbox", { name: /application fee/i }).filter({ visible: true }).first();
-  if ((await appFeeToggle.count()) && (await appFeeToggle.isChecked())) {
-    await appFeeToggle.uncheck();
-  }
-  const reviewBtn = page.getByRole("button", { name: /review & submit/i }).filter({ visible: true }).first();
-  if (await reviewBtn.count()) {
-    await reviewBtn.click();
-  } else {
-    await nextBtn.click();
-  }
-  await shot(page, "05-listing-pricing");
-
-  const submitBtn = page.getByRole("button", { name: /submit listing/i }).filter({ visible: true }).first();
-  await expect(submitBtn).toBeVisible({ timeout: 30_000 });
-  await expect(submitBtn).toBeEnabled({ timeout: 30_000 });
-  page.once("dialog", (dialog) => dialog.accept());
-  await submitBtn.click();
-  await expect(page.locator("#manager-add-listing-form")).toBeHidden({ timeout: 120_000 });
+  const draftPreviewPath = pricingUrl.pathname.replace(/\/pricing$/, "/preview");
+  const reopenPlanResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/manager/subscription", { timeout: 30_000 });
+  await page.goto(draftPreviewPath, { waitUntil: "domcontentloaded" });
+  const reopenPlanResult = await reopenPlanResponse;
+  if (!reopenPlanResult.ok()) throw new Error(`Could not resolve the manager subscription before reopening the draft (${reopenPlanResult.status()}).`);
+  const reopenPlan = await reopenPlanResult.json() as { effectiveTier?: unknown; planUnknown?: unknown };
+  if (reopenPlan.effectiveTier !== "pro" || reopenPlan.planUnknown !== false) throw new Error("The draft editor cannot reopen before the Pro subscription is resolved.");
+  await page.locator('[data-attr="draft-continue-editing"]').click();
+  const resumedEditor = page.getByRole("dialog", { name: "Listing editor" });
+  await expect(resumedEditor).toBeVisible({ timeout: 20_000 });
+  await resumedEditor.locator('[data-attr="listing-v2-rail-review"]').click();
+  await shot(page, "06-listing-review-priced");
+  const publishResponse = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/property-records", { timeout: 60_000 });
+  await resumedEditor.locator('[data-attr="listing-v2-publish"]').click();
+  const publishedResponse = await publishResponse;
+  if (!publishedResponse.ok()) throw new Error(`Publishing the exact synthetic listing failed (${publishedResponse.status()}).`);
+  await expect(page.locator('[data-attr="listing-published-dialog"]')).toBeVisible({ timeout: 45_000 });
   await shot(page, "06-listing-live");
 
   await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
@@ -138,17 +155,17 @@ async function publishFirstListing(page: Page, stamp: number): Promise<string> {
 
   const managerId = await syntheticFixtureActorId(page);
 
-  const { data: rows, error } = await db
+  const { data: listing, error } = await db
     .from("manager_property_records")
     .select("id,status,property_data")
     .eq("manager_user_id", managerId)
-    .eq("status", "live")
-    .order("updated_at", { ascending: false })
-    .limit(10);
+    .eq("id", propertyId)
+    .single();
   if (error) throw error;
-  const exact = (rows ?? []).filter((row) => (row.property_data as { buildingName?: unknown } | null)?.buildingName === buildingName);
-  const propertyId = exact[0]?.id;
-  if (!propertyId || exact.length !== 1) throw new Error("The exact synthetic listing was not uniquely confirmed.");
+  const saved = listing.property_data as { buildingName?: unknown; entireHomeMonthlyRent?: unknown } | null;
+  if (listing.status !== "live" || saved?.buildingName !== buildingName || saved.entireHomeMonthlyRent !== 1800) {
+    throw new Error("The exact synthetic listing was not confirmed live with its persisted whole-house rent.");
+  }
   return propertyId;
 }
 
