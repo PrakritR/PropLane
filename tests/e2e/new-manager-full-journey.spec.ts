@@ -1,5 +1,5 @@
 import { syntheticSignupDomain } from "../helpers/synthetic-signup-domain";
-import { navigateToPropertiesAndCapturePlan } from "../helpers/listing-plan-navigation";
+import { navigateToPropertiesAndReadPlan } from "../helpers/listing-plan-navigation";
 import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
@@ -120,7 +120,7 @@ test.describe("New manager — full journey from scratch", () => {
     expect(failedSections, `Portal sections that failed: ${JSON.stringify(failedSections)}`).toHaveLength(0);
 
     // ── 4. Start first listing (Home step + save draft) ─────────────────────
-    const { planStatus, planBody: plan } = await navigateToPropertiesAndCapturePlan(page);
+    const { planStatus, planBody: plan } = await navigateToPropertiesAndReadPlan(page);
     expect(planStatus >= 200 && planStatus < 300, `Manager subscription should resolve before Add (HTTP ${planStatus}).`).toBe(true);
     expect(plan.effectiveTier).toBe("pro");
     expect(plan.planUnknown).toBe(false);

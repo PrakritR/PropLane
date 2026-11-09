@@ -7,6 +7,7 @@ import { finishResidentEmailProof, requestResidentEmailProof } from "../helpers/
 import { syntheticSignupDomain } from "../helpers/synthetic-signup-domain";
 import { verifySyntheticResidentPhone, type SyntheticPhoneVerification } from "../helpers/synthetic-phone-verification";
 import { fillCurrentRentalApplication, visibleLocator, type HouseholdConfig } from "../helpers/rental-wizard-e2e";
+import { residentApplicationDetailHref } from "../../src/lib/portal-detail-routes";
 
 const DEV_URL = "https://emstjswhotsnyksqhqyf.supabase.co";
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "";
@@ -325,8 +326,15 @@ test("group application lifecycle: organizer, re-edit, roommate, account-gated t
       invitePath: inviteUrl.pathname + inviteUrl.search });
 
     await organizer.page.goto("/resident/applications", { waitUntil: "domcontentloaded" });
-    await expect(visibleText(organizer.page, organizer.applicant.name)).toBeVisible({ timeout: 45_000 });
-    await visibleText(organizer.page, organizer.applicant.name).click();
+    await expect(organizer.page.getByRole("link", { name: "View application", exact: true })).toBeVisible({ timeout: 45_000 });
+    await organizer.page.getByRole("link", { name: "View application", exact: true }).click();
+    const applicationDetailPath = residentApplicationDetailHref("/resident", "pending", organizerAppId);
+    await expect(organizer.page).toHaveURL((url) => url.pathname === applicationDetailPath);
+    const readWhatYouSent = organizer.page.getByRole("link", { name: "Read what you sent", exact: true });
+    await expect(readWhatYouSent).toBeVisible();
+    await readWhatYouSent.click();
+    const applicationFormPath = residentApplicationDetailHref("/resident", "pending", organizerAppId, "application-form");
+    await expect(organizer.page).toHaveURL((url) => url.pathname === applicationFormPath);
     await expect(visibleText(organizer.page, "Roommate invite")).toBeVisible({ timeout: 20_000 });
     await expect(visibleText(organizer.page, organizerAppId)).toBeVisible();
     await expect(organizer.page.locator('[data-attr="group-invite-copy"]')).toBeVisible();

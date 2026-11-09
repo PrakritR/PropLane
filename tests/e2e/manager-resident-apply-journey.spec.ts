@@ -13,7 +13,7 @@ import {
 import { visibleLocator, fillCurrentRentalApplication } from "../helpers/rental-wizard-e2e";
 import { fillSyntheticListingBasics } from "../helpers/listing-editor-e2e";
 import { syntheticFixtureActorId } from "../helpers/synthetic-property-e2e";
-import { navigateToPropertiesAndCapturePlan } from "../helpers/listing-plan-navigation";
+import { navigateToPropertiesAndReadPlan } from "../helpers/listing-plan-navigation";
 
 /**
  * Browser E2E: brand-new manager → publish first listing → verified resident applies
@@ -82,7 +82,7 @@ async function createFreshManager(page: Page, stamp: number) {
 }
 
 async function publishFirstListing(page: Page, stamp: number): Promise<string> {
-  const { planStatus, planBody: initialPlan } = await navigateToPropertiesAndCapturePlan(page);
+  const { planStatus, planBody: initialPlan } = await navigateToPropertiesAndReadPlan(page);
   if (planStatus < 200 || planStatus >= 300) throw new Error(`Could not resolve the manager subscription before Add (HTTP ${planStatus}).`);
   if (initialPlan.effectiveTier !== "pro" || initialPlan.planUnknown !== false) throw new Error("The listing editor requires a resolved Pro subscription before Add.");
   const createBtn = page.locator('[data-attr="manager-properties-add-top"], [data-attr="manager-properties-create"]');
@@ -140,7 +140,7 @@ async function publishFirstListing(page: Page, stamp: number): Promise<string> {
   }
 
   const draftPreviewPath = pricingUrl.pathname.replace(/\/pricing$/, "/preview");
-  const { planStatus: reopenPlanStatus, planBody: reopenPlan } = await navigateToPropertiesAndCapturePlan(page, draftPreviewPath);
+  const { planStatus: reopenPlanStatus, planBody: reopenPlan } = await navigateToPropertiesAndReadPlan(page, draftPreviewPath);
   if (reopenPlanStatus < 200 || reopenPlanStatus >= 300) throw new Error(`Could not resolve the manager subscription before reopening the draft (HTTP ${reopenPlanStatus}).`);
   if (reopenPlan.effectiveTier !== "pro" || reopenPlan.planUnknown !== false) throw new Error("The draft editor cannot reopen before the Pro subscription is resolved.");
   await page.locator('[data-attr="draft-continue-editing"]').click();
