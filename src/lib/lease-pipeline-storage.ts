@@ -2341,6 +2341,11 @@ export function executedLeaseRows(managerUserId?: string | null): LeasePipelineR
   return readLeasePipeline(managerUserId).filter(leaseIsFullyExecuted);
 }
 
+/** Stored identities for scoped resident edits, before application enrichment. */
+export function readStoredLeasePipelineForResidentEdit(managerUserId?: string | null): LeasePipelineRow[] {
+  return filterLeasesForManager((readRaw(managerUserId) ?? []).map(normalizeLeasePipelineRow), managerUserId);
+}
+
 export function readLeasePipeline(managerUserId?: string | null): LeasePipelineRow[] {
   try {
     return computeLeasePipelineRows(managerUserId);
@@ -3369,10 +3374,10 @@ async function prepareManagerTemplatePdfForSignature(
 export function generateLeaseHtmlForRow(
   rowId: string,
   managerUserId?: string | null,
-  options?: { discardManagerEdits?: boolean; templateId?: string | null; persist?: boolean },
+  options?: { discardManagerEdits?: boolean; templateId?: string | null; persist?: boolean; exactRow?: boolean },
 ): { ok: true; version: number } | { ok: false; error: string } {
   void options?.discardManagerEdits;
-  const resolved = resolveManagerLeaseGenerationRow(rowId, managerUserId);
+  const resolved = options?.exactRow ? null : resolveManagerLeaseGenerationRow(rowId, managerUserId);
   const targetId = resolved?.id ?? rowId;
   const rows = readLeasePipeline(managerUserId);
   const row = rows.find((r) => r.id === targetId);
@@ -3433,14 +3438,14 @@ export function voidOutForSignatureLeasesForResidentEdit(
   residentEmail: string,
   managerUserId: string | null | undefined,
   reason?: string,
-  options?: { persist?: boolean },
+  options?: { persist?: boolean; leaseIds?: readonly string[] },
 ): number {
   const email = residentEmail.trim().toLowerCase();
   if (!email) return 0;
   const iso = new Date().toISOString();
   let voided = 0;
   for (const lr of readLeasePipeline(managerUserId)) {
-    if (lr.residentEmail.trim().toLowerCase() !== email) continue;
+    if (options?.leaseIds ? !options.leaseIds.includes(lr.id) : lr.residentEmail.trim().toLowerCase() !== email) continue;
     if (lr.status !== "Resident Signature Pending" && lr.status !== "Manager Signature Pending") continue;
     const thread = Array.isArray(lr.thread) ? lr.thread : [];
     const ok = updateLeasePipelineRow(
@@ -3474,13 +3479,13 @@ export function regenerateEditableLeasesForResident(
   residentEmail: string,
   managerUserId: string | null | undefined,
   applicationPatch?: Partial<RentalWizardFormState>,
-  options?: { persist?: boolean },
+  options?: { persist?: boolean; leaseIds?: readonly string[] },
 ): number {
   const email = residentEmail.trim().toLowerCase();
   if (!email) return 0;
   let updated = 0;
   for (const lr of readLeasePipeline(managerUserId)) {
-    if (lr.residentEmail.trim().toLowerCase() !== email) continue;
+    if (options?.leaseIds ? !options.leaseIds.includes(lr.id) : lr.residentEmail.trim().toLowerCase() !== email) continue;
     if (!leaseSyncsFromResidentEdit(lr)) continue;
     if (!leaseGenerationSupportedForRow(lr).ok) continue;
     if (applicationPatch) {
@@ -3491,7 +3496,7 @@ export function regenerateEditableLeasesForResident(
         { persist: false },
       );
     }
-    const res = generateLeaseHtmlForRow(lr.id, managerUserId, options);
+    const res = generateLeaseHtmlForRow(lr.id, managerUserId, { ...options, exactRow: Boolean(options?.leaseIds) });
     if (res.ok) updated += 1;
     else if (applicationPatch) updateLeasePipelineRow(lr.id, lr, managerUserId, { persist: false });
   }

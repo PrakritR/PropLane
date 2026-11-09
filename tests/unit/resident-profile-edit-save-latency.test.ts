@@ -46,7 +46,7 @@ const syncPropertyPipeline = vi.fn(async () => {
   order.push("property-pipeline");
   return true;
 });
-let leases: Array<{ id: string; residentEmail: string; status: string; generatedHtml?: string }> = [];
+let leases: Array<{ id: string; residentEmail: string; status: string; generatedHtml?: string; axisId?: string; managerUserId?: string; propertyId?: string }> = [];
 const persistLease = vi.fn(async (_row: unknown) => ({ ok: true }));
 const replaceRow = vi.fn();
 const writeRows = vi.fn();
@@ -78,9 +78,11 @@ vi.mock("@/lib/manager-applications-storage", () => ({
 vi.mock("@/lib/lease-pipeline-storage", () => ({
   syncLeasePipelineFromServer: () => syncLeases(),
   readLeasePipeline: () => leases,
+  readStoredLeasePipelineForResidentEdit: () => leases,
   updateLeasePipelineRow: (id: string, row: typeof leases[number]) => { leases = leases.map((lease) => lease.id === id ? row : lease); return true; },
   persistLeaseRowToServerAwait: (row: never) => persistLease(row),
-  regenerateEditableLeasesForResident: () => { leases = leases.map((lease) => lease.status === "Draft" ? { ...lease, generatedHtml: "new" } : lease); return 1; },
+  regenerateEditableLeasesForResident: (_email: string, _manager: string, _app: unknown, options: { leaseIds?: string[] }) => { leases = leases.map((lease) => lease.status === "Draft" && options.leaseIds?.includes(lease.id) ? { ...lease, generatedHtml: "new" } : lease); return 1; },
+  voidOutForSignatureLeasesForResidentEdit: (_email: string, _manager: string, _reason: unknown, options: { leaseIds?: string[] }) => { leases = leases.map((lease) => lease.status === "Resident Signature Pending" && options.leaseIds?.includes(lease.id) ? { ...lease, status: "Voided" } : lease); return 1; },
 }));
 vi.mock("@/lib/demo-property-pipeline", () => ({
   syncPropertyPipelineFromServer: () => syncPropertyPipeline(),
@@ -91,6 +93,8 @@ const { persistResidentProfileEdit } = await import("@/lib/resident-lease-billin
 const ROW = {
   id: "app-1",
   email: "sohan@example.com",
+  managerUserId: "owner-1",
+  propertyId: "house-1",
   application: { fullLegalName: "Sohan Vivek Naik" },
 } as never;
 
@@ -211,7 +215,7 @@ describe("saving an edited resident", () => {
 
   it("persists only the changed resident lease once", async () => {
     leases = [
-      { id: "draft", residentEmail: "sohan@example.com", status: "Draft" },
+      { id: "draft", residentEmail: "sohan@example.com", status: "Draft", axisId: "app-1", managerUserId: "owner-1", propertyId: "house-1" },
       { id: "signed", residentEmail: "sohan@example.com", status: "Signed" },
       { id: "other", residentEmail: "other@example.com", status: "Signed" },
     ];
@@ -222,8 +226,20 @@ describe("saving an edited resident", () => {
     readGate.release();
   });
 
+  it("only voids and persists the selected application, not another lease for the same email", async () => {
+    leases = [
+      { id: "target", residentEmail: "sohan@example.com", status: "Resident Signature Pending", axisId: "app-1", managerUserId: "owner-1", propertyId: "house-1" },
+      { id: "other", residentEmail: "sohan@example.com", status: "Resident Signature Pending", axisId: "app-2", managerUserId: "owner-1", propertyId: "house-1" },
+    ];
+    expect((await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "co-manager", voidSentLeases: true })).ok).toBe(true);
+    expect(persistLease).toHaveBeenCalledTimes(1);
+    expect(persistLease).toHaveBeenCalledWith(expect.objectContaining({ id: "target", status: "Voided" }));
+    expect(leases.find((row) => row.id === "other")?.status).toBe("Resident Signature Pending");
+    readGate.release();
+  });
+
   it("reports a partial save if the lease write fails", async () => {
-    leases = [{ id: "draft", residentEmail: "sohan@example.com", status: "Draft" }];
+    leases = [{ id: "draft", residentEmail: "sohan@example.com", status: "Draft", axisId: "app-1", managerUserId: "owner-1", propertyId: "house-1" }];
     persistLease.mockResolvedValueOnce({ ok: false, error: "conflict" } as never);
     const result = await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
     expect(result.error).toContain("lease could not be saved");
@@ -231,7 +247,7 @@ describe("saving an edited resident", () => {
   });
 
   it("restores the prior lease after refusal so a retry can save it", async () => {
-    leases = [{ id: "draft", residentEmail: "sohan@example.com", status: "Draft" }];
+    leases = [{ id: "draft", residentEmail: "sohan@example.com", status: "Draft", axisId: "app-1", managerUserId: "owner-1", propertyId: "house-1" }];
     persistLease.mockResolvedValueOnce({ ok: false, error: "conflict" } as never);
     const first = await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
     expect(first.ok).toBe(false);
@@ -243,7 +259,7 @@ describe("saving an edited resident", () => {
   });
 
   it("reports a lease failure when the lease write rejects", async () => {
-    leases = [{ id: "draft", residentEmail: "sohan@example.com", status: "Draft" }];
+    leases = [{ id: "draft", residentEmail: "sohan@example.com", status: "Draft", axisId: "app-1", managerUserId: "owner-1", propertyId: "house-1" }];
     persistLease.mockRejectedValueOnce(new Error("offline"));
     const result = await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
     expect(result.error).toContain("lease could not be saved");

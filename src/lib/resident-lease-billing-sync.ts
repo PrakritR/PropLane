@@ -1,3 +1,4 @@
+import { residentEditLeaseIds } from "@/lib/resident-edit-lease-scope";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -9,6 +10,7 @@ import {
 } from "@/lib/household-charges";
 import {
   regenerateEditableLeasesForResident,
+  readStoredLeasePipelineForResidentEdit,
   readLeasePipeline,
   persistLeaseRowToServerAwait,
   updateLeasePipelineRow,
@@ -119,10 +121,10 @@ export type ResidentBillingSyncOutcome = {
 function regenerateBillingForRow(
   row: DemoApplicantRow,
   managerUserId: string | null,
-  options?: { voidSentLeases?: boolean; persistLeases?: boolean },
+  options?: { voidSentLeases?: boolean; persistLeases?: boolean; leaseIds?: readonly string[] },
 ): ResidentBillingSyncOutcome {
   if (options?.voidSentLeases && row.email?.trim()) {
-    voidOutForSignatureLeasesForResidentEdit(row.email, managerUserId, undefined, { persist: options?.persistLeases });
+    voidOutForSignatureLeasesForResidentEdit(row.email, managerUserId, undefined, { persist: options?.persistLeases, leaseIds: options?.leaseIds });
   }
   const skipped: string[] = [];
   const chargesRegenerated = recordApprovedApplicationCharges(row, managerUserId, true);
@@ -142,7 +144,7 @@ function regenerateBillingForRow(
     residentEmail,
     managerUserId,
     row.application,
-    { persist: options?.persistLeases },
+    { persist: options?.persistLeases, leaseIds: options?.leaseIds },
   );
   if (leasesRegenerated === 0) {
     skipped.push(
@@ -261,10 +263,13 @@ export async function persistResidentProfileEdit(input: {
   let sync: ResidentBillingSyncOutcome;
   try {
     const before = new Map(readLeasePipeline(managerUserId).map((lease) => [lease.id, structuredClone(lease)]));
-    sync = regenerateBillingForRow(savedRow, managerUserId, { voidSentLeases, persistLeases: false });
-    const email = savedRow.email?.trim().toLowerCase();
+    const previousRow = input.rows.find((row) => row.id === savedRow.id);
+    const scope = residentEditLeaseIds(readStoredLeasePipelineForResidentEdit(managerUserId), savedRow, previousRow);
+    sync = regenerateBillingForRow(savedRow, managerUserId, { voidSentLeases, persistLeases: false, leaseIds: scope.ids });
+    if (scope.skippedJointMember) sync.skipped.push("the joint lease was not regenerated for this group member");
+    if (!scope.ids.length && !scope.skippedJointMember) sync.skipped.push("no lease matched this application's stored identity and placement");
     const changed = readLeasePipeline(managerUserId).filter((lease) =>
-      lease.residentEmail.trim().toLowerCase() === email && before.has(lease.id) && JSON.stringify(before.get(lease.id)) !== JSON.stringify(lease),
+      scope.ids.includes(lease.id) && before.has(lease.id) && JSON.stringify(before.get(lease.id)) !== JSON.stringify(lease),
     );
     for (const lease of changed) {
       const original = before.get(lease.id);
