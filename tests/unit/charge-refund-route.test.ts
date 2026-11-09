@@ -12,7 +12,7 @@ const refundsCreate = vi.fn();
 const coManagerAccess = vi.fn();
 const runReservedRefund = vi.fn();
 const rows = { charge: null as unknown, payment: null as unknown,
-  holds: [] as Array<Record<string, unknown>> };
+  holds: [] as Array<Record<string, unknown>>, attempt: null as unknown, attemptError: false };
 const upserted: Record<string, unknown>[] = [];
 /** Every durable attempt write, in order: the reservation and then its provider stamp. */
 const rpcCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
@@ -37,15 +37,19 @@ vi.mock("@/lib/supabase/service", () => ({
     },
     from: (table: string) => ({
       select: () => ({
-        eq: () => ({
+        eq: (column: string) => {
+          if (table === "household_charge_refund_attempts" && column !== "operation_key") throw new Error("Unexpected attempt lookup key");
+          return {
           eq: () => ({ maybeSingle: async () => ({ data: rows.payment }), limit: async () => ({ data: [], error: null }) }),
           // `platform_payment_holds` decides the refund rail: empty means a legacy
           // destination charge, one row means a central platform capture.
           limit: async () => ({ data: rows.holds, error: null }),
           maybeSingle: async () => ({
-            data: table === "ledger_entries" ? rows.payment : rows.charge,
+            data: table === "household_charge_refund_attempts" ? rows.attempt : table === "ledger_entries" ? rows.payment : rows.charge,
+            error: table === "household_charge_refund_attempts" && rows.attemptError ? { message: "lookup failed" } : null,
           }),
-        }),
+          };
+        },
       }),
       update: (patch: Record<string, unknown>) => {
         attemptUpdates.push({ table, ...patch });
@@ -92,6 +96,8 @@ beforeEach(() => {
   };
   rows.payment = { stripe_charge_id: "ch_1", amount_cents: 90_000 };
   rows.holds = [];
+  rows.attempt = null;
+  rows.attemptError = false;
   runReservedRefund.mockResolvedValue({ status: "succeeded", refundId: "re_central",
     recipientNetDebitCents: 90_000, vendorFeeShareCents: 0 });
 });
@@ -172,19 +178,32 @@ describe("how the money moves", () => {
     reserve.mockImplementation(() => ({ data: null, error: { message: "active" } }));
     const res = await post({ chargeId: "chg-1" });
     expect(res.status).toBe(409);
+    expect(reserve).toHaveBeenCalledTimes(1);
     expect(refundsCreate).not.toHaveBeenCalled();
     expect(upserted).toHaveLength(0);
   });
 
   it("resumes a replayed operation instead of sending a second provider refund", async () => {
+    rows.attempt = { id: ATTEMPT, rail: "destination", stripe_payment_intent_id: null };
     reserve.mockImplementation(() => ({
-      data: { id: ATTEMPT, status: "pending", provider_refund_id: "re_1", platform_attempt_key: null },
+      data: { id: ATTEMPT, status: "pending", provider_refund_id: "re_1", platform_attempt_key: null, created: false },
       error: null,
     }));
     const res = await post({ chargeId: "chg-1", operationId: "11111111-2222-4333-8444-555555555555" });
     expect(res.status).toBe(202);
     expect(await res.json()).toMatchObject({ status: "pending", refundId: "re_1" });
+    expect(reserve).toHaveBeenCalledWith(expect.objectContaining({ p_owner: "mgr-1", p_charge: "chg-1", p_operation_key: "11111111-2222-4333-8444-555555555555", p_stripe_charge: "ch_1", p_rail: "destination", p_amount: 90_000 }));
     expect(refundsCreate).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the existing-operation lookup fails", async () => {
+    rows.attemptError = true;
+    const res = await post({ chargeId: "chg-1" });
+    expect(res.status).toBe(409);
+    expect(reserve).not.toHaveBeenCalled();
+    expect(refundsCreate).not.toHaveBeenCalled();
+    expect(upserted).toEqual([]);
+    expect(attemptUpdates).toEqual([]);
   });
 
   it("carries the caller's operation id as the reservation's replay identity", async () => {
