@@ -7,8 +7,7 @@
  * portal spec here.
  */
 import { test, expect, type Request } from "@playwright/test";
-import { signInAsManager2 } from "../helpers/auth";
-import { syntheticFixtureActorId } from "../helpers/synthetic-property-e2e";
+import { createWritableSyntheticManager, cleanupWritableSyntheticManager } from "../helpers/writable-synthetic-manager";
 
 const enabled = process.env.E2E_TESTS_ENABLED === "1";
 
@@ -46,14 +45,13 @@ function writeCarriesMarker(request: Request, marker: string): boolean {
 test.describe("listing editor — save on close, no typing timer", () => {
   test.skip(!enabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
-  test("typing writes nothing; ✕ writes exactly one draft that reopens with the text", async ({
-    page,
-  }) => {
+  test("typing writes nothing; ✕ writes exactly one draft that reopens with the text", async ({ browser }) => {
     const marker = `Close-save QA ${Date.now()}`;
+    const manager = await createWritableSyntheticManager(browser);
+    const page = manager.page;
 
-    await signInAsManager2(page, "/portal/properties");
+    try {
     await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
-
     // Open the editor via the primary Create action.
     const createButton = page.locator('[data-attr="manager-properties-add-top"]');
     await expect(createButton).toBeEnabled({ timeout: 30_000 });
@@ -111,10 +109,11 @@ test.describe("listing editor — save on close, no typing timer", () => {
       const snapshot = await snapshotResponse.json() as {
         snapshot?: { pendingByUser?: Record<string, Array<{ id?: string; buildingName?: string }>> };
       };
-      const actorId = await syntheticFixtureActorId(page);
-      const candidates = (snapshot.snapshot?.pendingByUser?.[actorId] ?? []).filter((row) => row.buildingName === marker);
-      if (candidates.length > 0) {
-        if (candidates.length !== 1 || (draftId && candidates[0]?.id !== draftId)) throw new Error("Owned draft marker did not resolve to the exact saved row.");
+      const candidates = (snapshot.snapshot?.pendingByUser?.[manager.actorId] ?? []).filter((row) => row.buildingName === marker);
+      if (candidates.length > 1 || (draftId && (candidates.length !== 1 || candidates[0]?.id !== draftId))) {
+        throw new Error("Owned draft marker did not resolve to the exact saved row.");
+      }
+      if (candidates.length === 1) {
         const cleanupId = candidates[0]?.id;
         if (!cleanupId) throw new Error("Owned draft cleanup could not resolve the saved ID.");
         const deleted = await page.request.post("/api/property-records", { data: { action: "delete", id: cleanupId } });
@@ -122,8 +121,11 @@ test.describe("listing editor — save on close, no typing timer", () => {
         const afterDelete = await page.request.get("/api/property-records");
         if (!afterDelete.ok()) throw new Error("Could not verify owned draft cleanup.");
         const afterSnapshot = await afterDelete.json() as typeof snapshot;
-        if ((afterSnapshot.snapshot?.pendingByUser?.[actorId] ?? []).some((row) => row.id === cleanupId)) throw new Error("Owned draft remained after cleanup.");
+        if ((afterSnapshot.snapshot?.pendingByUser?.[manager.actorId] ?? []).some((row) => row.id === cleanupId)) throw new Error("Owned draft remained after cleanup.");
       }
+    }
+    } finally {
+      await cleanupWritableSyntheticManager(manager);
     }
   });
 });

@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { signInAsManager } from "../helpers/auth";
+import { createWritableSyntheticManager, cleanupWritableSyntheticManager } from "../helpers/writable-synthetic-manager";
 
 // Real authenticated dev/test rows. Network gates simulate slow and failed
 // source reads; they do not substitute demo data or send messages.
@@ -32,10 +33,13 @@ test.describe("Portal loading and record actions", () => {
   });
 
   for (const width of [1280, 390]) {
-    test(`Properties actions belong to each record at ${width}px`, async ({ page }) => {
+    test(`Properties actions belong to each record at ${width}px`, async ({ browser }) => {
+      const manager = await createWritableSyntheticManager(browser);
+      const page = manager.page;
+      try {
       await page.setViewportSize({ width, height: 900 });
       await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });
-      const trigger = page.getByRole("button", { name: /^Actions for / }).first();
+      const trigger = page.getByRole("button", { name: `Actions for ${manager.property.name}`, exact: true });
       await expect(trigger).toBeVisible({ timeout: 45_000 });
       await expect(page.locator('[data-attr="list-selection-toolbar"]')).toHaveCount(0);
       const box = await trigger.boundingBox();
@@ -59,7 +63,11 @@ test.describe("Portal loading and record actions", () => {
         menu.getByRole("menuitem", { name: "Edit", exact: true }).click(),
       ]);
       expect(new URL(detailRequest.url()).searchParams.get("edit")).toBe("1");
+      expect(new URL(detailRequest.url()).pathname).toBe(`/portal/properties/listed/${manager.property.id}/preview`);
       await expect(page.locator('[data-attr="listing-v2-next"]')).toBeVisible({ timeout: 45_000 });
+      } finally {
+        await cleanupWritableSyntheticManager(manager);
+      }
     });
   }
 

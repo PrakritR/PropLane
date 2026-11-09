@@ -1,6 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { signInAsManager } from "../helpers/auth";
-import { cleanupSyntheticProperties, createSyntheticProperty } from "../helpers/synthetic-property-e2e";
+import { createWritableSyntheticManager, cleanupWritableSyntheticManager } from "../helpers/writable-synthetic-manager";
 
 /**
  * Per-property Operations settings (PLAN-0916-1040): pick a house, edit it, and
@@ -9,8 +8,7 @@ import { cleanupSyntheticProperties, createSyntheticProperty } from "../helpers/
  * the server behaviour through same-origin fetches (the exact calls the panels
  * make), so it needs no fragile timing-dropdown interaction.
  *
- * Requires a workspace with at least two properties; it skips otherwise so a
- * sparsely seeded environment does not report a false failure.
+ * Uses an isolated writable workspace with two real API-created properties.
  */
 type Resp = { status: number; body: { scope?: string; inherited?: boolean; overriddenPropertyIds?: string[]; settings?: { rules?: { inspection?: { timings?: string[] } } } } };
 const call = (page: Page, url: string, init?: RequestInit): Promise<Resp> =>
@@ -27,23 +25,15 @@ const call = (page: Page, url: string, init?: RequestInit): Promise<Resp> =>
   );
 const before = (r: Resp) => (r.body.settings?.rules?.inspection?.timings ?? []).filter((t) => t.startsWith("before:"));
 
-test.afterEach(async ({ page }) => {
-  await cleanupSyntheticProperties(page);
-});
-
 test.describe("Settings — per-property Operations scope", () => {
-  test("pick a house -> edit -> All properties unchanged -> reload keeps it -> reset restores", async ({ page }) => {
+  test("pick a house -> edit -> All properties unchanged -> reload keeps it -> reset restores", async ({ browser }) => {
+    const manager = await createWritableSyntheticManager(browser, { properties: 2 });
+    const { page } = manager;
+    const fixture = manager.properties[0]!;
     await page.setViewportSize({ width: 1280, height: 800 });
-    await signInAsManager(page);
-    const fixture = await createSyntheticProperty(page);
+    try {
     await page.goto("/portal/profile?tab=inspections", { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(2500);
-
-    const picker = page.locator('[data-attr="settings-property-scope"]');
-    if ((await picker.count()) === 0) {
-      test.skip(true, "workspace has fewer than two properties");
-      return;
-    }
+    await expect(page.locator('[data-attr="settings-property-scope"]')).toBeVisible({ timeout: 30_000 });
 
     // Select only the uniquely created fixture.
     await picker.first().click();
@@ -92,5 +82,25 @@ test.describe("Settings — per-property Operations scope", () => {
     // The workspace view now lists no override for this house.
     const workspaceView = await call(page, "/api/portal/reminder-settings");
     expect(workspaceView.body.overriddenPropertyIds ?? []).not.toContain(houseId);
+    } finally {
+      const cleanupErrors: unknown[] = [];
+      try {
+        const restored = await call(page, "/api/portal/reminder-settings", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ propertyId: fixture.id, reset: true }),
+        });
+        if (restored.status !== 200) throw new Error(`Could not reset the synthetic property reminder override (HTTP ${restored.status}).`);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+      try {
+        await cleanupWritableSyntheticManager(manager);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+      if (cleanupErrors.length === 1) throw cleanupErrors[0];
+      if (cleanupErrors.length > 1) throw new AggregateError(cleanupErrors, "Settings property fixture cleanup failed.");
+    }
   });
 });
