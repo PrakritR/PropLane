@@ -224,6 +224,26 @@ describe("acknowledged success, bounded retries", () => {
     expect(snapshotRead).toHaveBeenCalledTimes(6);
   });
 
+  it("retries after deposit, move-in fee and manual resident billing inputs change", async () => {
+    generate.mockImplementation(() => ({ ok: false, changed: false }));
+    stop = watchExecutedLeaseCharges("owner");
+    await settle();
+    for (let i = 0; i < 6; i++) { window.dispatchEvent(new Event(LEASE_PIPELINE_EVENT)); await settle(); }
+    expect(snapshotRead).toHaveBeenCalledTimes(4);
+    for (const revision of [
+      { application: { managerSecurityDepositOverride: "400" } },
+      { application: { managerMoveInFeeOverride: "200" } },
+      { manualResidentDetails: { moveInDate: "2026-12-01" } },
+      { application: { applicationFee: "75" } },
+    ]) {
+      const previous = snapshotRead.mock.calls.length;
+      apps = [app("AXIS-1", "a@x.com", revision), app("AXIS-2", "b@x.com")];
+      window.dispatchEvent(new Event(LEASE_PIPELINE_EVENT));
+      await settle();
+      expect(snapshotRead).toHaveBeenCalledTimes(previous + 1);
+    }
+  });
+
   it("inherits neither success nor exhaustion across a workspace or viewer switch", async () => {
     stop = watchExecutedLeaseCharges("owner");
     await settle();

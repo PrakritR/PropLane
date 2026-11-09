@@ -759,7 +759,7 @@ export async function mirrorHouseholdChargesToServerAwait(): Promise<boolean> {
 }
 
 /** Confirm only the billing rows associated with the authoritative application. */
-export async function mirrorApplicationHouseholdChargesAwait(row: DemoApplicantRow, previousRow?: DemoApplicantRow, stage?: ScopedBillingStage): Promise<boolean> {
+export async function mirrorApplicationHouseholdChargesAwait(row: DemoApplicantRow, previousRow?: DemoApplicantRow, stage?: ScopedBillingStage, authoritative?: AuthoritativeBillingSnapshot): Promise<boolean> {
   if (stage && !stage.scopeValid()) return false;
   const pairs = [row, previousRow].filter((item): item is DemoApplicantRow => !!item).map((item) => ({
     propertyId: applicationPropertyIdForCharges(item), email: item.email?.trim().toLowerCase() ?? "",
@@ -776,6 +776,13 @@ export async function mirrorApplicationHouseholdChargesAwait(row: DemoApplicantR
     charge.managerUserId === owner && ["pending", "cancelled", "failed"].includes(charge.status) &&
     (charge.applicationId === row.id || (!charge.applicationId && !!charge.recurringRentProfileId && profileIds.has(charge.recurringRentProfileId))),
   );
+  if (stage && authoritative) {
+    const serverProfiles = authoritative.rentProfiles.filter((profile) => profile.managerUserId === owner && pairs.some(({ email, propertyId }) => !!email && !!propertyId && profile.residentEmail.trim().toLowerCase() === email && profile.propertyId === propertyId));
+    const serverProfileIds = new Set(serverProfiles.map((profile) => profile.id));
+    const serverCharges = authoritative.charges.filter((charge) => charge.managerUserId === owner && ["pending", "cancelled", "failed"].includes(charge.status) && (charge.applicationId === row.id || (!charge.applicationId && !!charge.recurringRentProfileId && serverProfileIds.has(charge.recurringRentProfileId))));
+    const ordered = <T extends { id: string }>(items: T[]) => [...items].sort((a, b) => a.id.localeCompare(b.id));
+    if (JSON.stringify(ordered(charges)) === JSON.stringify(ordered(serverCharges)) && JSON.stringify(ordered(profiles)) === JSON.stringify(ordered(serverProfiles))) return stage.scopeValid();
+  }
   if (!charges.length && !profiles.length) return true;
   if (!isBrowser() || isDemoModeActive() || householdWritesForbidden()) return false;
   const signal = householdWriteSignal();

@@ -41,3 +41,20 @@ it("does not send a request for an empty target", async () => {
   expect(await mirrorApplicationHouseholdChargesAwait({ id: "empty", email: "r@example.invalid", propertyId: "p", managerUserId: "owner" } as DemoApplicantRow)).toBe(true);
   expect(fetchMock).not.toHaveBeenCalled();
 });
+
+it("skips the write only for the exact authoritative charge and profile payload", async () => {
+  const { seedDemoHouseholdCharges, mirrorApplicationHouseholdChargesAwait } = await import("@/lib/household-charges");
+  seedDemoHouseholdCharges([], []);
+  const charge = { id: "c", applicationId: "app", managerUserId: "owner", residentEmail: "r@example.invalid", propertyId: "p", status: "pending", title: "Rent" } as HouseholdCharge;
+  const profile = { id: "p1", managerUserId: "owner", residentEmail: "r@example.invalid", propertyId: "p", monthlyRent: 1 } as RecurringRentProfile;
+  const row = { id: "app", email: "r@example.invalid", propertyId: "p", managerUserId: "owner" } as DemoApplicantRow;
+  const stage = { charges: [charge], profiles: [profile], scopeValid: () => true, commit: () => true };
+  const snapshot = { charges: [charge], rentProfiles: [profile] };
+  const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, confirmedChargeIds: ["c"], confirmedProfileIds: ["p1"] }) });
+  vi.stubGlobal("fetch", fetchMock);
+  expect(await mirrorApplicationHouseholdChargesAwait(row, undefined, stage, snapshot)).toBe(true);
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(await mirrorApplicationHouseholdChargesAwait(row, undefined, stage, { ...snapshot, rentProfiles: [{ ...profile, monthlyRent: 2 }] })).toBe(true);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(await mirrorApplicationHouseholdChargesAwait(row, undefined, { ...stage, scopeValid: () => false }, snapshot)).toBe(false);
+});

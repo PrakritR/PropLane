@@ -64,23 +64,9 @@ function billingScopeToken(): string {
  * retry budget is keyed on it rather than on the application id or a charge amount.
  */
 function applicationBillingRevision(app: DemoApplicantRow): unknown {
-  const application = app.application ?? null;
-  return [
-    app.id,
-    app.email?.trim().toLowerCase() ?? "",
-    app.bucket ?? null,
-    app.assignedPropertyId?.trim() || app.propertyId?.trim() || application?.propertyId?.trim() || "",
-    app.assignedRoomChoice ?? null,
-    app.signedMonthlyRent ?? null,
-    app.manuallyAdded ?? false,
-    app.migrationBillingHold ?? false,
-    application?.rentalType ?? null,
-    application?.leaseStart ?? null,
-    application?.leaseEnd ?? null,
-    application?.managerRentOverride ?? null,
-    application?.managerUtilitiesOverride ?? null,
-    application?.roomChoice1 ?? null,
-  ];
+  // Preserve the full application basis: the generator reads fees, move-in/out,
+  // manual-resident fields and template terms beyond the rent fields.
+  return app;
 }
 
 /** The application rows a fully signed lease bills: its own, plus every member of a joint lease. */
@@ -165,7 +151,7 @@ export async function createAtSigningChargesForSentLease(
     const generated = recordApprovedApplicationChargesScoped(app, undefined, false, { leaseExecuted: false, atSigningOnly: true }, snapshot);
     if (!generated.ok || !generated.stage) return { ok: false, reason: "Lease sent, but charges could not be prepared. Review and retry." };
     changed ||= generated.changed;
-    if (!isDemoModeActive() && !(await mirrorApplicationHouseholdChargesAwait(app, undefined, generated.stage).catch(() => false))) return { ok: false, reason: "Lease sent, but charges could not be confirmed. Review and retry." };
+    if (!isDemoModeActive() && !(await mirrorApplicationHouseholdChargesAwait(app, undefined, generated.stage, snapshot).catch(() => false))) return { ok: false, reason: "Lease sent, but charges could not be confirmed. Review and retry." };
     if (billingScopeToken() !== batchScope) return { ok: false, reason: "The workspace changed while charges were being saved. Review and retry." };
     if (!generated.stage.commit()) return { ok: false, reason: "Lease sent, but charges changed. Review and retry." };
   }
@@ -209,7 +195,7 @@ export async function createChargesForExecutedLease(
     const generated = recordApprovedApplicationChargesScoped(confirmed, app, false, { leaseExecuted: true, ...(options?.recurringProfileOnly ? { recurringProfileOnly: true } : {}) }, snapshot);
     if (!generated.ok || !generated.stage) return { ok: false, reason: "Lease signed, but charges could not be prepared. Review and retry." };
     changed ||= generated.changed;
-    if (!isDemoModeActive() && !(await mirrorApplicationHouseholdChargesAwait(confirmed, app, generated.stage).catch(() => false))) return { ok: false, reason: "Lease signed, but charges could not be confirmed. Review and retry." };
+    if (!isDemoModeActive() && !(await mirrorApplicationHouseholdChargesAwait(confirmed, app, generated.stage, snapshot).catch(() => false))) return { ok: false, reason: "Lease signed, but charges could not be confirmed. Review and retry." };
     if (billingScopeToken() !== batchScope) return { ok: false, reason: "The workspace changed while charges were being saved. Review and retry." };
     if (!generated.stage.commit()) return { ok: false, reason: "Lease signed, but charges changed. Review and retry." };
   }
