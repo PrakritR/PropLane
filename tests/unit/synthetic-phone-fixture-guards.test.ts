@@ -21,7 +21,7 @@ vi.mock("../helpers/synthetic-property-e2e", () => ({
   syntheticFixtureActorId: async () => "11111111-2222-4333-8444-555555555555",
 }));
 
-const { clearManagerPhoneGate, verifySyntheticManagerPhone, withSyntheticPhoneFixtureOwnership } = await import("../helpers/synthetic-phone-verification");
+const { clearManagerPhoneGate, clearResidentPhoneGate, verifySyntheticManagerPhone, verifySyntheticResidentPhone, withSyntheticPhoneFixtureOwnership } = await import("../helpers/synthetic-phone-verification");
 
 const DEV = "https://emstjswhotsnyksqhqyf.supabase.co";
 const ACTOR = "11111111-2222-4333-8444-555555555555";
@@ -29,7 +29,7 @@ const EMAIL = "e2e-manager-1762700000000@example.invalid";
 const PHONE = "+12065550199";
 let privateDir = "";
 
-type ProfileRow = { id: string; email: string; role: string; phone: string; phone_verified_at: string | null };
+type ProfileRow = { id: string; email: string; role: string; phone: string | null; phone_verified_at: string | null };
 
 function fakePage(
   url = "http://localhost:3007/auth/verify-phone?next=/portal/dashboard",
@@ -48,6 +48,7 @@ function fakeDb(row: ProfileRow | null, over: {
   authConfirmed?: boolean;
   authPhoneConfirmedOnly?: boolean;
   managerRole?: string | null;
+  residentRole?: string | null;
   loseFirstUpdateAck?: boolean;
   failBeforeFirstUpdate?: boolean;
   throwFirstUpdateBeforeCommit?: boolean;
@@ -74,7 +75,9 @@ function fakeDb(row: ProfileRow | null, over: {
         eq: (key: string, value: unknown) => { filters[key] = value; return builder; },
         is: (key: string, value: unknown) => { filters[key] = value; return builder; },
         maybeSingle: async () => table === "profile_roles"
-          ? ({ data: over.managerRole === null ? null : { role: over.managerRole ?? "manager" }, error: null })
+          ? ({ data: filters.role === "resident"
+            ? (over.residentRole === null ? null : { role: over.residentRole ?? "resident" })
+            : (over.managerRole === null ? null : { role: over.managerRole ?? "manager" }), error: null })
           : ({ data: current ? { ...current } : null, error: current ? null : { message: "no rows" } }),
         then: (resolve: (value: unknown) => unknown, reject?: (reason?: unknown) => unknown) => Promise.resolve().then(() => {
           if (operation !== "update") return resolve({ data: null, error: null });
@@ -109,6 +112,9 @@ function fakeDb(row: ProfileRow | null, over: {
 
 const profile = (over: Partial<ProfileRow> = {}): ProfileRow =>
   ({ id: ACTOR, email: EMAIL, role: "manager", phone: PHONE, phone_verified_at: null, ...over });
+
+const residentProfile = (over: Partial<ProfileRow> = {}): ProfileRow =>
+  ({ id: ACTOR, email: EMAIL, role: "resident", phone: null, phone_verified_at: null, ...over });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -350,5 +356,68 @@ describe("what the fixture writes, and puts back", () => {
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     await expect(verifySyntheticManagerPhone(fakePage(), { email: EMAIL, phone: PHONE }))
       .rejects.toThrow("service-role key");
+  });
+});
+
+describe("the resident phone fixture is exact and compensating", () => {
+  it("requires the authoritative resident role and resident legacy profile", async () => {
+    const { client, updates } = fakeDb(residentProfile());
+    supabase.createClient.mockReturnValue(client);
+    const fixture = await verifySyntheticResidentPhone(fakePage(undefined, { email: EMAIL, phone: null }), { email: EMAIL, phone: PHONE });
+    await fixture.restore();
+    expect(updates).toHaveLength(2);
+    expect(updates[0]!.patch).toMatchObject({ phone: PHONE });
+    expect(updates[0]!.filters).toMatchObject({ id: ACTOR, email: EMAIL, phone: null, phone_verified_at: null });
+    expect(updates[1]!.patch).toEqual({ phone: null, phone_verified_at: null });
+    expect(updates[1]!.filters).toMatchObject({ id: ACTOR, email: EMAIL, phone: PHONE });
+  });
+
+  it("refuses legacy resident role without the authoritative resident grant", async () => {
+    const { client, updates } = fakeDb(residentProfile(), { residentRole: null });
+    supabase.createClient.mockReturnValue(client);
+    await expect(verifySyntheticResidentPhone(fakePage(undefined, { email: EMAIL, phone: null }), { email: EMAIL, phone: PHONE }))
+      .rejects.toThrow("authoritative resident role");
+    expect(updates).toEqual([]);
+  });
+
+  it("does not treat a manager grant as a resident grant", async () => {
+    const { client, updates } = fakeDb(residentProfile(), { residentRole: null, managerRole: "manager" });
+    supabase.createClient.mockReturnValue(client);
+    await expect(verifySyntheticResidentPhone(fakePage(undefined, { email: EMAIL, phone: null }), { email: EMAIL, phone: PHONE }))
+      .rejects.toThrow("authoritative resident role");
+    expect(updates).toEqual([]);
+  });
+
+  it("compensates a resident phone write when its acknowledgement is lost", async () => {
+    const { client, updates, getCurrent } = fakeDb(residentProfile(), { loseFirstUpdateAck: true });
+    supabase.createClient.mockReturnValue(client);
+    await expect(verifySyntheticResidentPhone(fakePage(undefined, { email: EMAIL, phone: null }), { email: EMAIL, phone: PHONE }))
+      .rejects.toThrow("attempted write was compensated");
+    expect(updates).toHaveLength(2);
+    expect(getCurrent()).toMatchObject({ phone: null, phone_verified_at: null });
+  });
+
+  it("restores both the phone and stamp if navigation after the resident gate fails", async () => {
+    const { client, updates, getCurrent } = fakeDb(residentProfile());
+    supabase.createClient.mockReturnValue(client);
+    await expect(clearResidentPhoneGate(
+      fakePage("http://localhost:3007/auth/verify-phone?next=/resident/applications", { email: EMAIL, phone: null }, { gotoError: new Error("navigation failed") }),
+      { email: EMAIL, phone: PHONE },
+    )).rejects.toThrow("navigation failed");
+    expect(updates).toHaveLength(2);
+    expect(getCurrent()).toMatchObject({ phone: null, phone_verified_at: null });
+  });
+
+  it("refuses a resident phone gate destination outside the same-origin resident portal before writing", async () => {
+    const { client, updates } = fakeDb(residentProfile());
+    supabase.createClient.mockReturnValue(client);
+    for (const next of ["//example.invalid/portal", "/resident-evil", "/portal/dashboard"]) {
+      await expect(clearResidentPhoneGate(
+        fakePage(`http://localhost:3007/auth/verify-phone?next=${encodeURIComponent(next)}`, { email: EMAIL, phone: null }),
+        { email: EMAIL, phone: PHONE },
+      )).rejects.toThrow("same-origin resident destination");
+    }
+    expect(supabase.createClient).not.toHaveBeenCalled();
+    expect(updates).toEqual([]);
   });
 });

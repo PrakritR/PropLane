@@ -70,13 +70,13 @@ function assertLocalDev(page: Page): void {
  * the email and phone from the server's view of that same session. Both have to agree with the
  * Auth user, so the fixture can never reach another account.
  */
-async function browserActor(page: Page): Promise<{ id: string; email: string; phone: string }> {
+async function browserActor(page: Page): Promise<{ id: string; email: string; phone: string | null }> {
   const id = await syntheticFixtureActorId(page);
   const response = await page.request.get("/api/profile");
   if (!response.ok()) throw new Error("Synthetic phone fixture could not read the signed-in actor.");
   const body = await response.json() as { email?: unknown; phone?: unknown };
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-  const phone = typeof body.phone === "string" ? body.phone.trim() : "";
+  const phone = typeof body.phone === "string" && body.phone.trim() ? body.phone.trim() : null;
   if (!id || !email) throw new Error("Synthetic phone fixture needs an exact signed-in actor id and email.");
   return { id, email, phone };
 }
@@ -115,49 +115,49 @@ function sameInstant(left: unknown, right: unknown): boolean {
   return Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime === rightTime;
 }
 
-async function readPhoneStamp(db: SupabaseClient, id: string, email: string, phone: string) {
+async function readPhoneStamp(db: SupabaseClient, id: string, email: string) {
   const { data, error } = await db.from("profiles")
     .select("id, email, phone, phone_verified_at")
     .eq("id", id)
     .maybeSingle();
   if (error || !data || data.id !== id || String(data.email ?? "").trim().toLowerCase() !== email ||
-      String(data.phone ?? "").trim() !== phone) {
+      !(typeof data.phone === "string" || data.phone === null)) {
     throw new Error("Synthetic phone fixture could not confirm the exact profile during compensation.");
   }
-  return data as { id: string; email: string; phone: string; phone_verified_at: string | null };
+  return data as { id: string; email: string; phone: string | null; phone_verified_at: string | null };
 }
 
 async function restoreAttemptedStamp(
   db: SupabaseClient,
-  input: { id: string; email: string; phone: string; attemptedAt: string },
+  input: { id: string; email: string; expectedPhone: string; originalPhone: string | null; attemptedAt: string },
 ): Promise<void> {
-  const current = await readPhoneStamp(db, input.id, input.email, input.phone);
-  if (current.phone_verified_at === null) return;
-  if (!sameInstant(current.phone_verified_at, input.attemptedAt)) {
+  const current = await readPhoneStamp(db, input.id, input.email);
+  if (current.phone === input.originalPhone && current.phone_verified_at === null) return;
+  if (current.phone !== input.expectedPhone || !sameInstant(current.phone_verified_at, input.attemptedAt)) {
     throw new Error("Synthetic phone fixture found a newer verification stamp and refused to overwrite it.");
   }
-  const reverted = await db.from("profiles")
-    .update({ phone_verified_at: null })
+  const revert = db.from("profiles")
+    .update({ ...(input.originalPhone === input.expectedPhone ? {} : { phone: input.originalPhone }), phone_verified_at: null })
     .eq("id", input.id)
     .eq("email", input.email)
-    .eq("phone", input.phone)
-    .eq("phone_verified_at", input.attemptedAt)
-    .select("id, email, phone, phone_verified_at");
+    .eq("phone", input.expectedPhone)
+    .eq("phone_verified_at", input.attemptedAt);
+  const reverted = await revert.select("id, email, phone, phone_verified_at");
   if (!reverted.error && reverted.data?.length === 1 && reverted.data[0]?.id === input.id) {
-    const stamp = reverted.data[0]?.phone_verified_at;
-    if (stamp === null) return;
+    if (reverted.data[0]?.phone === input.originalPhone && reverted.data[0]?.phone_verified_at === null) return;
   }
   // An update acknowledgement can be lost after commit. Confirm the exact before-state before
   // declaring compensation failed; never issue a second unconditional write.
-  const after = await readPhoneStamp(db, input.id, input.email, input.phone);
-  if (after.phone_verified_at !== null) {
+  const after = await readPhoneStamp(db, input.id, input.email);
+  if (after.phone !== input.originalPhone || after.phone_verified_at !== null) {
     throw new Error("Synthetic phone fixture could not restore its attempted verification stamp.");
   }
 }
 
-export async function verifySyntheticManagerPhone(
+async function verifySyntheticPhoneForRole(
   page: Page,
   input: { email: string; phone: string },
+  requiredRole: "manager" | "resident",
 ): Promise<SyntheticPhoneVerification> {
   assertLocalDev(page);
   const email = input.email.trim().toLowerCase();
@@ -182,14 +182,14 @@ export async function verifySyntheticManagerPhone(
     throw new Error("Synthetic phone fixture requires the exact Auth email to be confirmed.");
   }
 
-  const { data: managerRole, error: roleError } = await db
+  const { data: roleRow, error: roleError } = await db
     .from("profile_roles")
     .select("role")
     .eq("user_id", actor.id)
-    .eq("role", "manager")
+    .eq("role", requiredRole)
     .maybeSingle();
-  if (roleError || !managerRole || managerRole.role !== "manager") {
-    throw new Error("Synthetic phone fixture requires an authoritative manager role.");
+  if (roleError || !roleRow || roleRow.role !== requiredRole) {
+    throw new Error(`Synthetic phone fixture requires an authoritative ${requiredRole} role.`);
   }
 
   const { data: profile, error } = await db
@@ -201,32 +201,36 @@ export async function verifySyntheticManagerPhone(
   if (String(profile.email ?? "").trim().toLowerCase() !== email) {
     throw new Error("Synthetic phone fixture profile does not match the synthetic mailbox.");
   }
-  if (String(profile.role ?? "").trim().toLowerCase() !== "manager") {
-    throw new Error("Synthetic phone fixture only serves a manager profile.");
+  if (String(profile.role ?? "").trim().toLowerCase() !== requiredRole) {
+    throw new Error(`Synthetic phone fixture only serves a ${requiredRole} profile.`);
   }
-  if (String(profile.phone ?? "").trim() !== input.phone) {
+  const originalPhone = typeof profile.phone === "string" && profile.phone.trim() ? profile.phone.trim() : null;
+  if (originalPhone && originalPhone !== input.phone) {
     throw new Error("Synthetic phone fixture profile phone is not the requested synthetic number.");
+  }
+  if (!originalPhone && requiredRole !== "resident") {
+    throw new Error("Synthetic manager phone fixture requires the signup phone on the profile.");
   }
   if (profile.phone_verified_at) throw new Error("Synthetic phone fixture refuses an already-verified profile.");
 
-  const before = { userId: actor.id, email, phone: input.phone, phone_verified_at: null as string | null };
+  const before = { userId: actor.id, email, phone: originalPhone, expectedPhone: input.phone, phone_verified_at: null as string | null };
   const verifiedAt = new Date().toISOString();
   // Persist the exact before-state and intended CAS value before the DB write, so a lost
   // acknowledgement has a private receipt and a bounded compensation target.
   writePrivateBeforeImage({ ...before, attemptedVerifiedAt: verifiedAt, recordedAt: new Date().toISOString() });
   let applied;
   try {
-    applied = await db
+    let update = db
       .from("profiles")
-      .update({ phone_verified_at: verifiedAt })
+      .update({ ...(originalPhone ? {} : { phone: input.phone }), phone_verified_at: verifiedAt })
       .eq("id", actor.id)
       .eq("email", profile.email)
-      .eq("phone", input.phone)
-      .is("phone_verified_at", null)
-      .select("id, phone_verified_at");
+      .is("phone_verified_at", null);
+    update = originalPhone ? update.eq("phone", originalPhone) : update.is("phone", null);
+    applied = await update.select("id, phone, phone_verified_at");
   } catch (writeError) {
     try {
-      await restoreAttemptedStamp(db, { id: actor.id, email, phone: input.phone, attemptedAt: verifiedAt });
+      await restoreAttemptedStamp(db, { id: actor.id, email, expectedPhone: input.phone, originalPhone, attemptedAt: verifiedAt });
     } catch (compensationError) {
       throw new AggregateError(
         [new Error("Synthetic phone fixture write acknowledgement was lost."), compensationError],
@@ -235,10 +239,10 @@ export async function verifySyntheticManagerPhone(
     }
     throw new Error("Synthetic phone fixture write rejected; attempted write was compensated.", { cause: writeError });
   }
-  if (applied.error || applied.data?.length !== 1 || applied.data[0]?.id !== actor.id ||
+  if (applied.error || applied.data?.length !== 1 || applied.data[0]?.id !== actor.id || applied.data[0]?.phone !== input.phone ||
       !sameInstant(applied.data[0]?.phone_verified_at, verifiedAt)) {
     try {
-      await restoreAttemptedStamp(db, { id: actor.id, email, phone: input.phone, attemptedAt: verifiedAt });
+      await restoreAttemptedStamp(db, { id: actor.id, email, expectedPhone: input.phone, originalPhone, attemptedAt: verifiedAt });
     } catch (compensationError) {
       throw new AggregateError(
         [new Error("Synthetic phone fixture could not confirm its compare-and-set acknowledgement."), compensationError],
@@ -255,7 +259,7 @@ export async function verifySyntheticManagerPhone(
     restore: async () => {
       if (restored) return;
       try {
-        await restoreAttemptedStamp(db, { id: actor.id, email, phone: input.phone, attemptedAt: verifiedAt });
+        await restoreAttemptedStamp(db, { id: actor.id, email, expectedPhone: input.phone, originalPhone, attemptedAt: verifiedAt });
       } catch (error) {
         // Reported, never swallowed: a left-behind verified flag is a fixture leak.
         throw new Error("Synthetic phone fixture could not restore the original verification state.", { cause: error });
@@ -263,6 +267,16 @@ export async function verifySyntheticManagerPhone(
       restored = true;
     },
   };
+}
+
+/** Literal manager wrapper; this helper never treats a manager as a resident. */
+export function verifySyntheticManagerPhone(page: Page, input: { email: string; phone: string }) {
+  return verifySyntheticPhoneForRole(page, input, "manager");
+}
+
+/** Literal resident wrapper; only a verified synthetic resident mailbox can reach this path. */
+export function verifySyntheticResidentPhone(page: Page, input: { email: string; phone: string }) {
+  return verifySyntheticPhoneForRole(page, input, "resident");
 }
 
 /** Keep ownership of a phone fixture until later fallible setup has succeeded. */
@@ -302,6 +316,33 @@ export async function clearManagerPhoneGate(
       await fixture.restore();
     } catch (restoreError) {
       throw new AggregateError([error, restoreError], "Synthetic phone gate navigation failed and fixture restoration also failed.");
+    }
+    throw error;
+  }
+  return fixture;
+}
+
+/** Literal resident counterpart, used only after token_hash registration of the exact mailbox. */
+export async function clearResidentPhoneGate(
+  page: Page,
+  input: { email: string; phone: string },
+): Promise<SyntheticPhoneVerification | null> {
+  const current = new URL(page.url());
+  if (current.pathname !== "/auth/verify-phone") return null;
+  const next = current.searchParams.get("next");
+  const destination = next ? new URL(next, current.origin) : null;
+  if (!destination || destination.origin !== current.origin || destination.username || destination.password ||
+      !(destination.pathname === "/resident" || destination.pathname.startsWith("/resident/"))) {
+    throw new Error("Synthetic resident phone gate requires an exact same-origin resident destination.");
+  }
+  const fixture = await verifySyntheticResidentPhone(page, input);
+  try {
+    await page.goto(`${destination.pathname}${destination.search}${destination.hash}`, { waitUntil: "domcontentloaded" });
+  } catch (error) {
+    try {
+      await fixture.restore();
+    } catch (restoreError) {
+      throw new AggregateError([error, restoreError], "Synthetic resident phone gate navigation failed and fixture restoration also failed.");
     }
     throw error;
   }
