@@ -1,3 +1,4 @@
+import { syntheticSignupDomain } from "../helpers/synthetic-signup-domain";
 import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
@@ -50,8 +51,9 @@ test.describe("New manager — full journey from scratch", () => {
 
     await mockStripeAllRoutes(page);
 
+    if (process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "") !== "https://emstjswhotsnyksqhqyf.supabase.co") throw new Error("Synthetic signup requires the exact dev/test project.");
     const stamp = Date.now();
-    const email = `fresh-manager-${stamp}@test.proplane.local`;
+    const email = `fresh-manager-${stamp}@${syntheticSignupDomain()}`;
     const password = "FreshManager123!";
     const fullName = "Fresh Journey Manager";
     const phone = "2065550199";
@@ -60,7 +62,9 @@ test.describe("New manager — full journey from scratch", () => {
     fs.writeFileSync(
       path.join(EVIDENCE_DIR, "credentials.json"),
       JSON.stringify({ email, password, fullName, createdAt: new Date().toISOString() }, null, 2),
+      { mode: 0o600 },
     );
+    fs.chmodSync(path.join(EVIDENCE_DIR, "credentials.json"), 0o600);
 
     // ── 1. Discover pricing and choose Pro ──────────────────────────────────
     await page.goto("/partner/pricing");
@@ -143,7 +147,7 @@ test.describe("New manager — full journey from scratch", () => {
     });
     await shot(page, "10-workspaces-team");
 
-    console.log(`NEW MANAGER JOURNEY OK — ${email} / ${password}`);
+    console.log("NEW MANAGER JOURNEY OK");
     console.log(`Evidence: ${EVIDENCE_DIR}`);
   });
 });

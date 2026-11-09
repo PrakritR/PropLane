@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { signInAsManager } from "../helpers/auth";
+import { createSyntheticProperty } from "../helpers/synthetic-property-e2e";
 
 /**
  * Per-property Operations settings (PLAN-0916-1040): pick a house, edit it, and
@@ -30,6 +31,7 @@ test.describe("Settings — per-property Operations scope", () => {
   test("pick a house -> edit -> All properties unchanged -> reload keeps it -> reset restores", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await signInAsManager(page);
+    const fixture = await createSyntheticProperty(page);
     await page.goto("/portal/profile?tab=inspections", { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(2500);
 
@@ -39,14 +41,14 @@ test.describe("Settings — per-property Operations scope", () => {
       return;
     }
 
-    // Pick the first house (option index 1; index 0 is "All properties").
+    // Select only the uniquely created fixture.
     await picker.first().click();
     const options = page.locator('[role="option"]');
     await expect(options.first()).toBeVisible();
-    await options.nth(1).click();
+    await page.getByRole("option", { name: fixture.name, exact: true }).click();
     await page.waitForTimeout(500);
     const houseId = new URL(page.url()).searchParams.get("property");
-    expect(houseId, "picking a house writes ?property= into the URL").toBeTruthy();
+    expect(houseId, "picking the fixture writes its exact id into the URL").toBe(fixture.id);
 
     // Clean slate for a deterministic run.
     await call(page, "/api/portal/reminder-settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ propertyId: houseId, reset: true }) });

@@ -2,6 +2,7 @@ import { test, expect, type Page, type Locator } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import { mockStripeAllRoutes } from "../helpers/auth";
+import { createSyntheticProperty } from "../helpers/synthetic-property-e2e";
 import { fieldSelectTrigger, pickFieldSelect } from "../helpers/field-select";
 
 /**
@@ -145,6 +146,8 @@ test.describe("Promotion UX", () => {
       });
 
       test("creates a text promotion straight from the type dropdown", async ({ page }) => {
+        await page.goto("/portal/promotion", { waitUntil: "domcontentloaded" });
+        const fixture = await createSyntheticProperty(page);
         const frame = await openPromotionSection(page);
         const list = page.locator('[data-attr="promotion-content-direct"]');
         const beforeCount = await list.getByRole("checkbox").count();
@@ -154,15 +157,10 @@ test.describe("Promotion UX", () => {
         await selectPromotionKind(page, dialog, "Text");
 
         const propertyTrigger = fieldSelectTrigger(dialog, "select-promotion-text-property");
-        if (await propertyTrigger.isVisible().catch(() => false)) {
-          await propertyTrigger.click();
-          const listingOption = page.getByRole("option").filter({ hasNotText: /^custom/i });
-          if ((await listingOption.count()) > 0) {
-            await listingOption.first().click();
-          } else {
-            await page.keyboard.press("Escape");
-          }
-        }
+        await expect(propertyTrigger).toBeVisible();
+        await propertyTrigger.click();
+        await page.getByRole("option", { name: fixture.name, exact: true }).click();
+        await expect(propertyTrigger).toContainText(fixture.name);
         await dialog.locator('[data-attr="promotion-text-generate-submit"]').click();
 
         const preview = page.getByRole("dialog");

@@ -1,3 +1,4 @@
+import { syntheticSignupDomain } from "../helpers/synthetic-signup-domain";
 import { test, expect, type Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import fs from "node:fs";
@@ -47,7 +48,7 @@ function shot(page: Page, name: string) {
 }
 
 async function createFreshManager(page: Page, stamp: number) {
-  const email = `e2e-manager-${stamp}@test.proplane.local`;
+  const email = `e2e-manager-${stamp}@${syntheticSignupDomain()}`;
   const password = "E2eManager123!";
   const fullName = "E2E Journey Manager";
   const phone = "2065550199";
@@ -163,16 +164,15 @@ test.describe("Manager signup → listing → resident apply", () => {
 
   test("new manager publishes a listing and receives a guest application", async ({ browser }) => {
     test.setTimeout(600_000);
+    if (process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "") !== "https://emstjswhotsnyksqhqyf.supabase.co") throw new Error("Synthetic signup requires the exact dev/test project.");
     const stamp = Date.now();
     const guest = {
       name: "Jordan Applicant",
-      email: `e2e-applicant-${stamp}@test.proplane.local`,
+      email: `e2e-applicant-${stamp}@${syntheticSignupDomain()}`,
       phone: "2065550188",
     };
 
     fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
-
-    await db.from("manager_application_records").delete().eq("resident_email", guest.email);
 
     const managerContext = await browser.newContext({ viewport: DESKTOP });
     const managerPage = await managerContext.newPage();
@@ -185,7 +185,9 @@ test.describe("Manager signup → listing → resident apply", () => {
     fs.writeFileSync(
       path.join(EVIDENCE_DIR, "run.json"),
       JSON.stringify({ ...manager, propertyId, guest, createdAt: new Date().toISOString() }, null, 2),
+      { mode: 0o600 },
     );
+    fs.chmodSync(path.join(EVIDENCE_DIR, "run.json"), 0o600);
 
     const guestContext = await browser.newContext({ viewport: DESKTOP });
     const guestPage = await guestContext.newPage();
