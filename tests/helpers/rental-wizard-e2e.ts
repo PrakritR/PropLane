@@ -84,7 +84,7 @@ export async function fillCurrentRentalApplication(
   await expect(visibleLocator(page, '[data-application-section="personal"]')).toBeVisible({ timeout: 30_000 });
   await fillSignerStep(page, applicant);
   await continueBtn(page).click();
-  await expect(visibleLocator(page, "#currentStreet")).toBeVisible({ timeout: 30_000 });
+  await expect(visibleLocator(page, '[placeholder="Start typing your street address…"]')).toBeVisible({ timeout: 30_000 });
   await fillCurrentAddressStep(page);
   await visibleLocator(page, "#currentLandlordName").fill("QA Property Manager");
   await visibleLocator(page, "#currentMoveIn").fill(usDateInDays(-900));
@@ -242,8 +242,9 @@ export async function fillCurrentAddressStep(
   page: Page,
   address = { street: "1200 Pike St, Unit 8", city: "Seattle", state: "WA", zip: "98101" },
 ) {
-  await expect(visibleLocator(page, "#currentStreet")).toBeVisible();
-  await visibleLocator(page, "#currentStreet").fill(address.street);
+  const street = visibleLocator(page, '[placeholder="Start typing your street address…"]');
+  await expect(street).toBeVisible();
+  await street.fill(address.street);
   await visibleLocator(page, "#currentCity").fill(address.city);
   await visibleLocator(page, "#currentState").fill(address.state);
   await visibleLocator(page, "#currentZip").fill(address.zip);

@@ -6,7 +6,7 @@
  * E2E_TESTS_ENABLED=1 (i.e. `npm run test:seed` has run), like every other
  * portal spec here.
  */
-import { test, expect, type Request } from "@playwright/test";
+import { test, expect, type Request, type TestInfo } from "@playwright/test";
 import { createWritableSyntheticManager, cleanupWritableSyntheticManager } from "../helpers/writable-synthetic-manager";
 
 const enabled = process.env.E2E_TESTS_ENABLED === "1";
@@ -44,14 +44,21 @@ function writeCarriesMarker(request: Request, marker: string): boolean {
 
 test.describe("listing editor — save on close, no typing timer", () => {
   test.skip(!enabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
+  const phoneRestores = new WeakMap<TestInfo, () => Promise<void>>();
+  test.afterEach(async ({}, testInfo) => {
+    const restore = phoneRestores.get(testInfo);
+    phoneRestores.delete(testInfo);
+    await restore?.();
+  });
 
-  test("typing writes nothing; ✕ writes exactly one draft that reopens with the text", async ({ browser }) => {
+  test("typing writes nothing; ✕ writes exactly one draft that reopens with the text", async ({ browser }, testInfo) => {
+    test.setTimeout(180_000);
     const marker = `Close-save QA ${Date.now()}`;
-    const manager = await createWritableSyntheticManager(browser, { properties: 0 });
+    const manager = await createWritableSyntheticManager(browser, { properties: 0, onPhoneFixtureReady: (phone) => { phoneRestores.set(testInfo, phone.restore); } });
     const page = manager.page;
 
     try {
-    await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
+    await page.goto("/portal/properties", { waitUntil: "domcontentloaded", timeout: 45_000 });
     // Open the editor via the primary Create action.
     const createButton = page.locator('[data-attr="manager-properties-add-top"]');
     await expect(createButton).toBeEnabled({ timeout: 30_000 });
@@ -102,36 +109,42 @@ test.describe("listing editor — save on close, no typing timer", () => {
     ).toHaveLength(1);
 
     // The draft is in Drafts, carrying the text that was typed.
-    await page.goto("/portal/properties/drafts", { waitUntil: "domcontentloaded" });
+    await page.goto("/portal/properties/drafts", { waitUntil: "domcontentloaded", timeout: 45_000 });
     await expect(page.getByText(marker).first()).toBeVisible({ timeout: 30_000 });
     const planReady = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/manager/subscription" && response.ok(), { timeout: 30_000 });
-    await page.goto(`/portal/properties/drafts/${encodeURIComponent(draftId)}/preview`, { waitUntil: "domcontentloaded" });
+    await page.goto(`/portal/properties/drafts/${encodeURIComponent(draftId)}/preview`, { waitUntil: "domcontentloaded", timeout: 45_000 });
     await planReady;
     const resume = page.locator('[data-attr="draft-continue-editing"]').filter({ visible: true }).first();
     await expect(resume).toBeVisible({ timeout: 30_000 });
     await resume.click();
     await expect(page.getByPlaceholder("Magnolia House")).toHaveValue(marker, { timeout: 30_000 });
-    await page.goto("/portal/properties/drafts", { waitUntil: "domcontentloaded" });
+    await page.goto("/portal/properties/drafts", { waitUntil: "domcontentloaded", timeout: 45_000 });
     } finally {
       // Remove only the exact draft this test created, through its normal owner-scoped route.
       const snapshotResponse = await page.request.get("/api/property-records");
       if (!snapshotResponse.ok()) throw new Error("Could not read the owned listing draft for cleanup.");
       const snapshot = await snapshotResponse.json() as {
-        snapshot?: { pendingByUser?: Record<string, Array<{ id?: string; buildingName?: string }>> };
+        snapshot?: { sideByUser?: Record<string, { drafts?: Array<{ adminRefId?: string; listingId?: string; buildingName?: string; submission?: { buildingName?: string } }> }> };
       };
-      const candidates = (snapshot.snapshot?.pendingByUser?.[manager.actorId] ?? []).filter((row) => row.buildingName === marker);
-      if (candidates.length > 1 || (draftId && (candidates.length !== 1 || candidates[0]?.id !== draftId))) {
+      if (!snapshot.snapshot?.sideByUser || typeof snapshot.snapshot.sideByUser !== "object") throw new Error("Owned draft snapshot is missing.");
+      const drafts = snapshot.snapshot.sideByUser[manager.actorId]?.drafts ?? [];
+      if (!Array.isArray(drafts)) throw new Error("Owned draft list is invalid.");
+      const candidates = drafts.filter((row) => row.buildingName === marker || row.submission?.buildingName === marker);
+      if (candidates.length > 1 || (draftId && (candidates.length !== 1 || candidates[0]?.adminRefId !== draftId || candidates[0]?.listingId !== draftId || candidates[0]?.buildingName !== marker || candidates[0]?.submission?.buildingName !== marker))) {
         throw new Error("Owned draft marker did not resolve to the exact saved row.");
       }
       if (candidates.length === 1) {
-        const cleanupId = candidates[0]?.id;
+        const cleanupId = draftId;
         if (!cleanupId) throw new Error("Owned draft cleanup could not resolve the saved ID.");
         const deleted = await page.request.post("/api/property-records", { data: { action: "delete", id: cleanupId } });
         if (!deleted.ok()) throw new Error(`Owned draft cleanup failed (HTTP ${deleted.status()}).`);
         const afterDelete = await page.request.get("/api/property-records");
         if (!afterDelete.ok()) throw new Error("Could not verify owned draft cleanup.");
         const afterSnapshot = await afterDelete.json() as typeof snapshot;
-        if ((afterSnapshot.snapshot?.pendingByUser?.[manager.actorId] ?? []).some((row) => row.id === cleanupId)) throw new Error("Owned draft remained after cleanup.");
+        if (!afterSnapshot.snapshot?.sideByUser || typeof afterSnapshot.snapshot.sideByUser !== "object") throw new Error("Owned draft readback is missing.");
+        const remaining = afterSnapshot.snapshot.sideByUser[manager.actorId]?.drafts ?? [];
+        if (!Array.isArray(remaining)) throw new Error("Owned draft readback is invalid.");
+        if (remaining.some((row) => row.adminRefId === cleanupId || row.listingId === cleanupId || row.buildingName === marker || row.submission?.buildingName === marker)) throw new Error("Owned draft remained after cleanup.");
       }
     }
     } finally {

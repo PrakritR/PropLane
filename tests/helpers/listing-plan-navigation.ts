@@ -7,23 +7,20 @@ import type { Page, Request } from "@playwright/test";
 export async function navigateToPropertiesAndCapturePlan(page: Page, documentPath = "/portal/properties") {
   if (!documentPath.startsWith("/portal/properties")) throw new Error("Manager plan capture requires a Properties document path.");
   let committedPropertiesDocument = false;
-  let planRequest: Request | null = null;
+  const planRequests = new Set<Request>();
   const trackCommittedDocument = (frame: import("@playwright/test").Frame) => {
-    if (frame === page.mainFrame() && new URL(frame.url()).pathname === documentPath) {
-      committedPropertiesDocument = true;
-      planRequest = null;
+    if (frame === page.mainFrame()) {
+      committedPropertiesDocument = new URL(frame.url()).pathname === documentPath;
+      planRequests.clear();
     }
   };
   const trackPlanRequest = (request: Request) => {
-    if (!committedPropertiesDocument || planRequest !== null || request.frame() !== page.mainFrame()) return;
-    if (new URL(request.url()).pathname === "/api/manager/subscription") planRequest = request;
+    if (!committedPropertiesDocument || request.frame() !== page.mainFrame()) return;
+    if (new URL(request.url()).pathname === "/api/manager/subscription") planRequests.add(request);
   };
   page.on("framenavigated", trackCommittedDocument);
   page.on("request", trackPlanRequest);
-  const planCapturePromise = page.waitForResponse((response) => {
-    const request = planRequest;
-    return request !== null && response.request() === request;
-  }, { timeout: 30_000 }).then(async (response) => ({
+  const planCapturePromise = page.waitForResponse((response) => planRequests.has(response.request()), { timeout: 30_000 }).then(async (response) => ({
     status: response.status(),
     body: await response.json() as { effectiveTier?: unknown; planUnknown?: unknown },
   }));

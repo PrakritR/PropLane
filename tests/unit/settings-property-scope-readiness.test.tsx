@@ -22,7 +22,10 @@ it("waits for workspace readiness, permits selection, and disables on error", ()
   rerender(<SettingsPropertyScope><span>Settings</span></SettingsPropertyScope>);
   expect(picker).toBeEnabled();
   fireEvent.click(picker);
-  expect(screen.getByRole("option", { name: "Fixture house" })).toBeTruthy();
+  const option = screen.getByRole("option", { name: "Fixture house" });
+  fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
+  fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
+  expect(picker).toHaveTextContent("Fixture house");
   state.error = "unavailable";
   rerender(<SettingsPropertyScope><span>Settings</span></SettingsPropertyScope>);
   expect(picker).toBeDisabled();
