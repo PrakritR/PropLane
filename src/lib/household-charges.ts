@@ -575,7 +575,27 @@ function persistHouseholdStateToSession() {
 function reconcileChargeWithLocal(serverCharge: HouseholdCharge, local: HouseholdCharge | undefined): HouseholdCharge {
   if (!local) return serverCharge;
   const residentVisibleAt = local.residentVisibleAt ?? serverCharge.residentVisibleAt;
-  const localWithServerFields: HouseholdCharge = residentVisibleAt ? { ...local, residentVisibleAt } : local;
+  let localWithServerFields: HouseholdCharge = residentVisibleAt ? { ...local, residentVisibleAt } : local;
+  // Provider evidence belongs to one physical charge, never a business-key alias.
+  // A settled server receipt is authoritative even when a stale local row wins edits.
+  const sameCharge = Boolean(local.managerUserId?.trim()) && local.id === serverCharge.id && local.managerUserId === serverCharge.managerUserId;
+  const settledProvider = sameCharge && (serverCharge.status === "paid" || serverCharge.status === "refunded") &&
+    Boolean(serverCharge.stripeCheckoutSessionId?.trim()) &&
+    (serverCharge.stripePaymentStatus === "paid" || serverCharge.stripePaymentStatus === "succeeded");
+  if (settledProvider) {
+    localWithServerFields = {
+      ...localWithServerFields,
+      stripeCheckoutSessionId: serverCharge.stripeCheckoutSessionId,
+      stripePaymentStatus: serverCharge.stripePaymentStatus,
+      ...(serverCharge.paidAmountCents !== undefined ? { paidAmountCents: serverCharge.paidAmountCents } : {}),
+      paidMethod: serverCharge.paidMethod,
+    };
+    if (Number.isSafeInteger(serverCharge.refundedCents) && serverCharge.refundedCents! >= 0) {
+      const localRefund = Number.isSafeInteger(local.refundedCents) && local.refundedCents! >= 0 ? local.refundedCents! : 0;
+      localWithServerFields.refundedCents = Math.max(localRefund, serverCharge.refundedCents!);
+    }
+    if (serverCharge.status === "refunded") return { ...localWithServerFields, status: "refunded", paidAt: serverCharge.paidAt ?? local.paidAt, balanceLabel: "$0.00" };
+  }
   // Local mark-paid must win over stale server pending rows (including duplicate ids for the same bill).
   if (local.status === "paid") {
     return {
@@ -612,7 +632,7 @@ export function mergeHouseholdChargesWithServer(
   const reconciled: HouseholdCharge[] = serverCharges.map((sc) => {
     const local = localById.get(ownedId(sc)) ?? localByBusinessKey.get(keyFor(sc));
     const merged = reconcileChargeWithLocal(sc, local);
-    if (local?.status === "paid" && sc.status !== "paid") hasUpdated = true;
+    if (local?.status === "paid" && sc.status !== "paid" && merged.status === "paid") hasUpdated = true;
     if (local && (local.amountLabel !== sc.amountLabel || local.title !== sc.title)) hasUpdated = true;
     return merged;
   });
