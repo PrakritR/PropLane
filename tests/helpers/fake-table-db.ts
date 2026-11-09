@@ -214,6 +214,16 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, options: FakeDbOp
   async function rpc(name: string, args: Row = {}) {
     const override = options.rpc?.(name, args);
     if (override) return { data: override.data ?? null, error: override.error ?? null };
+    if (name === "ensure_default_portal_workspace") {
+      if (typeof args.p_owner !== "string" || !args.p_owner) return { data: null, error: { message: "Workspace owner required" } };
+      const workspaces = (tables.portal_workspaces ??= []);
+      let workspace = workspaces.find((row) => row.owner_user_id === args.p_owner && row.is_default === true);
+      if (!workspace) {
+        workspace = { id: `workspace-${++counter}`, owner_user_id: args.p_owner, name: "My workspace", is_default: true, is_service: false, created_at: new Date().toISOString() };
+        workspaces.push(workspace);
+      }
+      return { data: workspace.id, error: null };
+    }
     if (name === "reserve_household_charge_refund") {
       return reserveHouseholdChargeRefund(tables, args, () => `hcra_${++counter}`);
     }
@@ -223,7 +233,7 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, options: FakeDbOp
       row.platform_attempt_key = args.p_key;
       return { data: { ...row }, error: null };
     }
-    return { data: {}, error: null };
+    return { data: null, error: { message: `Unsupported fake RPC: ${name}` } };
   }
 
   return { tables, from, rpc };

@@ -56,11 +56,17 @@ describe("reserved deposit return", () => {
     expect(await res.json()).toMatchObject({ status: "pending", refundId: "re_1" });
     expect(refund).not.toHaveBeenCalled();
   });
-  it("sends the caller's retained operation id as the reservation request key", async () => {
+  it("uses a fresh server request key and refuses an unresolved replay", async () => {
+    refund.mockRejectedValue(new Error("uncertain"));
     await POST(new Request("http://localhost/api/portal/deposit-return", { method: "POST",
       body: JSON.stringify({ chargeId: "charge", amountCents: 5000, itemization: [],
         operationId: "11111111-2222-4333-8444-555555555555" }) }));
-    expect(rpc).toHaveBeenCalledWith("reserve_security_deposit_return",
-      expect.objectContaining({ p_request_key: "11111111-2222-4333-8444-555555555555" }));
+    const key = rpc.mock.calls[0]![1].p_request_key;
+    expect(key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(key).not.toBe("11111111-2222-4333-8444-555555555555");
+    rpc.mockResolvedValue({ data: null, error: { message: "active" } });
+    expect((await post()).status).toBe(409);
+    expect(refund).toHaveBeenCalledTimes(1);
+    expect(rpc.mock.calls[1]![1].p_request_key).not.toBe(key);
   });
 });
