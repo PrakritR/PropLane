@@ -1158,7 +1158,7 @@ function readRentProfiles(): RecurringRentProfile[] {
   return isBrowser() ? memoryRentProfiles : [];
 }
 
-function writeRentProfiles(rows: RecurringRentProfile[]) {
+function writeRentProfiles(rows: RecurringRentProfile[], priorCreatedAt?: ReadonlyMap<string, string>) {
   if (!isBrowser()) return;
   const normalized = dedupeRecurringRentProfiles(rows);
   if (!rentProfilesChanged(memoryRentProfiles, normalized)) return;
@@ -1166,7 +1166,7 @@ function writeRentProfiles(rows: RecurringRentProfile[]) {
   persistHouseholdStateToSession();
   if (!scopedBillingGeneration) householdChargesLastSyncedAt = Date.now();
   mirrorRentProfiles(normalized);
-  syncAllRecurringRentCharges();
+  syncAllRecurringRentCharges(priorCreatedAt);
   emit();
 }
 
@@ -3148,7 +3148,7 @@ export function reconcilePendingRecurringChargeAmountsFromProfiles(): boolean {
   return true;
 }
 
-function syncAllRecurringRentCharges(): boolean {
+function syncAllRecurringRentCharges(priorCreatedAt?: ReadonlyMap<string, string>): boolean {
   if (!isBrowser()) return false;
   backfillMonthlyUtilitiesOnRentProfiles();
   backfillBasisBillingRentOnProfiles();
@@ -3168,7 +3168,11 @@ function syncAllRecurringRentCharges(): boolean {
   const cleanedExisting = staleIds.size > 0 ? activeExisting : existing;
   let wrote = false;
   if (newCharges.length > 0 || staleIds.size > 0) {
-    writeAll([...protectedCharges, ...cleanedExisting, ...newCharges], true);
+    const regenerated = newCharges.map((charge) => {
+      const createdAt = charge.managerUserId ? priorCreatedAt?.get(`${charge.managerUserId}\0${charge.id}`) : undefined;
+      return createdAt === undefined ? charge : { ...charge, createdAt };
+    });
+    writeAll([...protectedCharges, ...cleanedExisting, ...regenerated], true);
     wrote = true;
   }
   // PRP-408 part 2: existing unpaid months must track the current profile rent
@@ -3342,7 +3346,7 @@ export function upsertRecurringRentProfile(input: {
   leaseEnd?: string;
   /** Omitted inherits the existing profile's prior rent; an explicit `null` clears it. */
   priorRent?: { beforeMonth: string; monthlyRent: number } | null;
-}): RecurringRentProfile | null {
+}, priorCreatedAt?: ReadonlyMap<string, string>): RecurringRentProfile | null {
   if (!isBrowser()) return null;
   const profiles = readRentProfiles();
   const key = `${input.residentEmail.trim().toLowerCase()}|${input.propertyId}`;
@@ -3395,7 +3399,7 @@ export function upsertRecurringRentProfile(input: {
   const next = profiles.some((p) => recurringRentProfileKey(p) === key)
     ? profiles.map((p) => (recurringRentProfileKey(p) === key ? profile : p))
     : [...profiles, profile];
-  writeRentProfiles(next);
+  writeRentProfiles(next, priorCreatedAt);
   return profile;
 }
 
@@ -4881,6 +4885,7 @@ export function recordApprovedApplicationCharges(
   }
   // Preserve paid charges — only wipe pending ones so they can be regenerated with correct amounts.
   // Also wipe pending recurring rent/utilities for this resident+property so updated amounts are used.
+  const priorCreatedAt = new Map(readAll().filter((charge) => !!charge.managerUserId).map((charge) => [`${charge.managerUserId}\0${charge.id}`, charge.createdAt]));
   const rows = readAll().filter((charge) => {
     if (charge.utilityAllocationId || charge.migrationSourceId) return true;
     // A figure the manager typed by hand outranks the listing's, for EVERY kind. The
@@ -4946,11 +4951,12 @@ export function recordApprovedApplicationCharges(
     });
     if (atSigningOnly && !dueAtSigning) return;
     const label = moneyAmountLabel(Number(finalAmount.toFixed(2)));
+    const chargeId = customFeeId ? `${approvedChargeId(applicationId, kind)}_cf_${chargeKeyPart(customFeeId)}` : approvedChargeId(applicationId, kind);
     const charge: HouseholdCharge = ({
       // A custom fee needs its OWN id per fee — approvedChargeId keys only on (app, kind),
       // so several custom fees would otherwise share one id and collapse to one row.
-      id: customFeeId ? `${approvedChargeId(applicationId, kind)}_cf_${chargeKeyPart(customFeeId)}` : approvedChargeId(applicationId, kind),
-      createdAt: new Date().toISOString(),
+      id: chargeId,
+      createdAt: (effectiveManagerUserId && priorCreatedAt.get(`${effectiveManagerUserId}\0${chargeId}`)) || new Date().toISOString(),
       applicationId,
       residentEmail,
       residentName,
@@ -5341,7 +5347,7 @@ export function recordApprovedApplicationCharges(
         dueDayMode,
         startMonth: computedStartMonth,
         leaseEnd,
-      });
+      }, priorCreatedAt);
     }
   }
 
@@ -5367,7 +5373,7 @@ export function recordApprovedApplicationCharges(
   }
 
   // Always re-sync recurring charges so wiped monthly entries are recreated with current amounts.
-  syncAllRecurringRentCharges();
+  syncAllRecurringRentCharges(priorCreatedAt);
 
   return changed;
 }

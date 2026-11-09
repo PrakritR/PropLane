@@ -7,7 +7,7 @@ import { setPortalSessionViewer } from "@/lib/auth/portal-session-gate";
 const state = vi.hoisted(() => ({ property: null as unknown }));
 vi.mock("@/lib/rental-application/data", async (original) => ({ ...(await original<typeof import("@/lib/rental-application/data")>()), getPropertyById: () => state.property }));
 vi.mock("@/lib/demo/demo-session", async (original) => ({ ...(await original<typeof import("@/lib/demo/demo-session")>()), isDemoModeActive: () => false }));
-import { HOUSEHOLD_CHARGES_EVENT, HOUSEHOLD_CHARGES_SESSION_KEY, readHouseholdCharges, readRecurringRentProfilesForManager, mergeHouseholdChargesWithServer, mergeServerAuthoritativeRentProfiles, recordApprovedApplicationChargesScoped, seedDemoHouseholdCharges, mirrorApplicationHouseholdChargesAwait, readAuthoritativeBillingSnapshot } from "@/lib/household-charges";
+import { HOUSEHOLD_CHARGES_EVENT, HOUSEHOLD_CHARGES_SESSION_KEY, readHouseholdCharges, readRecurringRentProfilesForManager, mergeHouseholdChargesWithServer, mergeServerAuthoritativeRentProfiles, recordApprovedApplicationCharges, recordApprovedApplicationChargesScoped, seedDemoHouseholdCharges, mirrorApplicationHouseholdChargesAwait, readAuthoritativeBillingSnapshot } from "@/lib/household-charges";
 const app = { id: "AXIS-OWN", managerUserId: "owner", email: "r@example.invalid", propertyId: "house", bucket: "approved", name: "R", application: { propertyId: "house", roomChoice1: "house::room", leaseStart: "2026-11-01", leaseEnd: "2027-10-31", leaseTerm: "12 months", rentalType: "standard" } } as DemoApplicantRow;
 const base = { residentEmail: app.email, residentName: "R", residentUserId: null, propertyId: "house", propertyLabel: "House", managerUserId: "foreign", status: "pending", createdAt: "2026-01-01", kind: "security_deposit", title: "Deposit", amountLabel: "$5", balanceLabel: "$5", blocksLeaseUntilPaid: false } as HouseholdCharge;
 const profile = { id: "foreign-profile", residentEmail: app.email, residentName: "R", residentUserId: null, propertyId: "house", propertyLabel: "House", roomLabel: "Room", managerUserId: "foreign", monthlyRent: 1000, active: true, updatedAt: "2026-01-01" } as RecurringRentProfile;
@@ -91,6 +91,9 @@ it("reuses confirmed server rows after a lost acknowledgement without duplicatin
 });
 
 it("preserves authoritative creation time for the same charge through unchanged and repriced regeneration", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-09T12:00:00.000Z"));
+  try {
   seedDemoHouseholdCharges([], []);
   const first = recordApprovedApplicationChargesScoped(app, undefined, true, { leaseExecuted: true }, { charges: [], rentProfiles: [] });
   const initial = first.stage!.charges;
@@ -100,6 +103,8 @@ it("preserves authoritative creation time for the same charge through unchanged 
   for (const charge of same.stage!.charges) {
     if (prior.some((old) => old.id === charge.id)) expect(charge.createdAt).toBe("2025-01-02T03:04:05.000Z");
   }
+  expect(same.stage!.charges).toEqual(prior);
+  expect(same.stage!.profiles).toEqual(first.stage!.profiles);
   expect(await mirrorApplicationHouseholdChargesAwait(app, undefined, same.stage, { charges: prior, rentProfiles: first.stage!.profiles })).toBe(true);
   expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   const changedApp = { ...app, signedMonthlyRent: 1200 };
@@ -107,6 +112,9 @@ it("preserves authoritative creation time for the same charge through unchanged 
   const changed = repriced.stage!.charges.find((charge) => prior.some((old) => old.id === charge.id && old.amountLabel !== charge.amountLabel));
   expect(changed).toBeDefined();
   expect(changed!.createdAt).toBe("2025-01-02T03:04:05.000Z");
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it("does not borrow a creation time from an alias or foreign owner", () => {
@@ -117,6 +125,36 @@ it("does not borrow a creation time from an alias or foreign owner", () => {
   const foreign = { ...generated, managerUserId: "foreign", applicationId: "AXIS-OTHER", createdAt: "1999-01-01T00:00:00.000Z" };
   const result = recordApprovedApplicationChargesScoped(app, undefined, true, { leaseExecuted: true }, { charges: [alias, foreign], rentProfiles: [] });
   const exact = result.stage!.charges.find((charge) => charge.id === generated.id);
+  expect(exact).toBeDefined();
+  expect(exact!.createdAt).not.toBe(alias.createdAt);
+  expect(exact!.createdAt).not.toBe(foreign.createdAt);
+});
+
+it("preserves exact-owner creation times in direct approved and recurring charge regeneration", () => {
+  seedDemoHouseholdCharges([], []);
+  const first = recordApprovedApplicationChargesScoped(app, undefined, true, { leaseExecuted: true }, { charges: [], rentProfiles: [] });
+  const prior = first.stage!.charges.map((charge) => ({ ...charge, createdAt: "2025-01-02T03:04:05.000Z" }));
+  expect(prior.some((charge) => charge.kind === "rent")).toBe(true);
+  seedDemoHouseholdCharges(prior, first.stage!.profiles);
+  recordApprovedApplicationCharges(app, "owner", true, { leaseExecuted: true });
+  const same = readHouseholdCharges();
+  for (const charge of same) if (prior.some((old) => old.id === charge.id)) expect(charge.createdAt).toBe("2025-01-02T03:04:05.000Z");
+  recordApprovedApplicationCharges({ ...app, signedMonthlyRent: 1200 }, "owner", true, { leaseExecuted: true });
+  const repriced = readHouseholdCharges();
+  const changed = repriced.find((charge) => prior.some((old) => old.id === charge.id && old.amountLabel !== charge.amountLabel));
+  expect(changed).toBeDefined();
+  expect(changed!.createdAt).toBe("2025-01-02T03:04:05.000Z");
+});
+
+it("does not borrow a direct-generation timestamp from a different charge id or owner", () => {
+  seedDemoHouseholdCharges([], []);
+  const first = recordApprovedApplicationChargesScoped(app, undefined, true, { leaseExecuted: true }, { charges: [], rentProfiles: [] });
+  const generated = first.stage!.charges[0]!;
+  const alias = { ...generated, id: "old-alias", createdAt: "2000-01-01T00:00:00.000Z" };
+  const foreign = { ...generated, managerUserId: "foreign", applicationId: "AXIS-OTHER", createdAt: "1999-01-01T00:00:00.000Z" };
+  seedDemoHouseholdCharges([alias, foreign], []);
+  recordApprovedApplicationCharges(app, "owner", true, { leaseExecuted: true });
+  const exact = readHouseholdCharges().find((charge) => charge.id === generated.id && charge.managerUserId === "owner");
   expect(exact).toBeDefined();
   expect(exact!.createdAt).not.toBe(alias.createdAt);
   expect(exact!.createdAt).not.toBe(foreign.createdAt);
