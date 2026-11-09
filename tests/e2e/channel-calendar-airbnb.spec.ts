@@ -1,4 +1,4 @@
-import { test, expect, type Route } from "@playwright/test";
+import { test, expect, type Locator, type Route } from "@playwright/test";
 import { signInAsManager2 } from "../helpers/auth";
 import { cleanupSyntheticProperties, createSyntheticProperty } from "../helpers/synthetic-property-e2e";
 
@@ -8,6 +8,12 @@ const fixtureFor = (page: object) => {
   if (!fixture) throw new Error("Synthetic calendar property was not initialized.");
   return fixture;
 };
+
+async function uniqueVisible(locator: Locator, label: string) {
+  const visible = locator.filter({ visible: true });
+  await expect(visible, `${label} should have exactly one visible control`).toHaveCount(1, { timeout: 30_000 });
+  return visible.first();
+}
 
 /**
  * Settings → Integrations → Bookings is where a channel calendar is wired now.
@@ -48,7 +54,7 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
     const { path, name, roomId, roomName } = fixtureFor(page);
     await page.goto(path, { waitUntil: "domcontentloaded" });
 
-    const manageAirbnb = page.locator('[data-attr="settings-airbnb-manage"]');
+    const manageAirbnb = await uniqueVisible(page.locator('[data-attr="settings-airbnb-manage"]'), "Connect Airbnb");
     await expect(manageAirbnb).toBeVisible({ timeout: 30_000 });
 
     // Reload with the real workspace request held between the server response and the browser.
@@ -107,7 +113,7 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
     const fixture = fixtureFor(page);
     await page.goto(fixture.path, { waitUntil: "domcontentloaded" });
 
-    const manageAirbnb = page.locator('[data-attr="settings-airbnb-manage"]');
+    const manageAirbnb = await uniqueVisible(page.locator('[data-attr="settings-airbnb-manage"]'), "Connect Airbnb");
     await expect(manageAirbnb).toBeVisible({ timeout: 30_000 });
     await manageAirbnb.click();
     const dialog = page.getByRole("dialog", { name: "Connect Airbnb" });

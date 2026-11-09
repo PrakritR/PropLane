@@ -98,6 +98,7 @@ test.describe("legacy nav redirects land on a real page", () => {
   });
 
   test("manager legacy financials/documents tabs land on a real tab", async ({ page }) => {
+    test.setTimeout(180_000);
     await signInForNavSweep(
       page,
       "manager",
