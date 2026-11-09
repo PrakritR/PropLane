@@ -69,6 +69,8 @@ type RecordConfig = {
     user: RecordUser;
     records: Record<string, unknown>[];
   }) => Promise<Record<string, unknown>[]>;
+  /** Resolve logical ids to authorized storage ids for a table with per-viewer keys. */
+  resolveDeleteIds?: (args: { db: ReturnType<typeof createSupabaseServiceRoleClient>; user: RecordUser; ids: string[] }) => Promise<string[]>;
   /** Batch authorization for delete/deleteIds. Called after every target is read, before any delete. */
   authorizeDelete?: (args: {
     db: ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -227,10 +229,14 @@ export function createJsonRecordRoute(config: RecordConfig) {
           expectedPayloadKnown?: boolean;
         };
         if (body.action === "delete" || body.action === "deleteIds") {
-          const ids = body.action === "deleteIds"
+          let ids = body.action === "deleteIds"
             ? (Array.isArray((body as { ids?: unknown }).ids) ? (body as { ids: unknown[] }).ids.map(String) : [])
             : [body.id?.trim() ?? ""];
           if (ids.length === 0 || ids.some((id) => !id)) return NextResponse.json({ error: "id required" }, { status: 400 });
+          if (config.resolveDeleteIds) {
+            ids = await config.resolveDeleteIds({ db: ctx.db, user: ctx.user, ids });
+            if (!ids.length) return NextResponse.json({ error: "Record not found." }, { status: 404 });
+          }
           const targets: Record<string, unknown>[] = [];
           for (const id of ids) {
             const { data, error } = await ctx.db
