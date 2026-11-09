@@ -117,7 +117,7 @@ test.describe("Settings — per-property Automations scope", () => {
 
       // The picker is section-local state, so select the house again after reload and prove the
       // persisted server value is loaded for the exact property/workspace scope.
-      await page.goto(settingsUrl, { waitUntil: "domcontentloaded" });
+      await page.reload({ waitUntil: "domcontentloaded" });
       await expect(tours.getByRole("heading", { name: "Tours" })).toBeVisible({ timeout: 30_000 });
       const reloadedPicker = tours.locator('[data-attr="settings-property-scope"]');
       await expect(reloadedPicker).toBeVisible({ timeout: 30_000 });
