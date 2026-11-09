@@ -11,10 +11,10 @@ import { signInAsManager } from "../helpers/auth";
  */
 test.describe("Settings rail — independent scroll", () => {
   test(
-    "at 1280x800 the rail reaches Integrations on its own, and content scroll leaves it put",
+    "at 1280x600 the rail reaches Integrations on its own, and content scroll leaves it put",
     { tag: "@ladder-smoke" },
     async ({ page }) => {
-      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.setViewportSize({ width: 1280, height: 600 });
       await signInAsManager(page);
       await page.goto("/portal/profile?tab=inspections", { waitUntil: "domcontentloaded" });
 
