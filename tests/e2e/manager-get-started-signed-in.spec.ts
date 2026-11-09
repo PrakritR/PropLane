@@ -122,7 +122,13 @@ test.describe('"Get started" while signed in', () => {
     await page.goto("/");
     const cta = page.getByRole("link", { name: /start free/i }).first();
     // This manager CTA declares the role explicitly.
-    await expect(cta).toHaveAttribute("href", "/auth/create-account?mode=create&role=manager");
+    const href = await cta.getAttribute("href");
+    expect(href).toBeTruthy();
+    const target = new URL(href!, page.url());
+    expect(target.pathname).toBe("/auth/create-account");
+    expect(target.searchParams.get("mode")).toBe("create");
+    expect(target.searchParams.get("role")).toBe("manager");
+    expect(target.searchParams.get("tier")).toBe("free");
     const [response] = await Promise.all([
       page.waitForNavigation({ waitUntil: "domcontentloaded" }),
       cta.click(),

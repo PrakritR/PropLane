@@ -120,13 +120,13 @@ test.describe("legacy nav redirects land on a real page", () => {
     console.log("[manager] " + JSON.stringify(results, null, 2));
 
     const byPath = new Map(results.map((r) => [r.requested, r]));
-    expect.soft(byPath.get("/portal/financials/rent-roll")!.finalPath).toBe("/portal/financials/income");
+    expect.soft(byPath.get("/portal/financials/rent-roll")!.finalPath).toBe("/portal/financials/overview");
     expect.soft(byPath.get("/portal/documents/summary")!.finalPath).toBe("/portal/documents/tax-summary");
-    expect.soft(byPath.get("/portal/documents/profit-loss")!.finalPath).toBe("/portal/financials/expenses");
+    expect.soft(byPath.get("/portal/documents/profit-loss")!.finalPath).toBe("/portal/financials/overview");
 
     const delinquency = byPath.get("/portal/financials/delinquency")!;
     expect.soft(delinquency.isNotFound, "/portal/financials/delinquency must not 404").toBe(false);
-    expect.soft(delinquency.finalPath).toBe("/portal/financials/income");
+    expect.soft(delinquency.finalPath).toBe("/portal/financials/overview");
 
     const leaseExpiration = byPath.get("/portal/financials/lease-expiration")!;
     expect.soft(leaseExpiration.isNotFound, "/portal/financials/lease-expiration must not 404").toBe(false);
@@ -195,10 +195,10 @@ test.describe("legacy nav redirects land on a real page", () => {
     for (const r of results) {
       expect.soft(r.isNotFound, `${r.requested} must not 404`).toBe(false);
     }
-    for (const legacy of ["mine", "shared", "tax", "insurance", "licensing"]) {
+    for (const [legacy, canonical] of Object.entries({ mine: "tax", shared: "tax", tax: "tax", insurance: "insurance", licensing: "license" })) {
       expect
-        .soft(byPath.get(`/vendor/documents/${legacy}`)!.finalPath, `${legacy} should land on the bare section`)
-        .toBe("/vendor/documents");
+        .soft(byPath.get(`/vendor/documents/${legacy}`)!.finalPath, `${legacy} should land on its current tab`)
+        .toBe(`/vendor/documents/${canonical}`);
     }
   });
 });
