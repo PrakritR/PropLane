@@ -125,7 +125,9 @@ describe("approving with a needed-before-review form still owed", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled());
     mocks.noBeds = true;
     view.rerender(<ApproveApplicationDialog row={{ ...row }} userId="manager-1" onClose={() => undefined} />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled());
+    await waitFor(() => expect(mocks.syncProperty).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText("Loading property pricing…")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled();
   });
 
   it("says plainly that the application is waiting on a form", () => {
