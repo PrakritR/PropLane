@@ -157,25 +157,29 @@ export async function POST(req: Request) {
     const managerUserId = user.id;
 
     if (body.action === "replace") {
-      const candidateRows = (Array.isArray(body.rows) ? body.rows : []).filter((r) => r?.id);
+      const candidateRows = Array.isArray(body.rows) ? body.rows : [];
+      if (candidateRows.some((row) => typeof row?.id !== "string" || !row.id.trim())) {
+        return NextResponse.json({ error: "A promotion id is required." }, { status: 400 });
+      }
       // The full-list mirror must never re-own or overwrite another manager's
       // promotion: look up each id's stored owner and skip foreign rows (an
       // intentional co-manager edit goes through the single-row upsert path,
       // which gates on the promotion edit grant). Own/new rows write as before.
       const ownerById = new Map<string, string | null>();
       if (!oversight && candidateRows.length > 0) {
-        const ids = [...new Set(candidateRows.map((r) => String(r.id)))];
-        const { data: existingRows } = await db
+        const ids = [...new Set(candidateRows.map((r) => r.id.trim()))];
+        const { data: existingRows, error: lookupError } = await db
           .from("manager_promotion_records")
           .select("id, manager_user_id")
           .in("id", ids);
+        if (lookupError) return NextResponse.json({ error: "Could not verify promotion ownership." }, { status: 500 });
         for (const r of existingRows ?? []) {
           ownerById.set(String(r.id), r.manager_user_id ? String(r.manager_user_id) : null);
         }
       }
       const failedIds: string[] = [];
       for (const raw of candidateRows) {
-        const existingOwner = ownerById.get(String(raw.id)) ?? null;
+        const existingOwner = ownerById.get(raw.id.trim()) ?? null;
         if (!oversight && existingOwner && existingOwner !== managerUserId) continue;
         const row = normalizeRow(raw, managerUserId);
         const { error } = await db.from("manager_promotion_records").upsert(
@@ -194,11 +198,12 @@ export async function POST(req: Request) {
       const id = body.id?.trim();
       if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
       if (!oversight) {
-        const { data: existing } = await db
+        const { data: existing, error: lookupError } = await db
           .from("manager_promotion_records")
           .select("manager_user_id, row_data")
           .eq("id", id)
           .maybeSingle();
+        if (lookupError) return NextResponse.json({ error: "Could not verify promotion ownership." }, { status: 500 });
         const existingOwner = existing?.manager_user_id ? String(existing.manager_user_id) : null;
         // A co-manager with the promotion DELETE grant may remove a linked
         // owner's promotion; otherwise deletion stays scoped to own rows.
@@ -218,13 +223,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    if (!body.row?.id) return NextResponse.json({ error: "row required" }, { status: 400 });
-    const id = String(body.row.id).trim();
-    const { data: existing } = await db
+    if (typeof body.row?.id !== "string" || !body.row.id.trim()) return NextResponse.json({ error: "row required" }, { status: 400 });
+    const id = body.row.id.trim();
+    const { data: existing, error: lookupError } = await db
       .from("manager_promotion_records")
       .select("manager_user_id, row_data")
       .eq("id", id)
       .maybeSingle();
+    if (lookupError) return NextResponse.json({ error: "Could not verify promotion ownership." }, { status: 500 });
     const existingOwner = existing?.manager_user_id ? String(existing.manager_user_id) : null;
     // Owner to attribute the write to. A co-manager editing a linked owner's
     // promotion must hold the promotion EDIT grant and the owner is preserved.
