@@ -5,12 +5,25 @@ vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams()
 import { ResidentIdentitySettings } from "@/components/portal/resident-identity-settings";
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 describe("resident identity settings", () => {
-  it("offers support when verification is unavailable", async () => {
+  it("renders nothing at all when verification is unavailable and nothing is pending", async () => {
+    // The shipping state with the provider flags disabled: every resident's Settings would
+    // otherwise carry an "Unavailable" verification block and a dead background-check section.
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: "unavailable", manualReview: null }) }));
+    const { container } = render(<ResidentIdentitySettings />);
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    await vi.waitFor(() => expect(container.textContent).toBe(""));
+    expect(screen.queryByText("Verification")).toBeNull();
+    expect(screen.queryByText("Background check")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Contact PropLane support" })).toBeNull();
+  });
+  it("still offers support for an outstanding manual review while the provider is unavailable", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: "unavailable", manualReview: "requested" }) }));
     render(<ResidentIdentitySettings />);
-    const link = await screen.findByRole("link", { name: "Contact PropLane support" });
+    expect(await screen.findByText("Requested")).toBeTruthy();
+    const link = await screen.findByRole("link", { name: "Contact support" });
     expect(link.getAttribute("href")).toBe("/resident/profile?tab=feedback");
     expect(screen.queryByRole("button", { name: "Verify" })).toBeNull();
+    expect(screen.queryByText("Background check")).toBeNull();
   });
   it("shows pending and exposes a resume action", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: "pending", manualReview: null }) }));

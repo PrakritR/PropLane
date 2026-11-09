@@ -14,6 +14,10 @@ const runReservedRefund = vi.fn();
 const rows = { charge: null as unknown, payment: null as unknown,
   holds: [] as Array<Record<string, unknown>> };
 const upserted: Record<string, unknown>[] = [];
+/** Every durable attempt write, in order: the reservation and then its provider stamp. */
+const rpcCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
+const attemptUpdates: Record<string, unknown>[] = [];
+const reserve = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser } }),
@@ -27,6 +31,10 @@ vi.mock("@/lib/auth/manager-stripe-payout-access.server", () => ({
 }));
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      rpcCalls.push({ name, args });
+      return name === "reserve_household_charge_refund" ? reserve(args) : { data: {}, error: null };
+    },
     from: (table: string) => ({
       select: () => ({
         eq: () => ({
@@ -39,6 +47,10 @@ vi.mock("@/lib/supabase/service", () => ({
           }),
         }),
       }),
+      update: (patch: Record<string, unknown>) => {
+        attemptUpdates.push({ table, ...patch });
+        return { eq: () => ({ eq: async () => ({ error: null }) }) };
+      },
       upsert: async (row: Record<string, unknown>) => {
         upserted.push(row);
         return { error: null };
@@ -58,9 +70,17 @@ const post = (body: unknown) =>
     body: JSON.stringify(body),
   }));
 
+const ATTEMPT = "6f1f2b9c-0d2e-4a21-9f84-4a3e2a7b1c55";
+
 beforeEach(() => {
   vi.clearAllMocks();
   upserted.length = 0;
+  rpcCalls.length = 0;
+  attemptUpdates.length = 0;
+  reserve.mockImplementation(() => ({
+    data: { id: ATTEMPT, status: "reserved", provider_refund_id: null, platform_attempt_key: null },
+    error: null,
+  }));
   getUser.mockResolvedValue({ data: { user: { id: "mgr-1" } } });
   refundsCreate.mockResolvedValue({ id: "re_1", status: "succeeded" });
   coManagerAccess.mockResolvedValue(false);
@@ -85,7 +105,10 @@ describe("who may issue it (C100: owner or Bank & payouts)", () => {
 
   it("the owner may refund their own charge", async () => {
     const res = await post({ chargeId: "chg-1" });
-    expect(res.status).toBe(200);
+    // A refund is accepted, never reported complete: the money is projected onto the charge by
+    // the refund webhook from re-read terminal provider evidence.
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ status: "pending", refundId: "re_1" });
     expect(refundsCreate).toHaveBeenCalled();
   });
 
@@ -106,17 +129,70 @@ describe("who may issue it (C100: owner or Bank & payouts)", () => {
     getUser.mockResolvedValue({ data: { user: { id: "co-1" } } });
     coManagerAccess.mockResolvedValue(true);
     const res = await post({ chargeId: "chg-1" });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     expect(coManagerAccess).toHaveBeenCalledWith(expect.anything(), "co-1", "mgr-1", "edit");
   });
 });
 
 describe("how the money moves", () => {
-  it.each(["pending", "failed", "canceled", null])("does not record provider status %s as refunded", async (status) => {
+  /**
+   * A pending refund is not refunded money and is not a failure either: it is reserved, sent,
+   * and waiting on terminal evidence. Only `bind_household_charge_refund` writes the money.
+   */
+  it.each(["pending", "succeeded"])("accepts provider status %s without recording it as refunded", async (status) => {
     refundsCreate.mockResolvedValue({ id: "re_1", status });
     const res = await post({ chargeId: "chg-1" });
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ status: "pending" });
     expect(upserted).toHaveLength(0);
+    expect(attemptUpdates).toEqual([expect.objectContaining({
+      table: "household_charge_refund_attempts", status: "pending", provider_refund_id: "re_1",
+    })]);
+  });
+
+  it.each(["failed", "canceled", null])("records provider status %s as uncertain, never refunded", async (status) => {
+    refundsCreate.mockResolvedValue({ id: "re_1", status });
+    const res = await post({ chargeId: "chg-1" });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ status: "unknown" });
+    expect(upserted).toHaveLength(0);
+    // The budget is NOT released here: only verified terminal evidence may do that.
+    expect(attemptUpdates).toEqual([expect.objectContaining({
+      table: "household_charge_refund_attempts", status: "unknown",
+    })]);
+  });
+
+  it("reserves durably before the provider is called", async () => {
+    await post({ chargeId: "chg-1" });
+    expect(rpcCalls[0]?.name).toBe("reserve_household_charge_refund");
+    expect(reserve.mock.invocationCallOrder[0]!).toBeLessThan(refundsCreate.mock.invocationCallOrder[0]!);
+  });
+
+  it("refuses to send anything when the reservation is refused", async () => {
+    reserve.mockImplementation(() => ({ data: null, error: { message: "active" } }));
+    const res = await post({ chargeId: "chg-1" });
+    expect(res.status).toBe(409);
+    expect(refundsCreate).not.toHaveBeenCalled();
+    expect(upserted).toHaveLength(0);
+  });
+
+  it("resumes a replayed operation instead of sending a second provider refund", async () => {
+    reserve.mockImplementation(() => ({
+      data: { id: ATTEMPT, status: "pending", provider_refund_id: "re_1", platform_attempt_key: null },
+      error: null,
+    }));
+    const res = await post({ chargeId: "chg-1", operationId: "11111111-2222-4333-8444-555555555555" });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ status: "pending", refundId: "re_1" });
+    expect(refundsCreate).not.toHaveBeenCalled();
+  });
+
+  it("carries the caller's operation id as the reservation's replay identity", async () => {
+    await post({ chargeId: "chg-1", operationId: "11111111-2222-4333-8444-555555555555" });
+    expect(rpcCalls[0]?.args).toMatchObject({ p_operation_key: "11111111-2222-4333-8444-555555555555" });
+    rpcCalls.length = 0;
+    await post({ chargeId: "chg-1", operationId: "not-a-uuid" });
+    expect(rpcCalls[0]?.args.p_operation_key).not.toBe("not-a-uuid");
   });
 
   it("reverses the transfer so it comes out of the manager's balance", async () => {
@@ -127,10 +203,11 @@ describe("how the money moves", () => {
     );
   });
 
-  it("sends an idempotency key so a double click cannot send it twice", async () => {
+  it("keys provider idempotency on the reserved attempt, never on the amount", async () => {
     await post({ chargeId: "chg-1" });
-    const [, options] = refundsCreate.mock.calls[0]!;
-    expect((options as { idempotencyKey?: string }).idempotencyKey).toContain("chg-1");
+    const [params, options] = refundsCreate.mock.calls[0]!;
+    expect((options as { idempotencyKey?: string }).idempotencyKey).toBe(`household-refund:${ATTEMPT}`);
+    expect((params as { metadata?: Record<string, string> }).metadata).toMatchObject({ household_refund_attempt: ATTEMPT });
   });
 
   it("refunds only what remains after an earlier partial refund", async () => {
@@ -144,11 +221,10 @@ describe("how the money moves", () => {
     expect(refundsCreate).toHaveBeenCalledWith(expect.objectContaining({ amount: 30_000 }), expect.anything());
   });
 
-  it("records the running total so the next refund sees it", async () => {
+  it("writes no money onto the charge — that is the webhook's projection", async () => {
     await post({ chargeId: "chg-1" });
-    const saved = upserted[0]?.row_data as Record<string, unknown>;
-    expect(saved.refundedCents).toBe(90_000);
-    expect(saved.refundAttempts).toBe(1);
+    expect(upserted).toHaveLength(0);
+    expect(JSON.stringify(attemptUpdates)).not.toContain("refundedCents");
   });
 
   /**
@@ -170,16 +246,23 @@ describe("how the money moves", () => {
 
     const res = await post({ chargeId: "chg-1" });
 
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ok: true, refundId: "re_central", amountCents: 90_000 });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ status: "pending", refundId: "re_central", amountCents: 90_000 });
     expect(refundsCreate).not.toHaveBeenCalled();
     expect(runReservedRefund).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({
       ownerUserId: "mgr-1",
       holdId: "6a65b330-d052-4970-86b1-ce3c98d44bd1",
       principalCents: 90_000,
+      attemptKey: `household-refund:${ATTEMPT}`,
       components: [{ sourceId: "chg-1", principalCents: 90_000 }],
     }));
-    expect((upserted[0]?.row_data as Record<string, unknown>).refundedCents).toBe(90_000);
+    // The central rail drops the caller's metadata, so the platform key is stamped on the
+    // household attempt first — it is the webhook's only exact way back.
+    expect(rpcCalls.map((call) => call.name)).toEqual([
+      "reserve_household_charge_refund", "stamp_household_charge_refund_platform_key",
+    ]);
+    expect(rpcCalls[1]?.args).toMatchObject({ p_attempt: ATTEMPT, p_key: `household-refund:${ATTEMPT}` });
+    expect(upserted).toHaveLength(0);
   });
 
   it("records no refunded amount when the reserved central refund fails", async () => {
@@ -197,7 +280,8 @@ describe("how the money moves", () => {
 
     const res = await post({ chargeId: "chg-1" });
 
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ status: "unknown" });
     expect(upserted).toHaveLength(0);
   });
 
@@ -219,10 +303,12 @@ describe("how the money moves", () => {
 
     const res = await post({ chargeId: "chg-1" });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     expect(runReservedRefund).not.toHaveBeenCalled();
     expect(refundsCreate).toHaveBeenCalledWith(
       expect.objectContaining({ reverse_transfer: true }), expect.anything());
+    // A destination refund carries the household attempt in its OWN metadata.
+    expect(refundsCreate.mock.calls[0]![0].metadata).toMatchObject({ household_refund_attempt: ATTEMPT });
   });
 
   /**
@@ -249,6 +335,8 @@ describe("how the money moves", () => {
     expect(refundsCreate).not.toHaveBeenCalled();
     expect(runReservedRefund).not.toHaveBeenCalled();
     expect(upserted).toHaveLength(0);
+    // The rail refuses before anything is reserved, so no budget is held either.
+    expect(rpcCalls).toHaveLength(0);
   });
 
   it("writes no ledger entry, leaving that to the refund webhook", async () => {
@@ -292,10 +380,13 @@ describe("what it refuses to send", () => {
     expect(refundsCreate).not.toHaveBeenCalled();
   });
 
-  it("does not leak an internal error to the client", async () => {
+  it("does not leak an internal error to the client, and leaves the attempt uncertain", async () => {
     refundsCreate.mockRejectedValue(new Error("stripe: sk_live_abc123 rejected"));
     const res = await post({ chargeId: "chg-1" });
-    expect(res.status).toBe(500);
-    expect(JSON.stringify(await res.json())).not.toContain("sk_live");
+    expect(res.status).toBe(202);
+    const body = JSON.stringify(await res.json());
+    expect(body).not.toContain("sk_live");
+    expect(body).toContain("unknown");
+    expect(attemptUpdates).toEqual([expect.objectContaining({ status: "unknown" })]);
   });
 });

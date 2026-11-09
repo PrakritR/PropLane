@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { mockStripeAllRoutes } from "../helpers/auth";
 import { requestManagerEmailProof, finishManagerEmailProof } from "../helpers/email-onboarding-e2e";
+import { clearManagerPhoneGate, type SyntheticPhoneVerification } from "../helpers/synthetic-phone-verification";
 import {
   completeManagerSignupOnboarding,
   pickListingSelect,
@@ -55,11 +56,13 @@ async function createFreshManager(page: Page, stamp: number) {
 
   await page.goto("/partner/pricing");
   await shot(page, "01-pricing");
-  // The exact Pro CTA. A broad name match took the FIRST matching control, which is the Free
-  // card's "Start free", and every tier assertion downstream then read a free-tier signup.
+  // The exact Pro CTA on `/partner/pricing`, which is `ManagerStartPage`: a broad name match
+  // took the FIRST matching control, which is the Free card, and every tier assertion
+  // downstream then read a free-tier signup. `pricing-plan-*-cta` belongs to the marketing
+  // pricing cards and is not on this page.
   await Promise.all([
     page.waitForURL(/\/auth\/create-account\?.*\btier=pro\b/, { timeout: 30_000 }),
-    page.locator('[data-attr="pricing-plan-pro-cta"]').click(),
+    page.locator('[data-attr="pricing-choose-pro"]').click(),
   ]);
 
   const verificationHref = await requestManagerEmailProof(page, email, undefined, "pro");
@@ -67,14 +70,18 @@ async function createFreshManager(page: Page, stamp: number) {
   await finishManagerEmailProof(page, verificationHref, email, fullName, phone, undefined, "pro");
   await shot(page, "02b-account-ready");
   await page.getByRole("button", { name: "Go to portal" }).click();
-  await page.waitForURL(/\/auth\/(get-started|manager\/choose-plan|connect-google-services)|\/portal/, { timeout: 90_000 });
+  await page.waitForURL(/\/auth\/(verify-phone|get-started|manager\/choose-plan|connect-google-services)|\/portal/, { timeout: 90_000 });
+  // The mandatory phone gate stands between the proven mailbox and the portal. Cleared as
+  // FIXTURE SETUP for this one synthetic account and restored afterwards; no OTP is exercised,
+  // and nothing here claims phone verification was tested.
+  const phoneFixture = await clearManagerPhoneGate(page, { email, phone });
   await completeManagerSignupOnboarding(page);
 
   await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
   await expect(page.locator('[data-attr="manager-properties-add-top"], [data-attr="manager-properties-create"]')).toBeVisible({ timeout: 60_000 });
   await shot(page, "03-manager-portal");
 
-  return { email, fullName, phone };
+  return { email, fullName, phone, phoneFixture };
 }
 
 async function publishFirstListing(page: Page, stamp: number): Promise<string> {
@@ -172,31 +179,41 @@ test.describe("Manager signup → listing → resident apply", () => {
     managerPage.setDefaultTimeout(30_000);
     await mockStripeAllRoutes(managerPage);
 
-    const manager = await createFreshManager(managerPage, stamp);
-    await setManagerApplicationFeeFree(db, await resolveManagerUserId(db, manager.email));
-    const propertyId = await publishFirstListing(managerPage, stamp);
-    fs.writeFileSync(
-      path.join(EVIDENCE_DIR, "run.json"),
-      JSON.stringify({ ...manager, propertyId, guest, createdAt: new Date().toISOString() }, null, 2),
-      { mode: 0o600 },
-    );
-    fs.chmodSync(path.join(EVIDENCE_DIR, "run.json"), 0o600);
+    let phoneFixture: SyntheticPhoneVerification | null = null;
+    let guestContext: Awaited<ReturnType<typeof browser.newContext>> | null = null;
+    try {
+      const manager = await createFreshManager(managerPage, stamp);
+      phoneFixture = manager.phoneFixture;
+      await setManagerApplicationFeeFree(db, await resolveManagerUserId(db, manager.email));
+      const propertyId = await publishFirstListing(managerPage, stamp);
+      fs.writeFileSync(
+        path.join(EVIDENCE_DIR, "run.json"),
+        JSON.stringify({ email: manager.email, fullName: manager.fullName, phone: manager.phone,
+          propertyId, guest, createdAt: new Date().toISOString() }, null, 2),
+        { mode: 0o600 },
+      );
+      fs.chmodSync(path.join(EVIDENCE_DIR, "run.json"), 0o600);
 
-    const guestContext = await browser.newContext({ viewport: DESKTOP });
-    const guestPage = await guestContext.newPage();
-    guestPage.setDefaultTimeout(30_000);
-    await mockStripeAllRoutes(guestPage);
-    await mockFreeApplicationFee(guestPage);
-    await walkGuestRentalApplication(guestPage, propertyId, guest);
-    await shot(guestPage, "07-application-submitted");
+      guestContext = await browser.newContext({ viewport: DESKTOP });
+      const guestPage = await guestContext.newPage();
+      guestPage.setDefaultTimeout(30_000);
+      await mockStripeAllRoutes(guestPage);
+      await mockFreeApplicationFee(guestPage);
+      await walkGuestRentalApplication(guestPage, propertyId, guest);
+      await shot(guestPage, "07-application-submitted");
 
-    await managerPage.goto("/portal/properties", { waitUntil: "domcontentloaded" });
-    await managerPage.goto("/portal/applications");
-    await expect(managerPage.getByRole("heading").first()).toBeVisible({ timeout: 30_000 });
-    await expect(managerPage.getByText(guest.name).first()).toBeVisible({ timeout: 60_000 });
-    await shot(managerPage, "08-manager-sees-application");
-
-    await managerContext.close();
-    await guestContext.close();
+      await managerPage.goto("/portal/properties", { waitUntil: "domcontentloaded" });
+      await managerPage.goto("/portal/applications");
+      await expect(managerPage.getByRole("heading").first()).toBeVisible({ timeout: 30_000 });
+      await expect(managerPage.getByText(guest.name).first()).toBeVisible({ timeout: 60_000 });
+      await shot(managerPage, "08-manager-sees-application");
+    } finally {
+      // Always, including on failure: the synthetic phone stamp goes back, and a conflict is
+      // reported rather than left behind.
+      const restore = phoneFixture?.restore();
+      await managerContext.close();
+      await guestContext?.close();
+      await restore;
+    }
   });
 });

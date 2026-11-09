@@ -20,7 +20,10 @@
  * browser — which is why a resident's own browser never runs this.
  */
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
+import { portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { selectedWorkspaceId } from "@/lib/workspaces/selection";
 import {
   mirrorApplicationHouseholdChargesAwait,
   recordApprovedApplicationChargesScoped,
@@ -38,6 +41,47 @@ import { normalizeApplicationAxisId, readManagerApplicationRows } from "@/lib/ma
 export type ExecutedLeaseChargesResult =
   | { ok: true; created: boolean; applications: number }
   | { ok: false; reason: string };
+
+/**
+ * Who this browser is acting as, right now: the workspace, the signed-in viewer and the admin
+ * oversight target. Every authoritative read, every stage and every acknowledged write in one
+ * batch has to belong to the SAME one — a workspace switch between two members of a joint lease
+ * would otherwise let the second member stage into a scope the first member's read never saw.
+ * `recordApprovedApplicationChargesScoped` guards changes after ITS stage was created; this
+ * guards the batch around them.
+ */
+function billingScopeToken(): string {
+  return JSON.stringify([
+    selectedWorkspaceId(),
+    portalSessionViewerId(),
+    adminOversightUrl("/api/portal-household-charges"),
+  ]);
+}
+
+/**
+ * The billing-relevant revision of one application: everything the generator reads to decide
+ * WHAT to bill. A change here is a new basis, not a retry of the old one — which is why the
+ * retry budget is keyed on it rather than on the application id or a charge amount.
+ */
+function applicationBillingRevision(app: DemoApplicantRow): unknown {
+  const application = app.application ?? null;
+  return [
+    app.id,
+    app.email?.trim().toLowerCase() ?? "",
+    app.bucket ?? null,
+    app.assignedPropertyId?.trim() || app.propertyId?.trim() || application?.propertyId?.trim() || "",
+    app.assignedRoomChoice ?? null,
+    app.signedMonthlyRent ?? null,
+    app.manuallyAdded ?? false,
+    app.migrationBillingHold ?? false,
+    application?.rentalType ?? null,
+    application?.leaseStart ?? null,
+    application?.leaseEnd ?? null,
+    application?.managerRentOverride ?? null,
+    application?.managerUtilitiesOverride ?? null,
+    application?.roomChoice1 ?? null,
+  ];
+}
 
 /** The application rows a fully signed lease bills: its own, plus every member of a joint lease. */
 export function applicationsBilledByLease(lease: LeasePipelineRow, apps: readonly DemoApplicantRow[]): DemoApplicantRow[] {
@@ -105,20 +149,24 @@ export async function createAtSigningChargesForSentLease(
   const apps = applicationsBilledByLease(lease, readManagerApplicationRows());
   if (apps.length === 0) return { ok: false, reason: "No application is on file for this lease." };
 
-  // ONE authoritative read for the whole joint batch. Each member is staged from its own
-  // disjoint slice of it (its application id and its own resident email), so re-reading per
-  // member bought nothing and cost a full charges GET per person on the lease.
-  const snapshot = await readAuthoritativeBillingSnapshot().catch(() => null);
-  if (!snapshot) return { ok: false, reason: "Lease sent, but charges could not be read. Review and retry." };
-
+  // One AUTHORITATIVE read per member, taken after the previous member's write was
+  // acknowledged. Members of a joint lease are not provably disjoint — the resolver dedupes
+  // application ids, not emails, and a scoped recurring profile is selected by owner + email +
+  // property — so two explicit members can share a profile or a legacy charge slice. Reusing one
+  // pre-loop snapshot would stage the second member from state that predates the first member's
+  // acknowledged rows and write them back out.
+  const batchScope = billingScopeToken();
   let changed = false;
   for (const app of apps) {
+    if (billingScopeToken() !== batchScope) return { ok: false, reason: "The workspace changed while charges were being prepared. Review and retry." };
+    const snapshot = await readAuthoritativeBillingSnapshot().catch(() => null);
+    if (!snapshot) return { ok: false, reason: "Lease sent, but charges could not be read. Review and retry." };
+    if (billingScopeToken() !== batchScope) return { ok: false, reason: "The workspace changed while charges were being prepared. Review and retry." };
     const generated = recordApprovedApplicationChargesScoped(app, undefined, false, { leaseExecuted: false, atSigningOnly: true }, snapshot);
     if (!generated.ok || !generated.stage) return { ok: false, reason: "Lease sent, but charges could not be prepared. Review and retry." };
     changed ||= generated.changed;
-    // Nothing to send when the generator wrote nothing: the staged rows ARE the authoritative
-    // ones it staged from, so committing is a server-to-local reconcile, not a money write.
-    if (generated.changed && !isDemoModeActive() && !(await mirrorApplicationHouseholdChargesAwait(app, undefined, generated.stage).catch(() => false))) return { ok: false, reason: "Lease sent, but charges could not be confirmed. Review and retry." };
+    if (!isDemoModeActive() && !(await mirrorApplicationHouseholdChargesAwait(app, undefined, generated.stage).catch(() => false))) return { ok: false, reason: "Lease sent, but charges could not be confirmed. Review and retry." };
+    if (billingScopeToken() !== batchScope) return { ok: false, reason: "The workspace changed while charges were being saved. Review and retry." };
     if (!generated.stage.commit()) return { ok: false, reason: "Lease sent, but charges changed. Review and retry." };
   }
   return { ok: true, created: changed, applications: apps.length };
@@ -139,9 +187,13 @@ export async function createChargesForExecutedLease(
   const apps = applicationsBilledByLease(lease, readManagerApplicationRows());
   if (apps.length === 0) return { ok: false, reason: "No application is on file for this lease." };
 
+  // One AUTHORITATIVE read per member, taken after the previous member's write was
+  // acknowledged — joint members can share a recurring-profile or legacy-charge slice, so a
+  // reused snapshot would restore state from before the earlier member's rows landed.
+  const batchScope = billingScopeToken();
   let changed = false;
-  const confirmedRows: DemoApplicantRow[] = [];
   for (const app of apps) {
+    if (billingScopeToken() !== batchScope) return { ok: false, reason: "The workspace changed while charges were being prepared. Review and retry." };
     // Signature freezes the money terms before the first bill is posted, so the listing's
     // price from here on is someone else's business.
     const frozen = freezeSignedLeaseTerms(app, { managerUserId, lease });
@@ -151,21 +203,14 @@ export async function createChargesForExecutedLease(
       if (!result.ok) return { ok: false, reason: "Lease signed, but its payment terms could not be saved. Review and retry." };
       confirmed = result.rows[0]!;
     }
-    confirmedRows.push(confirmed);
-  }
-  // ONE authoritative read for the whole joint batch, taken after every member's terms are
-  // frozen. Each member stages from its own disjoint slice of it.
-  const snapshot = await readAuthoritativeBillingSnapshot().catch(() => null);
-  if (!snapshot) return { ok: false, reason: "Lease signed, but charges could not be read. Review and retry." };
-
-  for (const [index, confirmed] of confirmedRows.entries()) {
-    const app = apps[index]!;
+    const snapshot = await readAuthoritativeBillingSnapshot().catch(() => null);
+    if (!snapshot) return { ok: false, reason: "Lease signed, but charges could not be read. Review and retry." };
+    if (billingScopeToken() !== batchScope) return { ok: false, reason: "The workspace changed while charges were being prepared. Review and retry." };
     const generated = recordApprovedApplicationChargesScoped(confirmed, app, false, { leaseExecuted: true, ...(options?.recurringProfileOnly ? { recurringProfileOnly: true } : {}) }, snapshot);
     if (!generated.ok || !generated.stage) return { ok: false, reason: "Lease signed, but charges could not be prepared. Review and retry." };
     changed ||= generated.changed;
-    // Nothing to send when the generator wrote nothing: the staged rows ARE the authoritative
-    // ones it staged from, so committing is a server-to-local reconcile, not a money write.
-    if (generated.changed && !isDemoModeActive() && !(await mirrorApplicationHouseholdChargesAwait(confirmed, app, generated.stage).catch(() => false))) return { ok: false, reason: "Lease signed, but charges could not be confirmed. Review and retry." };
+    if (!isDemoModeActive() && !(await mirrorApplicationHouseholdChargesAwait(confirmed, app, generated.stage).catch(() => false))) return { ok: false, reason: "Lease signed, but charges could not be confirmed. Review and retry." };
+    if (billingScopeToken() !== batchScope) return { ok: false, reason: "The workspace changed while charges were being saved. Review and retry." };
     if (!generated.stage.commit()) return { ok: false, reason: "Lease signed, but charges changed. Review and retry." };
   }
   return { ok: true, created: changed, applications: apps.length };
@@ -173,28 +218,59 @@ export async function createChargesForExecutedLease(
 
 /** Leases signed this long ago are still looked at; older ones belong to the Payments reconciler. */
 const WATCH_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-const handled = new Set<string>();
+
 /**
- * A pass can find the listing catalog not hydrated yet, so a lease gets a few tries — not one
- * per lease-pipeline event forever. Every attempt costs an authoritative charges GET and a
- * write, so an unbounded retry is a per-page-load egress bill on a manager with several leases
- * signed in the window. The cap stops the RETRY only: nothing is marked billed that was not,
- * and reopening the portal starts a fresh budget.
+ * TWO sets, and the difference between them is the whole point.
+ *
+ * `acknowledged` holds only what the server confirmed: a batch whose every member's charges were
+ * written AND acknowledged. Nothing else may enter it. A failure that merely ran out of tries is
+ * not a completed write, and recording it as one would leave a signed lease unbilled with no
+ * trace.
+ *
+ * `spentAttempts` is the backoff. A pass can find the listing catalog not hydrated yet, so a
+ * batch gets a few tries — not one per lease-pipeline event forever, because each attempt costs
+ * an authoritative charges GET and a write (AGENTS.md § Performance & egress).
+ *
+ * Both are keyed on the BASIS, not on the lease id: the scope this browser is acting in, the
+ * lease's own generation, and every billed application's billing revision. So a workspace or
+ * viewer switch inherits neither success nor exhaustion, and an edit to the lease or the
+ * application earns a fresh budget rather than being refused by a stale one. Module globals
+ * survive SPA navigation, which is why an explicit retry has
+ * {@link clearExecutedLeaseChargeBackoff}.
  */
-const attempts = new Map<string, number>();
+const acknowledged = new Set<string>();
+const spentAttempts = new Map<string, number>();
 const MAX_ATTEMPTS = 4;
 
 /** Test seam: drops the per-session dedupe so a watcher pass starts from nothing. */
 export function resetExecutedLeaseChargeWatchState(): void {
-  handled.clear();
-  attempts.clear();
+  acknowledged.clear();
+  spentAttempts.clear();
 }
 
-/** True once this key has spent its attempt budget. Counts the attempt it is asked about. */
-function attemptBudgetSpent(key: string): boolean {
-  const spent = (attempts.get(key) ?? 0) + 1;
-  attempts.set(key, spent);
-  return spent >= MAX_ATTEMPTS;
+/**
+ * An explicit "try again" from a person. It drops the BACKOFF only — an acknowledged write is
+ * still acknowledged, so a retry never bills the same lease twice.
+ */
+export function clearExecutedLeaseChargeBackoff(): void {
+  spentAttempts.clear();
+}
+
+function billingBatchKey(
+  stage: "sent" | "executed",
+  lease: LeasePipelineRow,
+  apps: readonly DemoApplicantRow[],
+): string {
+  return JSON.stringify([
+    stage,
+    billingScopeToken(),
+    lease.id,
+    lease.status,
+    lease.versionNumber ?? null,
+    lease.updatedAtIso ?? null,
+    lease.fullySignedAt ?? null,
+    apps.map((app) => applicationBillingRevision(app)),
+  ]);
 }
 
 /**
@@ -215,25 +291,27 @@ export function watchExecutedLeaseCharges(managerUserId: string | null): () => v
         // A lease sent by a path that did not create its at-signing lines (another session, an agent) gets
         // them here, so the resident is never offered a signature that skips the payment.
         if (lease.status === "Resident Signature Pending" && !lease.residentSignature && !lease.pendingRenewal) {
-          const sentKey = `sent:${lease.id}`;
-          if (!handled.has(sentKey)) {
-            const sentApps = applicationsBilledByLease(lease, readManagerApplicationRows());
-            if (sentApps.length > 0) {
-              const spent = attemptBudgetSpent(sentKey);
+          const sentApps = applicationsBilledByLease(lease, readManagerApplicationRows());
+          if (sentApps.length > 0) {
+            const key = billingBatchKey("sent", lease, sentApps);
+            if (!acknowledged.has(key) && (spentAttempts.get(key) ?? 0) < MAX_ATTEMPTS) {
+              spentAttempts.set(key, (spentAttempts.get(key) ?? 0) + 1);
               const sent = await createAtSigningChargesForSentLease(lease, managerUserId).catch(() => null);
-              if (sent?.ok || spent) handled.add(sentKey);
+              if (sent?.ok) acknowledged.add(key);
             }
           }
           continue;
         }
-        if (lease.status !== "Fully Signed" || lease.pendingRenewal || handled.has(lease.id)) continue;
+        if (lease.status !== "Fully Signed" || lease.pendingRenewal) continue;
         const signedAt = Date.parse(lease.fullySignedAt ?? "");
         if (!Number.isFinite(signedAt) || now - signedAt > WATCH_WINDOW_MS) continue;
         const apps = applicationsBilledByLease(lease, readManagerApplicationRows());
         if (apps.length === 0) continue;
-        const spent = attemptBudgetSpent(lease.id);
+        const key = billingBatchKey("executed", lease, apps);
+        if (acknowledged.has(key) || (spentAttempts.get(key) ?? 0) >= MAX_ATTEMPTS) continue;
+        spentAttempts.set(key, (spentAttempts.get(key) ?? 0) + 1);
         const result = await createChargesForExecutedLease(lease, managerUserId).catch(() => null);
-        if (result?.ok || spent) handled.add(lease.id);
+        if (result?.ok) acknowledged.add(key);
       }
     } finally {
       running = false;

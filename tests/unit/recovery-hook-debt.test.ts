@@ -55,7 +55,7 @@ describe("recovery hook debt snapshot", () => {
     const projected = process.env.RECOVERY_HOOK_CATALOG ? observed : {
       ...observed,
       resident_move_in_forms: "both_signature_checked",
-      ...Object.fromEntries(["resident_identity_subjects", "resident_identity_inquiries", "resident_identity_webhook_events", "resident_identity_manual_reviews", "resident_evidence_policies", "security_deposit_return_attempts"].map((name) => [name, "both_signature_checked"])),
+      ...Object.fromEntries(["resident_identity_subjects", "resident_identity_inquiries", "resident_identity_webhook_events", "resident_identity_manual_reviews", "resident_evidence_policies", "security_deposit_return_attempts", "household_charge_refund_attempts"].map((name) => [name, "both_signature_checked"])),
     };
     expect(differences(projected, KNOWN_RECOVERY_HOOK_GAPS)).toEqual({ newGaps: [], fixedDebt: [], absent: process.env.RECOVERY_HOOK_CATALOG ? sourceDigest.missing_dev_catalog : [] });
     for (const entry of Object.values(KNOWN_RECOVERY_HOOK_GAPS)) expect(entry.reason.trim().length).toBeGreaterThan(20);

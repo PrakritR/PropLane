@@ -9,6 +9,34 @@ import { resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.
 
 export const runtime = "nodejs";
 
+/** One submission's own id, retained by the client across its retries of that submission. */
+const OPERATION_ID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** The reservation states the RPC can return. Anything else is not a reservation. */
+const RESERVATION_STATES = ["reserved", "pending", "unknown", "succeeded", "failed", "reconciled"];
+
+/** True only where the provider return is actually deployable for this actor. */
+function depositReturnProviderEnabled(): boolean {
+  return process.env.DEPOSIT_RETURN_PROVIDER_ENABLED === "true";
+}
+
+/**
+ * Whether Return deposit can do anything at all right now, so the manager is not asked for an
+ * amount and every deduction line before being refused.
+ *
+ * The answer is derived HERE, from the same deployment gate and the same test-identity
+ * classification the POST applies — the client is told what it may offer, it never decides. It
+ * names no charge and reads no row, so it is not an oracle for which deposits exist.
+ */
+export async function GET() {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  const db = createSupabaseServiceRoleClient();
+  const classification = await resolveTestWorkspaceClassification(user.id, db).catch(() => null);
+  const enabled = classification?.kind === "normal" && depositReturnProviderEnabled();
+  return NextResponse.json({ enabled }, { headers: { "Cache-Control": "no-store" } });
+}
+
 /** Refuse provider returns until reservation and trust settlement are atomic. */
 export async function POST(req: Request) {
   try {
@@ -61,7 +89,7 @@ export async function POST(req: Request) {
 
     // Deployment remains opt-in until the SQL reservation and settlement have
     // been exercised against the bounded dev/test database.
-    if (process.env.DEPOSIT_RETURN_PROVIDER_ENABLED !== "true") {
+    if (!depositReturnProviderEnabled()) {
       return NextResponse.json({ error: "Deposit returns are unavailable while accounting is being reconciled.", status: "unavailable" }, { status: 503 });
     }
     const charge = (row.row_data ?? {}) as Record<string, unknown>;
@@ -85,11 +113,34 @@ export async function POST(req: Request) {
         deposit.property_id !== row.property_id || payment.property_id !== row.property_id) {
       return NextResponse.json({ error: "Deposit accounting requires review." }, { status: 409 });
     }
+    // The operation identity, not the amount. A key derived from charge + amount + deductions
+    // would make two LEGITIMATE separate returns of the same figure collide; a fresh key on
+    // every call makes the reservation's own replay branch unreachable, so a client timeout on a
+    // submission that actually reserved comes back as a one-active-attempt refusal. So: one
+    // explicit id per SUBMISSION, retained by the client across its own retries, and the RPC
+    // compares the entire immutable basis before it returns the stored state.
+    const operationId = typeof body.operationId === "string" && OPERATION_ID_SHAPE.test(body.operationId.trim())
+      ? body.operationId.trim()
+      : randomUUID();
     const { data: attempt, error: reserveError } = await db.rpc("reserve_security_deposit_return", {
-      p_owner: user.id, p_deposit: deposit.id, p_charge: chargeId, p_request_key: randomUUID(),
+      p_owner: user.id, p_deposit: deposit.id, p_charge: chargeId, p_request_key: operationId,
       p_expected_held: deposit.amount_held_cents, p_refund: amount, p_withhold: withhold, p_itemization: items,
     });
     if (reserveError || !attempt?.id) return NextResponse.json({ error: "Deposit return requires review before retrying." }, { status: 409 });
+    // A replay of the SAME submission that already reached the provider: report what is stored.
+    // Issuing a second provider call on an unknown or in-flight attempt is how one return
+    // becomes two.
+    const reservedStatus = typeof attempt.status === "string" ? attempt.status : "";
+    if (!RESERVATION_STATES.includes(reservedStatus)) {
+      return NextResponse.json({ error: "Deposit return requires review before retrying." }, { status: 409 });
+    }
+    if (attempt.provider_refund_id || reservedStatus !== "reserved") {
+      return NextResponse.json({
+        status: reservedStatus === "succeeded" || reservedStatus === "reconciled" ? "pending" : reservedStatus,
+        refundId: attempt.provider_refund_id ?? null,
+        ...(reservedStatus === "unknown" ? { error: "Return status requires reconciliation before retrying." } : {}),
+      }, { status: 202 });
+    }
     try {
       const refund = await refundPaidHouseholdCharge(getStripe(), db, {
         chargeId, stripeChargeId: payment.stripe_charge_id, amountCents: amount,

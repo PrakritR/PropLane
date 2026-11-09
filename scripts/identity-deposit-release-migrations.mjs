@@ -5,11 +5,23 @@ import { lstatSync, statSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { backup, connect, credential } from "./sms-durability-release-migrations.mjs";
 import { SMS_RELEASE_TARGETS, sha256 } from "./sms-durability-release-manifest.mjs";
-import { reviewedIdentityDepositMigrations, assertIdentityDepositLedger } from "./identity-deposit-release-manifest.mjs";
+import { reviewedIdentityDepositMigrations, identityDepositLedgerState } from "./identity-deposit-release-manifest.mjs";
 
-const TABLES = ["security_deposit_return_attempts", "security_deposit_unmatched_refunds", "resident_identity_subjects", "resident_identity_inquiries", "resident_identity_webhook_events", "resident_identity_manual_reviews", "resident_evidence_policies"];
+/** Objects the twelfth migration adds. Absent in `absent` and `prefix`, present in `complete`. */
+const NEW_TABLES = ["household_charge_refund_attempts"];
+const NEW_FUNCTIONS = ["reserve_household_charge_refund", "stamp_household_charge_refund_platform_key", "bind_household_charge_refund"];
+const PREFIX_TABLES = ["security_deposit_return_attempts", "security_deposit_unmatched_refunds", "resident_identity_subjects", "resident_identity_inquiries", "resident_identity_webhook_events", "resident_identity_manual_reviews", "resident_evidence_policies"];
+const TABLES = [...PREFIX_TABLES, ...NEW_TABLES];
 const OWNED = TABLES.filter((name) => name !== "security_deposit_unmatched_refunds");
-const NAMES = ["commit_security_deposit_disposition", "commit_security_deposit_disposition_unreserved", "reserve_security_deposit_return", "settle_security_deposit_return", "bind_security_deposit_refund", "reconcile_external_security_deposit_refund", "apply_resident_identity_event", "retry_expired_resident_identity", "prevent_resident_evidence_policy_update"];
+const PREFIX_NAMES = ["commit_security_deposit_disposition", "commit_security_deposit_disposition_unreserved", "reserve_security_deposit_return", "settle_security_deposit_return", "bind_security_deposit_refund", "reconcile_external_security_deposit_refund", "apply_resident_identity_event", "retry_expired_resident_identity", "prevent_resident_evidence_policy_update"];
+const NAMES = [...PREFIX_NAMES, ...NEW_FUNCTIONS];
+/** `false`/`true` are the historical before/after; the third state is staging and dev. */
+function expectedState(expected) {
+  if (expected === false || expected === "absent") return "absent";
+  if (expected === true || expected === "complete") return "complete";
+  if (expected === "prefix") return "prefix";
+  throw new Error("Unexpected existing target schema");
+}
 const HELP = 'help: --target staging|production --confirm-ref <exact-ref> [--phase preflight|rehearsal|apply|postflight] [--baseline <sha256>] [--postflight-hash <sha256>] [--backup-file <private-path>] [--catalog-file <private-path>] [--apply-authorized]';
 export function parseOptions(argv) {
   const out = { phase: "preflight" }, seen = new Set();
@@ -32,8 +44,10 @@ export function parseOptions(argv) {
   return out;
 }
 export async function catalog(client, migrations, applied) {
+  const expected = expectedState(applied);
   const ledger = (await client.query("select version,name,statements from supabase_migrations.schema_migrations where version=any($1::text[]) or name=any($2::text[]) order by version", [migrations.map(m=>m.version), migrations.map(m=>m.name)])).rows;
-  assertIdentityDepositLedger(ledger, migrations, applied);
+  const state = identityDepositLedgerState(ledger, migrations);
+  if (state.kind !== expected) throw new Error(`Migration ledger differs: ${migrations[state.applied]?.version ?? migrations[0].version}`);
   const prerequisites = (await client.query("select to_regclass('public.security_deposit_ledger') is not null deposit, to_regclass('public.manager_property_records') is not null property, to_regprocedure('public.account_recovery_write_guard()') is not null guard, to_regprocedure('public.account_recovery_capture_delete()') is not null capture")).rows[0];
   if (Object.values(prerequisites).some(v=>v !== true)) throw new Error("Prerequisite missing");
   const names = [...TABLES, "security_deposit_ledger"];
@@ -56,9 +70,9 @@ export async function catalog(client, migrations, applied) {
   const indexes = (await client.query(`select tablename table_name,indexname name,indexdef definition from pg_indexes where schemaname='public' and tablename=any($1::text[]) order by 1,2`, [names])).rows;
   const policies = (await client.query(`select tablename table_name,policyname name,permissive,roles::text,cmd,qual,with_check from pg_policies where schemaname='public' and tablename=any($1::text[]) order by 1,2`, [names])).rows;
   const triggers = (await client.query(`select c.relname table_name,t.tgname name,pg_get_triggerdef(t.oid) definition,t.tgenabled enabled,t.tgtype type,t.tgnargs nargs,t.tgattr::text attributes,t.tgqual is null unqualified,t.tgconstraint=0 unconstrained,p.proname function_name,n2.nspname function_schema from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace join pg_proc p on p.oid=t.tgfoid join pg_namespace n2 on n2.oid=p.pronamespace where n.nspname='public' and c.relname=any($1::text[]) and not t.tgisinternal order by 1,2`, [names])).rows;
-  const state = { prerequisites, tables, functions, columns, constraints, indexes, policies, triggers };
-  assertCatalog(state, applied);
-  return { state, fingerprint: sha256(JSON.stringify(state)) };
+  const catalogState = { prerequisites, tables, functions, columns, constraints, indexes, policies, triggers };
+  assertCatalog(catalogState, expected);
+  return { state: catalogState, ledger: state, fingerprint: sha256(JSON.stringify(catalogState)) };
 }
 const SIGNATURES = [
   ["commit_security_deposit_disposition", "uuid, uuid, bigint, bigint, bigint, text, date, jsonb, text, jsonb"],
@@ -70,17 +84,32 @@ const SIGNATURES = [
   ["apply_resident_identity_event", "text, text, uuid, text, timestamp with time zone, text"],
   ["retry_expired_resident_identity", "uuid"], ["prevent_resident_evidence_policy_update", ""],
 ];
+/** Added by the twelfth migration only. */
+const NEW_SIGNATURES = [
+  ["reserve_household_charge_refund", "uuid, text, text, text, text, text, bigint, jsonb"],
+  ["stamp_household_charge_refund_platform_key", "uuid, text"],
+  ["bind_household_charge_refund", "uuid, text, text, bigint, text, text, uuid"],
+];
 export function assertCatalog(state, applied) {
+  const expected = expectedState(applied);
   if (Object.values(state.prerequisites).some(v => v !== true)) throw new Error("Prerequisite missing");
   const targetTables = state.tables.filter(t=>TABLES.includes(t.name));
   const targets = state.functions.filter(f=>NAMES.includes(f.name));
-  if (!applied) {
+  if (expected === "absent") {
     if (targetTables.length || targets.length !== 1 || targets[0].name !== "commit_security_deposit_disposition" || targets[0].arguments !== SIGNATURES[0][1]) throw new Error("Unexpected existing target schema");
     return;
   }
-  if (targetTables.length !== TABLES.length || targetTables.some(t => !t.rls || ["select","insert","update","delete","truncate","references","trigger"].some(p=>t[`anon_${p}`] || !t[`service_${p}`]) || ["insert","update","delete","truncate","references","trigger"].some(p=>t[`auth_${p}`]) || t.auth_select !== t.name.startsWith("resident_"))) throw new Error("Table privilege or RLS mismatch");
-  if (targets.length !== SIGNATURES.length) throw new Error("Function signature count differs");
-  for (const [name,args] of SIGNATURES) {
+  // In `prefix` the twelfth migration has NOT run, so its objects must be absent — presence of
+  // a table is never evidence a migration was applied, and its absence here is the check that
+  // the twelfth is genuinely still pending.
+  const expectedTables = expected === "prefix" ? PREFIX_TABLES : TABLES;
+  const expectedSignatures = expected === "prefix" ? SIGNATURES : [...SIGNATURES, ...NEW_SIGNATURES];
+  if (expected === "prefix" && (state.tables.some(t=>NEW_TABLES.includes(t.name)) || state.functions.some(f=>NEW_FUNCTIONS.includes(f.name)))) {
+    throw new Error("Unexpected existing target schema");
+  }
+  if (targetTables.length !== expectedTables.length || targetTables.some(t => !t.rls || ["select","insert","update","delete","truncate","references","trigger"].some(p=>t[`anon_${p}`] || !t[`service_${p}`]) || ["insert","update","delete","truncate","references","trigger"].some(p=>t[`auth_${p}`]) || t.auth_select !== t.name.startsWith("resident_"))) throw new Error("Table privilege or RLS mismatch");
+  if (targets.length !== expectedSignatures.length) throw new Error("Function signature count differs");
+  for (const [name,args] of expectedSignatures) {
     const f=targets.find(f=>f.name===name && f.arguments===args);
     if (!f) throw new Error("Expected function signature missing");
     if (name !== "prevent_resident_evidence_policy_update" && (!f.security_definer || f.anon_execute || f.auth_execute || !f.config.includes("search_path=public") || (name !== "commit_security_deposit_disposition_unreserved" && !(name === "bind_security_deposit_refund" && args.endsWith("bigint, text")) && !f.service_execute))) throw new Error("Function security mismatch");
@@ -97,7 +126,8 @@ export function assertCatalog(state, applied) {
   const evidenceQual = "(EXISTS ( SELECT 1 FROM manager_property_records p WHERE ((p.id = resident_evidence_policies.property_id) AND (p.manager_user_id = auth.uid()))))";
   const normalizeQual = value => (value ?? "").replace(/\s+/g, "").toLowerCase();
   if (targetPolicies.length !== 5 || policyNames.some(([table,name])=>!targetPolicies.some(p=>p.table_name===table && p.name===name && p.cmd==="SELECT" && p.roles==="{authenticated}" && p.permissive==="PERMISSIVE" && p.with_check===null && normalizeQual(p.qual) === normalizeQual(table === "resident_evidence_policies" ? evidenceQual : "(resident_user_id = auth.uid())")))) throw new Error("Owner read policy mismatch");
-  for (const table of OWNED) for (const [name,type] of [["account_recovery_write_guard",31],["account_recovery_capture_delete",9]]) {
+  const ownedNow = expected === "prefix" ? OWNED.filter((name) => !NEW_TABLES.includes(name)) : OWNED;
+  for (const table of ownedNow) for (const [name,type] of [["account_recovery_write_guard",31],["account_recovery_capture_delete",9]]) {
     const t=state.triggers.find(t=>t.table_name===table && t.name===name);
     if (!t || t.type!==type || t.enabled!=="O" || t.nargs!==0 || t.attributes!=="" || !t.unqualified || !t.unconstrained || t.function_name!==name || t.function_schema!=="public") throw new Error("Recovery trigger mismatch");
   }
@@ -110,6 +140,12 @@ export async function readOnly(client, migrations, applied) {
   try { await client.query("set local role postgres"); return await catalog(client, migrations, applied); }
   finally { await client.query("rollback").catch(()=>undefined); }
 }
+/**
+ * Apply only the PENDING migrations, under the lock, after re-reading the baseline and the
+ * applied prefix inside the transaction. `options.before` is the reviewed before-state
+ * (`absent` for production, `prefix` for staging and dev) and `options.pending` is the exact
+ * suffix that is allowed to run — the committed eleven are never re-executed.
+ */
 export async function transaction(client, migrations, options, inspect = catalog) {
   await client.query("begin"); let committing = false;
   try {
@@ -117,9 +153,12 @@ export async function transaction(client, migrations, options, inspect = catalog
     await client.query("set local lock_timeout='5s'");
     await client.query("set local statement_timeout='60s'");
     if (!(await client.query("select pg_try_advisory_xact_lock(20261106120000::bigint) acquired")).rows[0]?.acquired) throw new Error("Migration lock unavailable");
-    if ((await inspect(client, migrations, false)).fingerprint !== options.baseline) throw new Error("Catalog differs from reviewed baseline");
-    for (const m of migrations) { await client.query(m.sql); await client.query("insert into supabase_migrations.schema_migrations(version,name,statements) values($1,$2,$3)", [m.version,m.name,[m.sql]]); }
-    const post = await inspect(client, migrations, true);
+    const before = options.before ?? "absent";
+    const pending = options.pending ?? migrations;
+    if (!pending.length) throw new Error("Nothing pending for this target");
+    if ((await inspect(client, migrations, before)).fingerprint !== options.baseline) throw new Error("Catalog differs from reviewed baseline");
+    for (const m of pending) { await client.query(m.sql); await client.query("insert into supabase_migrations.schema_migrations(version,name,statements) values($1,$2,$3)", [m.version,m.name,[m.sql]]); }
+    const post = await inspect(client, migrations, "complete");
     if (options.phase === "apply" && post.fingerprint !== options.postflightHash) throw new Error("Postflight differs from reviewed rehearsal");
     if (options.phase === "apply") { committing = true; await client.query("commit"); } else await client.query("rollback");
     return post;
@@ -135,8 +174,15 @@ export const COMMITTED_UNVERIFIED = "Committed but unverified; refresh the crede
  * the backup and the migration transaction, so by the time the commit lands the CLI login can
  * already have expired. Re-resolving the SAME confirmed target and minting a fresh credential
  * keeps the TLS root pin and the identity/role check (`credential` + `connect` own both) while
- * giving the verification a live session. A transport failure here is reported as
- * committed-but-unverified, never as a failed apply: the transaction is never retried.
+ * giving the verification a live session.
+ *
+ * EVERY transport failure on this side of the commit — minting, connecting, the read-only
+ * catalog session itself, or closing it — is reported as committed-but-unverified, never as a
+ * failed apply. The session can expire mid-inspect just as easily as before it, and the whole
+ * point is that the operator is never told "operation failed" about a COMMIT that landed. The
+ * two outcomes that are NOT transport keep their own words: a fingerprint difference and
+ * `assertCatalog`'s schema-divergence refusals are real findings about the committed schema.
+ * The transaction is never retried either way.
  */
 export async function verifyCommittedPostflight(target, migrations, fingerprint, deps = {}) {
   const mint = deps.credential ?? credential;
@@ -146,10 +192,31 @@ export async function verifyCommittedPostflight(target, migrations, fingerprint,
   try { client = await open(mint(SMS_RELEASE_TARGETS[target])); }
   catch { throw new Error(COMMITTED_UNVERIFIED); }
   try {
-    const post = await inspect(client, migrations, true);
+    let post;
+    try { post = await inspect(client, migrations, "complete"); }
+    catch (error) { throw committedVerificationError(error); }
     if (post.fingerprint !== fingerprint) throw new Error("Committed postflight differs; inspect before retry");
     return post.fingerprint;
-  } finally { await client.end?.().catch(() => undefined); }
+  } finally {
+    try { await client.end?.(); }
+    catch { /* the catalog answer is already in hand; a failed close proves nothing about it */ }
+  }
+}
+
+/**
+ * A catalog refusal is a finding about the committed schema and keeps its own message; anything
+ * else that came out of the verification session is transport, and the operator must be told the
+ * COMMIT landed and was not verified rather than that the operation failed.
+ */
+function committedVerificationError(error) {
+  const message = error instanceof Error ? error.message : "";
+  return SAFE_ERRORS.has(message) ? error : new Error(COMMITTED_UNVERIFIED);
+}
+
+/** The reviewed before-state of a target, read from its own ledger. Refuses anything else. */
+export async function readLedgerState(client, migrations) {
+  const rows = (await client.query("select version,name,statements from supabase_migrations.schema_migrations where version=any($1::text[]) or name=any($2::text[]) order by version", [migrations.map(m=>m.version), migrations.map(m=>m.name)])).rows;
+  return identityDepositLedgerState(rows, migrations);
 }
 
 export function assertPrivateDirectory(path) {
@@ -161,30 +228,39 @@ async function main() {
   const migrations = reviewedIdentityDepositMigrations(), config = credential(SMS_RELEASE_TARGETS[options.target]);
   let client = await connect(config);
   try {
+    // The target's own ledger decides which reviewed state it is in, and therefore which
+    // migrations may run at all. Nothing is inferred from the presence of a table.
+    const ledger = await readLedgerState(client, migrations);
     if (options.phase === "preflight" || options.phase === "postflight") {
-      const result = await readOnly(client, migrations, options.phase === "postflight");
+      const expected = options.phase === "postflight" ? "complete" : ledger.kind;
+      const result = await readOnly(client, migrations, expected);
       const fingerprint = result.fingerprint;
       if (options.phase === "preflight") {
         const file = resolve(options.catalogFile);
         assertPrivateDirectory(file);
-        writeFileSync(file, JSON.stringify({ target: options.target, ref: options.confirmRef, fingerprint, catalog: result.state }, null, 2), { flag: "wx", mode: 0o600 });
+        writeFileSync(file, JSON.stringify({ target: options.target, ref: options.confirmRef, state: ledger.kind,
+          applied: ledger.applied, pending: ledger.pending.map((m)=>m.version), fingerprint, catalog: result.state }, null, 2), { flag: "wx", mode: 0o600 });
       }
-      console.log(`target: ${options.target}\nphase: ${options.phase}\nfingerprint: ${fingerprint}`); return;
+      console.log(`target: ${options.target}\nphase: ${options.phase}\nstate: ${ledger.kind}\napplied: ${ledger.applied}\npending: ${ledger.pending.map((m)=>m.version).join(",") || "none"}\nfingerprint: ${fingerprint}`); return;
     }
+    if (ledger.kind === "complete") throw new Error("Target is already complete; postflight only");
     if (options.phase === "apply") {
       const file = resolve(options.backupFile);
       assertPrivateDirectory(file);
       backup(config, file);
       if ((statSync(file).mode & 0o777) !== 0o600) throw new Error("Backup permissions mismatch");
     }
-    const post = await transaction(client, migrations, options);
+    const post = await transaction(client, migrations, { ...options, before: ledger.kind, pending: ledger.pending });
     if (options.phase === "rehearsal") {
-      if ((await readOnly(client, migrations, false)).fingerprint !== options.baseline) throw new Error("Rollback verification failed");
+      if ((await readOnly(client, migrations, ledger.kind)).fingerprint !== options.baseline) throw new Error("Rollback verification failed");
       const file = resolve(options.catalogFile); assertPrivateDirectory(file);
-      writeFileSync(file, JSON.stringify({ target: options.target, ref: options.confirmRef, baseline: options.baseline, fingerprint: post.fingerprint, catalog: post.state }, null, 2), { flag: "wx", mode: 0o600 });
-      console.log(`target: ${options.target}\nphase: rehearsal\nrolledBack: true\npostflightHash: ${post.fingerprint}`); return;
+      writeFileSync(file, JSON.stringify({ target: options.target, ref: options.confirmRef, state: ledger.kind,
+        applied: ledger.applied, pending: ledger.pending.map((m)=>m.version), baseline: options.baseline,
+        fingerprint: post.fingerprint, catalog: post.state }, null, 2), { flag: "wx", mode: 0o600 });
+      console.log(`target: ${options.target}\nphase: rehearsal\nstate: ${ledger.kind}\npending: ${ledger.pending.map((m)=>m.version).join(",")}\nrolledBack: true\npostflightHash: ${post.fingerprint}`); return;
     }
-    await client.end(); client = undefined;
+    const committed = client; client = undefined;
+    await committed.end().catch(()=>undefined);
     const verified = await verifyCommittedPostflight(options.target, migrations, post.fingerprint);
     console.log(`target: ${options.target}\nphase: apply\noutcome: committed_and_verified\nfingerprint: ${verified}`);
   } finally { await client?.end().catch(()=>undefined); }
@@ -203,6 +279,7 @@ const SAFE_ERRORS = new Set([
   "Committed postflight differs; inspect before retry", "Credential bootstrap failed", "Credential shape invalid",
   "Credential target mismatch", "Database TLS root changed", "Database identity/role mismatch", "Database backup failed",
   "Database backup archive invalid", COMMITTED_UNVERIFIED,
+  "Nothing pending for this target", "Target is already complete; postflight only",
 ]);
 export function safeErrorMessage(error) {
   const message = error instanceof Error ? error.message : "";

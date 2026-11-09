@@ -35,6 +35,14 @@ export function ResidentIdentitySettings() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Please try again."); }
     finally { setBusy(false); }
   };
+  // Nothing to offer, nothing to show. With the provider flags disabled — the shipping state —
+  // `/api/resident/identity` answers `unavailable` for everyone, so rendering this put a
+  // "Verification: Unavailable / Contact PropLane support" block and a permanently "Unavailable"
+  // background check into EVERY resident's Settings. The sibling `ResidentVerificationLink`
+  // already hides itself on exactly that status. An attestation that is already approved, an
+  // outstanding manual review and a live error are still the resident's own state and stay.
+  const hasVerificationState = state.status !== "loading" && (state.status !== "unavailable" || Boolean(state.manualReview));
+  if (!hasVerificationState && !error) return null;
   return <>
     <PortalSettingsSection title="Verification" id="verification">
       <PortalSettingsGroup>
@@ -53,6 +61,6 @@ export function ResidentIdentitySettings() {
         {error && <PortalSettingsRow label={<span role="alert">{error}</span>} />}
       </PortalSettingsGroup>
     </PortalSettingsSection>
-    <PortalSettingsSection title="Background check"><PortalSettingsGroup><PortalSettingsRow label="Screening"><span className="text-sm">Unavailable</span></PortalSettingsRow></PortalSettingsGroup></PortalSettingsSection>
+    {state.status !== "unavailable" && <PortalSettingsSection title="Background check"><PortalSettingsGroup><PortalSettingsRow label="Screening"><span className="text-sm">Unavailable</span></PortalSettingsRow></PortalSettingsGroup></PortalSettingsSection>}
   </>;
 }

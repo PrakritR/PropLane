@@ -42,6 +42,7 @@ function fixture(allocation = false, mixed = false, reservationOwner = "manager"
         : table === "security_deposit_ledger" && externalDeposit ? { id: "deposit" }
         : table === "platform_hold_refund_attempts"
           ? { hold_id: "hold", owner_user_id: reservationOwner, source_charge_id: "ch_exact",
+            attempt_key: "household-refund:hh-1",
             refund_components: mixed
               ? [{ source_id: "charge-1", principal_cents: 80 },
                 { source_id: "charge-deposit", principal_cents: 20 }]
@@ -70,6 +71,61 @@ describe("signed Stripe refund source evidence", () => {
     sync.mockResolvedValue("ledger-refund");
     classified.mockResolvedValue({ captured: false });
     providerRetrieve.mockImplementation(async () => fixture().refund);
+  });
+
+  /**
+   * A general charge refund's money is projected ONLY here, from the re-read refund, through
+   * `bind_household_charge_refund` — which re-checks the attempt's own immutable basis, so the
+   * metadata only NAMES the row, it never authorizes the binding. Two rails, two ways in: the
+   * destination and managed rails carry `household_refund_attempt` in the refund's own metadata;
+   * the central rail drops caller metadata, so the platform reservation's `attempt_key` is
+   * resolved back instead.
+   */
+  it("binds a destination-rail household refund from the refund's own metadata, on every status", async () => {
+    for (const status of ["pending", "succeeded"]) {
+      vi.clearAllMocks();
+      settle.mockResolvedValue("unmatched");
+      sync.mockResolvedValue("ledger-refund");
+      classified.mockResolvedValue({ captured: false });
+      const f = fixture();
+      const refund = { ...f.refund, status, metadata: { household_refund_attempt: "hh-1" } };
+      providerRetrieve.mockResolvedValue(refund);
+      await handleStripeRefund(f.db as never, refund as never, "ch_exact");
+      expect(f.rpc).toHaveBeenCalledWith("bind_household_charge_refund", {
+        p_attempt: "hh-1", p_refund: "re_exact", p_charge: "ch_exact",
+        p_amount: 100, p_currency: "usd", p_status: status, p_platform_attempt: null,
+      });
+    }
+  });
+
+  it("resolves a central-rail household refund through the platform reservation's own key", async () => {
+    const f = fixture(true);
+    providerRetrieve.mockResolvedValueOnce(f.refund);
+    settle.mockResolvedValueOnce("succeeded");
+    await handleStripeRefund(f.db as never, f.refund as never, "ch_exact");
+    expect(f.rpc).toHaveBeenCalledWith("bind_household_charge_refund", expect.objectContaining({
+      p_attempt: "hh-1", p_platform_attempt: "attempt-1", p_refund: "re_exact", p_amount: 100,
+    }));
+  });
+
+  it("binds nothing when no reservation names this refund", async () => {
+    const f = fixture();
+    const refund = { ...f.refund, metadata: { proplane_charge_id: "charge-1" } };
+    providerRetrieve.mockResolvedValueOnce(refund);
+    await handleStripeRefund(f.db as never, refund as never, "ch_exact");
+    expect(f.rpc).not.toHaveBeenCalledWith("bind_household_charge_refund", expect.anything());
+  });
+
+  it("refuses the whole event when a household binding cannot be recorded", async () => {
+    const f = fixture();
+    const refund = { ...f.refund, metadata: { household_refund_attempt: "hh-1" } };
+    providerRetrieve.mockResolvedValueOnce(refund);
+    f.rpc.mockImplementation(async (name: string) => name === "bind_household_charge_refund"
+      ? { data: null, error: { message: "terminal status changed" } }
+      : { data: true, error: null });
+    await expect(handleStripeRefund(f.db as never, refund as never, "ch_exact"))
+      .rejects.toThrow("Household charge refund binding requires reconciliation.");
+    expect(sync).not.toHaveBeenCalled();
   });
 
   it("binds a deposit attempt but does not settle while the provider is pending", async () => {

@@ -26,7 +26,8 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { wallInstantIso, stayAddOnLabel, formatStayTime, formatAddOnPrice, type StayAddOnKind, type StayAddOnRecord } from "@/lib/bookings/stay-times";
 import { decideChargeRefund } from "@/lib/charge-refund";
 import { resolveChargePaidCents } from "@/lib/charge-paid-cents.server";
-import { HouseholdChargeRefundReviewError, refundPaidHouseholdCharge } from "@/lib/household-charge-refund-rail.server";
+import { runHouseholdChargeRefund } from "@/lib/household-charge-refund-coordinator.server";
+import { HouseholdChargeRefundReviewError } from "@/lib/household-charge-refund-rail.server";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
 import { ROOM_DATE_BLOCK_RECORD_TYPE } from "@/lib/portal-schedule-record-scope";
 import {
@@ -393,16 +394,37 @@ async function refundUnhonoredAddOn(
         stripe = getStripe();
       }
       try {
-        const refund = await refundPaidHouseholdCharge(stripe, db, {
+        // The reservation is durable and acknowledged before the provider call, its own id is
+        // the provider idempotency key, and `refundedCents` is projected by the refund webhook
+        // from re-read terminal evidence — never from this answer. A redelivered webhook resumes
+        // the SAME reservation because the operation key is derived from the charge and amount.
+        const outcome = await runHouseholdChargeRefund(stripe, db, {
+          ownerUserId: String(input.chargeRow.manager_user_id ?? ""),
           chargeId,
           stripeChargeId: decision.stripeChargeId,
+          paymentIntentId: input.paymentIntentId ?? null,
           amountCents: decision.amountCents,
-          // Deterministic: a redelivered webhook, or a retry after a timeout that actually succeeded, is the SAME refund.
-          idempotencyKey: stayAddOnRefundKey(chargeId, decision.amountCents),
+          operationKey: stayAddOnRefundKey(chargeId, decision.amountCents),
+          basis: {
+            kind: "stay_add_on_refund",
+            addOnKind: kind,
+            blockId: input.blockId,
+            reason,
+            paidCents: resolveChargePaidCents(ledgerAmountCents, charge),
+            baselineRefundedCents: Number(charge.refundedCents ?? 0),
+            stripeChargeId: decision.stripeChargeId,
+          },
           metadata: { proplane_charge_id: chargeId, kind: "stay_add_on_refund", reason },
         });
-        if (refund.status !== "succeeded") throw new Error(`Refund requires reconciliation: ${refund.status}`);
-        refundedAmountCents = decision.amountCents;
+        if (outcome.kind === "review") {
+          // The reservation reads the payment LEDGER for authoritative evidence of what was
+          // paid. When that line has not landed yet the refusal is a timing one, not a verdict:
+          // throw so Stripe redelivers instead of stamping the add-on unrefundable forever.
+          if (ledgerAmountCents == null) throw new Error("Add-on refund is waiting on the payment ledger.");
+          terminal = outcome.message;
+        }
+        else if (outcome.kind === "unknown") throw new Error(outcome.message);
+        else refundedAmountCents = decision.amountCents;
       } catch (error) {
         // A TERMINAL refusal (the rail says retry never helps, or Stripe rejects the request) is stamped for a
         // person and returns normally: throwing would make the webhook answer 500 forever. Only a transient
@@ -414,26 +436,19 @@ async function refundUnhonoredAddOn(
         }
       }
       if (!terminal) {
+        // Only the add-on's own non-money record is stamped here; the money itself is the
+        // webhook's to project, so nothing writes `refundedCents` on this path.
         const recorded = await db.from("portal_household_charge_records").upsert(
           {
             id: chargeId,
             manager_user_id: input.chargeRow.manager_user_id,
             resident_email: String(charge.residentEmail ?? "").trim().toLowerCase(),
             status: input.chargeRow.status,
-            row_data: {
-              ...charge,
-              refundedCents: Number(charge.refundedCents ?? 0) + decision.amountCents,
-              refundAttempts: 1,
-              lastRefundedAt: nowIso,
-              stayAddOnRefundReason: reason,
-            },
+            row_data: { ...charge, stayAddOnRefundReason: reason },
             updated_at: nowIso,
           },
           { onConflict: "id" },
         );
-        // The refund itself is idempotency-keyed, so throwing here is safe and is the only way the money shows up in
-        // Payments: a silent failure leaves the charge reading paid with `refundedCents: 0` while a replay reports
-        // `already_settled`, so the same amount could be refunded a second time.
         if (recorded.error) throw new Error(`Stay add-on refund was not recorded: ${recorded.error.message}`);
       }
     } else if (decision.reason !== "nothing_left") {

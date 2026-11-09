@@ -13,7 +13,8 @@ const spies = vi.hoisted(() => ({
   enqueueOwnerSms: vi.fn(async (..._args: unknown[]) => ({ ok: true })),
   deliverPortalInboxMessage: vi.fn(async (..._args: unknown[]) => ({ ok: true })),
   refreshTurnoverCleaningTimes: vi.fn(async (..._args: unknown[]) => undefined),
-  refundPaidHouseholdCharge: vi.fn(async (..._args: unknown[]) => ({ refundId: "re_1", rail: "destination" as const, status: "succeeded" as const })),
+  refundPaidHouseholdCharge: vi.fn(async (..._args: unknown[]) => ({ refundId: "re_1", rail: "destination" as const, status: "pending" as const })),
+  resolveHouseholdChargeRefundRail: vi.fn(async () => ({ rail: "destination" as const })),
   ReviewError: class extends Error {},
   createHouseholdChargeCheckout: vi.fn(async (..._args: unknown[]) => ({ ok: true as const, mode: "hosted" as const, url: "https://checkout.stripe.test/c/cs_test_1" })),
 }));
@@ -23,6 +24,7 @@ vi.mock("@/lib/portal-inbox-delivery", () => ({ deliverPortalInboxMessage: spies
 vi.mock("@/lib/vendor-dispatch/turnover-timing.server", () => ({ refreshTurnoverCleaningTimes: spies.refreshTurnoverCleaningTimes }));
 vi.mock("@/lib/household-charge-refund-rail.server", () => ({
   refundPaidHouseholdCharge: spies.refundPaidHouseholdCharge,
+  resolveHouseholdChargeRefundRail: spies.resolveHouseholdChargeRefundRail,
   HouseholdChargeRefundReviewError: spies.ReviewError,
 }));
 vi.mock("@/lib/stripe-household-charge-checkout.server", () => ({ createHouseholdChargeCheckout: spies.createHouseholdChargeCheckout }));
@@ -376,12 +378,35 @@ describe("paid but no longer honorable: refunded automatically, once", () => {
     db.tables.portal_schedule_records!.push(otherStay("prev", "2026-10-17", "2026-10-20"));
   }
 
-  it("does not record a pending refund as completed", async () => {
+  /**
+   * A pending refund is reserved and sent; it is NOT refunded money. The stay records the
+   * outcome, and nothing writes `refundedCents` — the refund webhook projects that once it has
+   * re-read terminal provider evidence.
+   */
+  it("records a reserved refund without recording the money as returned", async () => {
     const db = seeded();
     await paidThenTaken(db);
     spies.refundPaidHouseholdCharge.mockResolvedValueOnce({ refundId: "re_pending", rail: "destination", status: "pending" } as never);
-    await expect(applyPaidStayAddOn(db as never, { chargeId: stayAddOnChargeId(BLOCK, "early_check_in"), stripe, now: NOW })).rejects.toThrow("Refund requires reconciliation: pending");
-    expect(storedData(db).stayDetails.addOns!.early_check_in).not.toMatchObject({ status: "refunded" });
+    const result = await applyPaidStayAddOn(db as never, { chargeId: stayAddOnChargeId(BLOCK, "early_check_in"), stripe, now: NOW });
+    expect(result).toMatchObject({ outcome: "refunded" });
+    expect(chargeRow(db, "early_check_in")!.row_data).not.toHaveProperty("refundedCents");
+    const attempt = db.tables.household_charge_refund_attempts!.at(-1)!;
+    expect(attempt).toMatchObject({ amount_cents: 2500, status: "pending", baseline_refunded_cents: 0,
+      provider_refund_id: "re_pending", projected_at: null });
+  });
+
+  it("never opens a second reservation for the same add-on refund", async () => {
+    const db = seeded();
+    await paidThenTaken(db);
+    const id = stayAddOnChargeId(BLOCK, "early_check_in");
+    await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW });
+    const first = db.tables.household_charge_refund_attempts!.length;
+    // A redelivered webhook: the operation key is derived from the charge and amount, so the
+    // reservation is resumed and the provider is not asked again.
+    spies.refundPaidHouseholdCharge.mockClear();
+    await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW });
+    expect(db.tables.household_charge_refund_attempts!).toHaveLength(first);
+    expect(spies.refundPaidHouseholdCharge).not.toHaveBeenCalled();
   });
 
   it("refunds through the refund rail on a stable key, records `refunded`, texts the guest, tells the team", async () => {
@@ -395,11 +420,13 @@ describe("paid but no longer honorable: refunded automatically, once", () => {
       chargeId: id,
       stripeChargeId: "ch_test_1",
       amountCents: 2500,
-      idempotencyKey: stayAddOnRefundKey(id, 2500),
+      idempotencyKey: `household-refund:${db.tables.household_charge_refund_attempts!.at(-1)!.id as string}`,
     });
+    // The reservation's own key, derived from the charge and amount, is the replay identity.
+    expect(db.tables.household_charge_refund_attempts!.at(-1)!.operation_key).toBe(stayAddOnRefundKey(id, 2500));
     expect(storedData(db)).toMatchObject({ checkInTime: "15:00" });
     expect(storedData(db).stayDetails.addOns!.early_check_in).toMatchObject({ status: "refunded", refundReason: "previous_guest" });
-    expect(chargeRow(db, "early_check_in")!.row_data).toMatchObject({ refundedCents: 2500 });
+    expect(chargeRow(db, "early_check_in")!.row_data).not.toHaveProperty("refundedCents");
     expect(spies.enqueueOwnerSms.mock.calls[0]![0]).toMatchObject({
       purpose: "short_stay_add_on_refunded",
       body: "PropLane: Early check-in at 12:00 pm isn't available for Oct 20 anymore, so we refunded $25. Your check-in stays at 3:00 pm.",
@@ -442,7 +469,7 @@ describe("paid but no longer honorable: refunded automatically, once", () => {
     const db = seeded({
       failWrite: (table, mode, payload) =>
         table === "portal_household_charge_records" && mode === "upsert" &&
-        (payload as { row_data?: { refundedCents?: number } } | null)?.row_data?.refundedCents === 2500
+        typeof (payload as { row_data?: { stayAddOnRefundReason?: string } } | null)?.row_data?.stayAddOnRefundReason === "string"
           ? { code: "57014", message: "statement timeout" }
           : null,
     });
@@ -488,13 +515,24 @@ describe("paid but no longer honorable: refunded automatically, once", () => {
     expect(storedData(db).checkInTime).toBe("15:00");
   });
 
-  it("falls back to the payment intent's charge when the ledger line lags the webhook", async () => {
+  /**
+   * The payment intent still supplies the Stripe charge when the ledger line lags — but the
+   * reservation reads that ledger line for authoritative evidence of what was PAID, so with it
+   * missing the refund waits for a redelivery instead of being sent against an unverified
+   * balance or stamped unrefundable.
+   */
+  it("waits for the payment ledger line rather than refunding against unverified evidence", async () => {
     const db = seeded();
     await paidThenTaken(db);
     db.tables.ledger_entries = [];
     (stripe as { paymentIntents: { retrieve: ReturnType<typeof vi.fn> } }).paymentIntents.retrieve.mockResolvedValueOnce({ latest_charge: "ch_from_intent" });
-    await applyPaidStayAddOn(db as never, { chargeId: stayAddOnChargeId(BLOCK, "early_check_in"), stripe, paymentIntentId: "pi_1", now: NOW });
-    expect(spies.refundPaidHouseholdCharge.mock.calls[0]![2]).toMatchObject({ stripeChargeId: "ch_from_intent" });
+    await expect(applyPaidStayAddOn(db as never, { chargeId: stayAddOnChargeId(BLOCK, "early_check_in"), stripe, paymentIntentId: "pi_1", now: NOW }))
+      .rejects.toThrow(/waiting on the payment ledger/);
+    // The intent fallback did resolve the provider charge for the attempt it tried to reserve.
+    expect((stripe as { paymentIntents: { retrieve: ReturnType<typeof vi.fn> } }).paymentIntents.retrieve).toHaveBeenCalledWith("pi_1");
+    expect(spies.refundPaidHouseholdCharge).not.toHaveBeenCalled();
+    expect(db.tables.household_charge_refund_attempts ?? []).toHaveLength(0);
+    expect(storedData(db).stayDetails.addOns!.early_check_in).not.toMatchObject({ status: "refund_failed" });
   });
 });
 

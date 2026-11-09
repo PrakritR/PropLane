@@ -1,5 +1,5 @@
 {
-  "sha256": "b31cd14380b6da7e421c560234a2aeaaa1c4e6a7b00a25f9fbed59104673573c",
+  "sha256": "d87e29937503c228c80db82f730149a40675bafaf71ed3995444061c53d78b51",
   "selection": "SQL migrations containing account_recovery_, resident_move_in_forms, CREATE/DROP/ALTER TABLE and admin_team_atomic_revoke; plus purge manifest and recovery policy",
   "missing_dev_catalog": [
     "payment_reminder_occurrences",
@@ -7,10 +7,10 @@
     "scheduled_inbox_channel_deliveries"
   ],
   "reviewed_change": {
-    "date": "2026-11-06",
-    "reason": "Six owned identity/deposit tables receive recovery guard attachments; purge manifest retention audited. Historical dev snapshot remains unchanged; live catalog verification is pending.",
-    "selected_source_paths": 336,
-    "baseline_reproduced_sha256": "c3ffb8b666917b2493776b4e347b52c936641f6f381bab9f47021e37b1bab4b1",
-    "migration_sha256": "1f62ec00ff11b39fa8b4affef27fddc161c3c8c31a4a9e87411d9480a983adba"
+    "date": "2026-11-09",
+    "reason": "Twelfth reviewed migration adds household_charge_refund_attempts, an account-owned table, with both recovery guard attachments and a detach-identity purge classification. Historical dev snapshot remains unchanged; live catalog verification is pending.",
+    "selected_source_paths": 337,
+    "previous_sha256": "b31cd14380b6da7e421c560234a2aeaaa1c4e6a7b00a25f9fbed59104673573c",
+    "migration_sha256": "b03ab4f8ec44ee4b62de863998db553922b8de20aa49c6ca5b64c7d04836b20e"
   }
 }

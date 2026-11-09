@@ -11,6 +11,7 @@ import { syncLedgerRefundEntry } from "@/lib/reports/ledger-sync";
 import { categoryCodeForChargeKind } from "@/lib/reports/categories";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { emitHouseholdChargeTransition } from "@/lib/domain-action-events.server";
+import { householdRefundAttemptIdFromPlatformKey } from "@/lib/household-charge-refund-coordinator.server";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { enqueueWebhookEvent } from "@/lib/webhooks/deliver.server";
 import { webhookEventBuilders } from "@/lib/webhooks/events";
@@ -479,6 +480,41 @@ async function reconcileDepositRefund(db: SupabaseClient, refund: Stripe.Refund,
   if (reconcileError || reconciliation?.status !== "reconciled") throw new Error("Unreserved deposit refund requires reconciliation.");
 }
 
+/**
+ * Bind this provider refund to its household reservation, if it has one, and let
+ * `bind_household_charge_refund` do the terminal projection.
+ *
+ * Two ways in, because the two rails carry different metadata:
+ *
+ *  - destination / managed: the refund was created with the caller's own metadata, so it carries
+ *    `household_refund_attempt` directly;
+ *  - central: `reserve_platform_money_refund` drops the caller's metadata and stamps only
+ *    `platform_refund_attempt`, so the platform row's `attempt_key` is resolved back to the
+ *    household attempt — and the RPC then re-checks that binding against the row's own immutable
+ *    basis. Metadata alone never grants a binding.
+ */
+async function reconcileHouseholdChargeRefund(
+  db: SupabaseClient,
+  refund: Stripe.Refund,
+  stripeChargeId: string,
+  platformAttemptId: string | null,
+): Promise<void> {
+  let attemptId = refund.metadata?.household_refund_attempt?.trim() || null;
+  if (!attemptId && platformAttemptId) {
+    const { data, error } = await db.from("platform_hold_refund_attempts")
+      .select("attempt_key").eq("id", platformAttemptId).maybeSingle();
+    if (error) throw new Error("Could not resolve the refund's household reservation.");
+    attemptId = householdRefundAttemptIdFromPlatformKey(data?.attempt_key as string | null);
+  }
+  if (!attemptId) return;
+  const { error } = await db.rpc("bind_household_charge_refund", {
+    p_attempt: attemptId, p_refund: refund.id, p_charge: stripeChargeId,
+    p_amount: refund.amount, p_currency: refund.currency, p_status: refund.status,
+    p_platform_attempt: platformAttemptId,
+  });
+  if (error) throw new Error("Household charge refund binding requires reconciliation.");
+}
+
 export async function handleStripeRefund(
   db: SupabaseClient,
   refund: Stripe.Refund,
@@ -522,6 +558,9 @@ export async function handleStripeRefund(
   }
   const reservedAttemptId = current.metadata?.platform_refund_attempt?.trim();
   let reservation: RefundReservationSource | null = null;
+  // Before any ledger work and on EVERY status, including pending: a reserved household refund
+  // must have its attempt state and its one-time money projection driven by verified evidence.
+  await reconcileHouseholdChargeRefund(db, current, stripeChargeId, reservedAttemptId || null);
   if (reservedAttemptId) {
     const { data, error: reservationError } = await db
       .from("platform_hold_refund_attempts")

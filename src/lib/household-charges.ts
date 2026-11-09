@@ -22,6 +22,7 @@ import type { RentRuleAddress } from "@/lib/seattle-rent-rule";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { parseRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
 import { parseMoneyAmount } from "@/lib/parse-money";
+import { SERVICE_CHARGE_TITLE_PREFIX, serviceChargeDisplayTitle } from "@/lib/service-charge-title";
 import { requestTimeoutSignal } from "@/lib/fetch-timeout";
 import { paymentAtSigningPriceLabel } from "@/lib/rental-application/listing-fees-display";
 import {
@@ -1979,32 +1980,15 @@ export function chargeDueLabel(charge: HouseholdCharge): string {
 }
 
 /**
- * The prefix a maintenance pass-through charge is titled with. The product has no
- * "work orders" — only services — but the SCHEMA keeps the `work_order_charge` kind and
- * rows written before the rename carry the retired word in their stored title.
- */
-export const SERVICE_CHARGE_TITLE_PREFIX = "Service · ";
-const LEGACY_SERVICE_CHARGE_TITLE_PREFIX = "Work order · ";
-
-/**
- * What a person reads for a charge's title.
- *
- * Gated on the kind: ONLY a `work_order_charge`'s own retired prefix is normalized, so a
- * resident-entered title that happens to contain those words is left exactly as typed. The
- * stored row is never rewritten — the ledger, the money and the ids are untouched — this is
- * display only.
+ * What a person reads for a charge's title. The one decision lives in
+ * `service-charge-title.ts` so the manager ledger projection and the server routes that put a
+ * title into an email, a text or a banner reach the same answer this does.
  */
 export function householdChargeDisplayTitle(
   charge: Pick<HouseholdCharge, "kind" | "title"> | { kind?: HouseholdChargeKind; title?: string },
   fallback = "Charge",
 ): string {
-  const title = charge.title?.trim() ?? "";
-  if (!title) return fallback;
-  if (charge.kind !== "work_order_charge") return title;
-  if (title.startsWith(LEGACY_SERVICE_CHARGE_TITLE_PREFIX)) {
-    return `${SERVICE_CHARGE_TITLE_PREFIX}${title.slice(LEGACY_SERVICE_CHARGE_TITLE_PREFIX.length)}`;
-  }
-  return title === "Work order" ? "Service" : title;
+  return serviceChargeDisplayTitle(charge, fallback);
 }
 
 /** "Parking" → "parking" for "Prorated parking"; an acronym ("HOA / community") keeps its case. */
@@ -5916,7 +5900,7 @@ export function householdChargeToLedgerRow(c: HouseholdCharge): DemoManagerPayme
       (c.kind === "payment_at_signing" || isPendingUpfrontMoveInCharge(c)),
     residentName: c.residentName,
     residentEmail: c.residentEmail,
-    chargeTitle: c.title,
+    chargeTitle: serviceChargeDisplayTitle(c),
     lineAmount: c.amountLabel,
     amountPaid: c.status === "paid" ? c.amountLabel : "$0.00",
     balanceDue: settled ? "$0.00" : c.balanceLabel,

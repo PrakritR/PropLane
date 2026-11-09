@@ -156,6 +156,23 @@ Terminal refusals throw `HouseholdChargeRefundReviewError`, which the routes ans
 rather than a generic 500. A refund created outside the reservation for a `'hold'` capture
 wedges the owner's hold behind unresolved refund evidence — do not add a fourth path.
 
+**Pending is not refunded money, and no initiator writes `refundedCents`.** Every general
+charge refund — Refund charge, the uncountersigned-lease sweep, the unhonored stay add-on —
+goes through `runHouseholdChargeRefund`
+(`src/lib/household-charge-refund-coordinator.server.ts`), which reserves the budget in
+`household_charge_refund_attempts` under the charge's own row lock against the payment
+ledger, has that reservation durably acknowledged BEFORE the provider is called, and uses the
+reserved attempt's own id as the provider idempotency key — never an amount and never the
+unlocked `refundAttempts` JSON counter. One unresolved reservation per charge; the operation
+key is one id per submission, and a replay with the same full basis returns the stored state
+instead of sending a second refund. The money is projected onto the charge exactly once by
+`bind_household_charge_refund`, from re-read terminal provider evidence, in
+`handleStripeRefund`. A caller only ever sees `pending`, `unknown` (reconcile before retrying,
+and the budget is NOT released) or `review`. The deposit disposition keeps its own
+`security_deposit_return_attempts` reservation. Release transport: `0`, exactly the first 11,
+or all 12 reviewed migrations, and nothing else
+(`scripts/identity-deposit-release-manifest.mjs`).
+
 **Deleting a charge deletes its ledger line — and only that line.**
 `deleteLedgerEntriesForCharge` (`ledger-sync.ts`) removes the `entry_type = "charge"`
 `ledger_entries` row with that `source_charge_id`, never its `payment` / `refund`

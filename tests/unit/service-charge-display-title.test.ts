@@ -8,10 +8,8 @@
  * and the ids are never rewritten) and are normalized on the way to the screen only.
  */
 import { describe, expect, it } from "vitest";
-import {
-  SERVICE_CHARGE_TITLE_PREFIX,
-  householdChargeDisplayTitle,
-} from "@/lib/household-charges";
+import { householdChargeDisplayTitle } from "@/lib/household-charges";
+import { SERVICE_CHARGE_TITLE_PREFIX, serviceChargeDisplayTitle } from "@/lib/service-charge-title";
 
 describe("service charge display title", () => {
   it("generates the service prefix", () => {
@@ -34,6 +32,16 @@ describe("service charge display title", () => {
       .toBe("Work order · Leaky faucet");
     expect(householdChargeDisplayTitle({ kind: "rent", title: "First month's rent" }))
       .toBe("First month's rent");
+  });
+
+  it("is the same decision the server routes and the ledger projection reach", () => {
+    for (const charge of [
+      { kind: "work_order_charge", title: "Work order · Leaky faucet" },
+      { kind: "work_order_charge", title: "Service · Leaky faucet" },
+      { kind: "other_cost", title: "Work order · Leaky faucet" },
+    ] as const) {
+      expect(serviceChargeDisplayTitle(charge)).toBe(householdChargeDisplayTitle(charge));
+    }
   });
 
   it("falls back only when there is no stored title", () => {

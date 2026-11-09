@@ -1,19 +1,26 @@
 // @vitest-environment jsdom
 /**
- * The executed-lease charge watcher runs on EVERY lease-pipeline event, and each attempt costs a
- * full authoritative charges read plus a write. Two things keep that from becoming a per-page-load
- * egress bill on a manager with several leases signed inside the 30-day window:
+ * The executed-lease charge watcher runs on EVERY lease-pipeline event, so three things have to
+ * hold at once, and the first two pull against each other:
  *
- *  1. One authoritative read per joint batch. The read was inside the per-member loop, so a
- *     three-person lease paid three full `/api/portal-household-charges` GETs; each member stages
- *     from its own disjoint slice (its application id, its own resident email) of the same one.
- *  2. A bounded attempt budget. A lease that keeps refusing is retried a few times, not on every
- *     subsequent event forever. The cap stops the RETRY only — nothing is recorded as billed that
- *     was not, and reopening the portal starts a fresh budget.
+ *  1. Only an ACKNOWLEDGED write is remembered as done. A batch that merely ran out of tries is
+ *     not a completed write, and recording it as one would leave a signed lease unbilled with
+ *     nothing saying so.
+ *  2. Repeated events are still bounded. Each attempt costs an authoritative charges GET and a
+ *     write, so an unbounded retry is a per-page-load egress bill (AGENTS.md § Performance &
+ *     egress). Exhaustion is therefore kept SEPARATE from success.
+ *  3. Both are keyed on the BASIS — the scope this browser acts in, the lease's generation, and
+ *     every billed application's billing revision — so a workspace or viewer switch inherits
+ *     neither success nor exhaustion, and an edit earns a fresh budget rather than being refused
+ *     by a stale one.
  *
- * Deliberately NOT restored: the old "this application already has some charge, skip it"
- * short-circuit. That read local, optimistic rows as proof the executed lease had been billed in
- * full, and a money write must never be skipped merely because some charges exist.
+ * And within one joint batch: every member's authoritative read is taken AFTER the previous
+ * member's write was acknowledged, because joint members are not provably disjoint (the resolver
+ * dedupes application ids, not emails, and a scoped recurring profile is selected by owner +
+ * email + property).
+ *
+ * Deliberately NOT here: an "already has some charge, skip it" short-circuit. That read local,
+ * optimistic rows as proof the executed lease had been billed in full.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,11 +28,19 @@ const LEASE_PIPELINE_EVENT = "axis:lease-pipeline";
 
 let leases: Array<Record<string, unknown>> = [];
 let apps: Array<Record<string, unknown>> = [];
-const snapshotRead = vi.fn(async () => ({ charges: [], rentProfiles: [] }));
+let scope = { workspace: "ws-1", viewer: "mgr-1", oversight: "/api/portal-household-charges" };
+const snapshotRead = vi.fn(async () => ({ charges: [] as unknown[], rentProfiles: [] as unknown[] }));
 const mirror = vi.fn(async () => true);
-const generate = vi.fn((...args: unknown[]) => { void args; return { ok: true, changed: true, stage: { charges: [], profiles: [], scopeValid: () => true, commit: () => true } } as { ok: boolean; changed: boolean; stage?: unknown }; });
+const generate = vi.fn((...args: unknown[]) => {
+  void args;
+  return { ok: true, changed: true, stage: { charges: [], profiles: [], scopeValid: () => true, commit: () => true } } as
+    { ok: boolean; changed: boolean; stage?: { charges: unknown[]; profiles: unknown[]; scopeValid: () => boolean; commit: () => boolean } };
+});
 
 vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => false }));
+vi.mock("@/lib/workspaces/selection", () => ({ selectedWorkspaceId: () => scope.workspace }));
+vi.mock("@/lib/auth/portal-session-gate", () => ({ portalSessionViewerId: () => scope.viewer }));
+vi.mock("@/lib/auth/admin-oversight.client", () => ({ adminOversightUrl: () => scope.oversight }));
 vi.mock("@/lib/household-charges", () => ({
   readAuthoritativeBillingSnapshot: () => snapshotRead(),
   recordApprovedApplicationChargesScoped: (...args: unknown[]) => generate(...args),
@@ -45,23 +60,38 @@ vi.mock("@/lib/manager-applications-storage", () => ({
   normalizeApplicationAxisId: (id: string) => id.trim().toUpperCase(),
 }));
 
-const { watchExecutedLeaseCharges, resetExecutedLeaseChargeWatchState } = await import("@/lib/lease-signing-charges.client");
+const {
+  watchExecutedLeaseCharges,
+  resetExecutedLeaseChargeWatchState,
+  clearExecutedLeaseChargeBackoff,
+  createChargesForExecutedLease,
+} = await import("@/lib/lease-signing-charges.client");
 
-const app = (id: string, email: string) => ({ id, email, name: id, bucket: "approved", managerUserId: "owner", propertyId: "house" });
+const app = (id: string, email: string, over: Record<string, unknown> = {}) =>
+  ({ id, email, name: id, bucket: "approved", managerUserId: "owner", propertyId: "house", ...over });
+
+const jointLease = (over: Record<string, unknown> = {}) => ({
+  id: "l1", managerUserId: "owner", propertyId: "house", status: "Fully Signed",
+  fullySignedAt: new Date().toISOString(), updatedAtIso: "2026-11-01T00:00:00.000Z", versionNumber: 1,
+  leaseKind: "joint_bundle",
+  jointLeaseMembers: [{ applicationId: "AXIS-1", residentEmail: "a@x.com" }, { applicationId: "AXIS-2", residentEmail: "b@x.com" }],
+  ...over,
+});
+
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+const stagingCommit = () => ({ ok: true, changed: true, stage: { charges: [], profiles: [], scopeValid: () => true, commit: () => true } });
 
 let stop: (() => void) | undefined;
 
 beforeEach(() => {
   vi.clearAllMocks();
   resetExecutedLeaseChargeWatchState();
-  generate.mockReturnValue({ ok: true, changed: true, stage: { charges: [], profiles: [], scopeValid: () => true, commit: () => true } });
+  scope = { workspace: "ws-1", viewer: "mgr-1", oversight: "/api/portal-household-charges" };
+  generate.mockImplementation(() => stagingCommit());
+  snapshotRead.mockImplementation(async () => ({ charges: [], rentProfiles: [] }));
+  mirror.mockImplementation(async () => true);
   apps = [app("AXIS-1", "a@x.com"), app("AXIS-2", "b@x.com")];
-  leases = [{
-    id: "l1", managerUserId: "owner", propertyId: "house", status: "Fully Signed",
-    fullySignedAt: new Date().toISOString(), leaseKind: "joint_bundle",
-    jointLeaseMembers: [{ applicationId: "AXIS-1", residentEmail: "a@x.com" }, { applicationId: "AXIS-2", residentEmail: "b@x.com" }],
-  }];
+  leases = [jointLease()];
 });
 
 afterEach(() => {
@@ -69,16 +99,77 @@ afterEach(() => {
   stop = undefined;
 });
 
-describe("executed-lease charge watcher", () => {
-  it("reads the authoritative charges once for a whole joint batch", async () => {
+describe("one authoritative read per member", () => {
+  it("re-reads for each joint member, after the previous member was acknowledged", async () => {
+    const order: string[] = [];
+    snapshotRead.mockImplementation(async () => { order.push("read"); return { charges: [], rentProfiles: [] }; });
+    mirror.mockImplementation(async () => { order.push("ack"); return true; });
+
     stop = watchExecutedLeaseCharges("owner");
     await settle();
 
     expect(generate).toHaveBeenCalledTimes(2);
-    expect(snapshotRead).toHaveBeenCalledTimes(1);
+    // A reused pre-loop snapshot would restore state from before the first member's rows landed.
+    expect(order).toEqual(["read", "ack", "read", "ack"]);
   });
 
-  it("does not read or write again for a lease it already billed", async () => {
+  it("acknowledges the write even when the generator reports nothing changed", async () => {
+    // `changed` is a legacy boolean, not a diff of the staged payload: the generator can stage an
+    // application fee and still return false from a later branch.
+    const commit = vi.fn(() => true);
+    generate.mockImplementation(() => ({ ok: true, changed: false, stage: { charges: [], profiles: [], scopeValid: () => true, commit } }));
+
+    stop = watchExecutedLeaseCharges("owner");
+    await settle();
+
+    expect(mirror).toHaveBeenCalledTimes(2);
+    expect(commit).toHaveBeenCalledTimes(2);
+  });
+
+  it("never publishes staged rows locally when the acknowledged write fails", async () => {
+    const commit = vi.fn(() => true);
+    generate.mockImplementation(() => ({ ok: true, changed: false, stage: { charges: [], profiles: [], scopeValid: () => true, commit } }));
+    mirror.mockImplementation(async () => false);
+
+    const result = await createChargesForExecutedLease(jointLease() as never, "owner");
+
+    expect(result.ok).toBe(false);
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it("refuses a later member after the workspace changed mid-batch", async () => {
+    mirror.mockImplementationOnce(async () => { scope = { ...scope, workspace: "ws-2" }; return true; });
+
+    const result = await createChargesForExecutedLease(jointLease() as never, "owner");
+
+    expect(result.ok).toBe(false);
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to stage a same-email overlap from a stale basis", async () => {
+    // Two distinct application ids sharing one email: the resolver dedupes ids, not emails, so
+    // these two members select the same recurring-profile slice.
+    apps = [app("AXIS-1", "shared@x.com"), app("AXIS-2", "shared@x.com")];
+    leases = [jointLease({ jointLeaseMembers: [
+      { applicationId: "AXIS-1", residentEmail: "shared@x.com" },
+      { applicationId: "AXIS-2", residentEmail: "shared@x.com" },
+    ] })];
+    const seen: unknown[] = [];
+    let acknowledged = 0;
+    snapshotRead.mockImplementation(async () => ({ charges: [{ id: `after-${acknowledged}` }], rentProfiles: [] }));
+    mirror.mockImplementation(async () => { acknowledged += 1; return true; });
+    generate.mockImplementation((...args: unknown[]) => { seen.push(args[4]); return stagingCommit(); });
+
+    const result = await createChargesForExecutedLease(leases[0] as never, "owner");
+
+    expect(result.ok).toBe(true);
+    // The second member was staged from a snapshot taken after the first member's acknowledgement.
+    expect(seen).toEqual([{ charges: [{ id: "after-0" }], rentProfiles: [] }, { charges: [{ id: "after-1" }], rentProfiles: [] }]);
+  });
+});
+
+describe("acknowledged success, bounded retries", () => {
+  it("dedupes an acknowledged batch on an unchanged basis", async () => {
     stop = watchExecutedLeaseCharges("owner");
     await settle();
     snapshotRead.mockClear();
@@ -91,28 +182,88 @@ describe("executed-lease charge watcher", () => {
     expect(generate).not.toHaveBeenCalled();
   });
 
-  it("stops retrying a refusing lease after a bounded number of attempts", async () => {
-    generate.mockReturnValue({ ok: false, changed: false });
+  it("never remembers a failure as done, and stops after four tries", async () => {
+    generate.mockImplementation(() => ({ ok: false, changed: false }));
     stop = watchExecutedLeaseCharges("owner");
     await settle();
-
     for (let i = 0; i < 10; i++) {
       window.dispatchEvent(new Event(LEASE_PIPELINE_EVENT));
       await settle();
     }
-
-    expect(snapshotRead.mock.calls.length).toBeGreaterThan(0);
-    expect(snapshotRead.mock.calls.length).toBeLessThanOrEqual(4);
+    expect(snapshotRead).toHaveBeenCalledTimes(4);
     expect(mirror).not.toHaveBeenCalled();
+
+    // Exhaustion is not success: once the batch CAN succeed, an explicit retry still bills it.
+    generate.mockImplementation(() => stagingCommit());
+    clearExecutedLeaseChargeBackoff();
+    window.dispatchEvent(new Event(LEASE_PIPELINE_EVENT));
+    await settle();
+    expect(mirror).toHaveBeenCalled();
   });
 
-  it("skips the write when the generator had nothing to post, and still commits locally", async () => {
-    const commit = vi.fn(() => true);
-    generate.mockReturnValue({ ok: true, changed: false, stage: { charges: [], profiles: [], scopeValid: () => true, commit } });
+  it("earns a fresh budget when the lease generation or an application revision changes", async () => {
+    generate.mockImplementation(() => ({ ok: false, changed: false }));
     stop = watchExecutedLeaseCharges("owner");
     await settle();
+    for (let i = 0; i < 6; i++) {
+      window.dispatchEvent(new Event(LEASE_PIPELINE_EVENT));
+      await settle();
+    }
+    expect(snapshotRead).toHaveBeenCalledTimes(4);
 
-    expect(mirror).not.toHaveBeenCalled();
-    expect(commit).toHaveBeenCalledTimes(2);
+    // A new lease version is a new basis, not a retry of the exhausted one.
+    leases = [jointLease({ versionNumber: 2 })];
+    window.dispatchEvent(new Event(LEASE_PIPELINE_EVENT));
+    await settle();
+    expect(snapshotRead).toHaveBeenCalledTimes(5);
+
+    // So is an edit to what an application bills.
+    apps = [app("AXIS-1", "a@x.com", { signedMonthlyRent: 2400 }), app("AXIS-2", "b@x.com")];
+    window.dispatchEvent(new Event(LEASE_PIPELINE_EVENT));
+    await settle();
+    expect(snapshotRead).toHaveBeenCalledTimes(6);
+  });
+
+  it("inherits neither success nor exhaustion across a workspace or viewer switch", async () => {
+    stop = watchExecutedLeaseCharges("owner");
+    await settle();
+    expect(mirror).toHaveBeenCalledTimes(2);
+
+    // Same lease, another workspace: the earlier acknowledgement says nothing about this one.
+    scope = { ...scope, workspace: "ws-2" };
+    window.dispatchEvent(new Event(LEASE_PIPELINE_EVENT));
+    await settle();
+    expect(mirror).toHaveBeenCalledTimes(4);
+
+    // And exhaustion in one viewer's scope never refuses another's.
+    generate.mockImplementation(() => ({ ok: false, changed: false }));
+    for (let i = 0; i < 6; i++) {
+      window.dispatchEvent(new Event(LEASE_PIPELINE_EVENT));
+      await settle();
+    }
+    const spentInWs2 = snapshotRead.mock.calls.length;
+    scope = { ...scope, viewer: "mgr-2" };
+    window.dispatchEvent(new Event(LEASE_PIPELINE_EVENT));
+    await settle();
+    expect(snapshotRead.mock.calls.length).toBe(spentInWs2 + 1);
+  });
+
+  it("keeps the sent-lease budget separate from the executed one", async () => {
+    leases = [{
+      id: "l1", managerUserId: "owner", propertyId: "house", status: "Resident Signature Pending",
+      updatedAtIso: "2026-11-01T00:00:00.000Z", versionNumber: 1,
+      axisId: "AXIS-1", residentEmail: "a@x.com",
+    }];
+    apps = [app("AXIS-1", "a@x.com")];
+
+    stop = watchExecutedLeaseCharges("owner");
+    await settle();
+    expect(mirror).toHaveBeenCalledTimes(1);
+
+    // The same lease, now fully signed: a different stage, a different basis, its own budget.
+    leases = [{ ...leases[0], status: "Fully Signed", fullySignedAt: new Date().toISOString() }];
+    window.dispatchEvent(new Event(LEASE_PIPELINE_EVENT));
+    await settle();
+    expect(mirror).toHaveBeenCalledTimes(2);
   });
 });

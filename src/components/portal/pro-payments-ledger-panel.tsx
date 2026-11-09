@@ -72,6 +72,7 @@ import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { POPUP_FIELD_LABEL_CLASS } from "@/components/portal/popup-phone-styles";
 import {
   PortalBulkMessageCarouselModal,
 } from "@/components/portal/portal-bulk-message-carousel-modal";
@@ -356,7 +357,13 @@ export function ManagerPaymentsLedgerPanel({
   const [offlineMethod, setOfflineMethod] = useState<"Cash" | "Check" | "Bank transfer" | "Other">("Check");
   const [offlineNote, setOfflineNote] = useState("");
   const [depositReturnRow, setDepositReturnRow] = useState<DemoManagerPaymentLedgerRow | null>(null);
+  // Whether Return deposit can do anything, answered by the SERVER from the same deployment gate
+  // and test-identity classification the POST applies. Fail closed: until it says yes, the
+  // action is not offered, so nobody fills in an amount and every deduction line only to be
+  // refused. The client never decides this.
+  const [depositReturnEnabled, setDepositReturnEnabled] = useState(false);
   const [depositReturnAmount, setDepositReturnAmount] = useState("");
+  const depositReturnOperationId = useRef<string | null>(null);
   const [depositDeductions, setDepositDeductions] = useState<Array<{ label: string; amount: string }>>([]);
   const [returningDepositId, setReturningDepositId] = useState<string | null>(null);
   const [refundingChargeId, setRefundingChargeId] = useState<string | null>(null);
@@ -375,6 +382,15 @@ export function ManagerPaymentsLedgerPanel({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   const reminderChargeId = reminderPreview?.row.householdChargeId ?? null;
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/portal/deposit-return", { credentials: "include", cache: "no-store", signal: controller.signal })
+      .then(async (res) => (res.ok ? (await res.json()) as { enabled?: boolean } : null))
+      .then((body) => setDepositReturnEnabled(body?.enabled === true))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
   useEffect(() => {
     if (!reminderChargeId) {
       queueMicrotask(() => setReminderCapability(null));
@@ -1333,7 +1349,7 @@ export function ManagerPaymentsLedgerPanel({
           actions.push({ id: "edit", label: "Edit", icon: Pencil });
         }
       } else {
-        if (isReturnableDepositRow(row)) {
+        if (isReturnableDepositRow(row) && depositReturnEnabled) {
           actions.push({ id: "return-deposit", label: "Return deposit", icon: RotateCcw });
         } else if (isRefundableChargeRow(row)) {
           actions.push({ id: "refund", label: "Refund", icon: RotateCcw });
@@ -1345,7 +1361,7 @@ export function ManagerPaymentsLedgerPanel({
       }
       return actions;
     },
-    [rowDeletable, rowEditable],
+    [rowDeletable, rowEditable, depositReturnEnabled],
   );
 
   const renderPaymentOverviewPanel = (row: DemoManagerPaymentLedgerRow) => {
@@ -1513,6 +1529,9 @@ export function ManagerPaymentsLedgerPanel({
   const returnDepositForRow = (row: DemoManagerPaymentLedgerRow) => {
     setDepositReturnAmount("");
     setDepositDeductions([]);
+    // One id for this SUBMISSION, kept across every retry of it, so a timeout that actually
+    // reserved resumes that reservation instead of colliding with it.
+    depositReturnOperationId.current = crypto.randomUUID();
     setDepositReturnRow(row);
   };
 
@@ -1530,22 +1549,20 @@ export function ManagerPaymentsLedgerPanel({
     try {
       const res = await fetch("/api/portal/deposit-return", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chargeId: row.householdChargeId, amountCents: Math.round(amount * 100), itemization }),
+        body: JSON.stringify({ chargeId: row.householdChargeId, amountCents: Math.round(amount * 100), itemization, operationId: depositReturnOperationId.current }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string; status?: string };
+      // `pending` is the ONLY outcome this route reports as accepted: the provider refund was
+      // reserved and sent, and the webhook performs the terminal accounting. There is no
+      // "returned" answer to render, so nothing here claims one.
       if (res.ok && data.status === "pending") {
         showToast("Deposit return pending.");
         setDepositReturnRow(null);
+        setSelectedIds(new Set());
+        onRowsChanged?.();
         return;
       }
-      if (!res.ok || data.status !== "succeeded") {
-        showToast(data.error || "Deposit return requires reconciliation.");
-        return;
-      }
-      showToast(`Deposit returned to ${row.residentName}.`);
-      setDepositReturnRow(null);
-      setSelectedIds(new Set());
-      onRowsChanged?.();
+      showToast(data.error || "Deposit return requires reconciliation.");
     } catch {
       showToast("Deposit return status is unknown. Review before retrying.");
     } finally {
@@ -1566,20 +1583,25 @@ export function ManagerPaymentsLedgerPanel({
       return;
     }
     setRefundingChargeId(row.householdChargeId ?? row.id);
+    // One id for this submission, so a retry after a timeout resumes the same reservation
+    // instead of opening a second one against the same balance.
+    const operationId = crypto.randomUUID();
     try {
       const res = await fetch("/api/portal/charge-refund", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chargeId: row.householdChargeId }),
+        body: JSON.stringify({ chargeId: row.householdChargeId, operationId }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; remainingCents?: number };
-      if (!res.ok) {
-        showToast(data.error || "Could not refund this charge.");
+      const data = (await res.json().catch(() => ({}))) as { error?: string; status?: string; remainingCents?: number };
+      // `pending` is the only accepted outcome: the refund is reserved and sent, and the money
+      // lands on the charge when the refund webhook settles it. Nothing says "refunded" here.
+      if (res.ok && data.status === "pending") {
+        showToast(data.remainingCents ? "Partial refund pending." : "Refund pending.");
+        setSelectedIds(new Set());
+        onRowsChanged?.();
         return;
       }
-      showToast(data.remainingCents ? "Charge partially refunded." : `Refunded ${row.residentName}.`);
-      setSelectedIds(new Set());
-      onRowsChanged?.();
+      showToast(data.error || "Could not refund this charge.");
     } catch {
       showToast("Could not refund this charge.");
     } finally {
@@ -2331,15 +2353,24 @@ export function ManagerPaymentsLedgerPanel({
     ) : null}
       <PortalDialog open={Boolean(depositReturnRow)} title="Return deposit" onClose={() => setDepositReturnRow(null)} primaryAction={{ label: returningDepositId ? "Returning…" : "Return deposit", onClick: submitDepositReturn }}>
         <div className="space-y-3">
-          <label className="block text-sm">Return amount<Input type="number" min="0.01" step="0.01" value={depositReturnAmount} onChange={(event) => setDepositReturnAmount(event.target.value)} /></label>
+          <div className="space-y-1.5">
+            <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="deposit-return-amount">Return amount</label>
+            <Input id="deposit-return-amount" type="number" min="0.01" step="0.01" value={depositReturnAmount} onChange={(event) => setDepositReturnAmount(event.target.value)} data-attr="deposit-return-amount" />
+          </div>
           {depositDeductions.map((line, index) => (
-            <div key={index} className="flex gap-2">
-              <label className="block text-sm flex-1">Deduction<Input value={line.label} onChange={(event) => setDepositDeductions((items) => items.map((item, i) => i === index ? { ...item, label: event.target.value } : item))} /></label>
-              <label className="block text-sm">Amount<Input type="number" min="0.01" step="0.01" value={line.amount} onChange={(event) => setDepositDeductions((items) => items.map((item, i) => i === index ? { ...item, amount: event.target.value } : item))} /></label>
-              <button type="button" onClick={() => setDepositDeductions((items) => items.filter((_, i) => i !== index))}>Remove</button>
+            <div key={index} className="flex items-end gap-2">
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <label className={POPUP_FIELD_LABEL_CLASS} htmlFor={`deposit-return-deduction-${index}`}>Deduction</label>
+                <Input id={`deposit-return-deduction-${index}`} value={line.label} onChange={(event) => setDepositDeductions((items) => items.map((item, i) => i === index ? { ...item, label: event.target.value } : item))} data-attr="deposit-return-deduction-label" />
+              </div>
+              <div className="space-y-1.5">
+                <label className={POPUP_FIELD_LABEL_CLASS} htmlFor={`deposit-return-deduction-amount-${index}`}>Amount</label>
+                <Input id={`deposit-return-deduction-amount-${index}`} type="number" min="0.01" step="0.01" value={line.amount} onChange={(event) => setDepositDeductions((items) => items.map((item, i) => i === index ? { ...item, amount: event.target.value } : item))} data-attr="deposit-return-deduction-amount" />
+              </div>
+              <PortalIconAction icon={Trash2} label={`Remove deduction ${index + 1}`} tone="danger" onClick={() => setDepositDeductions((items) => items.filter((_, i) => i !== index))} data-attr="deposit-return-remove-deduction" />
             </div>
           ))}
-          <button type="button" onClick={() => setDepositDeductions((items) => [...items, { label: "", amount: "" }])}>Add deduction</button>
+          <Button variant="ghost" onClick={() => setDepositDeductions((items) => [...items, { label: "", amount: "" }])} data-attr="deposit-return-add-deduction">Add deduction</Button>
         </div>
       </PortalDialog>
       <PortalDialog

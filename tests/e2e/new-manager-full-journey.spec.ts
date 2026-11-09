@@ -5,6 +5,7 @@ import path from "node:path";
 import { mockStripeAllRoutes } from "../helpers/auth";
 import { requestManagerEmailProof, finishManagerEmailProof } from "../helpers/email-onboarding-e2e";
 import { completeManagerSignupOnboarding, pickListingSelect } from "../helpers/manager-onboarding-e2e";
+import { clearManagerPhoneGate, type SyntheticPhoneVerification } from "../helpers/synthetic-phone-verification";
 
 /**
  * End-to-end walkthrough: brand-new manager from pricing → account creation →
@@ -49,9 +50,11 @@ test.describe("New manager — full journey from scratch", () => {
   test("pricing → signup → portal tour → first listing draft", async ({ page }) => {
     test.setTimeout(300_000);
     page.setDefaultTimeout(30_000);
+    let phoneFixture: SyntheticPhoneVerification | null = null;
 
     await mockStripeAllRoutes(page);
 
+    try {
     if (process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "") !== "https://emstjswhotsnyksqhqyf.supabase.co") throw new Error("Synthetic signup requires the exact dev/test project.");
     const stamp = Date.now();
     const email = `fresh-manager-${stamp}@${syntheticSignupDomain()}`;
@@ -71,7 +74,7 @@ test.describe("New manager — full journey from scratch", () => {
     await shot(page, "01-pricing");
     await Promise.all([
       page.waitForURL(/\/auth\/create-account.*tier=pro/, { timeout: 30_000 }),
-      page.getByRole("button", { name: /choose pro/i }).first().click(),
+      page.locator('[data-attr="pricing-choose-pro"]').click(),
     ]);
     await shot(page, "02-create-account-form");
 
@@ -81,7 +84,10 @@ test.describe("New manager — full journey from scratch", () => {
     await finishManagerEmailProof(page, verificationHref, email, fullName, phone, undefined, "pro");
     await shot(page, "03b-account-ready");
     await page.getByRole("button", { name: "Go to portal" }).click();
-    await page.waitForURL(/\/auth\/(get-started|manager\/choose-plan|connect-google-services)|\/portal/, { timeout: 90_000 });
+    await page.waitForURL(/\/auth\/(verify-phone|get-started|manager\/choose-plan|connect-google-services)|\/portal/, { timeout: 90_000 });
+    // The mandatory phone gate stands between the proven mailbox and the portal. Cleared as
+    // FIXTURE SETUP for this one synthetic account and restored afterwards; no OTP is exercised.
+    phoneFixture = await clearManagerPhoneGate(page, { email, phone });
     await completeManagerSignupOnboarding(page);
     await page.waitForLoadState("domcontentloaded");
     await shot(page, "04-portal-landing");
@@ -144,5 +150,10 @@ test.describe("New manager — full journey from scratch", () => {
 
     console.log("NEW MANAGER JOURNEY OK");
     console.log(`Evidence: ${EVIDENCE_DIR}`);
+    } finally {
+      // Always, including on failure: the synthetic phone stamp goes back, and a conflict is
+      // reported rather than left behind.
+      await phoneFixture?.restore();
+    }
   });
 });

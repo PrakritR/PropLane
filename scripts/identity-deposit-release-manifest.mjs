@@ -14,7 +14,24 @@ export const IDENTITY_DEPOSIT_ENTRIES = Object.freeze([
   ["20261030130000", "resident_evidence_policies", "a0a031afd9d1416c7835f7d67eaf73165770212b68d74599c2f938c69cc075be"],
   ["20261106120000", "identity_deposit_recovery_guards", "1f62ec00ff11b39fa8b4affef27fddc161c3c8c31a4a9e87411d9480a983adba"],
   ["20261108130000", "resident_identity_null_provider_guard", "d855c3bed7ad146d3b99e43897b3f36bd44ed4a9de4a3a1b6f2420a3c23a1188"],
+  ["20261108140000", "household_charge_refund_attempts", "b03ab4f8ec44ee4b62de863998db553922b8de20aa49c6ca5b64c7d04836b20e"],
 ]);
+
+/**
+ * The first eleven are already committed and verified on staging and dev; production has none of
+ * this manifest. So the ONLY ledger states this transport accepts are those three — nothing
+ * else is a reviewed state:
+ *
+ *  - `absent` (0 of 12): production. Rehearse and apply all twelve.
+ *  - `prefix` (exactly the first 11, in order, with their exact statements): staging and dev.
+ *    Rehearse and apply only the twelfth.
+ *  - `complete` (all 12): postflight / no-op only. Never re-run DDL.
+ *
+ * A hole, a different prefix, a duplicate version or name, a renamed version, or a statement
+ * whose hash differs is a refusal, not a state. Presence of a TABLE is never evidence that a
+ * migration was applied, and an unexpected existing name is never skipped.
+ */
+export const IDENTITY_DEPOSIT_COMMITTED_PREFIX = 11;
 export function reviewedIdentityDepositMigrations() {
   return IDENTITY_DEPOSIT_ENTRIES.map(([version, name, hash]) => {
     const sql = readFileSync(new URL(`../supabase/migrations/${version}_${name}.sql`, import.meta.url), "utf8");
@@ -22,13 +39,37 @@ export function reviewedIdentityDepositMigrations() {
     return { version, name, hash, sql };
   });
 }
-export function assertIdentityDepositLedger(rows, migrations, applied) {
-  for (const migration of migrations) {
-    const matches = rows.filter((row) => row.version === migration.version || row.name === migration.name);
-    if (!applied && matches.length) throw new Error(`Unexpected migration ledger entry: ${migration.version}`);
-    if (applied && (matches.length !== 1 || matches[0].version !== migration.version || matches[0].name !== migration.name ||
-      !Array.isArray(matches[0].statements) || matches[0].statements.length !== 1 || sha256(matches[0].statements[0]) !== migration.hash)) {
-      throw new Error(`Migration ledger differs: ${migration.version}`);
-    }
+/** One reviewed ledger entry, exact in version, name, single statement and hash. */
+function ledgerEntryMatches(rows, migration) {
+  const matches = rows.filter((row) => row.version === migration.version || row.name === migration.name);
+  if (matches.length === 0) return false;
+  if (matches.length !== 1 || matches[0].version !== migration.version || matches[0].name !== migration.name ||
+    !Array.isArray(matches[0].statements) || matches[0].statements.length !== 1 ||
+    sha256(matches[0].statements[0]) !== migration.hash) {
+    throw new Error(`Migration ledger differs: ${migration.version}`);
   }
+  return true;
+}
+
+/**
+ * Which of the three reviewed states this target's ledger is in, refusing anything else.
+ * `applied` counts how many leading migrations are committed; a gap after it is a refusal.
+ */
+export function identityDepositLedgerState(rows, migrations) {
+  const present = migrations.map((migration) => ledgerEntryMatches(rows, migration));
+  const applied = present.findIndex((value) => !value);
+  const leading = applied === -1 ? present.length : applied;
+  if (present.slice(leading).some(Boolean)) throw new Error(`Migration ledger differs: ${migrations[leading].version}`);
+  if (leading === 0) return { kind: "absent", applied: 0, pending: migrations };
+  if (leading === migrations.length) return { kind: "complete", applied: leading, pending: [] };
+  if (leading !== IDENTITY_DEPOSIT_COMMITTED_PREFIX) {
+    throw new Error(`Migration ledger differs: ${migrations[leading].version}`);
+  }
+  return { kind: "prefix", applied: leading, pending: migrations.slice(leading) };
+}
+
+export function assertIdentityDepositLedger(rows, migrations, applied) {
+  const state = identityDepositLedgerState(rows, migrations);
+  const expected = applied ? "complete" : "absent";
+  if (state.kind !== expected) throw new Error(`Migration ledger differs: ${migrations[state.applied]?.version ?? migrations[0].version}`);
 }

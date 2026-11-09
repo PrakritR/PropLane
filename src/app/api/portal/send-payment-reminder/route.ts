@@ -9,6 +9,7 @@ import { buildPaymentReminderBody } from "@/lib/manual-payment-instructions";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { deliverManualPaymentReminder } from "@/lib/manual-payment-reminder-delivery.server";
 import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
+import { serviceChargeDisplayTitle } from "@/lib/service-charge-title";
 
 export const runtime = "nodejs";
 
@@ -100,7 +101,7 @@ export async function POST(req: Request) {
 
     const residentEmail = String(ownedCharge.residentEmail ?? "").trim().toLowerCase();
     const residentName = String(ownedCharge.residentName ?? "Resident").trim();
-    const chargeTitle = String(ownedCharge.title ?? "outstanding charge").trim();
+    const chargeTitle = serviceChargeDisplayTitle(ownedCharge, "outstanding charge");
     const balanceDue = String(ownedCharge.balanceLabel ?? "").trim();
     const dueDate = String(chargeDueLabel(ownedCharge)).trim();
     const propertyLabel = String(ownedCharge.propertyLabel ?? "").trim();

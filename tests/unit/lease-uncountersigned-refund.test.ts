@@ -108,7 +108,14 @@ describe("the uncountersigned-lease refund plans the whole lease first", () => {
     const voided: string[] = [];
     const voidReasons: string[] = [];
     const refundedIds: string[] = [];
+    const reservations: string[] = [];
     const db = {
+      rpc: async (name: string, args: Record<string, unknown>) => {
+        if (name !== "reserve_household_charge_refund") return { data: {}, error: null };
+        reservations.push(String(args.p_charge));
+        return { data: { id: `att_${String(args.p_charge)}`, status: "reserved", provider_refund_id: null,
+          platform_attempt_key: null }, error: null };
+      },
       from: (table: string) => {
         let wantedId: string | null = null;
         const q: Record<string, unknown> = {
@@ -152,7 +159,7 @@ describe("the uncountersigned-lease refund plans the whole lease first", () => {
         return q;
       },
     };
-    return { db: db as never, voided, voidReasons, refundedIds };
+    return { db: db as never, voided, voidReasons, refundedIds, reservations };
   }
 
   const now = new Date("2026-10-03T00:00:00.000Z");
@@ -190,45 +197,65 @@ describe("the uncountersigned-lease refund plans the whole lease first", () => {
     resolve.mockRestore();
   });
 
-  it("refunds the rent, voids the lease, and reports the deposit still held", async () => {
+  /**
+   * The void says the money went back, so it waits for the money to have gone back. A refund
+   * reserved on THIS pass is pending — the webhook projects it — so the lease is voided on the
+   * next sweep, once every move-in charge owes the resident nothing. Nothing on this path writes
+   * `refundedCents` any more.
+   */
+  it("reserves the rent's refund and does not void the lease on the same pass", async () => {
     const mod = await rail();
     const refund = vi.spyOn(mod, "refundPaidHouseholdCharge");
-    refund.mockResolvedValue({ refundId: "re_1", status: "succeeded", rail: "destination" });
+    refund.mockResolvedValue({ refundId: "re_1", status: "pending", rail: "destination" });
 
-    const { db, voided, voidReasons, refundedIds } = harness([
+    const { db, voided, refundedIds, reservations } = harness([
       paidCharge("chg-rent", "prorated_first_month_rent"),
       paidCharge("chg-dep", "security_deposit"),
     ]);
     const result = await refundUncountersignedMoveInCharges({} as never, db, now);
 
     expect(refund).toHaveBeenCalledTimes(1);
-    expect(refundedIds).toEqual(["chg-rent"]);
+    expect(reservations).toEqual(["chg-rent"]);
+    // No money is written here; the charge row is left to the webhook's projection.
+    expect(refundedIds).toEqual([]);
     expect(result.refundedCharges).toBe(1);
     expect(result.failed).toBe(0);
-    expect(result.refundedLeases).toBe(1);
-    expect(voided).toEqual(["Voided"]);
+    expect(result.refundedLeases).toBe(0);
+    expect(voided).toHaveLength(0);
     expect(result.depositHeldCents).toBe(100_000);
-    expect(voidReasons[0]).toContain("Return deposit");
     refund.mockRestore();
   });
 
-  it("reports no held deposit once Return deposit has settled it", async () => {
+  it("voids the lease on the next sweep, once the refunds have settled", async () => {
     const mod = await rail();
     const refund = vi.spyOn(mod, "refundPaidHouseholdCharge");
-    refund.mockResolvedValue({ refundId: "re_1", status: "succeeded", rail: "destination" });
-
+    const settled = paidCharge("chg-rent", "prorated_first_month_rent");
+    settled.row_data.refundedCents = 100_000;
     const returned = paidCharge("chg-dep", "security_deposit");
     // Return deposit records its own tracker, not `refundedCents`.
     returned.row_data.depositReturnedCents = 100_000;
-    const { db, voided, voidReasons } = harness([
-      paidCharge("chg-rent", "prorated_first_month_rent"), returned,
-    ]);
+    const { db, voided, voidReasons } = harness([settled, returned]);
     const result = await refundUncountersignedMoveInCharges({} as never, db, now);
 
+    expect(refund).not.toHaveBeenCalled();
     expect(result.depositHeldCents).toBe(0);
     expect(result.refundedLeases).toBe(1);
     expect(voided).toEqual(["Voided"]);
     expect(voidReasons[0]).not.toContain("Return deposit");
+    refund.mockRestore();
+  });
+
+  it("leaves the lease live when a reservation comes back uncertain", async () => {
+    const mod = await rail();
+    const refund = vi.spyOn(mod, "refundPaidHouseholdCharge");
+    refund.mockRejectedValue(new Error("timeout"));
+
+    const { db, voided } = harness([paidCharge("chg-rent", "prorated_first_month_rent")]);
+    const result = await refundUncountersignedMoveInCharges({} as never, db, now);
+
+    expect(result.failed).toBe(1);
+    expect(result.refundedLeases).toBe(0);
+    expect(voided).toHaveLength(0);
     refund.mockRestore();
   });
 
@@ -251,15 +278,16 @@ describe("the uncountersigned-lease refund plans the whole lease first", () => {
   it("skips an unpaid move-in charge without blocking the void", async () => {
     const mod = await rail();
     const refund = vi.spyOn(mod, "refundPaidHouseholdCharge");
-    refund.mockResolvedValue({ refundId: "re_1", status: "succeeded", rail: "destination" });
     const unpaid = paidCharge("chg-unpaid", "move_in_fee");
     unpaid.status = "pending";
     unpaid.row_data.status = "pending";
+    const settled = paidCharge("chg-rent", "prorated_first_month_rent");
+    settled.row_data.refundedCents = 100_000;
 
-    const { db, voided } = harness([paidCharge("chg-rent", "prorated_first_month_rent"), unpaid]);
+    const { db, voided } = harness([settled, unpaid]);
     const result = await refundUncountersignedMoveInCharges({} as never, db, now);
 
-    expect(refund).toHaveBeenCalledTimes(1);
+    expect(refund).not.toHaveBeenCalled();
     expect(result.failed).toBe(0);
     expect(result.refundedLeases).toBe(1);
     expect(voided).toEqual(["Voided"]);

@@ -191,6 +191,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { detachIds: ["manager_user_id"] },
   },
   {
+    // Same rule for a general charge refund: the reconciliation evidence of money that actually
+    // moved is retained, and only the deleted account's identity is detached from it.
+    table: "household_charge_refund_attempts",
+    phase: 1,
+    manager: { detachIds: ["manager_user_id"] },
+  },
+  {
     table: "security_deposit_ledger",
     phase: 1,
     manager: { ids: ["manager_user_id"] },

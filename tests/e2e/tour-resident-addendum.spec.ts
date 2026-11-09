@@ -12,17 +12,26 @@ const tourFixtures = new WeakMap<object, TourFixture>();
 test.describe("Tour-resident addendum verification", () => {
   test("req 5: signed-in resident application opens on routed detail page", async ({ page }) => {
     await signInAsResident(page);
-    const approvedId = await page.evaluate(async () => {
+    // The label comes from the SAME row the route is built from. It used to be hard-coded to
+    // one seeded listing's name after picking an arbitrary approved application, so the test
+    // passed or failed on which seed happened to come back first.
+    const approved = await page.evaluate(async () => {
       const res = await fetch("/api/manager-applications?scope=self", { credentials: "include" });
-      const body = (await res.json()) as { rows?: { id: string; bucket: string }[] };
-      return (body.rows ?? []).find((row) => row.bucket === "approved")?.id ?? null;
+      const body = (await res.json()) as { rows?: Array<{ id: string; bucket: string; property?: string; propertyName?: string }> };
+      const row = (body.rows ?? []).find((item) => item.bucket === "approved");
+      return row ? { id: row.id, property: (row.property ?? row.propertyName ?? "").trim() } : null;
     });
-    expect(approvedId).toBeTruthy();
+    expect(approved?.id).toBeTruthy();
+    expect(approved?.property, "the approved application must name its property").toBeTruthy();
 
-    await page.goto(`/resident/applications/approved/${encodeURIComponent(approvedId!)}`);
+    await page.goto(`/resident/applications/approved/${encodeURIComponent(approved!.id)}`);
     await expect(page.getByText("Application not found.")).not.toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText("The Pioneer")).toBeVisible({ timeout: 15_000 });
-    await expect(page).toHaveURL(new RegExp(`/resident/applications/approved/${approvedId}`));
+    await expect(page.getByText(approved!.property).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page).toHaveURL(new RegExp(`/resident/applications/approved/${approved!.id}`));
+
+    // The negative stays: an id that is not this resident's own is not found.
+    await page.goto("/resident/applications/approved/AXIS-does-not-exist");
+    await expect(page.getByText("Application not found.")).toBeVisible({ timeout: 20_000 });
   });
 
   test("resident Communication shows the thread for a linked tour request", async ({ browser, page }) => {

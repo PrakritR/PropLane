@@ -10,6 +10,7 @@ export type Row = Record<string, unknown>;
 export type FakeDb = {
   tables: Record<string, Row[]>;
   from(table: string): FakeBuilder;
+  rpc(name: string, args: Row): Promise<{ data: unknown; error: { code?: string; message?: string } | null }>;
 };
 
 type Filter = (row: Row) => boolean;
@@ -29,7 +30,55 @@ type FakeBuilder = PromiseLike<{ data: unknown; error: unknown; count?: number |
 export type FakeDbOptions = {
   /** Return an error to make a write fail the way the database would (a capacity trigger, a constraint). */
   failWrite?: (table: string, mode: "insert" | "update" | "upsert" | "delete", payload: Row | Row[] | null) => { code?: string; message?: string } | null;
+  /** Answer a named RPC. Return `undefined` to fall through to the built-in stand-ins. */
+  rpc?: (name: string, args: Row) => { data?: unknown; error?: { code?: string; message?: string } | null } | undefined;
 };
+
+/**
+ * `reserve_household_charge_refund` in miniature: the budget check against the payment ledger,
+ * the operation-key replay with a full-basis comparison, and the one-unresolved-attempt-per-source
+ * refusal. Enough that a test can exercise the coordinator's real branching without a database.
+ */
+const UNRESOLVED_REFUND_STATES = ["reserved", "pending", "unknown"];
+function reserveHouseholdChargeRefund(tables: Record<string, Row[]>, args: Row, nextId: () => string) {
+  const attempts = (tables.household_charge_refund_attempts ??= []);
+  const charge = (tables.portal_household_charge_records ?? []).find((row) =>
+    row.id === args.p_charge && row.manager_user_id === args.p_owner);
+  if (!charge) return { data: null, error: { message: "Refund source not found" } };
+  const payment = (tables.ledger_entries ?? []).find((row) =>
+    row.source_charge_id === args.p_charge && row.entry_type === "payment");
+  if (!payment || payment.stripe_charge_id !== args.p_stripe_charge || payment.manager_user_id !== undefined && payment.manager_user_id !== args.p_owner) {
+    return { data: null, error: { message: "Refund payment evidence requires review" } };
+  }
+  const replay = attempts.find((row) => row.operation_key === args.p_operation_key);
+  if (replay) {
+    const differs = replay.source_charge_id !== args.p_charge || replay.manager_user_id !== args.p_owner ||
+      replay.stripe_charge_id !== args.p_stripe_charge || replay.rail !== args.p_rail ||
+      replay.amount_cents !== args.p_amount ||
+      JSON.stringify(replay.basis) !== JSON.stringify(args.p_basis);
+    return differs
+      ? { data: null, error: { message: "Operation key differs from reservation" } }
+      : { data: { ...replay }, error: null };
+  }
+  const refunded = Number((charge.row_data as Row | undefined)?.refundedCents ?? 0);
+  const unresolved = attempts.filter((row) =>
+    row.source_charge_id === args.p_charge && UNRESOLVED_REFUND_STATES.includes(String(row.status)));
+  const held = unresolved.reduce((sum, row) => sum + Number(row.amount_cents ?? 0), 0);
+  if (refunded + held + Number(args.p_amount) > Number(payment.amount_cents)) {
+    return { data: null, error: { message: "Refund exceeds the payment's available balance" } };
+  }
+  if (unresolved.length) return { data: null, error: { message: "Refund requires reconciliation" } };
+  const row: Row = {
+    id: nextId(), operation_key: args.p_operation_key, source_charge_id: args.p_charge,
+    manager_user_id: args.p_owner, stripe_charge_id: args.p_stripe_charge,
+    stripe_payment_intent_id: args.p_payment_intent ?? null, rail: args.p_rail,
+    platform_attempt_key: null, amount_cents: args.p_amount,
+    baseline_refunded_cents: refunded, paid_cents: payment.amount_cents, basis: args.p_basis,
+    provider_refund_id: null, status: "reserved", projected_at: null,
+  };
+  attempts.push(row);
+  return { data: { ...row }, error: null };
+}
 
 export function createFakeDb(seed: Record<string, Row[]> = {}, options: FakeDbOptions = {}): FakeDb {
   const tables: Record<string, Row[]> = {};
@@ -162,5 +211,20 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, options: FakeDbOp
     return builder as unknown as FakeBuilder;
   }
 
-  return { tables, from };
+  async function rpc(name: string, args: Row = {}) {
+    const override = options.rpc?.(name, args);
+    if (override) return { data: override.data ?? null, error: override.error ?? null };
+    if (name === "reserve_household_charge_refund") {
+      return reserveHouseholdChargeRefund(tables, args, () => `hcra_${++counter}`);
+    }
+    if (name === "stamp_household_charge_refund_platform_key") {
+      const row = (tables.household_charge_refund_attempts ?? []).find((item) => item.id === args.p_attempt);
+      if (!row) return { data: null, error: { message: "Refund attempt not found" } };
+      row.platform_attempt_key = args.p_key;
+      return { data: { ...row }, error: null };
+    }
+    return { data: {}, error: null };
+  }
+
+  return { tables, from, rpc };
 }

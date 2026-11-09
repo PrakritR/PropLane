@@ -17,7 +17,7 @@ vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () =
 } }) }));
 import { POST } from "@/app/api/portal/deposit-return/route";
 const post = () => POST(new Request("http://localhost/api/portal/deposit-return", { method: "POST", body: JSON.stringify({ chargeId: "charge", amountCents: 5000, itemization: [] }) }));
-beforeEach(() => { vi.clearAllMocks(); process.env.DEPOSIT_RETURN_PROVIDER_ENABLED = "true"; rpc.mockResolvedValue({ data: { id: "attempt" }, error: null }); stamp.mockResolvedValue({ error: null }); });
+beforeEach(() => { vi.clearAllMocks(); process.env.DEPOSIT_RETURN_PROVIDER_ENABLED = "true"; rpc.mockResolvedValue({ data: { id: "attempt", status: "reserved", provider_refund_id: null }, error: null }); stamp.mockResolvedValue({ error: null }); });
 afterEach(() => { delete process.env.DEPOSIT_RETURN_PROVIDER_ENABLED; });
 describe("reserved deposit return", () => {
   it("reserves before the provider and returns pending even when provider succeeds", async () => {
@@ -43,5 +43,24 @@ describe("reserved deposit return", () => {
     rpc.mockResolvedValue({ data: null, error: { message: "active" } });
     expect((await post()).status).toBe(409);
     expect(refund).not.toHaveBeenCalled();
+  });
+  it("refuses a reservation whose state is not one the RPC can return", async () => {
+    rpc.mockResolvedValue({ data: { id: "attempt" }, error: null });
+    expect((await post()).status).toBe(409);
+    expect(refund).not.toHaveBeenCalled();
+  });
+  it("resumes a replayed submission instead of issuing a second provider return", async () => {
+    rpc.mockResolvedValue({ data: { id: "attempt", status: "pending", provider_refund_id: "re_1" }, error: null });
+    const res = await post();
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ status: "pending", refundId: "re_1" });
+    expect(refund).not.toHaveBeenCalled();
+  });
+  it("sends the caller's retained operation id as the reservation request key", async () => {
+    await POST(new Request("http://localhost/api/portal/deposit-return", { method: "POST",
+      body: JSON.stringify({ chargeId: "charge", amountCents: 5000, itemization: [],
+        operationId: "11111111-2222-4333-8444-555555555555" }) }));
+    expect(rpc).toHaveBeenCalledWith("reserve_security_deposit_return",
+      expect.objectContaining({ p_request_key: "11111111-2222-4333-8444-555555555555" }));
   });
 });
