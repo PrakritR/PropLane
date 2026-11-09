@@ -46,6 +46,7 @@ function fakePage(
 function fakeDb(row: ProfileRow | null, over: {
   authEmail?: string;
   authConfirmed?: boolean;
+  authPhoneConfirmedOnly?: boolean;
   managerRole?: string | null;
   loseFirstUpdateAck?: boolean;
   failBeforeFirstUpdate?: boolean;
@@ -61,7 +62,7 @@ function fakeDb(row: ProfileRow | null, over: {
       id: ACTOR,
       email: over.authEmail ?? EMAIL,
       email_confirmed_at: over.authConfirmed === false ? null : "2026-11-01T00:00:00.000Z",
-      confirmed_at: null,
+      confirmed_at: over.authPhoneConfirmedOnly ? "2026-11-01T00:00:00.000Z" : null,
     } }, error: null }) } },
     from: (table: string) => {
       let operation: "select" | "update" = "select";
@@ -185,11 +186,13 @@ describe("the synthetic phone fixture refuses anything but its own account", () 
   it.each([
     ["a mailbox the Auth user does not hold", { authEmail: "other@test.proplane.local" }, /Auth user does not match/],
     ["an Auth user with an unconfirmed email", { authConfirmed: false }, /Auth email to be confirmed/],
+    ["an Auth user confirmed only by phone", { authConfirmed: false, authPhoneConfirmedOnly: true }, /Auth email to be confirmed/],
     ["a legacy manager profile without an authoritative manager role", { managerRole: null }, /authoritative manager role/],
   ])("refuses %s", async (_name, over, message) => {
-    const { client } = fakeDb(profile(), over);
+    const { client, updates } = fakeDb(profile(), over);
     supabase.createClient.mockReturnValue(client);
     await expect(verifySyntheticManagerPhone(fakePage(), { email: EMAIL, phone: PHONE })).rejects.toThrow(message);
+    expect(updates).toEqual([]);
   });
 
   it.each([

@@ -178,7 +178,7 @@ export async function verifySyntheticManagerPhone(
   if (String(auth.data.user.email ?? "").trim().toLowerCase() !== email) {
     throw new Error("Synthetic phone fixture Auth user does not match the synthetic mailbox.");
   }
-  if (!auth.data.user.email_confirmed_at && !auth.data.user.confirmed_at) {
+  if (!auth.data.user.email_confirmed_at) {
     throw new Error("Synthetic phone fixture requires the exact Auth email to be confirmed.");
   }
 
