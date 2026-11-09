@@ -16,11 +16,13 @@ test.describe("Settings rail — independent scroll", () => {
     async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 600 });
       await signInAsManager(page);
-      await page.goto("/portal/profile?tab=inspections", { waitUntil: "domcontentloaded" });
+      await page.goto("/portal/profile?tab=workspaces", { waitUntil: "domcontentloaded" });
 
       const rail = page.locator('nav[aria-label="Settings sections"]');
       await expect(rail).toBeVisible();
-      await expect(page.locator('[data-attr="settings-nav-spreadsheets"]')).toHaveCount(1);
+      await expect(page.locator('[data-attr="settings-nav-spreadsheets"]')).toBeVisible();
+      await expect(page.locator('[data-attr="settings-workspace-name"]')).toBeVisible();
+      await expect(page.locator('[data-attr="settings-content"]')).toBeVisible();
 
       // The rail is its own scroll container, and Integrations starts below its fold.
       const before = await page.evaluate(() => {
@@ -28,7 +30,7 @@ test.describe("Settings rail — independent scroll", () => {
         const svc = document.querySelector('[data-attr="settings-nav-spreadsheets"]') as HTMLElement;
         const navRect = nav.getBoundingClientRect();
         return {
-          scrollable: nav.scrollHeight > nav.clientHeight + 2,
+          scrollable: nav.scrollHeight > nav.clientHeight + 2 && getComputedStyle(nav).overflowY === "auto",
           integrationsBelowFold: svc.getBoundingClientRect().bottom > navRect.bottom + 1,
         };
       });
@@ -50,25 +52,21 @@ test.describe("Settings rail — independent scroll", () => {
       // Scrolling the content column does not move the rail.
       const contentMoved = await page.evaluate(() => {
         const nav = document.querySelector('nav[aria-label="Settings sections"]') as HTMLElement;
-        const content = document.querySelector('[class*="lg:overflow-y-auto"]') as HTMLElement | null;
+        const content = document.querySelector('[data-attr="settings-content"]') as HTMLElement | null;
         const railBefore = nav.scrollTop;
-        if (content) content.scrollTop = content.scrollHeight;
+        if (!content) throw new Error("Settings content scroll container missing.");
+        content.scrollTop = content.scrollHeight;
         return { railBefore, railAfter: nav.scrollTop, hadContent: Boolean(content) };
       });
       expect(contentMoved.railAfter).toBe(contentMoved.railBefore);
 
-      // Switching panes resets the content column to the top.
-      await page.evaluate(() => {
-        const content = document.querySelector('[class*="lg:overflow-y-auto"]') as HTMLElement | null;
-        if (content) content.scrollTop = content.scrollHeight;
-      });
-      await page.locator('[data-attr="settings-nav-workspaces"]').click();
-      await page.waitForTimeout(400);
-      const contentTop = await page.evaluate(() => {
-        const content = document.querySelector('[class*="lg:overflow-y-auto"]') as HTMLElement | null;
-        return content ? content.scrollTop : 0;
-      });
-      expect(contentTop).toBeLessThanOrEqual(2);
+      // Switching from a scrolled pane resets the content column.
+      const content = page.locator('[data-attr="settings-content"]');
+      await expect.poll(async () => content.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
+      await content.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+      await expect.poll(async () => content.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+      await page.locator('[data-attr="settings-nav-profile"]').click();
+      await expect.poll(async () => content.evaluate((node) => node.scrollTop)).toBeLessThanOrEqual(2);
     },
   );
 });
