@@ -53,6 +53,7 @@ const UNCERTAIN = "Refund status requires reconciliation before retrying.";
 
 type ReservedAttempt = {
   id: string;
+  created?: boolean;
   status: string;
   provider_refund_id: string | null;
   platform_attempt_key: string | null;
@@ -93,13 +94,15 @@ export async function runHouseholdChargeRefund(
     if (error instanceof HouseholdChargeRefundReviewError) return { kind: "review", message: error.message };
     throw error;
   }
+  if (rail.rail === "central" && rail.ownerUserId !== input.ownerUserId) return { kind: "review", message: "The payment owner changed; the refund needs review." };
+  if (rail.rail !== "destination" && rail.paymentIntentId && input.paymentIntentId && rail.paymentIntentId !== input.paymentIntentId) return { kind: "review", message: "The payment source changed; the refund needs review." };
 
   const { data: reserved, error: reserveError } = await db.rpc("reserve_household_charge_refund", {
     p_owner: input.ownerUserId,
     p_charge: input.chargeId,
     p_operation_key: input.operationKey,
     p_stripe_charge: input.stripeChargeId,
-    p_payment_intent: input.paymentIntentId ?? null,
+    p_payment_intent: rail.rail === "destination" ? input.paymentIntentId ?? null : rail.paymentIntentId ?? input.paymentIntentId ?? null,
     p_rail: rail.rail,
     p_amount: input.amountCents,
     p_basis: { ...input.basis, rail: rail.rail, amountCents: input.amountCents },
@@ -111,22 +114,23 @@ export async function runHouseholdChargeRefund(
   // A replay of the SAME submission that already reached the provider reports what is stored.
   // Issuing a second provider call on an unknown or in-flight attempt is how one refund
   // becomes two.
-  if (attempt.provider_refund_id || attempt.status !== "reserved") return storedOutcome(attempt);
+  if (attempt.created !== true || attempt.provider_refund_id || attempt.status !== "reserved") return storedOutcome(attempt);
 
   const platformAttemptKey = householdRefundPlatformAttemptKey(attempt.id);
   if (rail.rail === "central") {
     // Durably acknowledged before the call: the central rail's provider metadata carries only
     // the PLATFORM attempt, so this stamp is the webhook's only exact way back to this row.
-    const { error } = await db.rpc("stamp_household_charge_refund_platform_key", {
+    const { data, error } = await db.rpc("stamp_household_charge_refund_platform_key", {
       p_attempt: attempt.id, p_key: platformAttemptKey,
     });
-    if (error) return { kind: "unknown", attemptId: attempt.id, refundId: null, message: UNCERTAIN };
+    if (error || data?.id !== attempt.id || data?.platform_attempt_key !== platformAttemptKey) return { kind: "unknown", attemptId: attempt.id, refundId: null, message: UNCERTAIN };
   }
 
   const uncertain = async (refundId: string | null): Promise<HouseholdChargeRefundOutcome> => {
-    await db.from("household_charge_refund_attempts")
+    const { data, error } = await db.from("household_charge_refund_attempts")
       .update({ provider_refund_id: refundId || null, status: "unknown", updated_at: new Date().toISOString() })
-      .eq("id", attempt.id).eq("status", "reserved");
+      .eq("id", attempt.id).eq("status", "reserved").select("id");
+    if (error || data?.length !== 1) return { kind: "unknown", attemptId: attempt.id, refundId, message: UNCERTAIN };
     return { kind: "unknown", attemptId: attempt.id, refundId, message: UNCERTAIN };
   };
 
@@ -136,6 +140,7 @@ export async function runHouseholdChargeRefund(
       chargeId: input.chargeId,
       stripeChargeId: input.stripeChargeId,
       amountCents: input.amountCents,
+      expectedRail: rail,
       idempotencyKey: platformAttemptKey,
       metadata: { ...(input.metadata ?? {}), household_refund_attempt: attempt.id },
       ...(input.reason ? { reason: input.reason } : {}),
@@ -145,9 +150,10 @@ export async function runHouseholdChargeRefund(
       // Only the rail RESOLVER raises this, and it runs before any provider call, so nothing
       // was sent. The reservation is released — leaving it held would block every later refund
       // of this charge — and the refusal is reported as terminal.
-      await db.from("household_charge_refund_attempts")
+      const { data, error: releaseError } = await db.from("household_charge_refund_attempts")
         .update({ status: "failed", updated_at: new Date().toISOString() })
-        .eq("id", attempt.id).eq("status", "reserved");
+        .eq("id", attempt.id).eq("status", "reserved").select("id");
+      if (releaseError || data?.length !== 1) return { kind: "unknown", attemptId: attempt.id, refundId: null, message: UNCERTAIN };
       return { kind: "review", message: error.message };
     }
     // The call may or may not have left. Uncertainty is recorded durably, never a release:
@@ -160,10 +166,10 @@ export async function runHouseholdChargeRefund(
   // `succeeded` from the provider is not terminal accounting: the webhook re-reads the refund,
   // records its evidence and projects the money through `bind_household_charge_refund`.
   if (refund.status === "pending" || refund.status === "succeeded") {
-    const { error } = await db.from("household_charge_refund_attempts")
+    const { data, error } = await db.from("household_charge_refund_attempts")
       .update({ provider_refund_id: refund.refundId || null, status: "pending", updated_at: new Date().toISOString() })
-      .eq("id", attempt.id).eq("status", "reserved");
-    if (error) return await uncertain(refund.refundId);
+      .eq("id", attempt.id).eq("status", "reserved").select("id");
+    if (error || data?.length !== 1) return await uncertain(refund.refundId);
     return { kind: "pending", attemptId: attempt.id, refundId: refund.refundId };
   }
   // A failed or unknown provider answer releases nothing here: only verified terminal evidence

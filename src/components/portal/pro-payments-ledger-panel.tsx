@@ -363,7 +363,7 @@ export function ManagerPaymentsLedgerPanel({
   // refused. The client never decides this.
   const [depositReturnEnabled, setDepositReturnEnabled] = useState(false);
   const [depositReturnAmount, setDepositReturnAmount] = useState("");
-  const depositReturnOperationId = useRef<string | null>(null);
+  const refundOperations = useRef(new Map<string, { basis: string; id: string }>());
   const [depositDeductions, setDepositDeductions] = useState<Array<{ label: string; amount: string }>>([]);
   const [returningDepositId, setReturningDepositId] = useState<string | null>(null);
   const [refundingChargeId, setRefundingChargeId] = useState<string | null>(null);
@@ -1529,9 +1529,6 @@ export function ManagerPaymentsLedgerPanel({
   const returnDepositForRow = (row: DemoManagerPaymentLedgerRow) => {
     setDepositReturnAmount("");
     setDepositDeductions([]);
-    // One id for this SUBMISSION, kept across every retry of it, so a timeout that actually
-    // reserved resumes that reservation instead of colliding with it.
-    depositReturnOperationId.current = crypto.randomUUID();
     setDepositReturnRow(row);
   };
 
@@ -1549,7 +1546,7 @@ export function ManagerPaymentsLedgerPanel({
     try {
       const res = await fetch("/api/portal/deposit-return", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chargeId: row.householdChargeId, amountCents: Math.round(amount * 100), itemization, operationId: depositReturnOperationId.current }),
+        body: JSON.stringify({ chargeId: row.householdChargeId, amountCents: Math.round(amount * 100), itemization }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string; status?: string };
       // `pending` is the ONLY outcome this route reports as accepted: the provider refund was
@@ -1585,7 +1582,15 @@ export function ManagerPaymentsLedgerPanel({
     setRefundingChargeId(row.householdChargeId ?? row.id);
     // One id for this submission, so a retry after a timeout resumes the same reservation
     // instead of opening a second one against the same balance.
-    const operationId = crypto.randomUUID();
+    const chargeId = row.householdChargeId ?? row.id;
+    const charge = readHouseholdCharges().find((item) => item.id === chargeId);
+    const basis = JSON.stringify([row.amountPaid, charge?.refundedCents ?? 0]);
+    let operation = refundOperations.current.get(chargeId);
+    if (!operation || operation.basis !== basis) {
+      operation = { basis, id: crypto.randomUUID() };
+      refundOperations.current.set(chargeId, operation);
+    }
+    const operationId = operation.id;
     try {
       const res = await fetch("/api/portal/charge-refund", {
         method: "POST",

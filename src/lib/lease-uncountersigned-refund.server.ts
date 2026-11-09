@@ -151,7 +151,7 @@ async function planMoveInChargeRefund(
   const charge = (row.row_data ?? {}) as Record<string, unknown>;
   const { data: payment } = await db
     .from("ledger_entries")
-    .select("stripe_charge_id, stripe_payment_intent_id, amount_cents")
+    .select("stripe_charge_id, amount_cents")
     .eq("source_charge_id", chargeId)
     .eq("entry_type", "payment")
     .maybeSingle();
@@ -198,7 +198,7 @@ async function planMoveInChargeRefund(
     status: row.status,
     charge,
     stripeChargeId: decision.stripeChargeId,
-    paymentIntentId: (payment?.stripe_payment_intent_id as string | null) ?? null,
+    paymentIntentId: null,
     amountCents: decision.amountCents,
     alreadyRefundedCents: ctx.alreadyRefundedCents,
     paidCents: ctx.paidCents,

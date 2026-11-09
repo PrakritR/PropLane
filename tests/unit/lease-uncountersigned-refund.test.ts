@@ -114,7 +114,7 @@ describe("the uncountersigned-lease refund plans the whole lease first", () => {
         if (name !== "reserve_household_charge_refund") return { data: {}, error: null };
         reservations.push(String(args.p_charge));
         return { data: { id: `att_${String(args.p_charge)}`, status: "reserved", provider_refund_id: null,
-          platform_attempt_key: null }, error: null };
+          platform_attempt_key: null, created: true }, error: null };
       },
       from: (table: string) => {
         let wantedId: string | null = null;
@@ -152,7 +152,7 @@ describe("the uncountersigned-lease refund plans the whole lease first", () => {
           },
           then: (resolve: (v: { data: unknown[]; error: null }) => unknown) =>
             Promise.resolve({
-              data: table === "portal_lease_pipeline_records" ? [lease] : charges,
+              data: table === "household_charge_refund_attempts" ? [{ id: wantedId }] : table === "portal_lease_pipeline_records" ? [lease] : charges,
               error: null,
             }).then(resolve),
         };

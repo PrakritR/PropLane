@@ -58,7 +58,7 @@ function reserveHouseholdChargeRefund(tables: Record<string, Row[]>, args: Row, 
       JSON.stringify(replay.basis) !== JSON.stringify(args.p_basis);
     return differs
       ? { data: null, error: { message: "Operation key differs from reservation" } }
-      : { data: { ...replay }, error: null };
+      : { data: { ...replay, created: false }, error: null };
   }
   const refunded = Number((charge.row_data as Row | undefined)?.refundedCents ?? 0);
   const unresolved = attempts.filter((row) =>
@@ -77,7 +77,7 @@ function reserveHouseholdChargeRefund(tables: Record<string, Row[]>, args: Row, 
     provider_refund_id: null, status: "reserved", projected_at: null,
   };
   attempts.push(row);
-  return { data: { ...row }, error: null };
+  return { data: { ...row, created: true }, error: null };
 }
 
 export function createFakeDb(seed: Record<string, Row[]> = {}, options: FakeDbOptions = {}): FakeDb {

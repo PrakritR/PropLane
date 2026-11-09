@@ -122,6 +122,14 @@ function markPaid(db: ReturnType<typeof seeded>, kind: "early_check_in" | "late_
   db.tables.ledger_entries!.push({ source_charge_id: row.id, entry_type: "payment", stripe_charge_id: "ch_test_1", amount_cents: 2500 });
 }
 
+/** Model the verified refund webhook's atomic projection before it resumes the add-on. */
+function confirmRefund(db: ReturnType<typeof seeded>) {
+  const attempt = db.tables.household_charge_refund_attempts!.at(-1)!;
+  attempt.status = "succeeded";
+  attempt.projected_at = NOW.toISOString();
+  (chargeRow(db, "early_check_in")!.row_data as Record<string, unknown>).refundedCents = 2500;
+}
+
 const ask = (db: ReturnType<typeof seeded>, kind: unknown, extra: Record<string, unknown> = {}) =>
   requestStayAddOn(db as never, { blockId: BLOCK, userId: GUEST, kind, appOrigin: "https://app.test", now: NOW, ...extra });
 
@@ -388,8 +396,9 @@ describe("paid but no longer honorable: refunded automatically, once", () => {
     await paidThenTaken(db);
     spies.refundPaidHouseholdCharge.mockResolvedValueOnce({ refundId: "re_pending", rail: "destination", status: "pending" } as never);
     const result = await applyPaidStayAddOn(db as never, { chargeId: stayAddOnChargeId(BLOCK, "early_check_in"), stripe, now: NOW });
-    expect(result).toMatchObject({ outcome: "refunded" });
+    expect(result).toMatchObject({ outcome: "refund_pending" });
     expect(chargeRow(db, "early_check_in")!.row_data).not.toHaveProperty("refundedCents");
+    expect(spies.enqueueOwnerSms).not.toHaveBeenCalled();
     const attempt = db.tables.household_charge_refund_attempts!.at(-1)!;
     expect(attempt).toMatchObject({ amount_cents: 2500, status: "pending", baseline_refunded_cents: 0,
       provider_refund_id: "re_pending", projected_at: null });
@@ -409,11 +418,39 @@ describe("paid but no longer honorable: refunded automatically, once", () => {
     expect(spies.refundPaidHouseholdCharge).not.toHaveBeenCalled();
   });
 
+  it("does not apply an add-on if availability returns while its refund is pending", async () => {
+    const db = seeded();
+    await paidThenTaken(db);
+    const id = stayAddOnChargeId(BLOCK, "early_check_in");
+    expect(await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW })).toMatchObject({ outcome: "refund_pending" });
+    db.tables.portal_schedule_records = db.tables.portal_schedule_records!.filter((row) => row.id !== "prev");
+    expect(await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW })).toMatchObject({ outcome: "refund_pending" });
+    expect(storedData(db).checkInTime).toBe("15:00");
+    expect(spies.enqueueOwnerSms).not.toHaveBeenCalled();
+  });
+
+  it("records a verified failed refund and notifies the host only once", async () => {
+    const db = seeded();
+    await paidThenTaken(db);
+    const id = stayAddOnChargeId(BLOCK, "early_check_in");
+    await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW });
+    db.tables.household_charge_refund_attempts!.at(-1)!.status = "failed";
+    const result = await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW, verifiedRefundReason: "previous_guest" });
+    expect(result).toMatchObject({ outcome: "refund_failed" });
+    expect(storedData(db).stayDetails.addOns!.early_check_in).toMatchObject({ status: "refund_failed" });
+    expect(spies.enqueueOwnerSms).not.toHaveBeenCalled();
+    expect(spies.emitActionEvent).toHaveBeenCalledTimes(1);
+    expect(await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW })).toMatchObject({ outcome: "ignored", reason: "already_settled" });
+    expect(spies.emitActionEvent).toHaveBeenCalledTimes(1);
+  });
+
   it("refunds through the refund rail on a stable key, records `refunded`, texts the guest, tells the team", async () => {
     const db = seeded();
     await paidThenTaken(db);
     const id = stayAddOnChargeId(BLOCK, "early_check_in");
-    const result = await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW });
+    expect(await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW })).toMatchObject({ outcome: "refund_pending" });
+    confirmRefund(db);
+    const result = await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW, verifiedRefundReason: "previous_guest" });
     expect(result).toMatchObject({ outcome: "refunded", kind: "early_check_in", reason: "previous_guest" });
     expect(spies.refundPaidHouseholdCharge).toHaveBeenCalledTimes(1);
     expect(spies.refundPaidHouseholdCharge.mock.calls[0]![2]).toMatchObject({
@@ -426,7 +463,7 @@ describe("paid but no longer honorable: refunded automatically, once", () => {
     expect(db.tables.household_charge_refund_attempts!.at(-1)!.operation_key).toBe(stayAddOnRefundKey(id, 2500));
     expect(storedData(db)).toMatchObject({ checkInTime: "15:00" });
     expect(storedData(db).stayDetails.addOns!.early_check_in).toMatchObject({ status: "refunded", refundReason: "previous_guest" });
-    expect(chargeRow(db, "early_check_in")!.row_data).not.toHaveProperty("refundedCents");
+    expect(chargeRow(db, "early_check_in")!.row_data).toHaveProperty("refundedCents", 2500);
     expect(spies.enqueueOwnerSms.mock.calls[0]![0]).toMatchObject({
       purpose: "short_stay_add_on_refunded",
       body: "PropLane: Early check-in at 12:00 pm isn't available for Oct 20 anymore, so we refunded $25. Your check-in stays at 3:00 pm.",
@@ -440,6 +477,8 @@ describe("paid but no longer honorable: refunded automatically, once", () => {
     await paidThenTaken(db);
     const id = stayAddOnChargeId(BLOCK, "early_check_in");
     await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW });
+    confirmRefund(db);
+    await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW, verifiedRefundReason: "previous_guest" });
     const again = await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW });
     expect(again).toEqual({ outcome: "ignored", reason: "already_settled" });
     expect(spies.refundPaidHouseholdCharge).toHaveBeenCalledTimes(1);
@@ -451,6 +490,7 @@ describe("paid but no longer honorable: refunded automatically, once", () => {
     await paidThenTaken(db);
     const id = stayAddOnChargeId(BLOCK, "early_check_in");
     await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW });
+    confirmRefund(db);
     // the first delivery refunded and wrote the charge row, then died before the stay was marked
     storedData(db).stayDetails.addOns!.early_check_in = { time: "12:00", priceCents: 2500, status: "pending", chargeId: id };
     const redelivered = await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW });
@@ -465,7 +505,7 @@ describe("paid but no longer honorable: refunded automatically, once", () => {
   // `already_settled`, while the charge row still read paid with `refundedCents: 0` - so the refund was invisible
   // in Payments and the same money could be refunded again. The refund call is idempotency-keyed, so throwing is
   // safe: Stripe redelivers and the write is retried.
-  it("throws when the refund cannot be recorded, so Stripe redelivers instead of losing it", async () => {
+  it("does not overwrite the charge from a stale pre-provider snapshot", async () => {
     const db = seeded({
       failWrite: (table, mode, payload) =>
         table === "portal_household_charge_records" && mode === "upsert" &&
@@ -475,7 +515,7 @@ describe("paid but no longer honorable: refunded automatically, once", () => {
     });
     await paidThenTaken(db);
     const id = stayAddOnChargeId(BLOCK, "early_check_in");
-    await expect(applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW })).rejects.toThrow(/was not recorded/);
+    expect(await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW })).toMatchObject({ outcome: "refund_pending" });
     expect(spies.refundPaidHouseholdCharge).toHaveBeenCalledTimes(1);
     // The stay was NOT marked settled, so the redelivery runs the whole thing again.
     expect(storedData(db).stayDetails.addOns!.early_check_in).not.toMatchObject({ status: "refunded" });
@@ -492,7 +532,7 @@ describe("paid but no longer honorable: refunded automatically, once", () => {
     await ask(db, "early_check_in");
     markPaid(db, "early_check_in");
     const result = await applyPaidStayAddOn(db as never, { chargeId: stayAddOnChargeId(BLOCK, "early_check_in"), stripe, now: NOW });
-    expect(result).toMatchObject({ outcome: "refunded", reason: "slot_taken" });
+    expect(result).toMatchObject({ outcome: "refund_pending", reason: "slot_taken" });
     expect(spies.refundPaidHouseholdCharge).toHaveBeenCalledTimes(1);
     expect(storedData(db).checkInTime).toBe("15:00");
   });
@@ -502,7 +542,7 @@ describe("paid but no longer honorable: refunded automatically, once", () => {
     await ask(db, "early_check_in");
     markPaid(db, "early_check_in");
     stored(db).record_type = "cancelled_room_date_block";
-    expect(await applyPaidStayAddOn(db as never, { chargeId: stayAddOnChargeId(BLOCK, "early_check_in"), stripe, now: NOW })).toMatchObject({ outcome: "refunded", reason: "stay_cancelled" });
+    expect(await applyPaidStayAddOn(db as never, { chargeId: stayAddOnChargeId(BLOCK, "early_check_in"), stripe, now: NOW })).toMatchObject({ outcome: "refund_pending", reason: "stay_cancelled" });
     expect(spies.refundPaidHouseholdCharge).toHaveBeenCalledTimes(1);
   });
 
@@ -511,7 +551,7 @@ describe("paid but no longer honorable: refunded automatically, once", () => {
     await ask(db, "early_check_in");
     markPaid(db, "early_check_in");
     delete storedData(db).stayDetails.addOns;
-    expect(await applyPaidStayAddOn(db as never, { chargeId: stayAddOnChargeId(BLOCK, "early_check_in"), stripe, now: NOW })).toMatchObject({ outcome: "refunded", reason: "no_request" });
+    expect(await applyPaidStayAddOn(db as never, { chargeId: stayAddOnChargeId(BLOCK, "early_check_in"), stripe, now: NOW })).toMatchObject({ outcome: "refund_pending", reason: "no_request" });
     expect(storedData(db).checkInTime).toBe("15:00");
   });
 
@@ -599,7 +639,7 @@ describe("a refund that can never succeed does not wedge the webhook", () => {
     const rejected = make("23514");
     await ask(rejected, "early_check_in");
     markPaid(rejected, "early_check_in");
-    expect(await applyPaidStayAddOn(rejected as never, { chargeId: id, stripe, now: NOW })).toMatchObject({ outcome: "refunded", reason: "write_rejected" });
+    expect(await applyPaidStayAddOn(rejected as never, { chargeId: id, stripe, now: NOW })).toMatchObject({ outcome: "refund_pending", reason: "write_rejected" });
     const transient = make("57014");
     await ask(transient, "early_check_in");
     markPaid(transient, "early_check_in");
@@ -614,6 +654,8 @@ describe("a refund that can never succeed does not wedge the webhook", () => {
           : null,
     });
     await paidThenTaken(db);
+    expect(await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW })).toMatchObject({ outcome: "refund_pending" });
+    confirmRefund(db);
     expect(await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW })).toMatchObject({ outcome: "refunded" });
     expect(spies.refundPaidHouseholdCharge).toHaveBeenCalledTimes(1);
   });
@@ -657,7 +699,7 @@ describe("deadlocks and serialization failures are never a refusal", () => {
     });
     await ask(db, "early_check_in");
     markPaid(db, "early_check_in");
-    expect(await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW })).toMatchObject({ outcome: "refunded", reason: "slot_taken" });
+    expect(await applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW })).toMatchObject({ outcome: "refund_pending", reason: "slot_taken" });
   });
 });
 

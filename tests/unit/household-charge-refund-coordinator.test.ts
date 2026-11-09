@@ -128,6 +128,45 @@ describe("reserving before the provider", () => {
 });
 
 describe("replay and uncertainty", () => {
+  it("reports uncertainty if the provider stamp is not acknowledged", async () => {
+    const db = createFakeDb({
+      portal_household_charge_records: [{ id: CHARGE, manager_user_id: OWNER, status: "paid", row_data: { kind: "rent" } }],
+      ledger_entries: [{ source_charge_id: CHARGE, entry_type: "payment", stripe_charge_id: "ch_1", amount_cents: 90_000 }],
+    }, { failWrite: (table, mode) => table === "household_charge_refund_attempts" && mode === "update" ? { message: "write failed" } : null });
+    expect(await run(db)).toMatchObject({ kind: "unknown" });
+    expect(rail.refundPaidHouseholdCharge).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not overwrite a terminal webhook that wins the provider-stamp race", async () => {
+    const db = seeded();
+    rail.refundPaidHouseholdCharge.mockImplementationOnce(async () => {
+      attempts(db)[0]!.status = "succeeded";
+      attempts(db)[0]!.provider_refund_id = "re_1";
+      return { refundId: "re_1", status: "succeeded", rail: "destination" };
+    });
+    expect(await run(db)).toMatchObject({ kind: "unknown" });
+    expect(attempts(db)[0]).toMatchObject({ status: "succeeded", provider_refund_id: "re_1" });
+  });
+  it("only the freshly inserted reservation can call the provider concurrently", async () => {
+    const db = seeded();
+    let finish!: (result: { refundId: string; status: string; rail: string }) => void;
+    rail.refundPaidHouseholdCharge.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    const first = run(db);
+    await vi.waitFor(() => expect(rail.refundPaidHouseholdCharge).toHaveBeenCalledTimes(1));
+    expect(await run(db)).toMatchObject({ kind: "unknown" });
+    expect(rail.refundPaidHouseholdCharge).toHaveBeenCalledTimes(1);
+    finish({ refundId: "re_1", status: "pending", rail: "destination" });
+    expect(await first).toMatchObject({ kind: "pending" });
+  });
+  it("never sends on replay of a reserved operation whose provider outcome is unknown", async () => {
+    const db = seeded();
+    rail.refundPaidHouseholdCharge.mockRejectedValueOnce(new Error("lost response"));
+    await expect(run(db)).rejects.toThrow();
+    attempts(db)[0]!.status = "reserved";
+    rail.refundPaidHouseholdCharge.mockClear();
+    expect(await run(db)).toMatchObject({ kind: "unknown" });
+    expect(rail.refundPaidHouseholdCharge).not.toHaveBeenCalled();
+  });
   it("resumes the same operation instead of sending a second provider refund", async () => {
     const db = seeded();
     await run(db);

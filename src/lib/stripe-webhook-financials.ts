@@ -507,12 +507,16 @@ async function reconcileHouseholdChargeRefund(
     attemptId = householdRefundAttemptIdFromPlatformKey(data?.attempt_key as string | null);
   }
   if (!attemptId) return;
-  const { error } = await db.rpc("bind_household_charge_refund", {
+  const { data, error } = await db.rpc("bind_household_charge_refund", {
     p_attempt: attemptId, p_refund: refund.id, p_charge: stripeChargeId,
     p_amount: refund.amount, p_currency: refund.currency, p_status: refund.status,
     p_platform_attempt: platformAttemptId,
   });
   if (error) throw new Error("Household charge refund binding requires reconciliation.");
+  if (["succeeded", "failed", "canceled"].includes(refund.status ?? "") && data?.basis?.kind === "stay_add_on_refund" && typeof data.source_charge_id === "string") {
+    const { applyPaidStayAddOn } = await import("@/lib/short-stay/stay-add-on-settlement.server");
+    await applyPaidStayAddOn(db, { chargeId: data.source_charge_id, verifiedRefundReason: typeof data.basis.reason === "string" ? data.basis.reason : undefined });
+  }
 }
 
 export async function handleStripeRefund(

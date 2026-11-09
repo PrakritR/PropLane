@@ -94,7 +94,7 @@ export async function POST(req: Request) {
     // record the refund webhook keys on — rather than from the charge row itself.
     const { data: payment, error: paymentError } = await db
       .from("ledger_entries")
-      .select("stripe_charge_id, stripe_payment_intent_id, amount_cents")
+      .select("stripe_charge_id, amount_cents")
       .eq("source_charge_id", chargeId)
       .eq("entry_type", "payment")
       .maybeSingle();
@@ -135,7 +135,7 @@ export async function POST(req: Request) {
         ownerUserId,
         chargeId,
         stripeChargeId: decision.stripeChargeId,
-        paymentIntentId: (payment?.stripe_payment_intent_id as string | null) ?? null,
+        paymentIntentId: null,
         amountCents: decision.amountCents,
         operationKey,
         basis: {

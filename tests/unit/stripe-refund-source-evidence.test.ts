@@ -5,6 +5,8 @@ const sync = vi.hoisted(() => vi.fn());
 const postGl = vi.hoisted(() => vi.fn());
 const providerRetrieve = vi.hoisted(() => vi.fn());
 const classified = vi.hoisted(() => vi.fn());
+const resumeAddOn = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/short-stay/stay-add-on-settlement.server", () => ({ applyPaidStayAddOn: resumeAddOn }));
 
 vi.mock("@/lib/platform-money-refund.server", () => ({
   settleReservedPlatformMoneyRefundFromWebhook: settle,
@@ -71,6 +73,15 @@ describe("signed Stripe refund source evidence", () => {
     sync.mockResolvedValue("ledger-refund");
     classified.mockResolvedValue({ captured: false });
     providerRetrieve.mockImplementation(async () => fixture().refund);
+  });
+
+  it.each(["succeeded", "failed", "canceled"])("resumes the exact bound add-on on verified %s", async (status) => {
+    const f = fixture();
+    f.rpc.mockImplementation(async (name: string) => ({ data: name === "bind_household_charge_refund" ? { source_charge_id: "exact-add-on", basis: { kind: "stay_add_on_refund", reason: "slot_taken" } } : true, error: null }));
+    const refund = { ...f.refund, status, metadata: { household_refund_attempt: "hh-1" } };
+    providerRetrieve.mockResolvedValue(refund);
+    await handleStripeRefund(f.db as never, refund as never, "ch_exact");
+    expect(resumeAddOn).toHaveBeenCalledExactlyOnceWith(f.db, { chargeId: "exact-add-on", verifiedRefundReason: "slot_taken" });
   });
 
   /**

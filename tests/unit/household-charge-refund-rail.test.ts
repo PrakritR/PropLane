@@ -65,6 +65,21 @@ describe("refundPaidHouseholdCharge", () => {
     runReservedPlatformMoneyRefund.mockReset();
   });
 
+  it("refuses a changed rail before calling the provider", async () => {
+    const { stripe, db } = fixture([centralHold]);
+    await expect(refundPaidHouseholdCharge(stripe as never, db as never, { ...input, expectedRail: { rail: "destination" } })).rejects.toThrow(/allocation changed/);
+    expect(stripe.refunds.create).not.toHaveBeenCalled();
+    expect(runReservedPlatformMoneyRefund).not.toHaveBeenCalled();
+  });
+
+  it("refuses duplicate exact managed allocations before provider calls", async () => {
+    const { stripe } = fixture([]);
+    const allocation = { id: "a", charge_id: chargeId, stripe_charge_id: stripeChargeId, stripe_payment_intent_id: "pi_a", principal_cents: 5000, refunded_principal_cents: 0 };
+    const db = { from: () => { const q = { select: () => q, eq: () => q, limit: async () => ({ data: [allocation, { ...allocation, id: "b", stripe_payment_intent_id: "pi_b" }], error: null }) }; return q; } };
+    await expect(refundPaidHouseholdCharge(stripe as never, db as never, input)).rejects.toThrow(/ambiguous/);
+    expect(stripe.refunds.create).not.toHaveBeenCalled();
+  });
+
   it.each([ ["pending", "pending"], ["failed", "failed"], ["canceled", "failed"], [null, "unknown"] ] as const)("preserves provider status %s", async (providerStatus, expected) => {
     const { stripe, db } = fixture([]);
     stripe.refunds.create.mockResolvedValue({ id: "re_legacy", status: providerStatus } as never);

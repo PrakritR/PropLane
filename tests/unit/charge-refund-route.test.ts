@@ -33,12 +33,12 @@ vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({
     rpc: async (name: string, args: Record<string, unknown>) => {
       rpcCalls.push({ name, args });
-      return name === "reserve_household_charge_refund" ? reserve(args) : { data: {}, error: null };
+      return name === "reserve_household_charge_refund" ? reserve(args) : { data: { id: args.p_attempt, platform_attempt_key: args.p_key }, error: null };
     },
     from: (table: string) => ({
       select: () => ({
         eq: () => ({
-          eq: () => ({ maybeSingle: async () => ({ data: rows.payment }) }),
+          eq: () => ({ maybeSingle: async () => ({ data: rows.payment }), limit: async () => ({ data: [], error: null }) }),
           // `platform_payment_holds` decides the refund rail: empty means a legacy
           // destination charge, one row means a central platform capture.
           limit: async () => ({ data: rows.holds, error: null }),
@@ -49,7 +49,7 @@ vi.mock("@/lib/supabase/service", () => ({
       }),
       update: (patch: Record<string, unknown>) => {
         attemptUpdates.push({ table, ...patch });
-        return { eq: () => ({ eq: async () => ({ error: null }) }) };
+        return { eq: () => ({ eq: () => ({ select: async () => ({ data: [{ id: ATTEMPT }], error: null }) }) }) };
       },
       upsert: async (row: Record<string, unknown>) => {
         upserted.push(row);
@@ -78,7 +78,7 @@ beforeEach(() => {
   rpcCalls.length = 0;
   attemptUpdates.length = 0;
   reserve.mockImplementation(() => ({
-    data: { id: ATTEMPT, status: "reserved", provider_refund_id: null, platform_attempt_key: null },
+    data: { id: ATTEMPT, status: "reserved", provider_refund_id: null, platform_attempt_key: null, created: true },
     error: null,
   }));
   getUser.mockResolvedValue({ data: { user: { id: "mgr-1" } } });
