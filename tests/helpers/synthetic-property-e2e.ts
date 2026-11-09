@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Page } from "@playwright/test";
-import { createDefaultListingSubmission } from "../../src/lib/manager-listing-submission";
+import { createDefaultListingSubmission, normalizeManagerListingSubmissionV1 } from "../../src/lib/manager-listing-submission";
 
 type Fixture = { id: string; name: string; actorId: string };
 type Snapshot = { snapshot?: { extrasByUser?: Record<string, Array<{ id?: string; buildingName?: string; managerUserId?: string; fixturePurpose?: string; adminPublishLive?: boolean }>> } };
@@ -49,22 +49,28 @@ export async function cleanupSyntheticProperties(page: Page): Promise<void> {
 }
 
 /** Only a new, uniquely named fixture may be mutated by these browser tests. */
-export async function createSyntheticProperty(page: Page): Promise<{ id: string; name: string }> {
+export async function createSyntheticProperty(page: Page): Promise<{ id: string; name: string; roomId: string; roomName: string }> {
   assertDev(page);
   const actor = await syntheticFixtureActorId(page);
   const id = `e2e-safe-${randomUUID()}`;
   const name = `E2E Safe ${randomUUID()}`;
   const base = createDefaultListingSubmission();
-  const listingSubmission = { ...base, buildingName: name, address: "1 Fictional Test Lane", city: "Seattle", state: "WA", zip: "98101", allowedLeaseTerms: ["12 months"], rooms: [{ ...base.rooms[0], id: `room-${randomUUID()}`, name: "Fixture Room", monthlyRent: 1000 }] };
-  const propertyData = { id, fixturePurpose: purpose, title: name, buildingName: name, buildingId: id, address: listingSubmission.address, zip: listingSubmission.zip, neighborhood: "Test", unitLabel: "Fixture Room", tagline: "", adminPublishLive: true, beds: 1, baths: 1, rentLabel: "$1,000 / mo", available: "Now", petFriendly: false, listingSubmission };
+  const draftSubmission = { ...base, buildingName: name, address: "1 Fictional Test Lane", city: "Seattle", state: "WA", zip: "98101", allowedLeaseTerms: ["12 months"], rooms: [{ ...base.rooms[0], id: `room-${randomUUID()}`, name: "Fixture Room", monthlyRent: 1000 }] };
+  // Persist the same normalized, complete listing shape the portal readers consume. Keep the
+  // room's stable id: channel calendars, tours, and leases all resolve rooms from this catalog.
+  const listingSubmission = normalizeManagerListingSubmissionV1(draftSubmission);
+  const room = listingSubmission.rooms[0];
+  if (!room?.id || room.name !== "Fixture Room") throw new Error("Synthetic property room did not survive listing normalization.");
+  const propertyData = { id, fixturePurpose: purpose, title: name, buildingName: name, buildingId: id, address: listingSubmission.address, zip: listingSubmission.zip, neighborhood: "Test", unitLabel: room.name, tagline: "", adminPublishLive: true, beds: 1, baths: 1, rentLabel: "$1,000 / mo", available: "Now", petFriendly: false, listingSubmission };
   const before = await page.request.get("/api/property-records");
   if (!before.ok() || JSON.stringify(await before.json()).includes(id)) throw new Error("Synthetic property id is not confirmed absent.");
-  const result = await page.request.post("/api/property-records", { data: { action: "upsert", id, status: "live", rowData: { id, name, fixturePurpose: purpose }, propertyData } });
+  const rowData = { id, name, buildingName: name, address: listingSubmission.address, fixturePurpose: purpose, submission: listingSubmission };
+  const result = await page.request.post("/api/property-records", { data: { action: "upsert", id, status: "live", rowData, propertyData } });
   if (!result.ok()) throw new Error(`Synthetic property creation failed (HTTP ${result.status()}).`);
   const tracked = fixtures.get(page) ?? [];
   tracked.push({ id, name, actorId: actor });
   fixtures.set(page, tracked);
   const matching = (await rows(page)).filter((row) => row.id === id && row.buildingName === name && row.managerUserId === actor && row.fixturePurpose === purpose && row.adminPublishLive === true);
   if (matching.length !== 1) throw new Error("Synthetic live property ownership was not confirmed in the authenticated portfolio.");
-  return { id, name };
+  return { id, name, roomId: room.id, roomName: room.name };
 }

@@ -63,7 +63,9 @@ test.describe("Tour-resident addendum verification", () => {
     const offeredDay = page.getByRole("button", { name: /request a tour$/i }).first();
     await expect(offeredDay).toBeVisible({ timeout: 25_000 });
     await offeredDay.click();
-    const firstTime = page.locator(".ps-j-times button").first();
+    // The authenticated resident path renders the embedded portal calendar, not the public
+    // `.ps-j-times` markup. Its actual offered slots are named buttons such as "8:00 AM".
+    const firstTime = page.getByRole("button", { name: /^\d{1,2}:\d{2} [AP]M$/ }).first();
     await expect(firstTime).toBeVisible({ timeout: 10_000 });
     await firstTime.click();
     await page.getByRole("button", { name: "Continue", exact: true }).last().click();
@@ -81,7 +83,8 @@ test.describe("Tour-resident addendum verification", () => {
     const responseBody = await result.json() as { row?: { id?: string } };
     expect(responseBody.row?.id).toBeTruthy();
     fixture.inquiryId = responseBody.row!.id!;
-    await expect(page.locator('[data-attr="tour-success"]')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("heading", { name: "Your tour request is in", exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-attr="tour-request-not-confirmed-notice"]')).toBeVisible();
 
     await page.goto("/resident/communication");
     await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 20_000 });
