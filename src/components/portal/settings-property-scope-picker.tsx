@@ -50,6 +50,7 @@ export function SettingsPropertyScope({
   /** False when the setting has no workspace-wide value — a property must be chosen. */
   allowAll?: boolean;
 }) {
+  const workspaces = useWorkspaces();
   const { workspaceId, options } = useWorkspacePropertyOptions();
   const [propertyIds, setPropertyIds] = useState<string[]>([]);
   useEffect(() => {
@@ -73,6 +74,7 @@ export function SettingsPropertyScope({
           <FieldSingleSelect
             hideLabel
             label="Property"
+            disabled={Boolean(workspaces?.loading || workspaces?.error)}
             variant="cell"
             wrapperClassName="w-64"
             value={selected}
