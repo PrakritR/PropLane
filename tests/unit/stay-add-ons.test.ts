@@ -119,7 +119,7 @@ function markPaid(db: ReturnType<typeof seeded>, kind: "early_check_in" | "late_
   const row = chargeRow(db, kind)!;
   row.status = "paid";
   (row.row_data as Record<string, unknown>).status = "paid";
-  db.tables.ledger_entries!.push({ source_charge_id: row.id, entry_type: "payment", stripe_charge_id: "ch_test_1", amount_cents: 2500 });
+  db.tables.ledger_entries!.push({ source_charge_id: row.id, manager_user_id: row.manager_user_id, entry_type: "payment", stripe_charge_id: "ch_test_1", amount_cents: 2500 });
 }
 
 /** Model the verified refund webhook's atomic projection before it resumes the add-on. */

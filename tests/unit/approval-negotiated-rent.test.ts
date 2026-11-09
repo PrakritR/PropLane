@@ -8,7 +8,7 @@ describe("approval negotiated rent", () => {
   it("writes only a positive negotiated value and returns the confirmed server row", async () => {
     upsert.mockResolvedValue({ ok: true, row: { id: "app", application: { managerRentOverride: "900" } } });
     expect(await persistApprovalNegotiatedRent(row, 900)).toMatchObject({ application: { managerRentOverride: "900" } });
-    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ application: { managerRentOverride: "900" } }), { timeoutMs: 20_000 });
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ application: { managerRentOverride: "900" } }), { timeoutMs: 20_000, publishConfirmedRow: false });
   });
   it("returns null on failed or unconfirmed writes", async () => {
     upsert.mockResolvedValueOnce({ ok: false }).mockResolvedValueOnce({ ok: true });
