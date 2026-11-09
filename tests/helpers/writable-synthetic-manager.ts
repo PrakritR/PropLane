@@ -28,12 +28,21 @@ export type WritableSyntheticManager = SyntheticPublicTourManager & {
   properties: Array<{ id: string; name: string }>;
 };
 
+type EmptyWritableSyntheticManager = Omit<SyntheticPublicTourManager, "property"> & { property: null; properties: [] };
+
+export function createWritableSyntheticManager(browser: Browser, options: { properties: 0; tier?: "free" | "pro" }): Promise<EmptyWritableSyntheticManager>;
+export function createWritableSyntheticManager(browser: Browser, options?: { properties?: number; tier?: "free" | "pro" }): Promise<WritableSyntheticManager>;
 export async function createWritableSyntheticManager(
   browser: Browser,
-  options: { properties?: number } = {},
-): Promise<WritableSyntheticManager> {
-  const wanted = Math.max(1, options.properties ?? 1);
-  const manager = await createSyntheticPublicTourManager(browser);
+  options: { properties?: number; tier?: "free" | "pro" } = {},
+): Promise<WritableSyntheticManager | EmptyWritableSyntheticManager> {
+  const wanted = options.properties ?? 1;
+  if (!Number.isInteger(wanted) || wanted < 0) throw new Error("Synthetic property count must be a nonnegative integer.");
+  if (wanted === 0) {
+    const manager = await createSyntheticPublicTourManager(browser, { createProperty: false, tier: options.tier });
+    return { ...manager, properties: [] };
+  }
+  const manager = await createSyntheticPublicTourManager(browser, { tier: options.tier });
   const properties = [manager.property];
   try {
     for (let i = 1; i < wanted; i += 1) properties.push(await createSyntheticProperty(manager.page));
@@ -49,6 +58,6 @@ export async function createWritableSyntheticManager(
  * reported, never hidden: a leaked synthetic property or a left-behind verified flag has to be
  * visible in the run.
  */
-export async function cleanupWritableSyntheticManager(manager: WritableSyntheticManager): Promise<void> {
+export async function cleanupWritableSyntheticManager(manager: WritableSyntheticManager | EmptyWritableSyntheticManager): Promise<void> {
   await cleanupSyntheticPublicTourManager(manager);
 }

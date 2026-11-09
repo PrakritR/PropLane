@@ -29,7 +29,10 @@ function assertLocalDevBaseUrl(): string {
 }
 
 /** Creates a real non-sandbox manager/listing so production-mode localhost uses the public projection. */
-export async function createSyntheticPublicTourManager(browser: Browser): Promise<SyntheticPublicTourManager> {
+export async function createSyntheticPublicTourManager(browser: Browser): Promise<SyntheticPublicTourManager>;
+export async function createSyntheticPublicTourManager(browser: Browser, options: { createProperty: false; tier?: "free" | "pro" }): Promise<Omit<SyntheticPublicTourManager, "property"> & { property: null }>;
+export async function createSyntheticPublicTourManager(browser: Browser, options: { createProperty?: true; tier?: "free" | "pro" }): Promise<SyntheticPublicTourManager>;
+export async function createSyntheticPublicTourManager(browser: Browser, options: { createProperty?: boolean; tier?: "free" | "pro" } = {}): Promise<Omit<SyntheticPublicTourManager, "property"> & { property: SyntheticPublicTourManager["property"] | null }> {
   // This is a public signup journey, even when the worker's default browser
   // context inherits the canonical manager's storage state.
   const context = await browser.newContext({
@@ -41,16 +44,17 @@ export async function createSyntheticPublicTourManager(browser: Browser): Promis
   const email = `e2e-manager-${stamp}@${syntheticSignupDomain()}`;
   const fullName = "E2E Public Tour Manager";
   const phone = `+1206555${String(stamp).slice(-4)}`;
+  const tier = options.tier ?? "free";
   let phoneFixture: SyntheticPhoneVerification | null = null;
 
   try {
     await page.goto("/partner/pricing");
     await Promise.all([
       page.waitForURL(/\/auth\/create-account/, { timeout: 30_000 }),
-      page.locator('[data-attr="pricing-choose-free"]').click(),
+      page.locator(`[data-attr="pricing-choose-${tier}"]`).click(),
     ]);
-    const href = await requestManagerEmailProof(page, email, undefined, "free");
-    await finishManagerEmailProof(page, href, email, fullName, phone, undefined, "free");
+    const href = await requestManagerEmailProof(page, email, undefined, tier);
+    await finishManagerEmailProof(page, href, email, fullName, phone, undefined, tier);
     await page.getByRole("button", { name: "Go to portal" }).click();
     // A portal URL can appear briefly before the mandatory phone gate redirects
     // it. Wait for that exact gate before applying the scoped fixture.
@@ -59,7 +63,10 @@ export async function createSyntheticPublicTourManager(browser: Browser): Promis
     // as FIXTURE SETUP for this one synthetic account; no OTP is exercised.
     phoneFixture = await clearManagerPhoneGate(page, { email, phone });
     await completeManagerSignupOnboarding(page);
-    const property = await createSyntheticProperty(page);
+    const planResponse = await page.request.get("/api/manager/subscription");
+    const plan = await planResponse.json() as { effectiveTier?: unknown; planUnknown?: unknown };
+    if (!planResponse.ok() || plan.planUnknown === true || plan.effectiveTier !== tier) throw new Error("Synthetic manager's effective plan was not confirmed.");
+    const property = options.createProperty === false ? null : await createSyntheticProperty(page);
     const actorId = await syntheticFixtureActorId(page);
     return { page, context, property, actorId, phoneFixture };
   } catch (error) {
@@ -88,7 +95,7 @@ export async function createSyntheticPublicTourManager(browser: Browser): Promis
  * phone-verification stamp back. A restore conflict is REPORTED: a left-behind verified flag is
  * a fixture leak, not something to pass over quietly.
  */
-export async function cleanupSyntheticPublicTourManager(manager: SyntheticPublicTourManager): Promise<void> {
+export async function cleanupSyntheticPublicTourManager(manager: Omit<SyntheticPublicTourManager, "property"> & { property: SyntheticPublicTourManager["property"] | null }): Promise<void> {
   const failures: string[] = [];
   try {
     await cleanupSyntheticProperties(manager.page);
