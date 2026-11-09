@@ -2,7 +2,7 @@ import { mkdtempSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { assertCatalog, assertPrivateDirectory, parseOptions, transaction, safeErrorMessage, verifyCommittedPostflight, COMMITTED_UNVERIFIED } from "../../scripts/identity-deposit-release-migrations.mjs";
+import { assertCatalog, assertPrivateDirectory, parseOptions, transaction, safeErrorMessage, verifyCommittedPostflight, refreshAfterBackup, COMMITTED_UNVERIFIED } from "../../scripts/identity-deposit-release-migrations.mjs";
 import { IDENTITY_DEPOSIT_ENTRIES, IDENTITY_DEPOSIT_COMMITTED_PREFIX, identityDepositLedgerState, reviewedIdentityDepositMigrations } from "../../scripts/identity-deposit-release-manifest.mjs";
 import { sha256 } from "../../scripts/sms-durability-release-manifest.mjs";
 
@@ -104,6 +104,33 @@ describe("committed postflight verification", () => {
     })).rejects.toThrow("Committed postflight differs; inspect before retry");
     expect(calls).toEqual(["complete"]);
     expect(client.ended).toBe(true);
+  });
+
+  it("preserves bounded ledger divergence diagnostics after commit", async () => {
+    const client = stubClient();
+    await expect(verifyCommittedPostflight("staging", migrations, "p", {
+      credential: () => ({}), connect: async () => client,
+      readOnly: async () => { throw new Error("Migration ledger differs: 20261108140000"); },
+    })).rejects.toThrow("Migration ledger differs: 20261108140000");
+  });
+
+  it("replaces an expired backup connection before any transaction", async () => {
+    const old = stubClient();
+    const fresh = stubClient();
+    const calls: string[] = [];
+    const result = await refreshAfterBackup("staging", old, {
+      credential: (target: string) => { calls.push(target); return { target }; },
+      connect: async (config: { target: string }) => { expect(old.ended).toBe(true); expect(config.target).toBe(ref); return fresh; },
+    });
+    expect(result).toBe(fresh);
+    expect(calls).toEqual([ref]);
+  });
+  it("does not reach a transaction when the refreshed connection fails", async () => {
+    const old = stubClient();
+    await expect(refreshAfterBackup("staging", old, {
+      credential: () => ({}), connect: async () => { throw new Error("offline"); },
+    })).rejects.toThrow("offline");
+    expect(old.ended).toBe(true);
   });
 });
 

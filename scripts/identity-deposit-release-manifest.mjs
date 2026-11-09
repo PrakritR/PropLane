@@ -14,7 +14,7 @@ export const IDENTITY_DEPOSIT_ENTRIES = Object.freeze([
   ["20261030130000", "resident_evidence_policies", "a0a031afd9d1416c7835f7d67eaf73165770212b68d74599c2f938c69cc075be"],
   ["20261106120000", "identity_deposit_recovery_guards", "1f62ec00ff11b39fa8b4affef27fddc161c3c8c31a4a9e87411d9480a983adba"],
   ["20261108130000", "resident_identity_null_provider_guard", "d855c3bed7ad146d3b99e43897b3f36bd44ed4a9de4a3a1b6f2420a3c23a1188"],
-  ["20261108140000", "household_charge_refund_attempts", "b03ab4f8ec44ee4b62de863998db553922b8de20aa49c6ca5b64c7d04836b20e"],
+  ["20261108140000", "household_charge_refund_attempts", "12325a13c6dae8ac897bc6b850ce33bb8038e6852dafba293c487c0ef4ec44ba"],
 ]);
 
 /**

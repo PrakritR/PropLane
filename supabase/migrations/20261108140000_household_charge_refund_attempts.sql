@@ -50,7 +50,7 @@ declare
   refunded bigint; reserved_total bigint;
 begin
   if p_owner is null or coalesce(trim(p_charge),'') = '' or coalesce(trim(p_operation_key),'') = ''
-     or coalesce(trim(p_stripe_charge),'') = '' or p_rail not in ('central','destination','managed')
+     or coalesce(trim(p_stripe_charge),'') = '' or p_rail is null or p_rail not in ('central','destination','managed')
      or p_amount is null or p_amount <= 0 or jsonb_typeof(p_basis) is distinct from 'object' then
     raise exception 'Invalid refund reservation';
   end if;
@@ -62,7 +62,8 @@ begin
 
   select * into pay from public.ledger_entries
     where source_charge_id = p_charge and entry_type = 'payment';
-  if not found or pay.manager_user_id is distinct from p_owner
+  if not found or (select count(*) from public.ledger_entries where source_charge_id = p_charge and entry_type = 'payment') <> 1
+     or pay.manager_user_id is distinct from p_owner
      or pay.stripe_charge_id is distinct from p_stripe_charge
      or pay.amount_cents is null or pay.amount_cents <= 0 then
     raise exception 'Refund payment evidence requires review';
@@ -79,7 +80,7 @@ begin
        or a.basis is distinct from p_basis then
       raise exception 'Operation key differs from reservation';
     end if;
-    return to_jsonb(a);
+    return to_jsonb(a) || jsonb_build_object('created', false);
   end if;
 
   select coalesce(sum(amount_cents),0) into reserved_total
@@ -98,7 +99,7 @@ begin
     values(p_operation_key, p_charge, p_owner, p_stripe_charge, p_payment_intent,
       p_rail, p_amount, refunded, pay.amount_cents, p_basis)
     returning * into a;
-  return to_jsonb(a);
+  return to_jsonb(a) || jsonb_build_object('created', true);
 end $$;
 revoke all on function public.reserve_household_charge_refund(uuid,text,text,text,text,text,bigint,jsonb) from public, anon, authenticated;
 grant execute on function public.reserve_household_charge_refund(uuid,text,text,text,text,text,bigint,jsonb) to service_role;
@@ -136,8 +137,8 @@ declare
 begin
   select * into a from public.household_charge_refund_attempts where id = p_attempt for update;
   if not found then raise exception 'Refund attempt not found'; end if;
-  if p_refund is null or p_charge is null or coalesce(lower(p_currency),'usd') <> 'usd'
-     or p_status not in ('pending','succeeded','failed','canceled')
+  if p_refund is null or p_charge is null or p_currency is distinct from 'usd'
+     or p_status is null or p_status not in ('pending','succeeded','failed','canceled')
      or p_charge is distinct from a.stripe_charge_id or p_amount is distinct from a.amount_cents then
     raise exception 'Refund binding requires review';
   end if;

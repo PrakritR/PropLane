@@ -89,7 +89,8 @@ describe("household charge refund reservation SQL", () => {
     expect(sql).toContain("e.stripe_charge_id is distinct from p_charge");
     expect(sql).toContain("e.amount_cents is distinct from p_amount");
     expect(sql).toContain("e.status is distinct from p_status");
-    expect(sql).toContain("coalesce(lower(p_currency),'usd') <> 'usd'");
+    expect(sql).toContain("p_currency is distinct from 'usd'");
+    expect(sql).toContain("p_status is null or p_status not in");
     expect(sql).toContain("if p_platform_attempt is null then raise exception 'Central refund reservation required'");
     expect(sql).toContain("h.attempt_key is distinct from a.platform_attempt_key");
     expect(sql).toContain("h.refund_components->0->>'source_id' is distinct from a.source_charge_id");

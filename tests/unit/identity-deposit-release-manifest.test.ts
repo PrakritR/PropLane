@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { assertIdentityDepositLedger, reviewedIdentityDepositMigrations } from "../../scripts/identity-deposit-release-manifest.mjs";
+import { IDENTITY_DEPOSIT_COMMITTED_PREFIX, assertIdentityDepositLedger, reviewedIdentityDepositMigrations } from "../../scripts/identity-deposit-release-manifest.mjs";
 
 describe("identity and deposit migration release manifest", () => {
-  it("pins eleven unique ordered source files", () => {
+  // Twelve reviewed sources, of which the first eleven are the already-committed staging/dev
+  // prefix the transport refuses to re-run (IDENTITY_DEPOSIT_COMMITTED_PREFIX).
+  it("pins twelve unique ordered source files behind an eleven-migration committed prefix", () => {
     const entries = reviewedIdentityDepositMigrations();
-    expect(entries).toHaveLength(11);
-    expect(new Set(entries.map((m: {version: string}) => m.version)).size).toBe(11);
+    expect(entries).toHaveLength(12);
+    expect(IDENTITY_DEPOSIT_COMMITTED_PREFIX).toBe(11);
+    expect(new Set(entries.map((m: {version: string}) => m.version)).size).toBe(12);
     expect(entries.map((m: {version: string}) => m.version)).toEqual(entries.map((m: {version: string}) => m.version).sort());
   });
   it("rejects partial, duplicate, renamed and altered ledger entries", () => {

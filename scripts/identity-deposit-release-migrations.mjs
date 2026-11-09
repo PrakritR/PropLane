@@ -210,7 +210,14 @@ export async function verifyCommittedPostflight(target, migrations, fingerprint,
  */
 function committedVerificationError(error) {
   const message = error instanceof Error ? error.message : "";
-  return SAFE_ERRORS.has(message) ? error : new Error(COMMITTED_UNVERIFIED);
+  return isSafeError(message) ? error : new Error(COMMITTED_UNVERIFIED);
+}
+
+/** A backup can outlive the bootstrap credential; open a fresh exact-target session. */
+export async function refreshAfterBackup(target, oldClient, deps = {}) {
+  await oldClient.end().catch(() => undefined);
+  const config = (deps.credential ?? credential)(SMS_RELEASE_TARGETS[target]);
+  return (deps.connect ?? connect)(config);
 }
 
 /** The reviewed before-state of a target, read from its own ledger. Refuses anything else. */
@@ -249,6 +256,7 @@ async function main() {
       assertPrivateDirectory(file);
       backup(config, file);
       if ((statSync(file).mode & 0o777) !== 0o600) throw new Error("Backup permissions mismatch");
+      client = await refreshAfterBackup(options.target, client);
     }
     const post = await transaction(client, migrations, { ...options, before: ledger.kind, pending: ledger.pending });
     if (options.phase === "rehearsal") {
@@ -283,7 +291,10 @@ const SAFE_ERRORS = new Set([
 ]);
 export function safeErrorMessage(error) {
   const message = error instanceof Error ? error.message : "";
-  if (SAFE_ERRORS.has(message) || /^(?:Migration source changed|Unexpected migration ledger entry|Migration ledger differs): [0-9]{14}$/.test(message)) return message;
+  if (isSafeError(message)) return message;
   return "Operation failed; inspect the target and backup before retry";
+}
+function isSafeError(message) {
+  return SAFE_ERRORS.has(message) || /^(?:Migration source changed|Unexpected migration ledger entry|Migration ledger differs): [0-9]{14}$/.test(message);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main().catch((error)=>{ console.log(`error: ${safeErrorMessage(error)}\n${HELP}`); process.exitCode=1; });
