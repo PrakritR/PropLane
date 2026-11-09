@@ -279,6 +279,7 @@ export const DELETE_ORDER = [
   // Before `manager_invite_links` below, which it references.
   "resident_invite_claims",
   "portal_pro_relationship_records",
+  "household_charge_refund_attempts",
   "portal_household_charge_records",
   "portal_recurring_rent_profile_records",
   "payment_reminder_occurrences",
