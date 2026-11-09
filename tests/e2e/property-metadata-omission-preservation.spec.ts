@@ -241,7 +241,7 @@ function recordTeardownError(errors: unknown[], error: unknown) {
 test.describe("property metadata omission preservation", () => {
   test.skip(!enabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
-  test("Properties load preserves row metadata when its background mirror omits rowData", async ({ page }) => {
+  test("property-only upsert preserves metadata and page load does not mirror the fixture", async ({ page }) => {
     const { url, serviceRoleKey } = assertDevTestTarget();
     const db = createClient(url, serviceRoleKey, { auth: { persistSession: false } });
     const { data: manager, error: managerError } = await db
@@ -281,24 +281,23 @@ test.describe("property metadata omission preservation", () => {
         const body = propertyWriteBody(request);
         if (body) writes.push(body);
       });
-      const mirroredResponse = page.waitForResponse((response) => {
-        const body = propertyWriteBody(response.request());
-        return body?.action === "upsert" && body.id === propertyId;
-      });
+      await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });
+      await expect(page.locator('[data-attr="manager-properties-tab-listed"]')).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText(record.row_data.name, { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+      // An empty outbox must not turn the server snapshot back into a write.
+      // Observe briefly after the list loads to catch delayed page-load mirrors.
+      await page.waitForTimeout(1_000);
+      expect(writes.filter((body) => body.id === propertyId), "page load must not mirror the fixture").toEqual([]);
 
-      const [, response] = await Promise.all([
-        (async () => {
-          await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });
-          await expect(page.locator('[data-attr="manager-properties-tab-listed"]')).toBeVisible({ timeout: 30_000 });
-        })(),
-        mirroredResponse,
-      ]);
-      expect(response.status(), "background property-only mirror must receive the real route response").toBe(200);
-
-      const propertyOnlyMirror = writes.find((body) => body.action === "upsert" && body.id === propertyId);
-      expect(propertyOnlyMirror, "Properties page must mirror the test-owned property").toBeTruthy();
-      expect(propertyOnlyMirror).toHaveProperty("propertyData");
-      expect(propertyOnlyMirror).not.toHaveProperty("rowData");
+      // Exercise the omission contract explicitly against this synthetic owned row.
+      const changedTagline = `Updated ${marker}`;
+      const propertyOnlyWrite = {
+        action: "upsert", id: propertyId, status: "live",
+        propertyData: { ...record.property_data, tagline: changedTagline, listingSubmission: { ...record.property_data.listingSubmission, tagline: changedTagline } },
+      };
+      expect(propertyOnlyWrite).not.toHaveProperty("rowData");
+      const response = await page.request.post("/api/property-records", { data: propertyOnlyWrite });
+      expect(response.status(), "property-only upsert must receive the real route response").toBe(200);
 
       const { data: after, error: afterError } = await db
         .from("manager_property_records")
@@ -307,8 +306,9 @@ test.describe("property metadata omission preservation", () => {
         .eq("manager_user_id", managerId)
         .eq("workspace_id", workspace.id)
         .maybeSingle();
-      if (afterError || !after) throw new Error(`Property fixture was unavailable after the browser mirror: ${afterError?.message ?? "not found"}`);
+      if (afterError || !after) throw new Error(`Property fixture was unavailable after the property-only upsert: ${afterError?.message ?? "not found"}`);
       expect((after as PropertyRecord).row_data).toEqual(record.row_data);
+      expect(asObject((after as PropertyRecord).property_data).tagline).toBe(changedTagline);
     } finally {
       const teardownErrors: unknown[] = [];
       let pageActivityStopped = false;
