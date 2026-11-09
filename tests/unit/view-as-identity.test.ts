@@ -27,7 +27,7 @@ vi.mock("@supabase/ssr", () => ({
   createServerClient: vi.fn(() => ({
     auth: {
       getUser: vi.fn(async (jwt?: string) => ({
-        data: { user: { id: state.realUserId, email: "ops@example.com", user_metadata: { role: "admin" }, app_metadata: {}, aud: "authenticated", created_at: "" } },
+        data: { user: { id: state.realUserId, email: "ops@example.com", email_confirmed_at: "2026-01-01T00:00:00Z", user_metadata: { role: "admin" }, app_metadata: {}, aud: "authenticated", created_at: "" } },
         error: null,
         jwt,
       })),
@@ -212,6 +212,7 @@ describe("a representative GET route while viewing as", () => {
     await open();
     const session = await getServerSessionProfile();
     expect(session.user?.id).toBe(UUID.manager);
+    expect(session.user?.email_confirmed_at).toBeNull();
     expect(session.profile?.full_name).toBe("Mia Manager");
     expect(session.viewAs?.portal).toBe("manager");
     expect(session.viewAs?.adminId).toBe(UUID.admin);

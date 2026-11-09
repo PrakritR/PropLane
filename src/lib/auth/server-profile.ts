@@ -50,7 +50,7 @@ function normalizeProfileRow(data: Record<string, unknown>, fallbackUserId: stri
 
 export const getServerSessionProfile = cache(
   async (): Promise<{
-    user: { id: string; email?: string | null } | null;
+    user: { id: string; email?: string | null; email_confirmed_at?: string | null } | null;
     profile: ServerProfile | null;
     /** Set only while a verified "View as" session resolves this request as the viewed account. */
     viewAs?: ActiveViewAs | null;
@@ -92,7 +92,7 @@ export const getServerSessionProfile = cache(
       }
 
       return {
-        user: { id: user.id, email: user.email },
+        user: { id: user.id, email: user.email, email_confirmed_at: viewAs ? null : user.email_confirmed_at ?? null },
         profile,
         ...(viewAs ? { viewAs } : {}),
       };
