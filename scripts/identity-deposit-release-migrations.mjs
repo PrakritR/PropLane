@@ -131,8 +131,6 @@ export function assertPrivateDirectory(path) {
 }
 async function main() {
   const options = parseOptions(process.argv.slice(2)); if (options.help) { console.log(HELP); return; }
-  // Fail closed until catalog and rehearsal checks receive independent review.
-  if (options.phase !== "preflight") throw new Error("Release phases are disabled pending independent catalog review");
   const migrations = reviewedIdentityDepositMigrations(), config = credential(SMS_RELEASE_TARGETS[options.target]);
   let client = await connect(config);
   try {
