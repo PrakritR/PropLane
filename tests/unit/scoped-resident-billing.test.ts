@@ -90,6 +90,38 @@ it("reuses confirmed server rows after a lost acknowledgement without duplicatin
   expect(retry.stage!.commit()).toBe(true);
 });
 
+it("preserves authoritative creation time for the same charge through unchanged and repriced regeneration", async () => {
+  seedDemoHouseholdCharges([], []);
+  const first = recordApprovedApplicationChargesScoped(app, undefined, true, { leaseExecuted: true }, { charges: [], rentProfiles: [] });
+  const initial = first.stage!.charges;
+  expect(initial.length).toBeGreaterThan(0);
+  const prior = initial.map((charge) => ({ ...charge, createdAt: "2025-01-02T03:04:05.000Z" }));
+  const same = recordApprovedApplicationChargesScoped(app, undefined, true, { leaseExecuted: true }, { charges: prior, rentProfiles: first.stage!.profiles });
+  for (const charge of same.stage!.charges) {
+    if (prior.some((old) => old.id === charge.id)) expect(charge.createdAt).toBe("2025-01-02T03:04:05.000Z");
+  }
+  expect(await mirrorApplicationHouseholdChargesAwait(app, undefined, same.stage, { charges: prior, rentProfiles: first.stage!.profiles })).toBe(true);
+  expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  const changedApp = { ...app, signedMonthlyRent: 1200 };
+  const repriced = recordApprovedApplicationChargesScoped(changedApp, app, true, { leaseExecuted: true }, { charges: prior, rentProfiles: first.stage!.profiles });
+  const changed = repriced.stage!.charges.find((charge) => prior.some((old) => old.id === charge.id && old.amountLabel !== charge.amountLabel));
+  expect(changed).toBeDefined();
+  expect(changed!.createdAt).toBe("2025-01-02T03:04:05.000Z");
+});
+
+it("does not borrow a creation time from an alias or foreign owner", () => {
+  seedDemoHouseholdCharges([], []);
+  const first = recordApprovedApplicationChargesScoped(app, undefined, true, { leaseExecuted: true }, { charges: [], rentProfiles: [] });
+  const generated = first.stage!.charges[0]!;
+  const alias = { ...generated, id: "different-physical-id", createdAt: "2000-01-01T00:00:00.000Z" };
+  const foreign = { ...generated, managerUserId: "foreign", applicationId: "AXIS-OTHER", createdAt: "1999-01-01T00:00:00.000Z" };
+  const result = recordApprovedApplicationChargesScoped(app, undefined, true, { leaseExecuted: true }, { charges: [alias, foreign], rentProfiles: [] });
+  const exact = result.stage!.charges.find((charge) => charge.id === generated.id);
+  expect(exact).toBeDefined();
+  expect(exact!.createdAt).not.toBe(alias.createdAt);
+  expect(exact!.createdAt).not.toBe(foreign.createdAt);
+});
+
 it("refuses a stale pending snapshot over a locally paid charge", () => {
   const paid = { ...base, id: "paid", managerUserId: "owner", applicationId: app.id, status: "paid" } as HouseholdCharge;
   seedDemoHouseholdCharges([paid], []);

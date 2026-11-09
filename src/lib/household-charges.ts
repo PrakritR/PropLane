@@ -4661,6 +4661,15 @@ export function recordApprovedApplicationChargesScoped(
     memoryCharges = structuredClone(selectedCharges);
     memoryRentProfiles = structuredClone(selectedProfiles);
     changed = recordApprovedApplicationCharges(row, owner, force, opts);
+    // Regeneration can rebuild an existing pending row; creation time belongs to
+    // the confirmed physical row, including when its calculated amount changes.
+    if (authoritative) {
+      const priorCreatedAt = new Map(selectedCharges.map((charge) => [charge.id, charge.createdAt]));
+      memoryCharges = memoryCharges.map((charge) => {
+        const createdAt = charge.managerUserId === owner ? priorCreatedAt.get(charge.id) : undefined;
+        return createdAt === undefined ? charge : { ...charge, createdAt };
+      });
+    }
     const excludedChargeIds = new Set(excludedCharges.map((charge) => charge.id));
     const excludedProfileIds = new Set(excludedProfiles.map((profile) => profile.id));
     if (memoryCharges.some((charge) => excludedChargeIds.has(charge.id)) || memoryRentProfiles.some((profile) => excludedProfileIds.has(profile.id))) return { ok: false, changed: false };
