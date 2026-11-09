@@ -139,7 +139,7 @@ test.describe("Manager portal UI bug hunt", () => {
   });
 
   test("properties: add affordance visible without horizontal clip", async ({ browser }) => {
-    const manager = await createWritableSyntheticManager(browser);
+    const manager = await createWritableSyntheticManager(browser, { properties: 0 });
     const { page } = manager;
     try {
     await page.setViewportSize(MOBILE);

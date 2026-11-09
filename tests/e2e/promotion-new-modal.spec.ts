@@ -125,7 +125,7 @@ test.describe("Promotion UX", () => {
       });
 
       test("creates a post or blurb through the promotion wizard", async ({ browser }) => {
-        const manager = await createWritableSyntheticManager(browser);
+        const manager = await createWritableSyntheticManager(browser, { tier: "pro" });
         const page = manager.page;
         await mockStripeAllRoutes(page);
         let beforeIds = new Set<string>();
