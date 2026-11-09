@@ -10,8 +10,8 @@ import { mockStripeAllRoutes } from "../helpers/auth";
  */
 
 const FILTER_SECTIONS: { path: string; label: string; fieldMatchers: RegExp[]; inline?: boolean }[] = [
-  { path: "/portal/applications/pending", label: "Applications", fieldMatchers: [/Property/i] },
-  { path: "/portal/residents/current", label: "Residents", fieldMatchers: [/Property/i] },
+  { path: "/portal/applications/pending", label: "Applications", fieldMatchers: [/^House:/i] },
+  { path: "/portal/residents/current", label: "Residents", fieldMatchers: [/^House:/i] },
   { path: "/portal/leases/manager", label: "Leases", fieldMatchers: [/Property/i] },
   { path: "/portal/communication/active", label: "Communication", fieldMatchers: [/House/i, /Role/i, /Sort/i] },
   {
@@ -33,21 +33,26 @@ async function openFilterPanel(page: Page) {
 async function exerciseFieldDropdown(page: Page, scope: Locator, fieldMatcher: RegExp) {
   const fieldTrigger = scope.getByRole("button", { name: fieldMatcher }).first();
   await expect(fieldTrigger).toBeVisible({ timeout: 8_000 });
-  const triggerBox = await fieldTrigger.boundingBox();
-  expect(triggerBox).toBeTruthy();
   await fieldTrigger.click();
   const listbox = page.getByRole("listbox").first();
   await expect(listbox).toBeVisible({ timeout: 8_000 });
-  const listboxBox = await listbox.boundingBox();
-  expect(listboxBox).toBeTruthy();
-  if (triggerBox && listboxBox) {
-    expect(listboxBox.y).toBeGreaterThanOrEqual(triggerBox.y - 4);
-  }
+  const menu = listbox.locator('xpath=ancestor::*[@data-field-select-menu][1]');
+  // Position is computed after mount. Filter-panel menus open below the trigger;
+  // wait for the complete menu to settle inside the viewport.
+  await expect.poll(async () => {
+    const trigger = await fieldTrigger.boundingBox();
+    const popup = await menu.boundingBox();
+    const viewport = page.viewportSize();
+    if (!trigger || !popup || !viewport || popup.width <= 0 || popup.height <= 0) return false;
+    const verticalGap = popup.y - (trigger.y + trigger.height);
+    return verticalGap >= -1 && verticalGap <= 12 && popup.x < trigger.x + trigger.width && popup.x + popup.width > trigger.x &&
+      popup.x >= 0 && popup.y >= 0 && popup.x + popup.width <= viewport.width && popup.y + popup.height <= viewport.height;
+  }, { timeout: 8_000 }).toBe(true);
   await expect(listbox).toHaveCSS("overflow-y", "auto");
   const optionCount = await listbox.getByRole("option").count();
   expect(optionCount).toBeGreaterThan(0);
   await page.keyboard.press("Escape");
-  await page.waitForTimeout(200);
+  await expect(listbox).toBeHidden();
 }
 
 test.describe("Manager portal filter dropdowns", () => {
