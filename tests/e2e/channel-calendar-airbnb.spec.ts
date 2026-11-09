@@ -94,8 +94,10 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
     await expect(dialog).toBeVisible({ timeout: 30_000 });
     const section = page.locator(`section[aria-label="${name}"]`);
     await expect(section).toBeVisible({ timeout: 30_000 });
-    await expect(section.locator('[data-attr="channel-calendar-room-row"]')).toHaveCount(1);
-    await expect(section.getByRole("textbox", { name: `${roomName} Airbnb calendar link`, exact: true })).toBeVisible();
+    const roomRow = section.locator('[data-attr="channel-calendar-room-row"]').filter({ hasText: roomName });
+    await expect(roomRow).toHaveCount(1);
+    await expect(roomRow.locator('[data-attr="channel-calendar-link-import-url"]')).toBeVisible();
+    await expect(roomRow.locator('[data-attr="channel-calendar-export-url"]')).toBeVisible();
     expect(roomId).toMatch(/^room-/);
     await expect(section.locator('[data-attr="channel-calendar-link-import-url"]')).toBeVisible();
     await expect(dialog.locator('[data-attr="channel-calendar-link-save"]')).toBeVisible();
@@ -114,13 +116,16 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
     // One row per room across the workspace — the owned fixture contributes exactly one.
     const section = page.locator(`section[aria-label="${fixture.name}"]`);
     await expect(section).toBeVisible({ timeout: 30_000 });
-    const row = section.locator('[data-attr="channel-calendar-room-row"]');
+    const row = section.locator('[data-attr="channel-calendar-room-row"]').filter({ hasText: fixture.roomName });
     await expect(row).toHaveCount(1);
-    await expect(row.getByRole("textbox", { name: `${fixture.roomName} Airbnb calendar link`, exact: true })).toBeVisible();
+    const importField = row.locator('[data-attr="channel-calendar-link-import-url"]');
+    const exportField = row.locator('[data-attr="channel-calendar-export-url"]');
+    await expect(importField).toBeVisible();
+    await expect(exportField).toBeVisible();
     expect(fixture.roomId).toMatch(/^room-/);
 
     const importUrl = "https://www.airbnb.com/calendar/ical/e2e-placeholder.ics?s=e2eplaceholder";
-    await row.locator('[data-attr="channel-calendar-link-import-url"]').fill(importUrl);
+    await importField.fill(importUrl);
     await dialog.locator('[data-attr="channel-calendar-link-save"]').click();
     await expect(page.getByText("Calendars saved and synced.")).toBeVisible({ timeout: 20_000 });
 

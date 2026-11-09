@@ -13,6 +13,7 @@ import {
 import { visibleLocator, fillCurrentRentalApplication } from "../helpers/rental-wizard-e2e";
 import { fillSyntheticListingBasics } from "../helpers/listing-editor-e2e";
 import { syntheticFixtureActorId } from "../helpers/synthetic-property-e2e";
+import { navigateToPropertiesAndCapturePlan } from "../helpers/listing-plan-navigation";
 
 /**
  * Browser E2E: brand-new manager → publish first listing → verified resident applies
@@ -81,11 +82,8 @@ async function createFreshManager(page: Page, stamp: number) {
 }
 
 async function publishFirstListing(page: Page, stamp: number): Promise<string> {
-  const initialPlanResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/manager/subscription", { timeout: 30_000 });
-  await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
-  const initialPlanResult = await initialPlanResponse;
-  if (!initialPlanResult.ok()) throw new Error(`Could not resolve the manager subscription before Add (${initialPlanResult.status()}).`);
-  const initialPlan = await initialPlanResult.json() as { effectiveTier?: unknown; planUnknown?: unknown };
+  const { planStatus, planBody: initialPlan } = await navigateToPropertiesAndCapturePlan(page);
+  if (planStatus < 200 || planStatus >= 300) throw new Error(`Could not resolve the manager subscription before Add (HTTP ${planStatus}).`);
   if (initialPlan.effectiveTier !== "pro" || initialPlan.planUnknown !== false) throw new Error("The listing editor requires a resolved Pro subscription before Add.");
   const createBtn = page.locator('[data-attr="manager-properties-add-top"], [data-attr="manager-properties-create"]');
   await expect(createBtn).toBeEnabled({ timeout: 60_000 });
@@ -142,11 +140,8 @@ async function publishFirstListing(page: Page, stamp: number): Promise<string> {
   }
 
   const draftPreviewPath = pricingUrl.pathname.replace(/\/pricing$/, "/preview");
-  const reopenPlanResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/manager/subscription", { timeout: 30_000 });
-  await page.goto(draftPreviewPath, { waitUntil: "domcontentloaded" });
-  const reopenPlanResult = await reopenPlanResponse;
-  if (!reopenPlanResult.ok()) throw new Error(`Could not resolve the manager subscription before reopening the draft (${reopenPlanResult.status()}).`);
-  const reopenPlan = await reopenPlanResult.json() as { effectiveTier?: unknown; planUnknown?: unknown };
+  const { planStatus: reopenPlanStatus, planBody: reopenPlan } = await navigateToPropertiesAndCapturePlan(page, draftPreviewPath);
+  if (reopenPlanStatus < 200 || reopenPlanStatus >= 300) throw new Error(`Could not resolve the manager subscription before reopening the draft (HTTP ${reopenPlanStatus}).`);
   if (reopenPlan.effectiveTier !== "pro" || reopenPlan.planUnknown !== false) throw new Error("The draft editor cannot reopen before the Pro subscription is resolved.");
   await page.locator('[data-attr="draft-continue-editing"]').click();
   const resumedEditor = page.getByRole("dialog", { name: "Listing editor" });

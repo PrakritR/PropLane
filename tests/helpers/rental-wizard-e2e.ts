@@ -224,19 +224,15 @@ export async function fillPropertyLeaseStep(page: Page, startDays = 30, endDays 
     const current = (await roomTrigger.innerText()).trim();
     if (/^(select a room|select a unit)$/i.test(current)) {
       await roomTrigger.click();
-      const options = page.getByRole("option").filter({ visible: true });
+      // FieldSingleSelect option text can include a visual checkmark and the placeholder can
+      // contain the word “room”. Select by its semantic value instead of parsing presentation.
+      const options = page.locator('[role="option"][data-field-select-option-value]:not([data-field-select-option-value=""]):not([aria-disabled="true"])')
+        .filter({ visible: true });
       const count = await options.count();
-      let selected = false;
-      for (let index = 0; index < count; index += 1) {
-        const option = options.nth(index);
-        const label = (await option.innerText()).trim();
-        if (label && !/^select (a room|a unit)$/i.test(label) && (await option.getAttribute("aria-disabled")) !== "true") {
-          await option.click();
-          selected = true;
-          break;
-        }
-      }
-      if (!selected) throw new Error("The selected property has no available room or unit option.");
+      if (count === 0) throw new Error("The selected property has no available room or unit option.");
+      const firstAvailable = options.first();
+      await expect(firstAvailable).toBeEnabled();
+      await firstAvailable.click();
     }
     await expect(roomTrigger).not.toContainText(/^(select a room|select a unit)$/i);
   }

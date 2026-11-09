@@ -4,7 +4,15 @@ import {
   cleanupSyntheticPublicTourManager,
   type SyntheticPublicTourManager,
 } from "./synthetic-public-tour-manager";
+import type { SyntheticPhoneVerification } from "./synthetic-phone-verification";
 import { createSyntheticProperty } from "./synthetic-property-e2e";
+
+type WritableSyntheticManagerOptions = {
+  properties?: number;
+  tier?: "free" | "pro";
+  /** Retain the phone restore handle if setup fails before this helper returns. */
+  onPhoneFixtureReady?: (fixture: SyntheticPhoneVerification) => void;
+};
 
 /**
  * A fresh manager who OWNS a writable workspace, plus the owned properties a test needs.
@@ -30,19 +38,19 @@ export type WritableSyntheticManager = SyntheticPublicTourManager & {
 
 type EmptyWritableSyntheticManager = Omit<SyntheticPublicTourManager, "property"> & { property: null; properties: [] };
 
-export function createWritableSyntheticManager(browser: Browser, options: { properties: 0; tier?: "free" | "pro" }): Promise<EmptyWritableSyntheticManager>;
-export function createWritableSyntheticManager(browser: Browser, options?: { properties?: number; tier?: "free" | "pro" }): Promise<WritableSyntheticManager>;
+export function createWritableSyntheticManager(browser: Browser, options: WritableSyntheticManagerOptions & { properties: 0 }): Promise<EmptyWritableSyntheticManager>;
+export function createWritableSyntheticManager(browser: Browser, options?: WritableSyntheticManagerOptions): Promise<WritableSyntheticManager>;
 export async function createWritableSyntheticManager(
   browser: Browser,
-  options: { properties?: number; tier?: "free" | "pro" } = {},
+  options: WritableSyntheticManagerOptions = {},
 ): Promise<WritableSyntheticManager | EmptyWritableSyntheticManager> {
   const wanted = options.properties ?? 1;
   if (!Number.isInteger(wanted) || wanted < 0) throw new Error("Synthetic property count must be a nonnegative integer.");
   if (wanted === 0) {
-    const manager = await createSyntheticPublicTourManager(browser, { createProperty: false, tier: options.tier });
+    const manager = await createSyntheticPublicTourManager(browser, { createProperty: false, tier: options.tier, onPhoneFixtureReady: options.onPhoneFixtureReady });
     return { ...manager, properties: [] };
   }
-  const manager = await createSyntheticPublicTourManager(browser, { tier: options.tier });
+  const manager = await createSyntheticPublicTourManager(browser, { tier: options.tier, onPhoneFixtureReady: options.onPhoneFixtureReady });
   const properties = [manager.property];
   try {
     for (let i = 1; i < wanted; i += 1) properties.push(await createSyntheticProperty(manager.page));

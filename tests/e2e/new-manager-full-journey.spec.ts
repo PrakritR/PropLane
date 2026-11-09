@@ -1,4 +1,5 @@
 import { syntheticSignupDomain } from "../helpers/synthetic-signup-domain";
+import { navigateToPropertiesAndCapturePlan } from "../helpers/listing-plan-navigation";
 import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
@@ -119,11 +120,8 @@ test.describe("New manager — full journey from scratch", () => {
     expect(failedSections, `Portal sections that failed: ${JSON.stringify(failedSections)}`).toHaveLength(0);
 
     // ── 4. Start first listing (Home step + save draft) ─────────────────────
-    const planResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/manager/subscription", { timeout: 30_000 });
-    await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
-    const planResult = await planResponse;
-    expect(planResult.ok(), `Manager subscription should resolve before Add (HTTP ${planResult.status()}).`).toBe(true);
-    const plan = await planResult.json() as { effectiveTier?: unknown; planUnknown?: unknown };
+    const { planStatus, planBody: plan } = await navigateToPropertiesAndCapturePlan(page);
+    expect(planStatus >= 200 && planStatus < 300, `Manager subscription should resolve before Add (HTTP ${planStatus}).`).toBe(true);
     expect(plan.effectiveTier).toBe("pro");
     expect(plan.planUnknown).toBe(false);
     const createBtn = page.locator('[data-attr="manager-properties-add-top"], [data-attr="manager-properties-create"]');
@@ -167,9 +165,11 @@ test.describe("New manager — full journey from scratch", () => {
 
     // ── 5. Settings → Workspaces — team lives here (no Teams page) ──────────
     await page.goto("/portal/profile?tab=workspaces");
-    await expect(page.getByRole("heading", { name: /workspaces/i }).first()).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(page.locator('[data-attr="settings-layout"]')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-attr="settings-nav-workspaces"]')).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("heading", { name: "Workspace settings", exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-attr="settings-workspace-name"]')).toBeVisible();
+    await expect(page.locator('[data-attr="workspace-card"]').first()).toBeVisible();
     await shot(page, "10-workspaces-team");
 
     console.log("NEW MANAGER JOURNEY OK");

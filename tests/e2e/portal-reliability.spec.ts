@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type TestInfo } from "@playwright/test";
 import { signInAsManager } from "../helpers/auth";
 import { createWritableSyntheticManager, cleanupWritableSyntheticManager } from "../helpers/writable-synthetic-manager";
 
@@ -33,10 +33,31 @@ test.describe("Portal loading and record actions", () => {
   });
 
   for (const width of [1280, 390]) {
-    test(`Properties actions belong to each record at ${width}px`, async ({ browser }) => {
-      const manager = await createWritableSyntheticManager(browser);
-      const page = manager.page;
+    const phoneFixtureRestorations = new WeakMap<TestInfo, () => Promise<void>>();
+    test.afterEach(async ({}, testInfo) => {
+      const restore = phoneFixtureRestorations.get(testInfo);
+      phoneFixtureRestorations.delete(testInfo);
+      if (!restore) return;
       try {
+        await restore();
+      } catch (restoreError) {
+        // Playwright retains the test-body failure separately; keep the failed restoration
+        // visible as an afterEach failure rather than masking either error.
+        throw restoreError;
+      }
+    });
+
+    test(`Properties actions belong to each record at ${width}px`, async ({ browser }, testInfo) => {
+      // This case creates an account, proves its mailbox, clears its scoped phone gate and
+      // creates an owned property before testing the record action. Keep the overall budget
+      // bounded but distinct from the ordinary portal interaction budget.
+      test.setTimeout(180_000);
+      let manager: Awaited<ReturnType<typeof createWritableSyntheticManager>> | null = null;
+      try {
+      manager = await createWritableSyntheticManager(browser, {
+        onPhoneFixtureReady: (fixture) => { phoneFixtureRestorations.set(testInfo, fixture.restore); },
+      });
+      const page = manager.page;
       await page.setViewportSize({ width, height: 900 });
       await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });
       const trigger = page.getByRole("button", { name: `Actions for ${manager.property.name}`, exact: true });
@@ -66,7 +87,9 @@ test.describe("Portal loading and record actions", () => {
       expect(new URL(detailRequest.url()).pathname).toBe(`/portal/properties/listed/${manager.property.id}/preview`);
       await expect(page.locator('[data-attr="listing-v2-next"]')).toBeVisible({ timeout: 45_000 });
       } finally {
-        await cleanupWritableSyntheticManager(manager);
+        if (manager) {
+          await cleanupWritableSyntheticManager(manager);
+        }
       }
     });
   }

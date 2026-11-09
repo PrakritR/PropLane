@@ -15,6 +15,13 @@ export type SyntheticPublicTourManager = {
   phoneFixture: SyntheticPhoneVerification | null;
 };
 
+type SyntheticPublicTourManagerOptions = {
+  createProperty?: boolean;
+  tier?: "free" | "pro";
+  /** Lets the caller retain cleanup ownership if setup exceeds its test budget before return. */
+  onPhoneFixtureReady?: (fixture: SyntheticPhoneVerification) => void;
+};
+
 function assertLocalDevBaseUrl(): string {
   const baseURL = process.env.PLAYWRIGHT_BASE_URL;
   if (!baseURL || process.env.NEXT_PUBLIC_SUPABASE_URL !== "https://emstjswhotsnyksqhqyf.supabase.co") {
@@ -30,9 +37,9 @@ function assertLocalDevBaseUrl(): string {
 
 /** Creates a real non-sandbox manager/listing so production-mode localhost uses the public projection. */
 export async function createSyntheticPublicTourManager(browser: Browser): Promise<SyntheticPublicTourManager>;
-export async function createSyntheticPublicTourManager(browser: Browser, options: { createProperty: false; tier?: "free" | "pro" }): Promise<Omit<SyntheticPublicTourManager, "property"> & { property: null }>;
-export async function createSyntheticPublicTourManager(browser: Browser, options: { createProperty?: true; tier?: "free" | "pro" }): Promise<SyntheticPublicTourManager>;
-export async function createSyntheticPublicTourManager(browser: Browser, options: { createProperty?: boolean; tier?: "free" | "pro" } = {}): Promise<Omit<SyntheticPublicTourManager, "property"> & { property: SyntheticPublicTourManager["property"] | null }> {
+export async function createSyntheticPublicTourManager(browser: Browser, options: SyntheticPublicTourManagerOptions & { createProperty: false }): Promise<Omit<SyntheticPublicTourManager, "property"> & { property: null }>;
+export async function createSyntheticPublicTourManager(browser: Browser, options: SyntheticPublicTourManagerOptions & { createProperty?: true }): Promise<SyntheticPublicTourManager>;
+export async function createSyntheticPublicTourManager(browser: Browser, options: SyntheticPublicTourManagerOptions = {}): Promise<Omit<SyntheticPublicTourManager, "property"> & { property: SyntheticPublicTourManager["property"] | null }> {
   // This is a public signup journey, even when the worker's default browser
   // context inherits the canonical manager's storage state.
   const context = await browser.newContext({
@@ -62,6 +69,7 @@ export async function createSyntheticPublicTourManager(browser: Browser, options
     // The mandatory phone gate stands between the proven mailbox and the portal. It is cleared
     // as FIXTURE SETUP for this one synthetic account; no OTP is exercised.
     phoneFixture = await clearManagerPhoneGate(page, { email, phone });
+    if (phoneFixture) options.onPhoneFixtureReady?.(phoneFixture);
     await completeManagerSignupOnboarding(page);
     const planResponse = await page.request.get("/api/manager/subscription");
     const plan = await planResponse.json() as { effectiveTier?: unknown; planUnknown?: unknown };
