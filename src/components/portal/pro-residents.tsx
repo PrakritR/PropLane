@@ -2610,8 +2610,7 @@ export function ManagerResidents({
             ? `Resident updated, but ${result.sync.skipped.join("; ")}.`
             : "Resident updated — application, lease and charges rebuilt.",
         );
-      })
-      .catch(() => showToast("Could not confirm the resident was saved. Please try again."))
+      }, () => showToast("Could not confirm the resident was saved. Please try again."))
       .finally(() => setErSaving(false));
   }
 

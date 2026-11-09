@@ -28,7 +28,6 @@ import {
   mirrorApplicationHouseholdChargesAwait,
   recordApprovedApplicationChargesScoped,
   readAuthoritativeBillingSnapshot,
-  readChargesForManager,
 } from "@/lib/household-charges";
 import {
   LEASE_PIPELINE_EVENT,
@@ -36,7 +35,7 @@ import {
   type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
 import { freezeSignedLeaseTerms, persistFrozenSignedLeaseTerms } from "@/lib/lease-signed-terms";
-import { normalizeApplicationAxisId, readManagerApplicationRows } from "@/lib/manager-applications-storage";
+import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 
 export type ExecutedLeaseChargesResult =
   | { ok: true; created: boolean; applications: number }
@@ -88,34 +87,6 @@ export function applicationsBilledByLease(lease: LeasePipelineRow, apps: readonl
   }
   const app = find(lease.axisId, lease.residentEmail);
   return app ? [app] : [];
-}
-
-/**
- * True once the application carries any tenancy charge (an application fee alone is not one). The lines
- * created when the lease was SENT (`dueAtSigning`: the lease fee, deposit, move-in fee) are the start of the
- * schedule, not all of it, so they alone do not mean the executed lease has been billed.
- */
-export function applicationHasTenancyCharges(applicationId: string, managerUserId: string | null): boolean {
-  const key = normalizeApplicationAxisId(applicationId);
-  return readChargesForManager(managerUserId).some(
-    (charge) =>
-      charge.applicationId &&
-      normalizeApplicationAxisId(charge.applicationId) === key &&
-      charge.kind !== "application_fee" &&
-      charge.kind !== "holding_deposit" &&
-      charge.dueAtSigning !== true,
-  );
-}
-
-/** True once the application carries any line collected at signing (stamped when the lease is sent). */
-export function applicationHasAtSigningCharges(applicationId: string, managerUserId: string | null): boolean {
-  const key = normalizeApplicationAxisId(applicationId);
-  return readChargesForManager(managerUserId).some(
-    (charge) =>
-      charge.dueAtSigning === true &&
-      charge.applicationId &&
-      normalizeApplicationAxisId(charge.applicationId) === key,
-  );
 }
 
 /**

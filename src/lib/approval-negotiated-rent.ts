@@ -5,6 +5,6 @@ import { upsertApplicationRowToServerAwait } from "@/lib/manager-applications-st
 export async function persistApprovalNegotiatedRent(row: DemoApplicantRow, rent: number): Promise<DemoApplicantRow | null> {
   if (!row.application || !Number.isFinite(rent) || rent <= 0) return null;
   const next = { ...row, application: { ...row.application, managerRentOverride: String(rent) } };
-  const saved = await upsertApplicationRowToServerAwait(next, { timeoutMs: 20_000 });
+  const saved = await upsertApplicationRowToServerAwait(next, { timeoutMs: 20_000, publishConfirmedRow: false });
   return saved.ok && saved.row?.id === row.id ? saved.row : null;
 }

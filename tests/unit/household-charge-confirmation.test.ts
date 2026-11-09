@@ -25,17 +25,22 @@ it("acknowledges equal existing rows but not missing versions, CAS misses or dup
   expect(result.chargeWriteError).toBeNull();
 });
 
-it.each(["removed", "reconcile failure"])("does not acknowledge a persisted row after %s", async (result) => {
-  const { reconcileDuplicateChargeList } = await import("@/lib/reports/ledger-sync");
-  if (result === "removed") vi.mocked(reconcileDuplicateChargeList).mockResolvedValueOnce({ removedChargeIds: ["new"] });
+it.each(["removed", "reconcile failure"])("excludes only known or uncertain duplicate IDs after %s", async (outcome) => {
+  const { reconcileDuplicateChargeList, syncLedgerChargeEntry } = await import("@/lib/reports/ledger-sync");
+  const { emitHouseholdChargeTransition } = await import("@/lib/domain-action-events.server");
+  vi.mocked(syncLedgerChargeEntry).mockClear();
+  vi.mocked(emitHouseholdChargeTransition).mockClear();
+  if (outcome === "removed") vi.mocked(reconcileDuplicateChargeList).mockResolvedValueOnce({ removedChargeIds: ["old"] });
   else vi.mocked(reconcileDuplicateChargeList).mockRejectedValueOnce(new Error("unavailable"));
-  const row: HouseholdChargeWriteRow = { id: "new", manager_user_id: "owner", resident_user_id: null, resident_email: null, property_id: "p", kind: "rent", status: "pending", row_data: { id: "new" }, updated_at: "now" };
-  const db = { from: () => ({ insert: () => ({ select: async () => ({ data: [{ id: "new" }], error: null }) }) }) } as never;
-  const saved = await persistHouseholdChargeRows(db, [row], {
-    actor: { id: "owner", role: "manager" }, now: "now", chargeIds: ["new"],
+  const row = (id: string, propertyId: string, createdAt: string): HouseholdChargeWriteRow => ({ id, manager_user_id: "owner", resident_user_id: null, resident_email: "r@example.invalid", property_id: propertyId, kind: "rent", status: "pending", row_data: { id, managerUserId: "owner", residentEmail: "r@example.invalid", propertyId, kind: "rent", status: "pending", createdAt }, updated_at: "now" });
+  const input = [row("old", "p", "2026-01-01"), row("new", "p", "2026-02-01"), row("other", "q", "2026-01-01")];
+  const db = { from: () => ({ insert: () => ({ select: async () => ({ data: [{ id: "saved" }], error: null }) }) }) } as never;
+  const saved = await persistHouseholdChargeRows(db, input, {
+    actor: { id: "owner", role: "manager" }, now: "now", chargeIds: input.map((entry) => entry.id),
     previousStatusById: new Map(), existingOwnerById: new Map(), existingUpdatedAtById: new Map(),
     existingRecordById: new Map(), existingLedgerFingerprintById: new Map(),
   });
-  expect(saved.persistedRows).toHaveLength(1);
-  expect(saved.confirmedIds).toEqual([]);
+  expect(saved.confirmedIds).toEqual(["new", "other"]);
+  expect(vi.mocked(syncLedgerChargeEntry).mock.calls.map((call) => call[1].id)).toEqual(["new", "other"]);
+  expect(vi.mocked(emitHouseholdChargeTransition).mock.calls.map((call) => call[1].charge.id)).toEqual(["new", "other"]);
 });

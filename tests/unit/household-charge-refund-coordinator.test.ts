@@ -43,7 +43,7 @@ function seeded(options: { refundedCents?: number; paidCents?: number } = {}) {
         ...(options.refundedCents == null ? {} : { refundedCents: options.refundedCents }) },
     }],
     ledger_entries: [{
-      source_charge_id: CHARGE, entry_type: "payment", stripe_charge_id: "ch_1",
+      source_charge_id: CHARGE, manager_user_id: OWNER, entry_type: "payment", stripe_charge_id: "ch_1",
       amount_cents: options.paidCents ?? 90_000,
     }],
   });
@@ -65,6 +65,19 @@ beforeEach(() => {
 });
 
 describe("reserving before the provider", () => {
+  it.each(["foreign owner", "missing owner", "null owner", "no payment", "duplicate payment"])("refuses %s ledger evidence without provider calls", async (scenario) => {
+    const db = seeded();
+    const payments = db.tables.ledger_entries!;
+    if (scenario === "foreign owner") payments[0]!.manager_user_id = "another-owner";
+    else if (scenario === "missing owner") delete payments[0]!.manager_user_id;
+    else if (scenario === "null owner") payments[0]!.manager_user_id = null;
+    else if (scenario === "no payment") payments.length = 0;
+    else payments.push({ ...payments[0]! });
+    expect((await run(db)).kind).toBe("review");
+    expect(rail.refundPaidHouseholdCharge).not.toHaveBeenCalled();
+    expect(attempts(db)).toEqual([]);
+  });
+
   it("reserves, sends on the attempt's own key, and reports pending", async () => {
     const db = seeded();
     const outcome = await run(db);
@@ -131,7 +144,7 @@ describe("replay and uncertainty", () => {
   it("reports uncertainty if the provider stamp is not acknowledged", async () => {
     const db = createFakeDb({
       portal_household_charge_records: [{ id: CHARGE, manager_user_id: OWNER, status: "paid", row_data: { kind: "rent" } }],
-      ledger_entries: [{ source_charge_id: CHARGE, entry_type: "payment", stripe_charge_id: "ch_1", amount_cents: 90_000 }],
+      ledger_entries: [{ source_charge_id: CHARGE, manager_user_id: OWNER, entry_type: "payment", stripe_charge_id: "ch_1", amount_cents: 90_000 }],
     }, { failWrite: (table, mode) => table === "household_charge_refund_attempts" && mode === "update" ? { message: "write failed" } : null });
     expect(await run(db)).toMatchObject({ kind: "unknown" });
     expect(rail.refundPaidHouseholdCharge).toHaveBeenCalledTimes(1);
@@ -317,7 +330,7 @@ describe("the central rail's way back to the household attempt", () => {
   it("reports uncertainty if the platform binding cannot be stamped, and sends nothing", async () => {
     const db = createFakeDb({
       portal_household_charge_records: [{ id: CHARGE, manager_user_id: OWNER, status: "paid", row_data: { kind: "rent" } }],
-      ledger_entries: [{ source_charge_id: CHARGE, entry_type: "payment", stripe_charge_id: "ch_1", amount_cents: 90_000 }],
+      ledger_entries: [{ source_charge_id: CHARGE, manager_user_id: OWNER, entry_type: "payment", stripe_charge_id: "ch_1", amount_cents: 90_000 }],
     }, {
       rpc: (name) => name === "stamp_household_charge_refund_platform_key"
         ? { data: null, error: { message: "lost" } } : undefined,

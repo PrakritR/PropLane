@@ -293,6 +293,19 @@ describe("saving an edited resident", () => {
     readGate.release();
   });
 
+  it("does not publish a staged lease over an edit made while its write is pending", async () => {
+    leases = [{ id: "draft", residentEmail: "sohan@example.com", status: "Draft", axisId: "app-1", managerUserId: "owner-1", propertyId: "house-1" }];
+    const gate = defer();
+    persistLease.mockImplementationOnce(async () => { await gate.promise; return { ok: true }; });
+    const pending = persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "owner-1" });
+    await vi.waitFor(() => expect(persistLease).toHaveBeenCalled());
+    leases = [{ ...leases[0]!, generatedHtml: "newer edit" }];
+    gate.release();
+    expect((await pending).ok).toBe(false);
+    expect(leases[0]?.generatedHtml).toBe("newer edit");
+    expect(mirrorWrite).not.toHaveBeenCalled();
+  });
+
   it("reports a partial save if the lease write fails", async () => {
     leases = [{ id: "draft", residentEmail: "sohan@example.com", status: "Draft", axisId: "app-1", managerUserId: "owner-1", propertyId: "house-1" }];
     persistLease.mockResolvedValueOnce({ ok: false, error: "conflict" } as never);

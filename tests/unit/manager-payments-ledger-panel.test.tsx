@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { DemoManagerPaymentLedgerRow } from "@/data/demo-portal";
 import { ManagerPaymentsLedgerPanel } from "@/components/portal/pro-payments-ledger-panel";
 
 const navigate = vi.fn();
+const providerCharges = vi.hoisted(() => ({ rows: [] as Array<{ id: string; stripeCheckoutSessionId: string }> }));
 
 vi.mock("@/lib/portal-nav-client", () => ({
   usePortalNavigate: () => navigate,
@@ -31,7 +32,7 @@ vi.mock("@/lib/portal-base-path-client", () => ({
 
 vi.mock("@/lib/household-charges", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/household-charges")>();
-  return { ...actual };
+  return { ...actual, readHouseholdCharges: () => providerCharges.rows };
 });
 
 vi.mock("@/components/portal/payment-schedule-ui", async (importOriginal) => {
@@ -42,18 +43,20 @@ vi.mock("@/components/portal/payment-schedule-ui", async (importOriginal) => {
   };
 });
 
-vi.stubGlobal(
+beforeEach(() => vi.stubGlobal(
   "fetch",
   async () =>
     new Response(JSON.stringify({ messages: [], settings: null, rows: [] }), {
       status: 200,
       headers: { "content-type": "application/json" },
     }),
-);
+));
 
 afterEach(() => {
   cleanup();
   navigate.mockClear();
+  providerCharges.rows = [];
+  vi.unstubAllGlobals();
   window.localStorage.clear();
 });
 
@@ -79,6 +82,42 @@ function sampleRow(overrides: Partial<DemoManagerPaymentLedgerRow> = {}): DemoMa
 }
 
 describe("ManagerPaymentsLedgerPanel", () => {
+  it.each([false, true])("updates detail and selected bulk return actions only when capability resolves %s", async (enabled) => {
+    providerCharges.rows = [{ id: "hc_test_1", stripeCheckoutSessionId: "cs_test" }];
+    let resolveCapability!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn((url: string) => String(url).includes("/api/portal/deposit-return")
+      ? new Promise<Response>((resolve) => { resolveCapability = resolve; })
+      : Promise.resolve(new Response(JSON.stringify({ messages: [], settings: null, rows: [] })))));
+    const row = sampleRow({ chargeKind: "security_deposit", bucket: "paid", statusLabel: "Paid", balanceDue: "$0.00" });
+    const detailActions = vi.fn();
+    const { unmount } = render(<ManagerPaymentsLedgerPanel rows={[row]} managerUserId="mgr-test" activeBucket="paid" direction="incoming" paymentId="hc_test_1" embeddedInResident onEmbeddedDetailActions={detailActions} onAddPayment={() => undefined} />);
+    await waitFor(() => expect(detailActions).toHaveBeenCalled());
+    const initialActions = render(<>{detailActions.mock.lastCall?.[0]}</>);
+    expect(initialActions.container.querySelector('[data-attr="payments-detail-return-deposit"]')).toBeNull();
+    initialActions.unmount();
+    await act(async () => resolveCapability(new Response(JSON.stringify({ enabled }), { status: 200 })));
+    if (enabled) await waitFor(() => expect(detailActions.mock.calls.length).toBeGreaterThan(1));
+    const finalActions = render(<>{detailActions.mock.lastCall?.[0]}</>);
+    expect(Boolean(finalActions.container.querySelector('[data-attr="payments-detail-return-deposit"]'))).toBe(enabled);
+    finalActions.unmount();
+    unmount();
+
+    const bulkActions = vi.fn();
+    const rendered = render(<ManagerPaymentsLedgerPanel rows={[row]} managerUserId="mgr-test" activeBucket="paid" direction="incoming" embeddedInResident onEmbeddedBulkActions={bulkActions} onAddPayment={() => undefined} />);
+    const checkbox = rendered.container.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    expect(checkbox).not.toBeNull();
+    fireEvent.click(checkbox!);
+    await waitFor(() => expect(bulkActions).toHaveBeenCalled());
+    const initialBulk = render(<>{bulkActions.mock.lastCall?.[0]}</>);
+    expect(initialBulk.container.querySelector('[data-attr="payments-return-deposit"]')).toBeNull();
+    initialBulk.unmount();
+    const callsBeforeCapability = bulkActions.mock.calls.length;
+    await act(async () => resolveCapability(new Response(JSON.stringify({ enabled }), { status: 200 })));
+    if (enabled) await waitFor(() => expect(bulkActions.mock.calls.length).toBeGreaterThan(callsBeforeCapability));
+    const finalBulk = render(<>{bulkActions.mock.lastCall?.[0]}</>);
+    expect(Boolean(finalBulk.container.querySelector('[data-attr="payments-return-deposit"]'))).toBe(enabled);
+  });
+
   it("lists every charge as its own row, each naming its resident, with a resident's charges kept adjacent", () => {
     const { container } = render(
       <ManagerPaymentsLedgerPanel

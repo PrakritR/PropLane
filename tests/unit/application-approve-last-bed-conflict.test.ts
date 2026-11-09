@@ -5,6 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 
 let ROWS: DemoApplicantRow[] = [];
+let viewer = "viewer-1";
+let workspace = "workspace-1";
+let ended = false;
+let oversight = false;
+vi.mock("@/lib/auth/portal-session-gate", () => ({ portalSessionViewerId: () => viewer, portalSessionEnded: () => ended }));
+vi.mock("@/lib/workspaces/selection", () => ({ selectedWorkspaceId: () => workspace }));
+vi.mock("@/lib/auth/admin-oversight.client", () => ({ adminOversightUrl: (url: string) => oversight ? `${url}?oversight=admin` : url }));
 const writes: DemoApplicantRow[][] = [];
 const syncProperty = vi.fn(async () => true);
 const mirrorCharges = vi.fn(async () => true);
@@ -61,6 +68,10 @@ function mockFetch(handler: (url: string, init?: RequestInit) => { status: numbe
 
 beforeEach(() => {
   ROWS = [row()];
+  viewer = "viewer-1";
+  workspace = "workspace-1";
+  ended = false;
+  oversight = false;
   writes.length = 0;
   syncProperty.mockReset().mockResolvedValue(true);
   mirrorCharges.mockReset().mockResolvedValue(true);
@@ -80,6 +91,51 @@ describe("approving a bed that was just taken", () => {
     expect(result?.message).toMatch(/verify/);
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(writes).toEqual([]);
+  });
+
+  it.each(["row", "viewer", "workspace", "ended", "oversight"])("stops before approval POST when %s changes during property refresh", async (change) => {
+    let release!: () => void;
+    syncProperty.mockImplementationOnce(() => new Promise<boolean>((resolve) => { release = () => resolve(true); }));
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const pending = transitionApplicationBucket("AP1", "approved", { userId: "u1" });
+    await vi.waitFor(() => expect(release).toBeDefined());
+    if (change === "row") ROWS = [row({ name: "Newer" })];
+    if (change === "viewer") viewer = "viewer-2";
+    if (change === "workspace") workspace = "workspace-2";
+    if (change === "ended") ended = true;
+    if (change === "oversight") oversight = true;
+    release();
+    expect(await pending).toMatchObject({ blocked: "error" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
+  });
+
+  it("does not publish negotiated rent when the application changes during its acknowledgement", async () => {
+    mockFetch(() => ({ status: 200, body: { ok: true } }));
+    let release!: (value: unknown) => void;
+    upsertNegotiated.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    const pending = transitionApplicationBucket("AP1", "approved", { userId: "u1", negotiatedRent: 900 });
+    await vi.waitFor(() => expect(release).toBeDefined());
+    ROWS = [row({ name: "Newer" })];
+    release({ ok: true, row: row() });
+    expect(await pending).toMatchObject({ blocked: "error", approvalSaved: true });
+    expect(ROWS[0]?.name).toBe("Newer");
+    expect(writes).toEqual([]);
+    expect(recordCharges).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite a newer application when approval acknowledgement arrives late", async () => {
+    let resolveResponse!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { resolveResponse = resolve; })));
+    const pending = transitionApplicationBucket("AP1", "approved", { userId: "u1" });
+    await vi.waitFor(() => expect(resolveResponse).toBeDefined());
+    ROWS = [row({ name: "Newer local edit" })];
+    resolveResponse({ ok: true, status: 200, json: async () => ({ ok: true }) } as Response);
+    expect(await pending).toMatchObject({ blocked: "error", approvalSaved: true });
+    expect(ROWS[0]?.name).toBe("Newer local edit");
+    expect(writes).toEqual([]);
+    expect(recordCharges).not.toHaveBeenCalled();
   });
 
   it("checks scoped billing even when reconciliation is unchanged", async () => {

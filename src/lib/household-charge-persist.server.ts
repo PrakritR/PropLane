@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { HouseholdCharge } from "@/lib/household-charges";
+import { duplicateHouseholdChargeIds, type HouseholdCharge } from "@/lib/household-charges";
 import { cancelFuturePaymentRemindersForCharge } from "@/lib/payment-reminder-lifecycle.server";
 import {
   householdChargeLedgerFingerprint,
@@ -88,7 +88,7 @@ export async function persistHouseholdChargeRows(
       actor.role === "admin" ? undefined : actor.id,
       new Set(chargeIds),
     ).catch(() => null);
-    const uncertainIds = new Set(reconciliation ? reconciliation.removedChargeIds : persistedRows.map((row) => row.id));
+    const uncertainIds = new Set(reconciliation ? reconciliation.removedChargeIds : duplicateHouseholdChargeIds(persistedRows.map((row) => row.row_data as HouseholdCharge)).filter((id) => chargeIds.includes(id)));
     for (let i = confirmedIds.length - 1; i >= 0; i--) {
       if (uncertainIds.has(confirmedIds[i]!)) confirmedIds.splice(i, 1);
     }
@@ -100,6 +100,7 @@ export async function persistHouseholdChargeRows(
     // comes from the row's resolved manager_user_id, not the caller.
     for (const row of persistedRows) {
       const chargeId = row.id;
+      if (uncertainIds.has(chargeId)) continue;
       const nextStatus = row.status;
       if (!nextStatus) continue;
       const managerId = row.manager_user_id ?? actor.id;

@@ -289,22 +289,26 @@ export async function persistResidentProfileEdit(input: {
     if (!unchanged()) return changedError();
     const before = new Map(readLeasePipeline(managerUserId).map((lease) => [lease.id, structuredClone(lease)]));
     const previousRow = input.rows.find((row) => row.id === savedRow.id);
-    const scope = residentEditLeaseIds(readStoredLeasePipelineForResidentEdit(managerUserId), savedRow, previousRow);
-    sync = regenerateBillingForRow(savedRow, managerUserId, { voidSentLeases, persistLeases: false, leaseIds: scope.ids, previousRow, scopedBilling: true, snapshot });
-    if (scope.skippedJointMember) sync.skipped.push("the joint lease was not regenerated for this group member");
-    if (!scope.ids.length && !scope.skippedJointMember) sync.skipped.push("no lease matched this application's stored identity and placement");
+    const leaseScope = residentEditLeaseIds(readStoredLeasePipelineForResidentEdit(managerUserId), savedRow, previousRow);
+    sync = regenerateBillingForRow(savedRow, managerUserId, { voidSentLeases, persistLeases: false, leaseIds: leaseScope.ids, previousRow, scopedBilling: true, snapshot });
+    if (leaseScope.skippedJointMember) sync.skipped.push("the joint lease was not regenerated for this group member");
+    if (!leaseScope.ids.length && !leaseScope.skippedJointMember) sync.skipped.push("no lease matched this application's stored identity and placement");
     const changed = readLeasePipeline(managerUserId).filter((lease) =>
-      scope.ids.includes(lease.id) && before.has(lease.id) && JSON.stringify(before.get(lease.id)) !== JSON.stringify(lease),
+      leaseScope.ids.includes(lease.id) && before.has(lease.id) && JSON.stringify(before.get(lease.id)) !== JSON.stringify(lease),
     );
     for (const lease of changed) {
       const original = before.get(lease.id);
       if (original) updateLeasePipelineRow(lease.id, original, managerUserId, { persist: false });
     }
+    const expectedLeases = new Map(readStoredLeasePipelineForResidentEdit(managerUserId).map((lease) => [lease.id, JSON.stringify(lease)]));
     for (const lease of changed) {
       try {
         if (!unchanged()) return changedError();
+        const leaseBeforeWrite = JSON.stringify(readStoredLeasePipelineForResidentEdit(managerUserId).find((row) => row.id === lease.id));
+        if (leaseBeforeWrite !== expectedLeases.get(lease.id)) return changedError();
         const result = await persistLeaseRowToServerAwait(lease, { timeoutMs: 20_000 });
         if (!unchanged()) return changedError();
+        if (JSON.stringify(readStoredLeasePipelineForResidentEdit(managerUserId).find((row) => row.id === lease.id)) !== leaseBeforeWrite) return changedError();
         if (!result.ok) {
           await syncLeasePipelineFromServer(managerUserId, { force: true }).catch(() => false);
           return { ok: false, error: "Resident saved, but the lease could not be saved. Review the lease and try again." };

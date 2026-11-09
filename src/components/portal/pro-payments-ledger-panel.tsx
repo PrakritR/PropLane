@@ -1619,7 +1619,7 @@ export function ManagerPaymentsLedgerPanel({
     const showSendReminder = !isPaidRow(row);
     const showMoveToPending = activeBucket === "paid" && !row.householdChargeId;
     const showDelete = rowDeletable(row);
-    const showReturnDeposit = isReturnableDepositRow(row);
+    const showReturnDeposit = depositReturnEnabled && isReturnableDepositRow(row);
     const showRefund = isRefundableChargeRow(row);
     const btnClass = RESIDENT_DETAIL_HEADER_ACTION_BTN;
 
@@ -1783,6 +1783,7 @@ export function ManagerPaymentsLedgerPanel({
     onEmbeddedDetailActions,
     paymentIdProp,
     detailRow,
+    depositReturnEnabled,
     editingRowId,
     sendingReminderId,
     activeBucket,
@@ -1793,6 +1794,7 @@ export function ManagerPaymentsLedgerPanel({
     const selectedIdList = [...selectedIds].sort().join(",");
     const meta = [
       activeBucket,
+      depositReturnEnabled ? "1" : "0",
       sendingReminderId ?? "",
       singleSelectedRow?.id ?? "",
       singleSelectedRow?.householdChargeId ?? "",
@@ -1806,6 +1808,7 @@ export function ManagerPaymentsLedgerPanel({
   }, [
     selectedIds,
     activeBucket,
+    depositReturnEnabled,
     sendingReminderId,
     singleSelectedRow,
     remindableSelectedRows.length,
@@ -1845,7 +1848,7 @@ export function ManagerPaymentsLedgerPanel({
 
     // One deposit/charge at a time and confirmed first: this sends real money and Stripe will
     // not un-refund it. A bulk version would make a mis-click expensive in a way no undo covers.
-    const returnableDeposits = selectedRows.filter(isReturnableDepositRow);
+    const returnableDeposits = depositReturnEnabled ? selectedRows.filter(isReturnableDepositRow) : [];
     if (returnableDeposits.length === 1) {
       const row = returnableDeposits[0]!;
       actions.push({
@@ -2039,6 +2042,7 @@ export function ManagerPaymentsLedgerPanel({
     );
   }, [
     activeBucket,
+    depositReturnEnabled,
     deleteSelected,
     rowDeletable,
     rowEditable,

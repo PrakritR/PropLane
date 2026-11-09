@@ -47,9 +47,10 @@ function reserveHouseholdChargeRefund(tables: Record<string, Row[]>, args: Row, 
   const charge = (tables.portal_household_charge_records ?? []).find((row) =>
     row.id === args.p_charge && row.manager_user_id === args.p_owner);
   if (!charge) return { data: null, error: { message: "Refund source not found" } };
-  const payment = (tables.ledger_entries ?? []).find((row) =>
+  const payments = (tables.ledger_entries ?? []).filter((row) =>
     row.source_charge_id === args.p_charge && row.entry_type === "payment");
-  if (!payment || payment.stripe_charge_id !== args.p_stripe_charge || payment.manager_user_id !== undefined && payment.manager_user_id !== args.p_owner) {
+  const payment = payments[0];
+  if (payments.length !== 1 || !payment || payment.stripe_charge_id !== args.p_stripe_charge || payment.manager_user_id !== args.p_owner) {
     return { data: null, error: { message: "Refund payment evidence requires review" } };
   }
   const replay = attempts.find((row) => row.operation_key === args.p_operation_key);

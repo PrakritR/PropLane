@@ -101,11 +101,3 @@ export function decideChargeRefund(ctx: ChargeRefundContext, amountCents?: numbe
     stripeChargeId,
   };
 }
-
-/**
- * A stable key for one refund attempt, passed to Stripe as an idempotency key. Two clicks on the
- * button, or a retry after a timeout that actually succeeded, must not send the refund twice.
- */
-export function chargeRefundIdempotencyKey(input: { chargeId: string; amountCents: number; attempt: number }): string {
-  return `charge-refund:${input.chargeId}:${input.amountCents}:${input.attempt}`;
-}

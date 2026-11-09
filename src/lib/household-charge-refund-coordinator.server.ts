@@ -151,10 +151,9 @@ export async function runHouseholdChargeRefund(
   }
 
   const uncertain = async (refundId: string | null): Promise<HouseholdChargeRefundOutcome> => {
-    const { data, error } = await db.from("household_charge_refund_attempts")
+    await db.from("household_charge_refund_attempts")
       .update({ provider_refund_id: refundId || null, status: "unknown", updated_at: new Date().toISOString() })
       .eq("id", attempt.id).eq("status", "reserved").select("id");
-    if (error || data?.length !== 1) return { kind: "unknown", attemptId: attempt.id, refundId, message: UNCERTAIN };
     return { kind: "unknown", attemptId: attempt.id, refundId, message: UNCERTAIN };
   };
 

@@ -1,11 +1,26 @@
 import { randomUUID } from "node:crypto";
+import { lstatSync, realpathSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import type { Page } from "@playwright/test";
 import { createDefaultListingSubmission, normalizeManagerListingSubmissionV1 } from "../../src/lib/manager-listing-submission";
 
-type Fixture = { id: string; name: string; actorId: string };
+type Fixture = { id: string; name: string; actorId: string; manifest: string; outcome: "pending" | "confirmed" | "unknown"; cleanupConfirmed?: boolean };
 type Snapshot = { snapshot?: { extrasByUser?: Record<string, Array<{ id?: string; buildingName?: string; managerUserId?: string; fixturePurpose?: string; adminPublishLive?: boolean }>> } };
 const fixtures = new WeakMap<Page, Fixture[]>();
 const purpose = "e2e-safe-isolated";
+
+function recordIntent(fixture: Fixture, initial = false): void {
+  writeFileSync(fixture.manifest, JSON.stringify({ id: fixture.id, name: fixture.name, actorId: fixture.actorId, purpose, target: "emstjswhotsnyksqhqyf", outcome: fixture.outcome, cleanupConfirmed: fixture.cleanupConfirmed === true }, null, 2), { flag: initial ? "wx" : "w", mode: 0o600 });
+}
+
+function intentPath(id: string): string {
+  const dir = process.env.E2E_PRIVATE_FIXTURE_DIR;
+  if (!dir || !path.isAbsolute(dir) || realpathSync(dir) !== dir) throw new Error("Set E2E_PRIVATE_FIXTURE_DIR to an absolute, owned, mode-0700 real directory for synthetic property intent manifests.");
+  const stat = lstatSync(dir);
+  if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o777) !== 0o700 || stat.uid !== process.getuid?.()) throw new Error("Set E2E_PRIVATE_FIXTURE_DIR to an absolute, owned, mode-0700 real directory for synthetic property intent manifests.");
+  return path.join(dir, `property-intent-${id}.json`);
+}
+
 
 function assertDev(page: Page) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
@@ -37,15 +52,27 @@ export async function cleanupSyntheticProperties(page: Page): Promise<void> {
   if (!tracked.length) return;
   assertDev(page);
   const actor = await syntheticFixtureActorId(page);
+  const errors: Error[] = [];
+  const remaining: Fixture[] = [];
   for (const fixture of tracked) {
-    if (actor !== fixture.actorId || !/^e2e-safe-[0-9a-f-]{36}$/.test(fixture.id)) throw new Error("Synthetic property cleanup actor or ID mismatch.");
-    const matches = (await rows(page)).filter((row) => row.id === fixture.id);
-    if (matches.length !== 1 || matches[0].buildingName !== fixture.name || matches[0].managerUserId !== actor || matches[0].fixturePurpose !== purpose) throw new Error("Synthetic property cleanup ownership or marker mismatch.");
-    const response = await page.request.post("/api/property-records", { data: { action: "delete", id: fixture.id } });
-    if (!response.ok()) throw new Error(`Synthetic property cleanup failed (HTTP ${response.status()}).`);
-    if ((await rows(page)).some((row) => row.id === fixture.id)) throw new Error("Synthetic property cleanup was not confirmed.");
+    try {
+      if (fixture.outcome !== "confirmed") throw new Error(`Synthetic property write outcome unresolved; retain ${fixture.manifest} until the runtime has settled.`);
+      if (actor !== fixture.actorId || !/^e2e-safe-[0-9a-f-]{36}$/.test(fixture.id)) throw new Error("Synthetic property cleanup actor or ID mismatch.");
+      const matches = (await rows(page)).filter((row) => row.id === fixture.id);
+      if (matches.length !== 1 || matches[0].buildingName !== fixture.name || matches[0].managerUserId !== actor || matches[0].fixturePurpose !== purpose) throw new Error("Synthetic property cleanup ownership or marker mismatch.");
+      const response = await page.request.post("/api/property-records", { data: { action: "delete", id: fixture.id } });
+      if (!response.ok()) throw new Error(`Synthetic property cleanup failed (HTTP ${response.status()}).`);
+      if ((await rows(page)).some((row) => row.id === fixture.id)) throw new Error("Synthetic property cleanup was not confirmed.");
+      fixture.cleanupConfirmed = true;
+      recordIntent(fixture);
+    } catch (error) {
+      remaining.push(fixture);
+      errors.push(error instanceof Error ? error : new Error("Synthetic property cleanup failed."));
+    }
   }
-  fixtures.delete(page);
+  if (remaining.length) fixtures.set(page, remaining);
+  else fixtures.delete(page);
+  if (errors.length) throw new AggregateError(errors, "Synthetic property cleanup incomplete.");
 }
 
 /** Only a new, uniquely named fixture may be mutated by these browser tests. */
@@ -65,11 +92,21 @@ export async function createSyntheticProperty(page: Page): Promise<{ id: string;
   const before = await page.request.get("/api/property-records");
   if (!before.ok() || JSON.stringify(await before.json()).includes(id)) throw new Error("Synthetic property id is not confirmed absent.");
   const rowData = { id, name, buildingName: name, address: listingSubmission.address, fixturePurpose: purpose, submission: listingSubmission };
-  const result = await page.request.post("/api/property-records", { data: { action: "upsert", id, status: "live", rowData, propertyData } });
-  if (!result.ok()) throw new Error(`Synthetic property creation failed (HTTP ${result.status()}).`);
+  const fixture: Fixture = { id, name, actorId: actor, manifest: intentPath(id), outcome: "pending" };
+  recordIntent(fixture, true);
   const tracked = fixtures.get(page) ?? [];
-  tracked.push({ id, name, actorId: actor });
+  tracked.push(fixture);
   fixtures.set(page, tracked);
+  try {
+    const result = await page.request.post("/api/property-records", { data: { action: "upsert", id, status: "live", rowData, propertyData } });
+    if (!result.ok()) throw new Error(`Synthetic property creation failed (HTTP ${result.status()}).`);
+    fixture.outcome = "confirmed";
+    recordIntent(fixture);
+  } catch (error) {
+    fixture.outcome = "unknown";
+    recordIntent(fixture);
+    throw error;
+  }
   const matching = (await rows(page)).filter((row) => row.id === id && row.buildingName === name && row.managerUserId === actor && row.fixturePurpose === purpose && row.adminPublishLive === true);
   if (matching.length !== 1) throw new Error("Synthetic live property ownership was not confirmed in the authenticated portfolio.");
   return { id, name, roomId: room.id, roomName: room.name };
