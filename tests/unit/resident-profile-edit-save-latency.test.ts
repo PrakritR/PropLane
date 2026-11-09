@@ -19,6 +19,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const order: string[] = [];
+let viewer = "viewer-1";
+let currentRows: Array<{ id: string; name?: string }> = [];
+vi.mock("@/lib/auth/portal-session-gate", () => ({ portalSessionViewerId: () => viewer, portalSessionEnded: () => false }));
+vi.mock("@/lib/workspaces/selection", () => ({ selectedWorkspaceId: () => "workspace-1" }));
+vi.mock("@/lib/auth/admin-oversight.client", () => ({ adminOversightUrl: (url: string) => url }));
 const defer = () => {
   let release!: () => void;
   const promise = new Promise<void>((r) => {
@@ -54,7 +59,7 @@ const upsertRow = vi.fn(async () => {
   order.push("upsert");
   return { ok: true };
 });
-const scopedBilling = vi.fn((..._args: unknown[]) => ({ ok: true, changed: true }) as { ok: boolean; changed: boolean });
+const scopedBilling = vi.fn((..._args: unknown[]) => ({ ok: true, changed: true }) as { ok: boolean; changed: boolean; stage?: { charges: never[]; profiles: never[]; scopeValid: () => boolean; commit: () => boolean } });
 
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   // Spread the real module: this file only needs to override demo mode,
@@ -73,7 +78,7 @@ vi.mock("@/lib/household-charges", () => ({
 }));
 vi.mock("@/lib/manager-applications-storage", () => ({
   writeManagerApplicationRows: writeRows,
-  readManagerApplicationRows: () => [],
+  readManagerApplicationRows: () => currentRows,
   replaceManagerApplicationRowInCache: replaceRow,
   syncManagerApplicationsFromServer: () => syncApplications(),
   upsertApplicationRowToServerAwait: () => upsertRow(),
@@ -103,6 +108,8 @@ const ROW = {
 
 beforeEach(() => {
   order.length = 0;
+  viewer = "viewer-1";
+  currentRows = [];
   leases = [];
   readGate = defer();
   vi.clearAllMocks();
@@ -110,6 +117,21 @@ beforeEach(() => {
 });
 
 describe("saving an edited resident", () => {
+  it.each(["viewer", "resident"])("does not publish or regenerate when the %s changes during the property read", async (change) => {
+    currentRows = [{ id: "app-1", name: "Original" }];
+    const gate = defer();
+    syncPropertyPipeline.mockImplementationOnce(async () => { await gate.promise; return true; });
+    const pending = persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "owner-1" });
+    await vi.waitFor(() => expect(upsertRow).toHaveBeenCalled());
+    if (change === "viewer") { viewer = "viewer-2"; currentRows = []; }
+    else currentRows = [{ id: "app-1", name: "Newer" }];
+    gate.release();
+    expect((await pending).ok).toBe(false);
+    expect(replaceRow).not.toHaveBeenCalled();
+    expect(scopedBilling).not.toHaveBeenCalled();
+    expect(persistLease).not.toHaveBeenCalled();
+    expect(mirrorWrite).not.toHaveBeenCalled();
+  });
   it("passes the original identity and property to scoped billing after a move", async () => {
     const old = { id: "app-1", email: "old@example.invalid", propertyId: "old-property" } as never;
     const updated = { id: "app-1", email: "new@example.invalid", propertyId: "new-property" } as never;
@@ -228,6 +250,35 @@ describe("saving an edited resident", () => {
     expect(persistLease).toHaveBeenCalledTimes(1);
     expect(persistLease).toHaveBeenCalledWith(expect.objectContaining({ id: "draft", generatedHtml: "new" }));
     readGate.release();
+  });
+
+  it("does not publish a lease or billing after the viewer changes during lease acknowledgement", async () => {
+    leases = [{ id: "draft", residentEmail: "sohan@example.com", status: "Draft", axisId: "app-1", managerUserId: "owner-1", propertyId: "house-1" }];
+    let finish!: (value: { ok: boolean }) => void;
+    persistLease.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    const pending = persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
+    await vi.waitFor(() => expect(persistLease).toHaveBeenCalled());
+    viewer = "viewer-2";
+    currentRows = [];
+    finish({ ok: true });
+    expect((await pending).ok).toBe(false);
+    expect(leases[0].generatedHtml).toBeUndefined();
+    expect(mirrorWrite).not.toHaveBeenCalled();
+    expect(syncApplications).not.toHaveBeenCalled();
+  });
+
+  it("does not publish staged billing when the resident changes during charge acknowledgement", async () => {
+    const commit = vi.fn(() => true);
+    scopedBilling.mockReturnValueOnce({ ok: true, changed: true, stage: { charges: [], profiles: [], scopeValid: () => true, commit } });
+    let finish!: (value: boolean) => void;
+    mirrorWrite.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    const pending = persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
+    await vi.waitFor(() => expect(mirrorWrite).toHaveBeenCalled());
+    currentRows = [{ id: "app-1", name: "Newer" }];
+    finish(true);
+    expect((await pending).ok).toBe(false);
+    expect(commit).not.toHaveBeenCalled();
+    expect(syncApplications).not.toHaveBeenCalled();
   });
 
   it("only voids and persists the selected application, not another lease for the same email", async () => {

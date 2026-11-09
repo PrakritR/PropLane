@@ -78,6 +78,14 @@ describe("applicant browser confidentiality", () => {
     expect(cache.readManagerApplicationRows()).toEqual([]);
     expect(cache.getApplicationSetupToken("PROPLANE-A")).toBeNull();
   });
+  it("can return a confirmed row without publishing it before the caller checks scope", async () => {
+    const { cache } = await modules();
+    cache.replaceManagerApplicationRowInCache(row("PROPLANE-OLD"));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ row: row("PROPLANE-NEW") })));
+    const saved = await cache.upsertApplicationRowToServerAwait(row("PROPLANE-NEW"), { publishConfirmedRow: false });
+    expect(saved.ok && saved.row?.id).toBe("PROPLANE-NEW");
+    expect(cache.readManagerApplicationRows().map((item) => item.id)).toEqual(["PROPLANE-OLD"]);
+  });
   it("lets a new public guest draft work after the prior authenticated session ended", async () => {
     const { cache, session } = await modules();
     session.markPortalSessionEnded();

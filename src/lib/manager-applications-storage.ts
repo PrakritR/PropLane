@@ -867,7 +867,7 @@ export function cancelPendingApplicationRowUpsert(id: string): void {
 /** Await server persistence before showing post-submit UI or create-account links. */
 export async function upsertApplicationRowToServerAwait(
   row: DemoApplicantRow,
-  opts?: { existingResidentOnboarding?: { sendWelcomeEmail?: boolean }; timeoutMs?: number },
+  opts?: { existingResidentOnboarding?: { sendWelcomeEmail?: boolean }; timeoutMs?: number; publishConfirmedRow?: boolean },
 ): Promise<{
   ok: boolean;
   error?: string;
@@ -942,7 +942,7 @@ export async function upsertApplicationRowToServerAwait(
         : undefined;
     const setupToken = typeof body?.setupToken === "string" && body.setupToken ? body.setupToken : undefined;
     if (setupToken) rememberApplicationSetupToken(row.id, setupToken);
-    if (body?.row?.id) {
+    if (body?.row?.id && opts?.publishConfirmedRow !== false) {
       replaceManagerApplicationRowInCache(body.row);
     }
     const onboarding = body?.existingResidentOnboarding;

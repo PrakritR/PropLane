@@ -1,4 +1,7 @@
 import { residentEditLeaseIds } from "@/lib/resident-edit-lease-scope";
+import { portalSessionEnded, portalSessionViewerId } from "@/lib/auth/portal-session-gate";
+import { selectedWorkspaceId } from "@/lib/workspaces/selection";
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -69,8 +72,9 @@ export function mergeApplicationLeaseDatesIntoResidentRow(
  * lets the read-back settle on its own. Awaiting all four made one "Save resident" six sequential
  * round trips on a free-tier project, which is the "saving takes forever" this splits apart.
  */
-async function mirrorResidentBillingWrite(row?: DemoApplicantRow, previousRow?: DemoApplicantRow, stage?: ScopedBillingStage): Promise<void> {
+async function mirrorResidentBillingWrite(row?: DemoApplicantRow, previousRow?: DemoApplicantRow, stage?: ScopedBillingStage, stillCurrent?: () => boolean): Promise<void> {
   if (!isDemoModeActive() && !(await (row ? mirrorApplicationHouseholdChargesAwait(row, previousRow, stage) : mirrorHouseholdChargesToServerAwait()))) throw new Error("Could not save charges.");
+  if (stillCurrent && !stillCurrent()) throw new Error("Resident changed while saving charges.");
   if (stage && !stage.commit()) throw new Error("Charges changed while saving.");
 }
 
@@ -249,11 +253,17 @@ export async function persistResidentProfileEdit(input: {
   voidSentLeases?: boolean;
 }): Promise<{ ok: boolean; error?: string; sync?: ResidentBillingSyncOutcome }> {
   const { nextRow, managerUserId, voidSentLeases } = input;
+  const scope = () => JSON.stringify([portalSessionViewerId(), selectedWorkspaceId(), adminOversightUrl("/api/manager-applications"), portalSessionEnded()]);
+  const originalScope = scope();
+  const originalRow = JSON.stringify(readManagerApplicationRows().find((row) => row.id === nextRow.id));
+  let expectedRow = originalRow;
+  const unchanged = () => !portalSessionEnded() && scope() === originalScope && expectedRow === JSON.stringify(readManagerApplicationRows().find((row) => row.id === nextRow.id));
+  const changedError = () => ({ ok: false as const, error: "Resident saved, but the workspace or resident changed. Reopen and review before retrying." });
   let savedRow = nextRow;
   if (!isDemoModeActive()) {
     const [pipeline, persisted] = await Promise.allSettled([
       syncPropertyPipelineFromServer({ force: true }),
-      upsertApplicationRowToServerAwait(nextRow, { timeoutMs: 20_000 }),
+      upsertApplicationRowToServerAwait(nextRow, { timeoutMs: 20_000, publishConfirmedRow: false }),
     ]);
     if (persisted.status === "rejected") {
       return { ok: false, error: "Could not confirm the resident was saved. Please try again." };
@@ -261,18 +271,22 @@ export async function persistResidentProfileEdit(input: {
     if (!persisted.value.ok) {
       return { ok: false, error: persisted.value.error ?? "Could not save resident." };
     }
+    if (!unchanged()) return changedError();
     savedRow = persisted.value.row ?? nextRow;
     replaceManagerApplicationRowInCache(savedRow);
+    expectedRow = JSON.stringify(readManagerApplicationRows().find((row) => row.id === nextRow.id));
     if (pipeline.status === "rejected" || !pipeline.value) {
       return { ok: false, error: "Resident saved, but billing could not be updated. Please try saving again." };
     }
   } else {
     replaceManagerApplicationRowInCache(savedRow);
+    expectedRow = JSON.stringify(readManagerApplicationRows().find((row) => row.id === nextRow.id));
   }
 
   let sync: ResidentBillingSyncOutcome;
   try {
     const snapshot = await readAuthoritativeBillingSnapshot();
+    if (!unchanged()) return changedError();
     const before = new Map(readLeasePipeline(managerUserId).map((lease) => [lease.id, structuredClone(lease)]));
     const previousRow = input.rows.find((row) => row.id === savedRow.id);
     const scope = residentEditLeaseIds(readStoredLeasePipelineForResidentEdit(managerUserId), savedRow, previousRow);
@@ -288,22 +302,27 @@ export async function persistResidentProfileEdit(input: {
     }
     for (const lease of changed) {
       try {
+        if (!unchanged()) return changedError();
         const result = await persistLeaseRowToServerAwait(lease, { timeoutMs: 20_000 });
+        if (!unchanged()) return changedError();
         if (!result.ok) {
           await syncLeasePipelineFromServer(managerUserId, { force: true }).catch(() => false);
           return { ok: false, error: "Resident saved, but the lease could not be saved. Review the lease and try again." };
         }
         updateLeasePipelineRow(lease.id, lease, managerUserId, { persist: false });
       } catch {
+        if (!unchanged()) return changedError();
         await syncLeasePipelineFromServer(managerUserId, { force: true }).catch(() => false);
         return { ok: false, error: "Resident saved, but the lease could not be saved. Review the lease and try again." };
       }
     }
     // The write must finish before any forced read can replace the local charges.
-    await mirrorResidentBillingWrite(savedRow, input.rows.find((row) => row.id === savedRow.id), sync.billingStage);
+    if (!unchanged()) return changedError();
+    await mirrorResidentBillingWrite(savedRow, input.rows.find((row) => row.id === savedRow.id), sync.billingStage, unchanged);
   } catch {
     return { ok: false, error: "Resident saved, but billing could not be updated. Please try saving again." };
   }
+  if (!unchanged()) return changedError();
   void refreshResidentBillingReads(managerUserId).catch(() => undefined);
 
   return { ok: true, sync };
