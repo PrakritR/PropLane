@@ -2450,3 +2450,5 @@ templates print no "Date of birth". Executed `generatedHtml` is never rewritten
 Cleanup of stored rows: `20261016100000_strip_lease_application_identity.sql`.
 
 Resident edit Save awaits the authoritative application upsert, then stages and awaits only changed resident lease writes; a failed lease write triggers reconciliation before retry. These writes are not one transaction.
+
+New application approvals require a loaded, owner-scoped property and resolvable placement; a negotiated rent must be confirmed before billing, resident access, notifications, or automation run. Guards: `src/lib/application-approval-placement.server.ts`, `src/lib/application-review.ts`.
