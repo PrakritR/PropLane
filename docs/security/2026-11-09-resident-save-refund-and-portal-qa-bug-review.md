@@ -1,8 +1,8 @@
 # Resident Save and portal QA — engineering review
 
-Review date: 2026-11-09. Base: `b985bc63c07f3dd5a0540a7bd99e76f56a65e157`. Reviewed candidate: `c6a463c0ebc04731324ba4cc92ebfc33277904af`; product source: `8b7f7d012fb9dc9bc749e43e5382e97d801db923`. Later commits are tests only. The complete range contains 269 changed files (12,052 insertions, 2,829 deletions), including retained identity/deposit work, twelve migrations, portal fixes, test infrastructure and documentation.
+Review date: 2026-11-09. Base: `b985bc63c07f3dd5a0540a7bd99e76f56a65e157`. Reviewed candidate before this documentation update: `906532675b87d1bd37df1b48d12f2928573ae994`; product source: `b07c2326b8c2dc9c5bd9df73a72ff6b12d0dd51b`. The measured range to that candidate contains 272 changed files (12,153 insertions, 2,845 deletions), including retained identity/deposit work, twelve migrations, portal fixes, test infrastructure and documentation.
 
-This report consolidates preceding source reviews and affected-change re-reviews. It is not release approval, a new independent line-by-line reread of all 269 files, or a hosted scanner run. The reviewed source/test head and build are identified below. Browser residuals and release validation remain pending.
+This report consolidates preceding source reviews and affected-change re-reviews. It is not release approval, a new independent line-by-line reread of all 272 files, or a hosted scanner run. The reviewed source/test head and build are identified below. Browser residuals and release validation remain pending.
 
 ## Final behavior and resolved findings
 
@@ -47,6 +47,16 @@ Final complete units, full browser closure, fresh no-mistakes, independent secur
 
 The v20 residual selection explicitly defers four dedicated-runner cases: metadata-mirror exact live partial-upsert, split-B verified synthetic Free-manager private draft, second-account manager transition, and SMS UI flag-off. They remain pending/current-run limits; prior specialized or standard metadata/draft evidence is not relabeled as a current dedicated-run pass. The selected residual has45 behavior cases plus3 auth setup cases. Initial unsigned-fixture refresh was blocked by an authoritative lease query error before browser navigation; a separate DEV service read timed out. Neither result proves the fixture became signed or a product-stage regression.
 
-## Current DEV readiness
+## Earlier DEV readiness (v20)
 
-The v20 residual selection (45 behavior cases plus three authentication setup cases) has not started. The current direct SQL observation showed 16 backends and no blocked sessions; the unsigned fixture check returned one unsigned and zero signed matches. Data API reads took 18–28 seconds, the Auth admin read timed out at 30 seconds, and an independent TLS connection completed in 52 ms without an HTTP response within 15 seconds. These observations do not establish a cause or a fixture change. See the retained private `v20-readiness-failure-receipt.json`. Local no-mistakes may proceed; browser residuals, staging QA and release remain blocked pending recovery and verification.
+The v20 residual selection (45 behavior cases plus three authentication setup cases) had not started at that point. The then-current direct SQL observation showed 16 backends and no blocked sessions; the unsigned fixture check returned one unsigned and zero signed matches. Data API reads took 18–28 seconds, the Auth admin read timed out at 30 seconds, and an independent TLS connection completed in 52 ms without an HTTP response within 15 seconds. These observations do not establish a cause or a fixture change. See the retained private `v20-readiness-failure-receipt.json`. Browser residuals, staging QA and release remain blocked pending recovery and verification.
+
+## v22 candidate and remaining gates
+
+The sign-in page now bounds only its display preference read at 1,500 ms; a timeout or error renders the existing non-phone-first surface. It does not change authoritative SMS or Auth decisions, add a cache, or cancel the underlying read. Chrome observed sign-in document completion at 1,640 ms versus 22,212 ms before the change; this does not establish that upstream latency was fixed. The focused page and related checks passed 27 tests in four files, and exact-path lint exited 0.
+
+The Node 22 v22 build at product `b07c2326b8c2dc9c5bd9df73a72ff6b12d0dd51b` passed, build `e1qcmIyQ4yEkMSiYENsVO`, log SHA256 `c037fff84574d0d3af42c32144fc46e1625d08407259b1aa41f42f5b30abd6ea`. TypeScript and full lint exited 0; lint reported 1,409 warnings. The full v22 unit run exited 1: 3,847 files passed and one failed; 32,404 tests passed, 18 failed, five skipped, in 521.43 seconds. Its log SHA256 is `d626cc0a5b2a5e05bb0c2f0d2d1a35cc4767cf5a466b4fe6e99938052d45e581`. The failing file used a stale refund-attempt lookup mock; the corrected route/coordinator focused run passed 53 tests in two files, but is not a fresh full-unit pass.
+
+Two no-mistakes attempts ended on provider quota errors (global Claude `01M70F1EMNF3RQHFTD46ZFXMR8` and isolated Codex `01M70G94B153TGK3SAZX1YRR2K`); neither is credited with completed fixes or checks. The v22 residual stopped during global setup after a 25-second Auth wait, before any feature case. A separate dedicated second-account attempt on build `FgcXJm8flrpMQcv1LqMKD` also reached zero feature cases; cleanup exited 0. The prior full-browser v19 failures and four dedicated-runner gaps remain open.
+
+Observed DEV Auth authorize returned HTTP 504 after 54.264 seconds; a token request was still pending at 55 seconds. A direct REST profile read took 27.335 seconds and four application reads timed out at 30 seconds. These observations neither establish the cause nor prove any fixture state change. Full units, browser residuals, fresh no-mistakes and staging QA remain required; no release is approved.
