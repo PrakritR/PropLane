@@ -66,35 +66,34 @@ export async function walkSignedInRentalApplication(
     return;
   }
   await expect(householdStep).toBeVisible({ timeout: 60_000 });
+  await fillCurrentRentalApplication(page, applicant, household);
+}
 
+/** Fill the current seven-step wizard through its final submit action. */
+export async function fillCurrentRentalApplication(
+  page: Page,
+  applicant: ApplicantInfo,
+  household: HouseholdConfig,
+  options: { existing?: boolean } = {},
+) {
+  await fillLeaseChoiceStep(page);
   await fillHouseholdStep(page, household);
   await continueBtn(page).click();
-
   await fillSignerStep(page, applicant);
   await continueBtn(page).click();
-
-  await fillPropertyLeaseStep(page);
-  await continueBtn(page).click();
-
   await fillCurrentAddressStep(page);
+  await visibleLocator(page, "#currentLandlordName").fill("QA Property Manager");
+  await visibleLocator(page, "#currentMoveIn").fill(usDateInDays(-900));
+  await visibleLocator(page, "#currentReasonLeaving").fill("Relocating for work");
   await continueBtn(page).click();
-
-  await fillPreviousAddressStep(page);
-  await continueBtn(page).click();
-
   await fillEmploymentStep(page);
   await continueBtn(page).click();
-
   await fillReferencesStep(page);
   await continueBtn(page).click();
-
   await fillAdditionalDetailsStep(page);
   await continueBtn(page).click();
-
   await fillConsentStep(page, applicant.name);
-  await continueBtn(page).click();
-
-  await submitReviewAndApplication(page);
+  await submitReviewAndApplication(page, { ...(options.existing ? { existing: true } : {}), expectFinishPanel: !options.existing });
 }
 
 /** @deprecated Use {@link walkSignedInRentalApplication} — guest path removed. */
@@ -110,30 +109,29 @@ export async function walkGuestRentalApplication(
 export type HouseholdConfig =
   | { kind: "solo" }
   | { kind: "group-first"; size: string }
-  | { kind: "group-joining"; groupId: string };
+  | { kind: "group-joining"; groupLeaderAppId: string };
 
 export async function fillHouseholdStep(page: Page, config: HouseholdConfig, cosigner: "Yes" | "No" = "No") {
-  if (config.kind === "solo") {
-    await yesNo(page, "applyingAsGroup", "No");
-  } else {
-    await yesNo(page, "applyingAsGroup", "Yes");
-    if (config.kind === "group-first") {
-      await page
-        .getByRole("button", { name: /I am the first person applying/i })
-        .filter({ visible: true })
-        .first()
-        .click();
-      await visibleLocator(page, "#groupSize").selectOption(config.size);
-    } else {
-      await page
-        .getByRole("button", { name: /I am joining an existing group/i })
-        .filter({ visible: true })
-        .first()
-        .click();
-      await visibleLocator(page, "#groupId").fill(config.groupId);
+  const groupSelect = visibleLocator(page, '[data-attr="application-group"]');
+  await expect(groupSelect).toBeVisible();
+  await groupSelect.selectOption(config.kind === "solo" ? "no" : "yes");
+  if (config.kind === "group-first") {
+    const stepper = page.locator('[data-attr="group-size-stepper"]').filter({ visible: true }).first();
+    await expect(stepper).toBeVisible();
+    const count = await stepper.locator('[aria-live="polite"]').innerText();
+    const current = Number(count);
+    const target = Number(config.size);
+    if (!Number.isInteger(current) || !Number.isInteger(target) || target < 2 || target > 12) {
+      throw new Error("Group fixture requires a valid group size from 2 through 12.");
     }
+    for (let value = current; value > target; value -= 1) await stepper.getByRole("button", { name: /Fewer people in the group/i }).click();
+    for (let value = current; value < target; value += 1) await stepper.getByRole("button", { name: /More people in the group/i }).click();
+  } else if (config.kind === "group-joining") {
+    const leader = visibleLocator(page, "#groupLeaderAppId");
+    await leader.fill(config.groupLeaderAppId);
+    await expect(page.getByText(/Linked to .* group/i).filter({ visible: true })).toBeVisible({ timeout: 15_000 });
   }
-  await yesNo(page, "hasCosigner", cosigner);
+  await visibleLocator(page, '[data-attr="application-cosigner"]').selectOption(cosigner.toLowerCase());
 }
 
 export type ApplicantInfo = { name: string; email: string; phone: string };
@@ -150,7 +148,7 @@ export async function fillSignerStep(page: Page, applicant: ApplicantInfo, dateO
 }
 
 /** Step 1 opens with "Which lease are you applying for?": the lease type (and room or home) come before everything else. */
-export async function fillLeaseChoiceStep(page: Page, leaseTerm = "12-Month") {
+export async function fillLeaseChoiceStep(page: Page, leaseTerm = "Long-term") {
   await expect(page.getByText(/Which lease are you applying for\?/i).filter({ visible: true }).first()).toBeVisible({
     timeout: 30_000,
   });
@@ -255,11 +253,15 @@ function applicationSubmitted(page: Page) {
     .first();
 }
 
-export async function submitReviewAndApplication(page: Page, opts?: { expectFinishPanel?: boolean }) {
-  await expect(continueBtn(page)).toBeVisible({ timeout: 15_000 });
+export async function submitReviewAndApplication(page: Page, opts?: { expectFinishPanel?: boolean; existing?: boolean }) {
+  await expect(continueBtn(page)).toHaveText(opts?.existing ? /save application/i : /submit application/i, { timeout: 30_000 });
+  const responsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === "POST" && url.pathname === "/api/manager-applications";
+  }, { timeout: 45_000 });
   await continueBtn(page).click();
-  await expect(continueBtn(page)).toHaveText(/submit application/i, { timeout: 30_000 });
-  await continueBtn(page).click();
+  const response = await responsePromise;
+  if (!response.ok()) throw new Error(`Application ${opts?.existing ? "edit" : "submit"} failed (HTTP ${response.status()}).`);
   if (opts?.expectFinishPanel !== false) {
     await expect(applicationSubmitted(page)).toBeVisible({ timeout: 120_000 });
   }
