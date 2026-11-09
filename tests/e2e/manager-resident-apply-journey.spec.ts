@@ -126,8 +126,18 @@ async function publishFirstListing(page: Page, stamp: number): Promise<string> {
   await expect(page.getByText("Pricing saved.", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('[data-attr="property-room-pricing-save"]')).toHaveCount(0, { timeout: 15_000 });
 
-  const pricedDraft = await db.from("manager_property_records").select("id,status,property_data").eq("id", propertyId).eq("manager_user_id", await syntheticFixtureActorId(page)).single();
-  if (pricedDraft.error || pricedDraft.data.status !== "draft" || (pricedDraft.data.property_data as { entireHomeMonthlyRent?: unknown }).entireHomeMonthlyRent !== 1800) {
+  const managerId = await syntheticFixtureActorId(page);
+  const pricedDraft = await db.from("manager_property_records").select("id,manager_user_id,status,row_data,property_data").eq("id", propertyId).eq("manager_user_id", managerId).single();
+  const draftRow = pricedDraft.data?.row_data as { submission?: { buildingName?: unknown; entireHomeMonthlyRent?: unknown } } | null;
+  if (
+    pricedDraft.error ||
+    pricedDraft.data?.id !== propertyId ||
+    pricedDraft.data?.manager_user_id !== managerId ||
+    pricedDraft.data?.status !== "draft" ||
+    pricedDraft.data?.property_data !== null ||
+    draftRow?.submission?.buildingName !== buildingName ||
+    draftRow?.submission?.entireHomeMonthlyRent !== 1800
+  ) {
     throw new Error("The exact draft did not persist its whole-house rent through the Pricing UI.");
   }
 
@@ -153,17 +163,21 @@ async function publishFirstListing(page: Page, stamp: number): Promise<string> {
   await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
   await expect(page.getByText(buildingName).first()).toBeVisible({ timeout: 30_000 });
 
-  const managerId = await syntheticFixtureActorId(page);
-
   const { data: listing, error } = await db
     .from("manager_property_records")
-    .select("id,status,property_data")
+    .select("id,manager_user_id,status,row_data,property_data")
     .eq("manager_user_id", managerId)
     .eq("id", propertyId)
     .single();
   if (error) throw error;
-  const saved = listing.property_data as { buildingName?: unknown; entireHomeMonthlyRent?: unknown } | null;
-  if (listing.status !== "live" || saved?.buildingName !== buildingName || saved.entireHomeMonthlyRent !== 1800) {
+  const saved = listing.property_data as { listingSubmission?: { buildingName?: unknown; entireHomeMonthlyRent?: unknown } } | null;
+  if (
+    listing.id !== propertyId ||
+    listing.manager_user_id !== managerId ||
+    listing.status !== "live" ||
+    saved?.listingSubmission?.buildingName !== buildingName ||
+    saved?.listingSubmission?.entireHomeMonthlyRent !== 1800
+  ) {
     throw new Error("The exact synthetic listing was not confirmed live with its persisted whole-house rent.");
   }
   return propertyId;

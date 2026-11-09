@@ -119,7 +119,13 @@ test.describe("New manager — full journey from scratch", () => {
     expect(failedSections, `Portal sections that failed: ${JSON.stringify(failedSections)}`).toHaveLength(0);
 
     // ── 4. Start first listing (Home step + save draft) ─────────────────────
+    const planResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/manager/subscription", { timeout: 30_000 });
     await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
+    const planResult = await planResponse;
+    expect(planResult.ok(), `Manager subscription should resolve before Add (HTTP ${planResult.status()}).`).toBe(true);
+    const plan = await planResult.json() as { effectiveTier?: unknown; planUnknown?: unknown };
+    expect(plan.effectiveTier).toBe("pro");
+    expect(plan.planUnknown).toBe(false);
     const createBtn = page.locator('[data-attr="manager-properties-add-top"], [data-attr="manager-properties-create"]');
     await expect(createBtn).toBeEnabled({ timeout: 60_000 });
     await createBtn.click();
@@ -151,9 +157,9 @@ test.describe("New manager — full journey from scratch", () => {
     const actorId = await syntheticFixtureActorId(page);
     const snapshotResponse = await page.request.get("/api/property-records");
     expect(snapshotResponse.ok()).toBe(true);
-    const snapshot = await snapshotResponse.json() as { snapshot?: { pendingByUser?: Record<string, Array<{ id?: string; buildingName?: string }>> } };
-    expect(snapshot.snapshot?.pendingByUser?.[actorId]).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: savedBody.id, buildingName: listingName }),
+    const snapshot = await snapshotResponse.json() as { snapshot?: { sideByUser?: Record<string, { drafts?: Array<{ adminRefId?: string; listingId?: string; buildingName?: string; submission?: { buildingName?: string } }> }> } };
+    expect(snapshot.snapshot?.sideByUser?.[actorId]?.drafts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ adminRefId: savedBody.id, listingId: savedBody.id, buildingName: listingName, submission: expect.objectContaining({ buildingName: listingName }) }),
     ]));
     await page.goto("/portal/properties/drafts", { waitUntil: "domcontentloaded" });
     await expect(page.getByText(listingName).first()).toBeVisible({ timeout: 30_000 });
