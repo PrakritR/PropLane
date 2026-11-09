@@ -330,6 +330,8 @@ export type HouseholdCharge = {
   processingStartedAt?: string;
   /** Total cents charged to the resident at checkout, when higher than the charge face amount. */
   paidAmountCents?: number;
+  /** Cumulative verified refunds, projected server-side from settled provider evidence. */
+  refundedCents?: number;
   /** Immutable provider source for a verified online payment. */
   stripeCheckoutSessionId?: string;
   stripePaymentStatus?: string;
