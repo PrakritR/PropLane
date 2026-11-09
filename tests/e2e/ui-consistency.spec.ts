@@ -36,7 +36,7 @@ test.describe("UI consistency — authenticated portal shell", () => {
 
   test("portal payments section loads its canonical list", async ({ page }) => {
     await page.goto("/portal/payments");
-    await expect(page.getByRole("heading", { name: /^payments$/i })).toBeVisible({ timeout: 45_000 });
+    await expect(page.getByRole("heading", { name: "Incoming payments", exact: true })).toBeVisible({ timeout: 45_000 });
     await expect(page.locator("main")).toBeVisible();
   });
 });

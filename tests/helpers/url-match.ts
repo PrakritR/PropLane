@@ -44,7 +44,7 @@ export async function gotoAppPath(page: Page, path: string, timeout = 45_000) {
     try {
       await page.goto(path, {
         waitUntil: "domcontentloaded",
-        timeout: Math.min(15_000, remaining),
+        timeout: remaining,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
