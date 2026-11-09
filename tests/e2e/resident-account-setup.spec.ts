@@ -5,7 +5,7 @@ import { lstatSync, statSync, realpathSync, openSync, writeFileSync, closeSync }
 import path from "node:path";
 import { createWritableSyntheticManager } from "../helpers/writable-synthetic-manager";
 import { syntheticFixtureActorId } from "../helpers/synthetic-property-e2e";
-import { clearResidentPhoneGate } from "../helpers/synthetic-phone-verification";
+import { verifySyntheticResidentPhone, type SyntheticPhoneVerification } from "../helpers/synthetic-phone-verification";
 import { readCapturedAuthProof, waitForCapturedOutboundMail } from "../helpers/email-onboarding-e2e";
 
 /** Legacy emailed setup handoff. This fixture is not a public guest-application flow. */
@@ -45,9 +45,9 @@ test.describe("Legacy resident account setup", () => {
       if (page >= 100) throw new Error("Synthetic mailbox reservation exceeded its bound.");
     }
     const manager = await createWritableSyntheticManager(browser);
-    const residentContext = await browser.newContext({ baseURL: base.origin });
+    const residentContext = await browser.newContext({ baseURL: base.origin, storageState: { cookies: [], origins: [] } });
     const resident = await residentContext.newPage();
-    let phoneFixture: Awaited<ReturnType<typeof clearResidentPhoneGate>> = null;
+    let phoneFixture: SyntheticPhoneVerification | null = null;
     try {
       Object.assign(manifest, { ownerId: manager.actorId, propertyId: manager.property.id, propertyName: manager.property.name, state: "manager-created" }); save();
       const row = { id: appId, name: "E2E Legacy Resident", email, managerUserId: manager.actorId, propertyId: manager.property.id,
@@ -80,14 +80,17 @@ test.describe("Legacy resident account setup", () => {
       if (!started.ok() || request.email !== email || request.applicationId !== appId || request.setupToken !== setup.searchParams.get("token")) throw new Error("Verification request did not preserve the setup capability.");
       await expect(resident.getByRole("status")).toHaveText("If the address can receive a link, check your email to continue.");
       const href = await readCapturedAuthProof(resident, email);
-      const clean = await browser.newContext({ baseURL: base.origin });
+      const clean = await browser.newContext({ baseURL: base.origin, storageState: { cookies: [], origins: [] } });
       const verified = await clean.newPage();
       try {
         const finish = verified.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/auth/email-onboarding/finish", { timeout: 45_000 });
         await verified.goto(href);
         if (!(await finish).ok()) throw new Error("Email handoff failed.");
         await verified.waitForURL((url) => url.pathname.startsWith("/resident") || url.pathname === "/auth/verify-phone", { timeout: 60_000 });
-        phoneFixture = await clearResidentPhoneGate(verified, { email, phone });
+        // Auth confirmation can render a transient resident route before the
+        // phone guard redirects. Verify the exact email-confirmed resident
+        // actor directly, then navigate to this fixture's exact application.
+        phoneFixture = await verifySyntheticResidentPhone(verified, { email, phone });
         await verified.goto(`/resident/applications/pending?open=${encodeURIComponent(appId)}`);
         await expect(verified).toHaveURL(new RegExp(`/resident/applications/pending`));
         await verified.reload();

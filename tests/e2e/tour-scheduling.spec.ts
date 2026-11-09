@@ -47,12 +47,36 @@ test.describe("Tour scheduling", () => {
     await expect(page.locator('[data-attr="tour-book-submit"]')).toHaveCount(0);
   });
 
-  test("tours-contact page has message or topic input", async ({ browser, page }) => {
+  test("message link requires a resident account before opening message controls", async ({ browser, page }) => {
     await openOwnedPublicTourLink(browser, page, "message");
     await expect(page.getByRole("heading", { name: /message proplane/i })).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText(/what do you need help with/i)).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByPlaceholder("Tell us more so we can help…")).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('[data-attr="property-lead-message-send"]')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: "Create your resident account", exact: true })).toBeVisible({ timeout: 10_000 });
+    const createAccount = page.getByRole("link", { name: "Create account", exact: true });
+    const publicPropertyId = new URL(page.url()).searchParams.get("propertyId");
+    expect(publicPropertyId).toBeTruthy();
+    const createHref = new URL((await createAccount.getAttribute("href")) ?? "", page.url());
+    expect(createHref.pathname).toBe("/auth/create-account");
+    expect(createHref.searchParams.get("role")).toBe("resident");
+    expect(createHref.searchParams.get("handoff")).toBe("message");
+    const createNext = createHref.searchParams.get("next");
+    expect(createNext).toBeTruthy();
+    const createDestination = new URL(createNext!, page.url());
+    expect(createDestination.pathname).toBe("/resident/communication/active");
+    expect(createDestination.searchParams.get("propertyId")).toBe(publicPropertyId);
+    expect(createDestination.searchParams.get("compose")).toBe("1");
+    const signInHref = new URL((await page.getByRole("link", { name: "Sign in", exact: true }).getAttribute("href")) ?? "", page.url());
+    expect(signInHref.pathname).toBe("/auth/sign-in");
+    expect(signInHref.searchParams.get("intent")).toBe("resident");
+    expect(signInHref.searchParams.get("handoff")).toBe("message");
+    const signInNext = signInHref.searchParams.get("next");
+    expect(signInNext).toBeTruthy();
+    const signInDestination = new URL(signInNext!, page.url());
+    expect(signInDestination.pathname).toBe("/resident/communication/active");
+    expect(signInDestination.searchParams.get("propertyId")).toBe(publicPropertyId);
+    expect(signInDestination.searchParams.get("compose")).toBe("1");
+    await expect(page.locator('[data-attr="tours-contact-topic"]')).toHaveCount(0);
+    await expect(page.getByPlaceholder("Tell us more so we can help…")).toHaveCount(0);
+    await expect(page.locator('[data-attr="property-lead-message-send"]')).toHaveCount(0);
   });
 
   test("manager calendar page shows calendar controls", async ({ page }) => {

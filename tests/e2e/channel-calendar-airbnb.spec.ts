@@ -52,12 +52,13 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
     await expect(manageAirbnb).toBeVisible({ timeout: 30_000 });
     await manageAirbnb.click();
 
-    await expect(page.getByRole("heading", { name: "Connect Airbnb" })).toBeVisible({ timeout: 30_000 });
+    const dialog = page.getByRole("dialog", { name: "Connect Airbnb" });
+    await expect(dialog).toBeVisible({ timeout: 30_000 });
     const section = page.locator(`section[aria-label="${name}"]`);
     await expect(section).toBeVisible({ timeout: 30_000 });
     await expect(section.locator('[data-attr="channel-calendar-room-row"]')).toHaveCount(1);
     await expect(section.locator('[data-attr="channel-calendar-link-import-url"]')).toBeVisible();
-    await expect(page.locator('[data-attr="channel-calendar-link-save"]')).toBeVisible();
+    await expect(dialog.locator('[data-attr="channel-calendar-link-save"]')).toBeVisible();
   });
 
   test("link a room and round-trip its export URL", async ({ page }) => {
@@ -67,7 +68,8 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
     const manageAirbnb = page.locator('[data-attr="settings-airbnb-manage"]');
     await expect(manageAirbnb).toBeVisible({ timeout: 30_000 });
     await manageAirbnb.click();
-    await expect(page.getByRole("heading", { name: "Connect Airbnb" })).toBeVisible({ timeout: 30_000 });
+    const dialog = page.getByRole("dialog", { name: "Connect Airbnb" });
+    await expect(dialog).toBeVisible({ timeout: 30_000 });
 
     // One row per room across the workspace — the owned fixture contributes exactly one.
     const section = page.locator(`section[aria-label="${fixture.name}"]`);
@@ -78,7 +80,7 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
 
     const importUrl = "https://www.airbnb.com/calendar/ical/e2e-placeholder.ics?s=e2eplaceholder";
     await row.locator('[data-attr="channel-calendar-link-import-url"]').fill(importUrl);
-    await page.locator('[data-attr="channel-calendar-link-save"]').click();
+    await dialog.locator('[data-attr="channel-calendar-link-save"]').click();
     await expect(page.getByText("Calendars saved and synced.")).toBeVisible({ timeout: 20_000 });
 
     const exportRes = await page.evaluate(async ({ propertyId, expectedImportUrl }) => {

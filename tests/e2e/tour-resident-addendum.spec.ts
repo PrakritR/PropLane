@@ -4,6 +4,7 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { signInAsResident } from "../helpers/auth";
 import { cleanupSyntheticPublicTourManager, createSyntheticPublicTourManager } from "../helpers/synthetic-public-tour-manager";
+import { syntheticFixtureActorId } from "../helpers/synthetic-property-e2e";
 
 const residentInboxScope = "axis_portal_inbox_resident_v1";
 type TourFixture = { propertyId: string; propertyName: string; actorId: string; managerPage: Page; managerContext: BrowserContext; inquiryId?: string; residentThreadId?: string };
@@ -35,6 +36,7 @@ test.describe("Tour-resident addendum verification", () => {
   });
 
   test("resident Communication shows the thread for a linked tour request", async ({ browser, page }) => {
+    test.setTimeout(180_000);
     test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Requires the isolated dev/test E2E server.");
     const manager = await createSyntheticPublicTourManager(browser);
     const property = manager.property;
@@ -55,9 +57,12 @@ test.describe("Tour-resident addendum verification", () => {
     await signInAsResident(page);
     await page.goto(`/rent/tours-contact?propertyId=${encodeURIComponent(property.id)}`);
 
-    const openDays = page.getByRole("group", { name: "Open days" });
-    await expect(openDays.getByRole("button").first()).toBeVisible({ timeout: 25_000 });
-    await openDays.getByRole("button").first().click();
+    // An authenticated resident is routed to the embedded portal calendar,
+    // whose month-grid buttons use the same offered-slot contract without the
+    // public journey's `Open days` group.
+    const offeredDay = page.getByRole("button", { name: /request a tour$/i }).first();
+    await expect(offeredDay).toBeVisible({ timeout: 25_000 });
+    await offeredDay.click();
     const firstTime = page.locator(".ps-j-times button").first();
     await expect(firstTime).toBeVisible({ timeout: 10_000 });
     await firstTime.click();

@@ -1,9 +1,38 @@
-import { expect, type Frame, type Page } from "@playwright/test";
+import { expect, test, type Frame, type Page, type Response } from "@playwright/test";
 import { readFileSync, existsSync, readdirSync, unlinkSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
 type OnSignupPhase = (phase: string, httpStatus?: number) => void;
+
+/** Retry the same user-visible email action once, and only for the confirmed IP 429. */
+async function submitEmailOnboardingStart(page: Page, email: string, onPhase?: OnSignupPhase): Promise<{ response: Response; statuses: number[] }> {
+  const field = page.getByLabel("Email", { exact: true });
+  const button = page.getByRole("button", { name: "Continue with email" });
+  const statuses: number[] = [];
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const responsePromise = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.request().method() === "POST" && url.pathname === "/api/auth/email-onboarding/start";
+    }, { timeout: 20_000 });
+    await button.click();
+    const response = await responsePromise;
+    statuses.push(response.status());
+    const phase = attempt === 0 ? "email-onboarding-start-response" : "email-onboarding-start-retry-response";
+    if (onPhase) onPhase(phase, response.status());
+    else console.info(`[synthetic-email-onboarding-e2e] ${phase}=${response.status()}`);
+    if (response.status() !== 429 || attempt === 1) return { response, statuses };
+
+    // The route's IP bucket is 60 seconds and does not send Retry-After. Wait
+    // past that exact window before repeating the same UI request once.
+    test.info().setTimeout(test.info().timeout + 70_000);
+    await page.waitForTimeout(61_000);
+    await field.fill(email);
+    if (await field.inputValue() !== email) throw new Error("Email-onboarding retry changed the synthetic mailbox.");
+    await expect(button).toBeEnabled({ timeout: 10_000 });
+  }
+  throw new Error("Email-onboarding retry ended without a response.");
+}
 
 function safePathname(rawUrl: string): string {
   return new URL(rawUrl).pathname.replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, ":id");
@@ -63,12 +92,7 @@ export async function requestManagerEmailProof(page: Page, email: string, onPhas
   const spool = path.join(captureDir, `${createHash("sha256").update(email.toLowerCase()).digest("hex")}.json`);
   onPhase?.("request-email-and-capture");
   await page.getByLabel("Email", { exact: true }).fill(email);
-  const startResponse = page.waitForResponse((response) => {
-    const url = new URL(response.url());
-    return response.request().method() === "POST" && url.pathname === "/api/auth/email-onboarding/start";
-  }, { timeout: 20_000 });
-  await page.getByRole("button", { name: "Continue with email" }).click();
-  const startResult = await startResponse;
+  const { response: startResult, statuses } = await submitEmailOnboardingStart(page, email, onPhase);
   if (!startResult.ok()) throw new Error("Email-onboarding start rejected the synthetic request.");
   if (expectedTier) {
     const body = startResult.request().postDataJSON() as { intent?: unknown; tier?: unknown; billing?: unknown } | null;
@@ -76,7 +100,7 @@ export async function requestManagerEmailProof(page: Page, email: string, onPhas
       throw new Error("Manager email-onboarding start did not preserve the requested test tier.");
     }
   }
-  onPhase?.("email-onboarding-start-response", startResult.status());
+  if (statuses.length > 1 && statuses[0] !== 429) throw new Error("Manager email-onboarding retried without an HTTP 429.");
   onPhase?.("await-email-capture");
   await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
   await expect.poll(() => existsSync(spool), { timeout: 15_000 }).toBe(true);
@@ -186,23 +210,18 @@ export async function completeManagerEmailProof(page: Page, email: string, fullN
 }
 
 /** Request a real resident mailbox proof for an exact synthetic listing. */
-export async function requestResidentEmailProof(page: Page, email: string, propertyId: string): Promise<string> {
+export async function requestResidentEmailProof(page: Page, email: string, propertyId: string, onPhase?: OnSignupPhase): Promise<string> {
   const captureDir = process.env.AUTH_PROOF_CAPTURE_DIR;
   if (!captureDir || !path.isAbsolute(captureDir)) throw new Error("Resident signup E2E requires the isolated no-delivery Resend capture directory.");
   const normalizedEmail = email.trim().toLowerCase();
-  const spool = path.join(captureDir, `${createHash("sha256").update(normalizedEmail).digest("hex")}.json`);
   await page.getByLabel("Email", { exact: true }).fill(normalizedEmail);
-  const responsePromise = page.waitForResponse((response) => {
-    const url = new URL(response.url());
-    return response.request().method() === "POST" && url.pathname === "/api/auth/email-onboarding/start";
-  }, { timeout: 20_000 });
-  await page.getByRole("button", { name: "Continue with email" }).click();
-  const response = await responsePromise;
+  const { response, statuses } = await submitEmailOnboardingStart(page, normalizedEmail, onPhase);
   if (!response.ok()) throw new Error("Resident email-onboarding start rejected the synthetic request.");
   const body = response.request().postDataJSON() as { email?: unknown; intent?: unknown; propertyId?: unknown } | null;
   if (body?.email !== normalizedEmail || body.intent !== "resident" || body.propertyId !== propertyId) {
     throw new Error("Resident email-onboarding start did not retain the exact mailbox and listing.");
   }
+  if (statuses.length > 1 && statuses[0] !== 429) throw new Error("Resident email-onboarding retried without an HTTP 429.");
   await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
   return readCapturedAuthProof(page, normalizedEmail);
 }

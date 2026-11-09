@@ -30,7 +30,12 @@ function assertLocalDevBaseUrl(): string {
 
 /** Creates a real non-sandbox manager/listing so production-mode localhost uses the public projection. */
 export async function createSyntheticPublicTourManager(browser: Browser): Promise<SyntheticPublicTourManager> {
-  const context = await browser.newContext({ baseURL: assertLocalDevBaseUrl() });
+  // This is a public signup journey, even when the worker's default browser
+  // context inherits the canonical manager's storage state.
+  const context = await browser.newContext({
+    baseURL: assertLocalDevBaseUrl(),
+    storageState: { cookies: [], origins: [] },
+  });
   const page = await context.newPage();
   const stamp = Date.now();
   const email = `e2e-manager-${stamp}@${syntheticSignupDomain()}`;
@@ -47,7 +52,9 @@ export async function createSyntheticPublicTourManager(browser: Browser): Promis
     const href = await requestManagerEmailProof(page, email, undefined, "free");
     await finishManagerEmailProof(page, href, email, fullName, phone, undefined, "free");
     await page.getByRole("button", { name: "Go to portal" }).click();
-    await page.waitForURL(/\/auth\/(verify-phone|get-started|manager\/choose-plan|connect-google-services)|\/portal/, { timeout: 90_000 });
+    // A portal URL can appear briefly before the mandatory phone gate redirects
+    // it. Wait for that exact gate before applying the scoped fixture.
+    await page.waitForURL((url) => url.pathname === "/auth/verify-phone", { timeout: 90_000 });
     // The mandatory phone gate stands between the proven mailbox and the portal. It is cleared
     // as FIXTURE SETUP for this one synthetic account; no OTP is exercised.
     phoneFixture = await clearManagerPhoneGate(page, { email, phone });

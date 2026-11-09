@@ -37,7 +37,7 @@ test("assistant reply composer stays clickable above phone navigation with a por
   }
 });
 
-test("resident reply composer supports draft controls at every target width", async ({ page }) => {
+test("manager reply composer supports resident-thread draft controls at every target width", async ({ page }) => {
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Requires the seeded dev/test manager");
   await signInAsManager2(page, "/portal/communication/active");
   const ownerId = await syntheticFixtureActorId(page);
@@ -66,7 +66,20 @@ test("resident reply composer supports draft controls at every target width", as
   await page.goto("/portal/communication/active");
 
   const residentRow = page.locator(".portal-inbox-row").filter({ hasText: residentLabel }).getByRole("button").first();
-  await expect(residentRow).toBeVisible();
+  // The inbox waits for the conversation list, resident directory and enabled
+  // channel sources before exposing rows. Wait for this exact owned thread,
+  // while failing promptly on the surface's terminal load error.
+  await expect
+    .poll(async () => {
+      if (await page.getByRole("alert").filter({ hasText: "Could not load conversations." }).count()) return "error";
+      if (await residentRow.count()) return "ready";
+      return "loading";
+    }, { timeout: 45_000 })
+    .not.toBe("loading");
+  if (await page.getByRole("alert").filter({ hasText: "Could not load conversations." }).count()) {
+    throw new Error("Communication inbox failed to load the owned resident composer thread.");
+  }
+  await expect(residentRow).toBeVisible({ timeout: 10_000 });
   await residentRow.click();
 
   // A resident conversation opened from Communication is the ORDINARY inbox composer

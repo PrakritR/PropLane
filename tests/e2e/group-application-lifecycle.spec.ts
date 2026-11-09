@@ -5,7 +5,7 @@ import { test, expect, type Browser, type Page } from "@playwright/test";
 import { createWritableSyntheticManager, cleanupWritableSyntheticManager, type WritableSyntheticManager } from "../helpers/writable-synthetic-manager";
 import { finishResidentEmailProof, requestResidentEmailProof } from "../helpers/email-onboarding-e2e";
 import { syntheticSignupDomain } from "../helpers/synthetic-signup-domain";
-import { clearResidentPhoneGate, type SyntheticPhoneVerification } from "../helpers/synthetic-phone-verification";
+import { verifySyntheticResidentPhone, type SyntheticPhoneVerification } from "../helpers/synthetic-phone-verification";
 import { fillCurrentRentalApplication, visibleLocator, type HouseholdConfig } from "../helpers/rental-wizard-e2e";
 
 const DEV_URL = "https://emstjswhotsnyksqhqyf.supabase.co";
@@ -189,7 +189,10 @@ async function createResidentAccount(
         roleError || !roles || !roles.some((row) => row.role === "resident") || roles.some((row) => row.role !== "resident")) {
       throw new Error("Resident registration did not produce the exact email-confirmed resident account.");
     }
-    phoneFixture = await clearResidentPhoneGate(page, { email: applicant.email, phone: applicant.phone });
+    // Registration can briefly land on the public `next` route before the
+    // phone guard redirects. The role/profile proof above and helper actor
+    // checks bind this fixture to the exact new resident, independent of URL.
+    phoneFixture = await verifySyntheticResidentPhone(page, { email: applicant.email, phone: applicant.phone });
     // Email-first continuation carries property context but not the group link. Explicitly reopen
     // the organizer's capability URL after account creation; linking remains a user-visible step.
     await page.goto(propertyApplyPath(input.propertyId, input.leaderAppId), { waitUntil: "domcontentloaded" });

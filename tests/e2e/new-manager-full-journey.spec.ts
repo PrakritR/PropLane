@@ -84,7 +84,7 @@ test.describe("New manager — full journey from scratch", () => {
     await finishManagerEmailProof(page, verificationHref, email, fullName, phone, undefined, "pro");
     await shot(page, "03b-account-ready");
     await page.getByRole("button", { name: "Go to portal" }).click();
-    await page.waitForURL(/\/auth\/(verify-phone|get-started|manager\/choose-plan|connect-google-services)|\/portal/, { timeout: 90_000 });
+    await page.waitForURL((url) => url.pathname === "/auth/verify-phone", { timeout: 90_000 });
     // The mandatory phone gate stands between the proven mailbox and the portal. Cleared as
     // FIXTURE SETUP for this one synthetic account and restored afterwards; no OTP is exercised.
     phoneFixture = await clearManagerPhoneGate(page, { email, phone });
