@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { mockStripeAllRoutes } from "../helpers/auth";
 import { requestManagerEmailProof, finishManagerEmailProof } from "../helpers/email-onboarding-e2e";
-import { clearManagerPhoneGate, type SyntheticPhoneVerification } from "../helpers/synthetic-phone-verification";
+import { clearManagerPhoneGate, type SyntheticPhoneVerification, withSyntheticPhoneFixtureOwnership } from "../helpers/synthetic-phone-verification";
 import {
   completeManagerSignupOnboarding,
   pickListingSelect,
@@ -75,13 +75,13 @@ async function createFreshManager(page: Page, stamp: number) {
   // FIXTURE SETUP for this one synthetic account and restored afterwards; no OTP is exercised,
   // and nothing here claims phone verification was tested.
   const phoneFixture = await clearManagerPhoneGate(page, { email, phone });
-  await completeManagerSignupOnboarding(page);
-
-  await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
-  await expect(page.locator('[data-attr="manager-properties-add-top"], [data-attr="manager-properties-create"]')).toBeVisible({ timeout: 60_000 });
-  await shot(page, "03-manager-portal");
-
-  return { email, fullName, phone, phoneFixture };
+  const ownedSetup = await withSyntheticPhoneFixtureOwnership(phoneFixture, async () => {
+    await completeManagerSignupOnboarding(page);
+    await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
+    await expect(page.locator('[data-attr="manager-properties-add-top"], [data-attr="manager-properties-create"]')).toBeVisible({ timeout: 60_000 });
+    await shot(page, "03-manager-portal");
+  });
+  return { email, fullName, phone, phoneFixture: ownedSetup.fixture };
 }
 
 async function publishFirstListing(page: Page, stamp: number): Promise<string> {

@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { chmodSync, lstatSync, mkdirSync, writeFileSync } from "node:fs";
+import { lstatSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Page } from "@playwright/test";
 import { syntheticFixtureActorId } from "./synthetic-property-e2e";
@@ -83,12 +83,76 @@ async function browserActor(page: Page): Promise<{ id: string; email: string; ph
 
 function writePrivateBeforeImage(image: Record<string, unknown>): void {
   const dir = process.env.E2E_PRIVATE_FIXTURE_DIR;
-  if (!dir || !path.isAbsolute(dir)) return;
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  if ((lstatSync(dir).mode & 0o777) !== 0o700) throw new Error("Synthetic phone fixture before-image directory must be private.");
+  if (!dir || !path.isAbsolute(dir)) throw new Error("Synthetic phone fixture requires an absolute private before-image directory.");
+  let directory;
+  try {
+    directory = lstatSync(dir);
+    const followed = statSync(dir);
+    if (!directory.isDirectory() || directory.isSymbolicLink() || !path.isAbsolute(realpathSync(dir)) ||
+        followed.dev !== directory.dev || followed.ino !== directory.ino ||
+        (directory.mode & 0o777) !== 0o700 || directory.uid !== process.getuid?.()) {
+      throw new Error("Synthetic phone fixture before-image directory must be a private real directory owned by this user.");
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("before-image directory")) throw error;
+    throw new Error("Synthetic phone fixture before-image directory is unavailable.");
+  }
   const file = path.join(dir, `phone-fixture-${image.userId}-${Date.now()}.json`);
   writeFileSync(file, JSON.stringify(image, null, 2), { flag: "wx", mode: 0o600 });
-  chmodSync(file, 0o600);
+  const written = lstatSync(file);
+  const followedFile = statSync(file);
+  if (!written.isFile() || written.isSymbolicLink() || !path.isAbsolute(realpathSync(file)) ||
+      followedFile.dev !== written.dev || followedFile.ino !== written.ino ||
+      (written.mode & 0o777) !== 0o600 || written.uid !== process.getuid?.()) {
+    throw new Error("Synthetic phone fixture before-image file is not private.");
+  }
+}
+
+function sameInstant(left: unknown, right: unknown): boolean {
+  if (typeof left !== "string" || typeof right !== "string") return false;
+  const leftTime = Date.parse(left);
+  const rightTime = Date.parse(right);
+  return Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime === rightTime;
+}
+
+async function readPhoneStamp(db: SupabaseClient, id: string, email: string, phone: string) {
+  const { data, error } = await db.from("profiles")
+    .select("id, email, phone, phone_verified_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (error || !data || data.id !== id || String(data.email ?? "").trim().toLowerCase() !== email ||
+      String(data.phone ?? "").trim() !== phone) {
+    throw new Error("Synthetic phone fixture could not confirm the exact profile during compensation.");
+  }
+  return data as { id: string; email: string; phone: string; phone_verified_at: string | null };
+}
+
+async function restoreAttemptedStamp(
+  db: SupabaseClient,
+  input: { id: string; email: string; phone: string; attemptedAt: string },
+): Promise<void> {
+  const current = await readPhoneStamp(db, input.id, input.email, input.phone);
+  if (current.phone_verified_at === null) return;
+  if (!sameInstant(current.phone_verified_at, input.attemptedAt)) {
+    throw new Error("Synthetic phone fixture found a newer verification stamp and refused to overwrite it.");
+  }
+  const reverted = await db.from("profiles")
+    .update({ phone_verified_at: null })
+    .eq("id", input.id)
+    .eq("email", input.email)
+    .eq("phone", input.phone)
+    .eq("phone_verified_at", input.attemptedAt)
+    .select("id, email, phone, phone_verified_at");
+  if (!reverted.error && reverted.data?.length === 1 && reverted.data[0]?.id === input.id) {
+    const stamp = reverted.data[0]?.phone_verified_at;
+    if (stamp === null) return;
+  }
+  // An update acknowledgement can be lost after commit. Confirm the exact before-state before
+  // declaring compensation failed; never issue a second unconditional write.
+  const after = await readPhoneStamp(db, input.id, input.email, input.phone);
+  if (after.phone_verified_at !== null) {
+    throw new Error("Synthetic phone fixture could not restore its attempted verification stamp.");
+  }
 }
 
 export async function verifySyntheticManagerPhone(
@@ -133,9 +197,10 @@ export async function verifySyntheticManagerPhone(
   if (profile.phone_verified_at) throw new Error("Synthetic phone fixture refuses an already-verified profile.");
 
   const before = { userId: actor.id, email, phone: input.phone, phone_verified_at: null as string | null };
-  writePrivateBeforeImage({ ...before, at: new Date().toISOString() });
-
   const verifiedAt = new Date().toISOString();
+  // Persist the exact before-state and intended CAS value before the DB write, so a lost
+  // acknowledgement has a private receipt and a bounded compensation target.
+  writePrivateBeforeImage({ ...before, attemptedVerifiedAt: verifiedAt, recordedAt: new Date().toISOString() });
   const applied = await db
     .from("profiles")
     .update({ phone_verified_at: verifiedAt })
@@ -144,8 +209,17 @@ export async function verifySyntheticManagerPhone(
     .eq("phone", input.phone)
     .is("phone_verified_at", null)
     .select("id, phone_verified_at");
-  if (applied.error || applied.data?.length !== 1 || applied.data[0]?.phone_verified_at !== verifiedAt) {
-    throw new Error("Synthetic phone fixture could not compare-and-set the verification stamp.");
+  if (applied.error || applied.data?.length !== 1 || applied.data[0]?.id !== actor.id ||
+      !sameInstant(applied.data[0]?.phone_verified_at, verifiedAt)) {
+    try {
+      await restoreAttemptedStamp(db, { id: actor.id, email, phone: input.phone, attemptedAt: verifiedAt });
+    } catch (compensationError) {
+      throw new AggregateError(
+        [new Error("Synthetic phone fixture could not confirm its compare-and-set acknowledgement."), compensationError],
+        "Synthetic phone fixture write failed and exact compensation could not be confirmed.",
+      );
+    }
+    throw new Error("Synthetic phone fixture could not compare-and-set the verification stamp; attempted write was compensated.");
   }
 
   let restored = false;
@@ -154,21 +228,33 @@ export async function verifySyntheticManagerPhone(
     phone: input.phone,
     restore: async () => {
       if (restored) return;
-      const reverted = await db
-        .from("profiles")
-        .update({ phone_verified_at: before.phone_verified_at })
-        .eq("id", actor.id)
-        .eq("phone", input.phone)
-        .eq("phone_verified_at", verifiedAt)
-        .select("id, phone_verified_at");
-      if (reverted.error || reverted.data?.length !== 1 || reverted.data[0]?.phone_verified_at !== null) {
-        // Reported, never swallowed: a left-behind verified flag is a fixture leak and the run
-        // must say so rather than pass quietly.
-        throw new Error("Synthetic phone fixture could not restore the original verification state.");
+      try {
+        await restoreAttemptedStamp(db, { id: actor.id, email, phone: input.phone, attemptedAt: verifiedAt });
+      } catch (error) {
+        // Reported, never swallowed: a left-behind verified flag is a fixture leak.
+        throw new Error("Synthetic phone fixture could not restore the original verification state.", { cause: error });
       }
       restored = true;
     },
   };
+}
+
+/** Keep ownership of a phone fixture until later fallible setup has succeeded. */
+export async function withSyntheticPhoneFixtureOwnership<T>(
+  fixture: SyntheticPhoneVerification | null,
+  setup: () => Promise<T>,
+): Promise<{ value: T; fixture: SyntheticPhoneVerification | null }> {
+  try {
+    return { value: await setup(), fixture };
+  } catch (error) {
+    if (!fixture) throw error;
+    try {
+      await fixture.restore();
+    } catch (restoreError) {
+      throw new AggregateError([error, restoreError], "Synthetic phone setup failed and fixture restoration also failed.");
+    }
+    throw error;
+  }
 }
 
 /**
@@ -183,6 +269,15 @@ export async function clearManagerPhoneGate(
   if (!new URL(page.url()).pathname.startsWith("/auth/verify-phone")) return null;
   const fixture = await verifySyntheticManagerPhone(page, input);
   const next = new URL(page.url()).searchParams.get("next");
-  await page.goto(next && next.startsWith("/") ? next : "/portal/dashboard", { waitUntil: "domcontentloaded" });
+  try {
+    await page.goto(next && next.startsWith("/") ? next : "/portal/dashboard", { waitUntil: "domcontentloaded" });
+  } catch (error) {
+    try {
+      await fixture.restore();
+    } catch (restoreError) {
+      throw new AggregateError([error, restoreError], "Synthetic phone gate navigation failed and fixture restoration also failed.");
+    }
+    throw error;
+  }
   return fixture;
 }
