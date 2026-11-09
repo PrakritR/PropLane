@@ -580,13 +580,12 @@ function reconcileChargeWithLocal(serverCharge: HouseholdCharge, local: Househol
   // A settled server receipt is authoritative even when a stale local row wins edits.
   const sameCharge = Boolean(local.managerUserId?.trim()) && local.id === serverCharge.id && local.managerUserId === serverCharge.managerUserId;
   const settledProvider = sameCharge && (serverCharge.status === "paid" || serverCharge.status === "refunded") &&
-    Boolean(serverCharge.stripeCheckoutSessionId?.trim()) &&
-    (serverCharge.stripePaymentStatus === "paid" || serverCharge.stripePaymentStatus === "succeeded");
+    Boolean(serverCharge.stripeCheckoutSessionId?.trim());
   if (settledProvider) {
     localWithServerFields = {
       ...localWithServerFields,
       stripeCheckoutSessionId: serverCharge.stripeCheckoutSessionId,
-      stripePaymentStatus: serverCharge.stripePaymentStatus,
+      ...(serverCharge.stripePaymentStatus !== undefined ? { stripePaymentStatus: serverCharge.stripePaymentStatus } : {}),
       ...(serverCharge.paidAmountCents !== undefined ? { paidAmountCents: serverCharge.paidAmountCents } : {}),
       paidMethod: serverCharge.paidMethod,
     };
@@ -596,6 +595,7 @@ function reconcileChargeWithLocal(serverCharge: HouseholdCharge, local: Househol
     }
     if (serverCharge.status === "refunded") return { ...localWithServerFields, status: "refunded", paidAt: serverCharge.paidAt ?? local.paidAt, balanceLabel: "$0.00" };
   }
+  if (sameCharge && local.status === "refunded" && serverCharge.status === "paid") return localWithServerFields;
   // Local mark-paid must win over stale server pending rows (including duplicate ids for the same bill).
   if (local.status === "paid") {
     return {

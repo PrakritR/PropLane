@@ -310,6 +310,23 @@ describe("mergeHouseholdChargesWithServer", () => {
     expect(result.hasUpdated).toBe(false);
   });
 
+  it("keeps a legacy settled provider source when payment status is absent", () => {
+    const local = makeCharge({ id: "exact", status: "pending" });
+    const server = makeCharge({ id: "exact", status: "paid", stripeCheckoutSessionId: "cs_legacy" });
+    const result = mergeHouseholdChargesWithServer([server], [local]);
+    expect(result.merged[0]).toMatchObject({ status: "paid", stripeCheckoutSessionId: "cs_legacy" });
+    expect(result.merged[0]?.stripePaymentStatus).toBeUndefined();
+    expect(result.hasUpdated).toBe(false);
+  });
+
+  it("preserves a locally confirmed refund against a stale paid snapshot", () => {
+    const local = makeCharge({ id: "exact", status: "refunded", refundedCents: 100, stripeCheckoutSessionId: "cs_verified" });
+    const server = makeCharge({ id: "exact", status: "paid", refundedCents: 40, stripeCheckoutSessionId: "cs_verified" });
+    const result = mergeHouseholdChargesWithServer([server], [local]);
+    expect(result.merged[0]).toMatchObject({ status: "refunded", refundedCents: 100 });
+    expect(result.hasUpdated).toBe(false);
+  });
+
   it("takes settled refund status and monotonic refund totals without a mirror write", () => {
     const local = makeCharge({ id: "exact", status: "paid", refundedCents: 70 });
     const server = makeCharge({ id: "exact", status: "refunded", stripeCheckoutSessionId: "cs_verified", stripePaymentStatus: "paid", refundedCents: 50 });
