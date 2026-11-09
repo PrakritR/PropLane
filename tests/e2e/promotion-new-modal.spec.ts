@@ -22,7 +22,7 @@ function headlineInput(scope: ReturnType<Page["getByRole"]>) {
 }
 
 function promotionKindTrigger(dialog: Locator) {
-  return fieldSelectTrigger(dialog, "select-promotion-new-kind");
+  return fieldSelectTrigger(dialog, "promotion-new-kind");
 }
 
 async function selectPromotionKind(page: Page, dialog: Locator, label: string) {

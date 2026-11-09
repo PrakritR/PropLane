@@ -87,7 +87,7 @@ test.describe("Admin portal", () => {
     await page.route("**/api/admin/assistant-thread**", (route) => route.fulfill({ status: 200, json: { thread: null } }));
     await page.route("**/api/portal/scheduled-inbox-messages**", (route) => route.fulfill({ status: route.request().method() === "GET" ? 200 : 405, json: { messages: [] } }));
     // Keep the compose flow from delivering to real recipient inboxes/push devices.
-    await page.route("**/api/portal/send-inbox-message", (route) =>
+    await page.route("**/api/portal/send-inbox-message**", (route) =>
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) }),
     );
     const evidenceDir = process.env.E2E_EVIDENCE_DIR;
@@ -128,11 +128,13 @@ test.describe("Admin portal", () => {
     await expect(page.getByPlaceholder("Subject")).toHaveValue(subject);
     await expect(page.getByPlaceholder(/write your message/i)).toHaveValue("Automated trash-tab check.");
     await expect(page.getByRole("button", { name: "Recipient type" })).toContainText("All managers");
-    const sendRequest = page.waitForRequest((request) =>
-      new URL(request.url()).pathname === "/api/portal/send-inbox-message" && request.method() === "POST",
-    );
-    await page.getByRole("button", { name: "Send", exact: true }).click();
-    const sent = (await sendRequest).postDataJSON() as { subject?: string; text?: string; toUserIds?: string[] };
+    const [sendRequest] = await Promise.all([
+      page.waitForRequest((request) =>
+        new URL(request.url()).pathname === "/api/portal/send-inbox-message" && request.method() === "POST",
+      ),
+      page.getByRole("button", { name: "Send message", exact: true }).click(),
+    ]);
+    const sent = sendRequest.postDataJSON() as { subject?: string; text?: string; toUserIds?: string[] };
     expect(sent.subject).toBe(subject);
     expect(sent.text).toBe("Automated trash-tab check.");
     expect(sent.toUserIds?.length).toBeGreaterThan(0);

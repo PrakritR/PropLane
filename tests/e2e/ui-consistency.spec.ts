@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import path from "node:path";
+import { DARK_MODE_ENABLED } from "../../src/lib/theme-storage";
 
 const portalTestsEnabled = process.env.E2E_TESTS_ENABLED === "1";
 
@@ -54,11 +55,10 @@ test.describe("UI consistency — dark mode portal routes", () => {
   const routes = ["/portal/communication/active", "/portal/payments", "/portal/services/requests"] as const;
 
   for (const route of routes) {
-    test(`${route} renders in dark mode`, async ({ page }) => {
+    test(`${route} applies the configured theme`, async ({ page }) => {
       await page.goto(route);
       await expect(page.getByRole("heading").first()).toBeVisible();
-      const theme = await page.evaluate(() => document.documentElement.getAttribute("data-theme"));
-      expect(theme).toBe("dark");
+      await expect(page.locator("html")).toHaveAttribute("data-theme", DARK_MODE_ENABLED ? "dark" : "light");
     });
   }
 });

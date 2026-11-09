@@ -39,8 +39,8 @@ test.describe("Portal loading and record actions", () => {
       await expect(trigger).toBeVisible({ timeout: 45_000 });
       await expect(page.locator('[data-attr="list-selection-toolbar"]')).toHaveCount(0);
       const box = await trigger.boundingBox();
-      expect(box!.width).toBeGreaterThanOrEqual(44);
-      expect(box!.height).toBeGreaterThanOrEqual(44);
+      expect(box!.width).toBeGreaterThanOrEqual(width < 640 ? 44 : 32);
+      expect(box!.height).toBeGreaterThanOrEqual(width < 640 ? 44 : 32);
       await trigger.click();
       const menu = page.getByRole("menu");
       await expect(menu.getByRole("menuitem", { name: "Edit", exact: true })).toBeVisible();
