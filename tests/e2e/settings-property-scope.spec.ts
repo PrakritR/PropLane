@@ -2,11 +2,11 @@ import { test, expect, type Page } from "@playwright/test";
 import { createWritableSyntheticManager, cleanupWritableSyntheticManager } from "../helpers/writable-synthetic-manager";
 
 /**
- * Per-property Operations settings (PLAN-0916-1040): pick a house, edit it, and
- * "All properties" is untouched; the choice survives a reload; Reset restores
- * the workspace values. Drives the picker + scope bar in the browser and proves
- * the server behaviour through same-origin fetches (the exact calls the panels
- * make), so it needs no fragile timing-dropdown interaction.
+ * Per-property Tours settings: pick a house, edit it, and prove "All properties"
+ * is untouched. The saved override persists across reload when the house is
+ * selected again; the Tours panel has no reset control, so reset is verified via
+ * the documented backend override action. Drives the visible picker and exact
+ * scoped requests without fragile timing-dropdown interaction.
  *
  * Uses an isolated writable workspace with two real API-created properties.
  */
@@ -24,7 +24,7 @@ const call = (page: Page, url: string, init?: RequestInit): Promise<Resp> =>
     [url, init] as const,
   );
 test.describe("Settings — per-property Automations scope", () => {
-  test("pick a house -> edit -> All properties unchanged -> reload persists -> reset restores", async ({ browser }) => {
+  test("pick a house -> edit -> All properties unchanged -> reload persists -> backend reset restores", async ({ browser }) => {
     const manager = await createWritableSyntheticManager(browser, { properties: 2 });
     const { page } = manager;
     const fixture = manager.properties[0]!;
@@ -46,6 +46,21 @@ test.describe("Settings — per-property Automations scope", () => {
 
       const workspaceQuery = `?workspaceId=${encodeURIComponent(workspaceId!)}`;
       const propertyQuery = `?propertyId=${encodeURIComponent(fixture.id)}&workspaceId=${encodeURIComponent(workspaceId!)}`;
+      const chooseFixture = async (scopePicker: ReturnType<typeof tours.locator>) => {
+        const scopedRead = page.waitForResponse((response) => {
+          const url = new URL(response.url());
+          return response.request().method() === "GET" && url.pathname === "/api/portal/manager-tour-settings" &&
+            url.searchParams.get("propertyId") === fixture.id && url.searchParams.get("workspaceId") === workspaceId;
+        }, { timeout: 15_000 });
+        await scopePicker.click();
+        await page.getByRole("option", { name: fixture.name, exact: true }).click();
+        await expect(scopePicker).toContainText(fixture.name);
+        const scopedResponse = await scopedRead;
+        expect(scopedResponse.status()).toBe(200);
+        const scopedUrl = new URL(scopedResponse.url());
+        expect(scopedUrl.searchParams.get("propertyId")).toBe(fixture.id);
+        expect(scopedUrl.searchParams.get("workspaceId")).toBe(workspaceId);
+      };
       const requestInit = (body: Record<string, unknown>): RequestInit => ({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -68,9 +83,7 @@ test.describe("Settings — per-property Automations scope", () => {
       expect(allProperties.body.settings).toEqual(workspaceBeforeResponse.body.settings);
 
       // Pick only the fixture and prove it starts by inheriting the same workspace value.
-      await picker.click();
-      await page.getByRole("option", { name: fixture.name, exact: true }).click();
-      await expect.poll(() => new URL(page.url()).searchParams.get("property")).toBe(fixture.id);
+      await chooseFixture(picker);
       const houseInherit = await call(page, `/api/portal/manager-tour-settings${propertyQuery}`);
       expect(houseInherit.status).toBe(200);
       expect(houseInherit.body.scope).toBe("property");
@@ -87,6 +100,11 @@ test.describe("Settings — per-property Automations scope", () => {
       await noticeInput.fill(String(propertyValue));
       const saveResponse = await saved;
       expect(saveResponse.status()).toBe(200);
+      const savePayload = saveResponse.request().postDataJSON() as { propertyId?: string; propertyIds?: string[]; workspaceId?: string; tourNoticeDays?: number };
+      expect(savePayload.propertyId).toBe(fixture.id);
+      expect(savePayload.workspaceId).toBe(workspaceId);
+      expect(savePayload.propertyIds).toBeUndefined();
+      expect(savePayload.tourNoticeDays).toBe(propertyValue);
       const saveBody = await saveResponse.json() as { scope?: string; settings?: { tourNoticeDays?: number }; overriddenPropertyIds?: string[] };
       expect(saveBody.scope).toBe("property");
       expect(saveBody.settings?.tourNoticeDays).toBe(propertyValue);
@@ -97,14 +115,13 @@ test.describe("Settings — per-property Automations scope", () => {
       expect(workspaceAfter.body.settings).toEqual(workspaceBeforeResponse.body.settings);
       expect(workspaceAfter.body.overriddenPropertyIds).toContain(fixture.id);
 
-      // The section-local picker resets to All properties on a new page. Re-select the same
-      // house after a real reload and prove its separately stored override is still there.
+      // The picker is section-local state, so select the house again after reload and prove the
+      // persisted server value is loaded for the exact property/workspace scope.
       await page.goto(settingsUrl, { waitUntil: "domcontentloaded" });
       await expect(tours.getByRole("heading", { name: "Tours" })).toBeVisible({ timeout: 30_000 });
       const reloadedPicker = tours.locator('[data-attr="settings-property-scope"]');
       await expect(reloadedPicker).toBeVisible({ timeout: 30_000 });
-      await reloadedPicker.click();
-      await page.getByRole("option", { name: fixture.name, exact: true }).click();
+      await chooseFixture(reloadedPicker);
       await expect(tours.locator('[data-attr="manager-tour-notice-days"]')).toHaveValue(String(propertyValue));
 
       // Reset is the server's explicit property-override action; verify the picker now inherits All properties.
@@ -116,7 +133,14 @@ test.describe("Settings — per-property Automations scope", () => {
       expect(workspaceAfterReset.body.settings).toEqual(workspaceBeforeResponse.body.settings);
       expect(workspaceAfterReset.body.overriddenPropertyIds ?? []).not.toContain(fixture.id);
       await page.reload({ waitUntil: "domcontentloaded" });
+      const resetPicker = tours.locator('[data-attr="settings-property-scope"]');
+      await expect(resetPicker).toBeVisible({ timeout: 30_000 });
+      await chooseFixture(resetPicker);
       await expect(tours.locator('[data-attr="manager-tour-notice-days"]')).toHaveValue(String(workspaceBefore));
+      const propertyAfterReset = await call(page, `/api/portal/manager-tour-settings${propertyQuery}`);
+      expect(propertyAfterReset.status).toBe(200);
+      expect(propertyAfterReset.body.inherited).toBe(true);
+      expect(propertyAfterReset.body.settings).toEqual(workspaceBeforeResponse.body.settings);
     } finally {
       const cleanupErrors: unknown[] = [];
       try {
