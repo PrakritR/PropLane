@@ -715,6 +715,38 @@ export async function mirrorHouseholdChargesToServerAwait(): Promise<boolean> {
   });
 }
 
+/** Confirm only the billing rows associated with the authoritative application. */
+export async function mirrorApplicationHouseholdChargesAwait(row: DemoApplicantRow, previousRow?: DemoApplicantRow): Promise<boolean> {
+  const pairs = [row, previousRow].filter((item): item is DemoApplicantRow => !!item).map((item) => ({
+    propertyId: applicationPropertyIdForCharges(item), email: item.email?.trim().toLowerCase() ?? "",
+  }));
+  const owner = row.managerUserId?.trim() || null;
+  const matchingProfiles = readRentProfiles().filter((profile) =>
+    pairs.some(({ email, propertyId }) => !!email && !!propertyId && profile.residentEmail.trim().toLowerCase() === email && profile.propertyId === propertyId),
+  );
+  const profiles = matchingProfiles.map((profile) => owner ? { ...profile, managerUserId: owner } : profile);
+  const profileIds = new Set(profiles.map((profile) => profile.id));
+  const charges = readAll().filter((charge) =>
+    ["pending", "cancelled", "failed"].includes(charge.status) &&
+    (charge.applicationId === row.id || (!!charge.recurringRentProfileId && profileIds.has(charge.recurringRentProfileId))),
+  ).map((charge) => owner ? { ...charge, managerUserId: owner } : charge);
+  if (!charges.length && !profiles.length) return true;
+  if (!isBrowser() || isDemoModeActive() || householdWritesForbidden()) return false;
+  const signal = householdWriteSignal();
+  const res = await fetch(adminOversightUrl("/api/portal-household-charges"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "replace", confirmWrites: true, charges, rentProfiles: profiles }),
+    ...(signal ? { signal } : {}),
+  });
+  if (!res.ok) return false;
+  const body = await res.json().catch(() => null) as { ok?: boolean; confirmedChargeIds?: string[]; confirmedProfileIds?: string[] } | null;
+  if (body?.ok !== true || !Array.isArray(body.confirmedChargeIds) || !Array.isArray(body.confirmedProfileIds)) return false;
+  const confirmedCharges = new Set(body.confirmedChargeIds);
+  const confirmedProfiles = new Set(body.confirmedProfileIds);
+  return charges.every((charge) => confirmedCharges.has(charge.id)) && profiles.every((profile) => confirmedProfiles.has(profile.id));
+}
+
 function mirrorRentProfiles(rows: RecurringRentProfile[]) {
   postHouseholdPayload({ action: "replace", charges: readAll(), rentProfiles: rows });
 }

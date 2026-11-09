@@ -32,7 +32,7 @@ vi.mock("@/lib/manager-applications-storage", async (importOriginal) => ({
 }));
 vi.mock("@/lib/household-charges", () => ({
   recordApprovedApplicationCharges,
-  mirrorHouseholdChargesToServerAwait: async () => true,
+  mirrorApplicationHouseholdChargesAwait: async () => true,
   readChargesForManager: () => [],
   recordSubmittedApplicationFeeCharge,
   removeAllApplicationCharges,

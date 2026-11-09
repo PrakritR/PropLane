@@ -6,8 +6,7 @@ import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-por
 import { normalizeApplicationAxisId, readManagerApplicationRows, writeManagerApplicationRows } from "@/lib/manager-applications-storage";
 import {
   recordApprovedApplicationCharges,
-  mirrorHouseholdChargesToServerAwait,
-  readChargesForManager,
+  mirrorApplicationHouseholdChargesAwait,
   recordSubmittedApplicationFeeCharge,
   removeAllApplicationCharges,
   removeApprovedApplicationCharges,
@@ -230,10 +229,8 @@ export async function transitionApplicationBucket(
 
   try {
     if (nextBucket === "approved") {
-      const changed = recordApprovedApplicationCharges(updatedRow, opts.userId ?? null);
-      const hasCharges = readChargesForManager(updatedRow.managerUserId ?? opts.userId ?? null)
-        .some((charge) => charge.applicationId === updatedRow.id);
-      if ((changed || hasCharges) && !isDemoModeActive() && !(await mirrorHouseholdChargesToServerAwait())) {
+      recordApprovedApplicationCharges(updatedRow, opts.userId ?? null);
+      if (!isDemoModeActive() && !(await mirrorApplicationHouseholdChargesAwait(updatedRow, row))) {
         return { row: updatedRow, welcomeSent: false, blocked: "error", approvalSaved: true, message: "Approval saved, but payments could not be synchronized. Retry to finish setup." };
       }
     } else if (nextBucket === "pending") {

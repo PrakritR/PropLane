@@ -3,6 +3,7 @@ import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
   mirrorHouseholdChargesToServerAwait,
+  mirrorApplicationHouseholdChargesAwait,
   recordApprovedApplicationCharges,
   syncHouseholdChargesFromServer,
 } from "@/lib/household-charges";
@@ -62,9 +63,9 @@ export function mergeApplicationLeaseDatesIntoResidentRow(
  * lets the read-back settle on its own. Awaiting all four made one "Save resident" six sequential
  * round trips on a free-tier project, which is the "saving takes forever" this splits apart.
  */
-async function mirrorResidentBillingWrite(): Promise<void> {
+async function mirrorResidentBillingWrite(row?: DemoApplicantRow, previousRow?: DemoApplicantRow): Promise<void> {
   if (isDemoModeActive()) return;
-  if (!(await mirrorHouseholdChargesToServerAwait())) throw new Error("Could not save charges.");
+  if (!(await (row ? mirrorApplicationHouseholdChargesAwait(row, previousRow) : mirrorHouseholdChargesToServerAwait()))) throw new Error("Could not save charges.");
 }
 
 function refreshResidentBillingReads(managerUserId: string | null): Promise<unknown> {
@@ -283,7 +284,7 @@ export async function persistResidentProfileEdit(input: {
       }
     }
     // The write must finish before any forced read can replace the local charges.
-    await mirrorResidentBillingWrite();
+    await mirrorResidentBillingWrite(savedRow, input.rows.find((row) => row.id === savedRow.id));
   } catch {
     return { ok: false, error: "Resident saved, but billing could not be updated. Please try saving again." };
   }

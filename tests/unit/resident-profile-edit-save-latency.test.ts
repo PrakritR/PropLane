@@ -64,6 +64,7 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
 }));
 vi.mock("@/lib/household-charges", () => ({
   mirrorHouseholdChargesToServerAwait: () => mirrorWrite(),
+  mirrorApplicationHouseholdChargesAwait: () => mirrorWrite(),
   syncHouseholdChargesFromServer: () => syncCharges(),
   recordApprovedApplicationCharges: () => true,
 }));

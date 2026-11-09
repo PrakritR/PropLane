@@ -23,7 +23,7 @@ vi.mock("@/lib/manager-applications-storage", () => ({
 }));
 vi.mock("@/lib/household-charges", () => ({
   recordApprovedApplicationCharges: () => recordCharges(),
-  mirrorHouseholdChargesToServerAwait: () => mirrorCharges(),
+  mirrorApplicationHouseholdChargesAwait: () => mirrorCharges(),
   readChargesForManager: () => readCharges(),
   recordSubmittedApplicationFeeCharge: () => true,
   removeAllApplicationCharges: () => undefined,
@@ -82,12 +82,12 @@ describe("approving a bed that was just taken", () => {
     expect(writes).toEqual([]);
   });
 
-  it("does not mirror unchanged charges", async () => {
+  it("checks scoped billing even when reconciliation is unchanged", async () => {
     recordCharges.mockReturnValueOnce(false);
     mockFetch(() => ({ status: 200, body: { ok: true } }));
     const result = await transitionApplicationBucket("AP1", "approved", { userId: "u1", skipWelcomeEmail: true });
     expect(result?.approvalSaved).toBe(true);
-    expect(mirrorCharges).not.toHaveBeenCalled();
+    expect(mirrorCharges).toHaveBeenCalledOnce();
   });
 
   it("reports a saved approval when billing mirror fails and leaves retry possible", async () => {

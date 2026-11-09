@@ -45,9 +45,10 @@ export async function persistHouseholdChargeRows(
   db: SupabaseClient,
   mappedRows: HouseholdChargeWriteRow[],
   ctx: HouseholdChargeWriteContext,
-): Promise<{ persistedRows: HouseholdChargeWriteRow[]; chargeWriteError: string | null }> {
+): Promise<{ persistedRows: HouseholdChargeWriteRow[]; confirmedIds: string[]; chargeWriteError: string | null }> {
   const { actor, now, chargeIds, previousStatusById, existingOwnerById, existingUpdatedAtById, existingRecordById, existingLedgerFingerprintById } = ctx;
   const persistedRows: HouseholdChargeWriteRow[] = [];
+  const confirmedIds: string[] = [];
   let chargeWriteError: string | null = null;
   for (const row of mappedRows) {
     if (existingOwnerById.has(row.id)) {
@@ -55,7 +56,7 @@ export async function persistHouseholdChargeRows(
       if (stored && isDeepStrictEqual(stored.row_data, row.row_data) &&
           stored.manager_user_id === row.manager_user_id && stored.resident_user_id === row.resident_user_id &&
           stored.resident_email === row.resident_email && stored.property_id === row.property_id &&
-          stored.kind === row.kind && stored.status === row.status) continue;
+          stored.kind === row.kind && stored.status === row.status) { confirmedIds.push(row.id); continue; }
       const expectedStatus = previousStatusById.get(row.id);
       const expectedUpdatedAt = existingUpdatedAtById.get(row.id);
       // A missing version cannot safely be compared; a subsequent load
@@ -68,25 +69,29 @@ export async function persistHouseholdChargeRows(
         .eq("updated_at", expectedUpdatedAt)
         .select("id");
       if (error) { chargeWriteError = error.message; break; }
-      if ((data ?? []).length > 0) persistedRows.push(row);
+      if ((data ?? []).length > 0) { persistedRows.push(row); confirmedIds.push(row.id); }
     } else {
       // Insert-only: a concurrent provider/manager writer may have created
       // this id after our read. Never turn that row into an upsert target.
       const { data, error } = await db.from("portal_household_charge_records").insert(row).select("id");
       if (error?.code === "23505") continue;
       if (error) { chargeWriteError = error.message; break; }
-      if ((data ?? []).length > 0) persistedRows.push(row);
+      if ((data ?? []).length > 0) { persistedRows.push(row); confirmedIds.push(row.id); }
     }
   }
   if (persistedRows.length > 0) {
     // Batch-scoped dedupe only — a full-table sweep on every client mirror
     // was taking tens of seconds and blocking the whole portal load.
-    await reconcileDuplicateChargeList(
+    const reconciliation = await reconcileDuplicateChargeList(
       db,
       persistedRows.map((row) => row.row_data as HouseholdCharge),
       actor.role === "admin" ? undefined : actor.id,
       new Set(chargeIds),
-    ).catch(() => undefined);
+    ).catch(() => null);
+    const uncertainIds = new Set(reconciliation ? reconciliation.removedChargeIds : persistedRows.map((row) => row.id));
+    for (let i = confirmedIds.length - 1; i >= 0; i--) {
+      if (uncertainIds.has(confirmedIds[i]!)) confirmedIds.splice(i, 1);
+    }
     // Reminders + ledger/GL sync run ONLY over rows that were actually
     // persisted (mappedRows) — NOT the full client list. A foreign charge a
     // read-only co-manager was forbidden to persist (skipped above) must not
@@ -122,5 +127,5 @@ export async function persistHouseholdChargeRows(
       }).catch(() => undefined);
     }
   }
-  return { persistedRows, chargeWriteError };
+  return { persistedRows, confirmedIds, chargeWriteError };
 }
