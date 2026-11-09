@@ -55,9 +55,11 @@ async function createFreshManager(page: Page, stamp: number) {
 
   await page.goto("/partner/pricing");
   await shot(page, "01-pricing");
+  // The exact Pro CTA. A broad name match took the FIRST matching control, which is the Free
+  // card's "Start free", and every tier assertion downstream then read a free-tier signup.
   await Promise.all([
-    page.waitForURL(/\/auth\/create-account/, { timeout: 30_000 }),
-    page.getByRole("button", { name: /choose pro|get started|free/i }).first().click(),
+    page.waitForURL(/\/auth\/create-account\?.*\btier=pro\b/, { timeout: 30_000 }),
+    page.locator('[data-attr="pricing-plan-pro-cta"]').click(),
   ]);
 
   const verificationHref = await requestManagerEmailProof(page, email, undefined, "pro");

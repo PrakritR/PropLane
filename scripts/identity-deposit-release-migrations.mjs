@@ -125,6 +125,33 @@ export async function transaction(client, migrations, options, inspect = catalog
     return post;
   } catch (error) { if (!committing) await client.query("rollback").catch(()=>undefined); throw error; }
 }
+/** Reported when the COMMIT landed but its own verification could not be reached. */
+export const COMMITTED_UNVERIFIED = "Committed but unverified; refresh the credential and inspect before any retry";
+
+/**
+ * Verify the committed schema over a connection of its own.
+ *
+ * The credential `main` opened with is short-lived, and the apply phase spends that life on
+ * the backup and the migration transaction, so by the time the commit lands the CLI login can
+ * already have expired. Re-resolving the SAME confirmed target and minting a fresh credential
+ * keeps the TLS root pin and the identity/role check (`credential` + `connect` own both) while
+ * giving the verification a live session. A transport failure here is reported as
+ * committed-but-unverified, never as a failed apply: the transaction is never retried.
+ */
+export async function verifyCommittedPostflight(target, migrations, fingerprint, deps = {}) {
+  const mint = deps.credential ?? credential;
+  const open = deps.connect ?? connect;
+  const inspect = deps.readOnly ?? readOnly;
+  let client;
+  try { client = await open(mint(SMS_RELEASE_TARGETS[target])); }
+  catch { throw new Error(COMMITTED_UNVERIFIED); }
+  try {
+    const post = await inspect(client, migrations, true);
+    if (post.fingerprint !== fingerprint) throw new Error("Committed postflight differs; inspect before retry");
+    return post.fingerprint;
+  } finally { await client.end?.().catch(() => undefined); }
+}
+
 export function assertPrivateDirectory(path) {
   const dir = lstatSync(dirname(resolve(path)));
   if (!dir.isDirectory() || dir.isSymbolicLink() || (dir.mode & 0o777) !== 0o700) throw new Error("Artifact directory must be private");
@@ -157,10 +184,10 @@ async function main() {
       writeFileSync(file, JSON.stringify({ target: options.target, ref: options.confirmRef, baseline: options.baseline, fingerprint: post.fingerprint, catalog: post.state }, null, 2), { flag: "wx", mode: 0o600 });
       console.log(`target: ${options.target}\nphase: rehearsal\nrolledBack: true\npostflightHash: ${post.fingerprint}`); return;
     }
-    await client.end(); client = await connect(config);
-    if ((await readOnly(client, migrations, true)).fingerprint !== post.fingerprint) throw new Error("Committed postflight differs; inspect before retry");
-    console.log(`target: ${options.target}\nphase: apply\noutcome: committed_and_verified\nfingerprint: ${post.fingerprint}`);
-  } finally { await client.end().catch(()=>undefined); }
+    await client.end(); client = undefined;
+    const verified = await verifyCommittedPostflight(options.target, migrations, post.fingerprint);
+    console.log(`target: ${options.target}\nphase: apply\noutcome: committed_and_verified\nfingerprint: ${verified}`);
+  } finally { await client?.end().catch(()=>undefined); }
 }
 const SAFE_ERRORS = new Set([
   "Duplicate flag", "Unknown flag or missing value", "Target and exact confirmation reference required",
@@ -175,7 +202,7 @@ const SAFE_ERRORS = new Set([
   "Postflight differs from reviewed rehearsal", "Backup permissions mismatch", "Rollback verification failed",
   "Committed postflight differs; inspect before retry", "Credential bootstrap failed", "Credential shape invalid",
   "Credential target mismatch", "Database TLS root changed", "Database identity/role mismatch", "Database backup failed",
-  "Database backup archive invalid",
+  "Database backup archive invalid", COMMITTED_UNVERIFIED,
 ]);
 export function safeErrorMessage(error) {
   const message = error instanceof Error ? error.message : "";

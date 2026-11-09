@@ -105,14 +105,20 @@ export async function createAtSigningChargesForSentLease(
   const apps = applicationsBilledByLease(lease, readManagerApplicationRows());
   if (apps.length === 0) return { ok: false, reason: "No application is on file for this lease." };
 
+  // ONE authoritative read for the whole joint batch. Each member is staged from its own
+  // disjoint slice of it (its application id and its own resident email), so re-reading per
+  // member bought nothing and cost a full charges GET per person on the lease.
+  const snapshot = await readAuthoritativeBillingSnapshot().catch(() => null);
+  if (!snapshot) return { ok: false, reason: "Lease sent, but charges could not be read. Review and retry." };
+
   let changed = false;
   for (const app of apps) {
-    const snapshot = await readAuthoritativeBillingSnapshot().catch(() => null);
-    if (!snapshot) return { ok: false, reason: "Lease sent, but charges could not be read. Review and retry." };
     const generated = recordApprovedApplicationChargesScoped(app, undefined, false, { leaseExecuted: false, atSigningOnly: true }, snapshot);
     if (!generated.ok || !generated.stage) return { ok: false, reason: "Lease sent, but charges could not be prepared. Review and retry." };
     changed ||= generated.changed;
-    if (!isDemoModeActive() && !(await mirrorApplicationHouseholdChargesAwait(app, undefined, generated.stage).catch(() => false))) return { ok: false, reason: "Lease sent, but charges could not be confirmed. Review and retry." };
+    // Nothing to send when the generator wrote nothing: the staged rows ARE the authoritative
+    // ones it staged from, so committing is a server-to-local reconcile, not a money write.
+    if (generated.changed && !isDemoModeActive() && !(await mirrorApplicationHouseholdChargesAwait(app, undefined, generated.stage).catch(() => false))) return { ok: false, reason: "Lease sent, but charges could not be confirmed. Review and retry." };
     if (!generated.stage.commit()) return { ok: false, reason: "Lease sent, but charges changed. Review and retry." };
   }
   return { ok: true, created: changed, applications: apps.length };
@@ -134,6 +140,7 @@ export async function createChargesForExecutedLease(
   if (apps.length === 0) return { ok: false, reason: "No application is on file for this lease." };
 
   let changed = false;
+  const confirmedRows: DemoApplicantRow[] = [];
   for (const app of apps) {
     // Signature freezes the money terms before the first bill is posted, so the listing's
     // price from here on is someone else's business.
@@ -144,12 +151,21 @@ export async function createChargesForExecutedLease(
       if (!result.ok) return { ok: false, reason: "Lease signed, but its payment terms could not be saved. Review and retry." };
       confirmed = result.rows[0]!;
     }
-    const snapshot = await readAuthoritativeBillingSnapshot().catch(() => null);
-    if (!snapshot) return { ok: false, reason: "Lease signed, but charges could not be read. Review and retry." };
+    confirmedRows.push(confirmed);
+  }
+  // ONE authoritative read for the whole joint batch, taken after every member's terms are
+  // frozen. Each member stages from its own disjoint slice of it.
+  const snapshot = await readAuthoritativeBillingSnapshot().catch(() => null);
+  if (!snapshot) return { ok: false, reason: "Lease signed, but charges could not be read. Review and retry." };
+
+  for (const [index, confirmed] of confirmedRows.entries()) {
+    const app = apps[index]!;
     const generated = recordApprovedApplicationChargesScoped(confirmed, app, false, { leaseExecuted: true, ...(options?.recurringProfileOnly ? { recurringProfileOnly: true } : {}) }, snapshot);
     if (!generated.ok || !generated.stage) return { ok: false, reason: "Lease signed, but charges could not be prepared. Review and retry." };
     changed ||= generated.changed;
-    if (!isDemoModeActive() && !(await mirrorApplicationHouseholdChargesAwait(confirmed, app, generated.stage).catch(() => false))) return { ok: false, reason: "Lease signed, but charges could not be confirmed. Review and retry." };
+    // Nothing to send when the generator wrote nothing: the staged rows ARE the authoritative
+    // ones it staged from, so committing is a server-to-local reconcile, not a money write.
+    if (generated.changed && !isDemoModeActive() && !(await mirrorApplicationHouseholdChargesAwait(confirmed, app, generated.stage).catch(() => false))) return { ok: false, reason: "Lease signed, but charges could not be confirmed. Review and retry." };
     if (!generated.stage.commit()) return { ok: false, reason: "Lease signed, but charges changed. Review and retry." };
   }
   return { ok: true, created: changed, applications: apps.length };
@@ -158,6 +174,28 @@ export async function createChargesForExecutedLease(
 /** Leases signed this long ago are still looked at; older ones belong to the Payments reconciler. */
 const WATCH_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const handled = new Set<string>();
+/**
+ * A pass can find the listing catalog not hydrated yet, so a lease gets a few tries — not one
+ * per lease-pipeline event forever. Every attempt costs an authoritative charges GET and a
+ * write, so an unbounded retry is a per-page-load egress bill on a manager with several leases
+ * signed in the window. The cap stops the RETRY only: nothing is marked billed that was not,
+ * and reopening the portal starts a fresh budget.
+ */
+const attempts = new Map<string, number>();
+const MAX_ATTEMPTS = 4;
+
+/** Test seam: drops the per-session dedupe so a watcher pass starts from nothing. */
+export function resetExecutedLeaseChargeWatchState(): void {
+  handled.clear();
+  attempts.clear();
+}
+
+/** True once this key has spent its attempt budget. Counts the attempt it is asked about. */
+function attemptBudgetSpent(key: string): boolean {
+  const spent = (attempts.get(key) ?? 0) + 1;
+  attempts.set(key, spent);
+  return spent >= MAX_ATTEMPTS;
+}
 
 /**
  * For a manager session that did not itself take the last signature (the resident signed last,
@@ -181,8 +219,9 @@ export function watchExecutedLeaseCharges(managerUserId: string | null): () => v
           if (!handled.has(sentKey)) {
             const sentApps = applicationsBilledByLease(lease, readManagerApplicationRows());
             if (sentApps.length > 0) {
+              const spent = attemptBudgetSpent(sentKey);
               const sent = await createAtSigningChargesForSentLease(lease, managerUserId).catch(() => null);
-              if (sent?.ok) handled.add(sentKey);
+              if (sent?.ok || spent) handled.add(sentKey);
             }
           }
           continue;
@@ -192,8 +231,9 @@ export function watchExecutedLeaseCharges(managerUserId: string | null): () => v
         if (!Number.isFinite(signedAt) || now - signedAt > WATCH_WINDOW_MS) continue;
         const apps = applicationsBilledByLease(lease, readManagerApplicationRows());
         if (apps.length === 0) continue;
+        const spent = attemptBudgetSpent(lease.id);
         const result = await createChargesForExecutedLease(lease, managerUserId).catch(() => null);
-        if (result?.ok) handled.add(lease.id);
+        if (result?.ok || spent) handled.add(lease.id);
       }
     } finally {
       running = false;

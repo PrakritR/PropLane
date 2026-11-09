@@ -70,8 +70,22 @@ export const FIELD_SELECT_MENU_LISTBOX_SCROLL_CLASS =
 /** Short menus (≤5 options, no search) — size to content with no inner scrollbar. */
 export const FIELD_SELECT_MENU_LISTBOX_FIT_CLASS = "min-h-0 overflow-y-auto overscroll-contain py-1";
 
-export function fieldSelectMenuFitsWithoutScroll(optionCount: number, searchPx = 0): boolean {
-  return searchPx === 0 && optionCount <= FIELD_SELECT_MENU_VISIBLE_ITEMS;
+/**
+ * Whether the menu may size to its real content with no inner scrollbar.
+ *
+ * A short option list is only part of the answer: the MEASURED space the placement
+ * resolved (`menuRect.maxHeight`) has to hold that content too. A 4-option menu whose
+ * trigger sits near the bottom of the viewport gets a maxHeight shorter than its
+ * content, and dropping the cap there let the surface paint past the viewport edge —
+ * the Finance filter's "Show" dropdown clipped its last rows. Pass `availablePx`
+ * whenever the rect has been measured; omit it only before measurement.
+ */
+export function fieldSelectMenuFitsWithoutScroll(optionCount: number, searchPx = 0, availablePx?: number): boolean {
+  if (searchPx !== 0 || optionCount > FIELD_SELECT_MENU_VISIBLE_ITEMS) return false;
+  if (availablePx == null) return true;
+  // One pixel of slack: `maxHeight` is measured from a float rect, and a sub-pixel shortfall
+  // is invisible while the scrollbar it would otherwise introduce is not.
+  return availablePx >= fieldSelectMenuContentPx(optionCount, searchPx) - 1;
 }
 
 const FIELD_SELECT_MENU_SEARCH_INPUT_CLASS =

@@ -1978,6 +1978,35 @@ export function chargeDueLabel(charge: HouseholdCharge): string {
   }
 }
 
+/**
+ * The prefix a maintenance pass-through charge is titled with. The product has no
+ * "work orders" — only services — but the SCHEMA keeps the `work_order_charge` kind and
+ * rows written before the rename carry the retired word in their stored title.
+ */
+export const SERVICE_CHARGE_TITLE_PREFIX = "Service · ";
+const LEGACY_SERVICE_CHARGE_TITLE_PREFIX = "Work order · ";
+
+/**
+ * What a person reads for a charge's title.
+ *
+ * Gated on the kind: ONLY a `work_order_charge`'s own retired prefix is normalized, so a
+ * resident-entered title that happens to contain those words is left exactly as typed. The
+ * stored row is never rewritten — the ledger, the money and the ids are untouched — this is
+ * display only.
+ */
+export function householdChargeDisplayTitle(
+  charge: Pick<HouseholdCharge, "kind" | "title"> | { kind?: HouseholdChargeKind; title?: string },
+  fallback = "Charge",
+): string {
+  const title = charge.title?.trim() ?? "";
+  if (!title) return fallback;
+  if (charge.kind !== "work_order_charge") return title;
+  if (title.startsWith(LEGACY_SERVICE_CHARGE_TITLE_PREFIX)) {
+    return `${SERVICE_CHARGE_TITLE_PREFIX}${title.slice(LEGACY_SERVICE_CHARGE_TITLE_PREFIX.length)}`;
+  }
+  return title === "Work order" ? "Service" : title;
+}
+
 /** "Parking" → "parking" for "Prorated parking"; an acronym ("HOA / community") keeps its case. */
 function proratedFeeNoun(label: string): string {
   const t = label.trim() || "fee";
@@ -2023,7 +2052,7 @@ function chargeTitle(kind: HouseholdChargeKind): string {
     case "payment_at_signing":
       return "Payment due at signing";
     case "work_order_charge":
-      return "Work order charge";
+      return "Service charge";
     case "late_fee":
       return "Late payment fee";
     default:
@@ -2959,7 +2988,7 @@ export function recordWorkOrderResidentCharge(input: {
     propertyLabel: joinPropertyAndUnitLabel(input.propertyLabel, input.unit),
     managerUserId: input.managerUserId,
     kind: "work_order_charge",
-    title: `Work order · ${input.workOrderTitle}`,
+    title: `${SERVICE_CHARGE_TITLE_PREFIX}${input.workOrderTitle}`,
     amountLabel: balance,
     balanceLabel: isPaid ? "$0.00" : balance,
     status: isPaid ? "paid" : "pending",
@@ -4661,7 +4690,6 @@ export function recordApprovedApplicationCharges(
   force = false,
   opts: {
     leaseExecuted?: boolean;
-    moveInAtResidentSign?: boolean;
     recurringProfileOnly?: boolean;
     /**
      * The lease was just SENT and nobody has signed: post ONLY the lines collected at signing (the lease
@@ -4678,7 +4706,6 @@ export function recordApprovedApplicationCharges(
   // kept by the retention predicate and next month's rent still materializes
   // from the stored recurring profile.
   const leaseExecuted = opts.leaseExecuted ?? resolveLeaseExecutedForRow(row, managerUserId);
-  const moveInAtResidentSign = Boolean(opts.moveInAtResidentSign && !leaseExecuted);
   if (row.migrationBillingHold) return false;
   if (!isBrowser()) return false;
   const residentEmail = row.email?.trim();
@@ -4738,8 +4765,7 @@ export function recordApprovedApplicationCharges(
   // A SENT lease obliges: the at-signing lines may be posted for anyone with a live application row
   // (approved, or still reading pending while the lease is out) — never an ended tenancy or a billing hold.
   const atSigningOnly = Boolean(opts.atSigningOnly && !leaseExecuted && !residentTenancyEnded(row));
-  const canPostMoveInSchedule =
-    chargeMoment === "signed" || (moveInAtResidentSign && row.bucket === "approved") || atSigningOnly;
+  const canPostMoveInSchedule = chargeMoment === "signed" || atSigningOnly;
   if (!canPostMoveInSchedule) return wroteApplicationFee;
 
   if (opts.recurringProfileOnly) {
@@ -5917,7 +5943,7 @@ export function householdChargeToLedgerRow(c: HouseholdCharge): DemoManagerPayme
         : c.kind === "work_order_charge"
           ? c.status === "paid" ? "Service charge recorded as paid."
             : c.status === "refunded" ? ""
-            : "Work order pass-through — resident is billed this amount; mark as paid when you receive payment."
+            : "Service pass-through — resident is billed this amount; mark as paid when you receive payment."
           : c.status === "paid" || c.status === "refunded" ? "" : "Awaiting payment.",
   };
 }

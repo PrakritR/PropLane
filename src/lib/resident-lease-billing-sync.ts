@@ -114,7 +114,10 @@ export type ResidentBillingSyncOutcome = {
  *  - `recordApprovedApplicationCharges` bails when `getPropertyById` cannot resolve the
  *    resident's property. That lookup covers live, extra and PENDING listings but not UNLISTED
  *    or DRAFT ones, so a resident living at an unlisted property silently never has charges
- *    rebuilt.
+ *    rebuilt. Only the UNSCOPED path reports that: `recordApprovedApplicationChargesScoped`
+ *    resolves the owner, the property and the placement itself and says so in `ok`, so a
+ *    `changed: false` from it is a successful no-op (an approved, unsigned tenancy bills
+ *    nothing yet) and must not be reported as a refusal.
  *  - `regenerateEditableLeasesForResident` only touches leases in Draft or Manager Review, and
  *    only ones a lease can actually be generated for. A signed lease is deliberately excluded —
  *    it is the evidence of what was signed — and an uploaded PDF is not regenerated either.
@@ -135,7 +138,7 @@ function regenerateBillingForRow(
   const scoped = options?.scopedBilling ? recordApprovedApplicationChargesScoped(row, options.previousRow, true, {}, options.snapshot) : null;
   if (scoped && !scoped.ok) throw new Error("Could not safely generate resident charges.");
   const chargesRegenerated = scoped ? scoped.changed : recordApprovedApplicationCharges(row, managerUserId, true);
-  if (!chargesRegenerated) {
+  if (!chargesRegenerated && !scoped) {
     skipped.push(
       "charges were not rebuilt — this resident's property could not be resolved (an unlisted or draft listing does not resolve here)",
     );

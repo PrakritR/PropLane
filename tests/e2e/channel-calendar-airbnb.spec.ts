@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { signInAsManager2 } from "../helpers/auth";
 import { cleanupSyntheticProperties, createSyntheticProperty } from "../helpers/synthetic-property-e2e";
 
-const fixtureByPage = new WeakMap<object, { id: string; path: string }>();
+const fixtureByPage = new WeakMap<object, { id: string; name: string; path: string }>();
 const fixtureFor = (page: object) => {
   const fixture = fixtureByPage.get(page);
   if (!fixture) throw new Error("Synthetic calendar property was not initialized.");
@@ -10,19 +10,19 @@ const fixtureFor = (page: object) => {
 };
 
 /**
- * A house's Calendar → Bookings tab.
+ * Settings → Integrations → Bookings is where a channel calendar is wired now.
  *
- * The tab is a month grid (PropLane leases + imported Airbnb ranges) with the
- * channel wiring behind a "Link calendars" modal; the old inline "Channel
- * calendars" form — and its per-room "Copy export URL" control — were removed.
- * The export URL itself still exists and is still served, so this asserts the
- * round trip through the API rather than through a button that no longer ships.
+ * `ManagerBookingChannelsPanel` owns the Airbnb row, and its Connect/Manage action opens the
+ * one-page "Connect Airbnb" popup with a row PER ROOM across the whole workspace — there is no
+ * room selector any more, and the old property Bookings tab is a month-grid PREVIEW whose
+ * `portfolio-bookings-link-airbnb` button no longer ships. The export URL itself still exists
+ * and is still served, so the round trip is asserted through the API.
  */
 test.describe("Channel calendars (Airbnb iCal)", () => {
   test.beforeEach(async ({ page }) => {
     await signInAsManager2(page, "/portal/properties");
     const property = await createSyntheticProperty(page);
-    fixtureByPage.set(page, { ...property, path: `/portal/properties/listed/${encodeURIComponent(property.id)}/bookings` });
+    fixtureByPage.set(page, { ...property, path: "/portal/profile?tab=spreadsheets&integration=bookings" });
   });
 
   test.afterEach(async ({ page }) => {
@@ -44,41 +44,42 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
     await cleanupSyntheticProperties(page);
   });
 
-  test("manager can reach Link calendars from the property Bookings tab", async ({ page }) => {
-    const { path } = fixtureFor(page);
+  test("manager can open Connect Airbnb from Settings → Integrations → Bookings", async ({ page }) => {
+    const { path, name } = fixtureFor(page);
     await page.goto(path, { waitUntil: "domcontentloaded" });
 
-    const linkAirbnb = page.locator('[data-attr="portfolio-bookings-link-airbnb"]');
-    await expect(linkAirbnb).toBeVisible({ timeout: 30_000 });
-    await linkAirbnb.click();
+    const manageAirbnb = page.locator('[data-attr="settings-airbnb-manage"]');
+    await expect(manageAirbnb).toBeVisible({ timeout: 30_000 });
+    await manageAirbnb.click();
 
-    await expect(page.getByRole("heading", { name: "Link calendars" })).toBeVisible();
-    await expect(page.getByText("Channel").first()).toBeVisible();
-    await expect(page.getByText("Airbnb import URL").first()).toBeVisible();
-    await expect(page.locator('[data-attr="channel-calendar-save-link"]')).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Connect Airbnb" })).toBeVisible({ timeout: 30_000 });
+    const section = page.locator(`section[aria-label="${name}"]`);
+    await expect(section).toBeVisible({ timeout: 30_000 });
+    await expect(section.locator('[data-attr="channel-calendar-room-row"]')).toHaveCount(1);
+    await expect(section.locator('[data-attr="channel-calendar-link-import-url"]')).toBeVisible();
+    await expect(page.locator('[data-attr="channel-calendar-link-save"]')).toBeVisible();
   });
 
   test("link a room and round-trip its export URL", async ({ page }) => {
     const fixture = fixtureFor(page);
     await page.goto(fixture.path, { waitUntil: "domcontentloaded" });
 
-    const linkAirbnb = page.locator('[data-attr="portfolio-bookings-link-airbnb"]');
-    await expect(linkAirbnb).toBeVisible({ timeout: 30_000 });
-    await linkAirbnb.click();
-    await expect(page.getByRole("heading", { name: "Link calendars" })).toBeVisible();
+    const manageAirbnb = page.locator('[data-attr="settings-airbnb-manage"]');
+    await expect(manageAirbnb).toBeVisible({ timeout: 30_000 });
+    await manageAirbnb.click();
+    await expect(page.getByRole("heading", { name: "Connect Airbnb" })).toBeVisible({ timeout: 30_000 });
 
-    // The owned fixture has one room. The shared Select renders a button and
-    // auto-picks that room after the listing data loads.
-    const roomSelect = page.locator('[data-attr="channel-calendar-link-room"]');
-    await expect(roomSelect).toBeEnabled({ timeout: 30_000 });
-    await expect(roomSelect).toContainText("Fixture Room");
+    // One row per room across the workspace — the owned fixture contributes exactly one.
+    const section = page.locator(`section[aria-label="${fixture.name}"]`);
+    await expect(section).toBeVisible({ timeout: 30_000 });
+    const row = section.locator('[data-attr="channel-calendar-room-row"]');
+    await expect(row).toHaveCount(1);
+    await expect(row).toContainText("Fixture Room");
 
     const importUrl = "https://www.airbnb.com/calendar/ical/e2e-placeholder.ics?s=e2eplaceholder";
-    await page.locator('[data-attr="channel-calendar-link-import-url"]').fill(importUrl);
-    await page.locator('[data-attr="channel-calendar-save-link"]').click();
-    await expect(page.getByText(/Airbnb calendar linked and synced\.|Calendar saved\./)).toBeVisible({
-      timeout: 20_000,
-    });
+    await row.locator('[data-attr="channel-calendar-link-import-url"]').fill(importUrl);
+    await page.locator('[data-attr="channel-calendar-link-save"]').click();
+    await expect(page.getByText("Calendars saved and synced.")).toBeVisible({ timeout: 20_000 });
 
     const exportRes = await page.evaluate(async ({ propertyId, expectedImportUrl }) => {
       const origin = window.location.origin;

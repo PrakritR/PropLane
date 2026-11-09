@@ -69,9 +69,10 @@ test("resident reply composer supports draft controls at every target width", as
   await expect(residentRow).toBeVisible();
   await residentRow.click();
 
-  // This is the actual compose prefix rendered by the manager's ordinary
-  // resident detail thread. Keep all controls scoped to its form.
-  const composer = page.locator('textarea[data-attr="resident-direct-chat-compose"]');
+  // A resident conversation opened from Communication is the ORDINARY inbox composer
+  // (`InboxComposer`, `dataAttr="inbox-reply"`) — not the record-page direct-chat compose.
+  // Keep all controls scoped to its form.
+  const composer = page.locator('textarea[data-attr="inbox-reply"]');
   const composerForm = composer.locator("xpath=ancestor::form");
   await expect(composer).toBeVisible();
   const send = composerForm.getByRole("button", { name: "Send", exact: true });
@@ -91,31 +92,41 @@ test("resident reply composer supports draft controls at every target width", as
     expect(composerBox?.width ?? 0, `textarea too narrow at ${width}px`).toBeGreaterThan(140);
     await composer.fill("Resident composer reachability check");
 
-    const emoji = composerForm.getByRole("button", { name: "Insert emoji", exact: true });
-    if (width < 768) {
-      await expect(emoji).toBeHidden();
-    } else {
-      await expect(emoji).toBeVisible();
-      const emojiBox = await emoji.boundingBox();
-      expect(emojiBox?.width ?? 0, `emoji control unavailable at ${width}px`).toBeGreaterThanOrEqual(32);
-      await emoji.click();
-      const emojiMenu = page.getByRole("menu", { name: "Insert emoji" });
-      await expect(emojiMenu).toBeVisible();
-      await emojiMenu.getByRole("menuitem").first().click();
-      await expect(composer).toHaveValue("Resident composer reachability check👍");
-    }
+    // The composer's tools row is Attach · Assistant · Schedule · channel · Send. There is no
+    // emoji control any more, so the Assistant menu is what this asserts is reachable at every
+    // width — opened and dismissed, never selected: an item there asks a model or drafts a reply.
+    await expect(composerForm.getByRole("button", { name: "Insert emoji", exact: true })).toHaveCount(0);
+    const assistant = composerForm.locator('[data-attr="inbox-composer-ai-menu"]');
+    await expect(assistant).toBeVisible();
+    const assistantBox = await assistant.boundingBox();
+    const minimumToolSize = width < 768 ? 44 : 28;
+    expect(assistantBox?.width ?? 0, `assistant control unavailable at ${width}px`).toBeGreaterThanOrEqual(minimumToolSize);
+    await assistant.click();
+    await expect(page.locator('[data-attr="inbox-composer-ask-proplane"]')).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator('[data-attr="inbox-composer-ask-proplane"]')).toHaveCount(0);
+    await expect(composer).toHaveValue("Resident composer reachability check");
 
     await expect(attachmentInput).toBeAttached();
     const attachmentBox = await attachmentTarget.boundingBox();
-    const minimumAttachmentSize = width < 768 ? 36 : 40;
-    expect(attachmentBox?.width ?? 0, `attachment control unavailable at ${width}px`).toBeGreaterThanOrEqual(minimumAttachmentSize);
+    // Declared: `size-7` (28px) from md up, `max-md:size-11` (44px) on a phone.
+    expect(attachmentBox?.width ?? 0, `attachment control unavailable at ${width}px`).toBeGreaterThanOrEqual(minimumToolSize);
     const fileChooserPromise = page.waitForEvent("filechooser");
     await attachmentTarget.click();
     await fileChooserPromise;
 
     await expect(send).toBeEnabled();
     const sendBox = await send.boundingBox();
-    expect(sendBox?.width ?? 0, `send control unavailable at ${width}px`).toBeGreaterThanOrEqual(40);
+    // Declared: `size-[30px]` from md up, `max-md:size-11` (44px) on a phone.
+    expect(sendBox?.width ?? 0, `send control unavailable at ${width}px`).toBeGreaterThanOrEqual(width < 768 ? 44 : 30);
+    // No control in the one-row toolbar may sit on top of another at any width.
+    const toolBoxes = await Promise.all([attachmentTarget, assistant, schedule, send].map((control) => control.boundingBox()));
+    for (let i = 1; i < toolBoxes.length; i++) {
+      const previous = toolBoxes[i - 1];
+      const current = toolBoxes[i];
+      expect(previous && current, `missing toolbar geometry at ${width}px`).toBeTruthy();
+      expect(current!.x, `toolbar controls overlap at ${width}px`).toBeGreaterThanOrEqual(previous!.x + previous!.width - 1);
+    }
 
     await expect(schedule).toBeVisible();
     await schedule.click();

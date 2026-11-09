@@ -54,6 +54,7 @@ const upsertRow = vi.fn(async () => {
   order.push("upsert");
   return { ok: true };
 });
+const scopedBilling = vi.fn((..._args: unknown[]) => ({ ok: true, changed: true }) as { ok: boolean; changed: boolean });
 
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   // Spread the real module: this file only needs to override demo mode,
@@ -68,7 +69,7 @@ vi.mock("@/lib/household-charges", () => ({
   syncHouseholdChargesFromServer: () => syncCharges(),
   readAuthoritativeBillingSnapshot: async () => ({ charges: [], rentProfiles: [] }),
   recordApprovedApplicationCharges: () => true,
-  recordApprovedApplicationChargesScoped: () => ({ ok: true, changed: true }),
+  recordApprovedApplicationChargesScoped: (...args: unknown[]) => scopedBilling(...args),
 }));
 vi.mock("@/lib/manager-applications-storage", () => ({
   writeManagerApplicationRows: writeRows,
@@ -105,6 +106,7 @@ beforeEach(() => {
   leases = [];
   readGate = defer();
   vi.clearAllMocks();
+  scopedBilling.mockReturnValue({ ok: true, changed: true });
 });
 
 describe("saving an edited resident", () => {
@@ -265,6 +267,29 @@ describe("saving an edited resident", () => {
     persistLease.mockRejectedValueOnce(new Error("offline"));
     const result = await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
     expect(result.error).toContain("lease could not be saved");
+    expect(mirrorWrite).not.toHaveBeenCalled();
+  });
+
+  /**
+   * `changed: false` from scoped billing is a SUCCESSFUL no-op — an approved, unsigned tenancy
+   * with no fees owed yet bills nothing. Reading it as "the property could not be resolved"
+   * warned the manager their charges were not rebuilt on every amount-only edit of such a
+   * resident, while the application and lease had in fact saved.
+   */
+  it("does not warn about an unresolved property when scoped billing had nothing to rebuild", async () => {
+    scopedBilling.mockReturnValue({ ok: true, changed: false });
+    const result = await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
+    expect(result.ok).toBe(true);
+    expect(result.sync?.chargesRegenerated).toBe(false);
+    expect(result.sync?.skipped.join(" ")).not.toContain("property could not be resolved");
+    readGate.release();
+  });
+
+  it("still refuses the save when scoped billing cannot resolve the owner or placement", async () => {
+    scopedBilling.mockReturnValue({ ok: false, changed: false });
+    const result = await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("Resident saved, but billing");
     expect(mirrorWrite).not.toHaveBeenCalled();
   });
 

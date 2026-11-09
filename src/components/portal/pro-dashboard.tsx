@@ -54,6 +54,7 @@ import {
 import {
   chargeDueLabel,
   HOUSEHOLD_CHARGES_EVENT,
+  householdChargeDisplayTitle,
   householdChargeDueDate,
   householdChargeManagerBucket,
   isHouseholdChargeOverdue,
@@ -1323,7 +1324,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
               tone={rowTone}
               title={charge.residentName || charge.residentEmail}
               subtitle={formatCompactChargeLine(
-                charge.title || "Charge",
+                householdChargeDisplayTitle(charge),
                 charge.balanceLabel,
                 chargeDueLabel(charge),
                 { omitBalance: true },

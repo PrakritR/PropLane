@@ -2,7 +2,7 @@ import { mkdtempSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { assertCatalog, assertPrivateDirectory, parseOptions, transaction, safeErrorMessage } from "../../scripts/identity-deposit-release-migrations.mjs";
+import { assertCatalog, assertPrivateDirectory, parseOptions, transaction, safeErrorMessage, verifyCommittedPostflight, COMMITTED_UNVERIFIED } from "../../scripts/identity-deposit-release-migrations.mjs";
 
 const ref = "xwszcafaontidfgznlxd";
 const base = ["--target", "staging", "--confirm-ref", ref];
@@ -51,6 +51,57 @@ describe("release transport refusal", () => {
     await expect(transaction(client, [{ sql: "danger" }], { phase: "rehearsal", baseline: "a".repeat(64) })).rejects.toThrow("lock unavailable");
     expect(calls).toContain("rollback");
     expect(calls).not.toContain("danger");
+  });
+});
+
+/**
+ * The credential the apply phase opened with is short-lived, and the backup plus the migration
+ * transaction spend that life — which is how the staging apply committed its 11 migrations and
+ * then exited 1 on its OWN verification connection. The verification mints a fresh credential
+ * for the same confirmed target, and a transport failure there is reported as
+ * committed-but-unverified, never as a failed apply and never as a reason to retry.
+ */
+describe("committed postflight verification", () => {
+  const migrations = [{ sql: "MIGRATION", version: "v", name: "n" }];
+  const stubClient = () => {
+    const client = { ended: false, end: async () => { client.ended = true; } };
+    return client;
+  };
+
+  it("mints a fresh credential for the exact confirmed target before reconnecting", async () => {
+    const minted: string[] = [];
+    const client = stubClient();
+    const fingerprint = await verifyCommittedPostflight("staging", migrations, "p", {
+      credential: (target: string) => { minted.push(target); return { host: `db.${target}.supabase.co` }; },
+      connect: async (config: { host: string }) => { expect(config.host).toBe(`db.${ref}.supabase.co`); return client; },
+      readOnly: async (_client: unknown, _migrations: unknown, applied: boolean) => ({ fingerprint: applied ? "p" : "a" }),
+    });
+    expect(minted).toEqual([ref]);
+    expect(fingerprint).toBe("p");
+    expect(client.ended).toBe(true);
+  });
+
+  it("reports committed-but-unverified when the refreshed credential or connection fails", async () => {
+    for (const deps of [
+      { credential: () => { throw new Error("Credential bootstrap failed"); }, connect: async () => stubClient() },
+      { credential: () => ({}), connect: async () => { throw new Error("password=secret timeout"); } },
+    ]) {
+      await expect(verifyCommittedPostflight("staging", migrations, "p", { ...deps, readOnly: async () => ({ fingerprint: "p" }) }))
+        .rejects.toThrow(COMMITTED_UNVERIFIED);
+    }
+    expect(safeErrorMessage(new Error(COMMITTED_UNVERIFIED))).toBe(COMMITTED_UNVERIFIED);
+  });
+
+  it("still names a real divergence, and never reopens the transaction", async () => {
+    const client = stubClient();
+    const calls: string[] = [];
+    await expect(verifyCommittedPostflight("staging", migrations, "p", {
+      credential: () => ({}),
+      connect: async () => client,
+      readOnly: async (_client: unknown, _migrations: unknown, applied: boolean) => { calls.push(applied ? "applied" : "baseline"); return { fingerprint: "drifted" }; },
+    })).rejects.toThrow("Committed postflight differs; inspect before retry");
+    expect(calls).toEqual(["applied"]);
+    expect(client.ended).toBe(true);
   });
 });
 

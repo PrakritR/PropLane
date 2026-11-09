@@ -437,7 +437,6 @@ export function FieldSingleSelect({
       ? groups.filter((group) => group.label).length * 26
       : 0;
   const visibleOptionRows = Math.min(Math.max(flatOptions.length, 1), FIELD_SELECT_MENU_VISIBLE_ITEMS);
-  const fitsWithoutScroll = fieldSelectMenuFitsWithoutScroll(flatOptions.length, searchPx + groupHeaderPx);
   const contentPx = fieldSelectMenuContentPx(visibleOptionRows, searchPx + groupHeaderPx);
 
   const setOpenAndReset = (next: boolean) => {
@@ -457,6 +456,11 @@ export function FieldSingleSelect({
     // A grown menu may reach 18rem; placing it as that wide keeps it on screen.
     minMenuWidth: growToContent ? 288 : undefined,
   });
+  const fitsWithoutScroll = fieldSelectMenuFitsWithoutScroll(
+    flatOptions.length,
+    searchPx + groupHeaderPx,
+    menuRect?.maxHeight,
+  );
 
   const filteredGroups = useMemo(() => {
     if (!groups?.length) return null;
