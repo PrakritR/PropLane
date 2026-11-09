@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { signInAsManager } from "../helpers/auth";
+import { randomUUID } from "node:crypto";
+import { signInAsManager, signInAsManager2 } from "../helpers/auth";
+import { syntheticFixtureActorId } from "../helpers/synthetic-property-e2e";
+
+const MANAGER_SCOPE = "axis_portal_inbox_manager_v1";
+const threadByPage = new WeakMap<object, { id: string; ownerId: string }>();
 
 test("assistant reply composer stays clickable above phone navigation with a portal banner", async ({ page }) => {
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Requires the seeded dev/test manager");
@@ -34,11 +39,33 @@ test("assistant reply composer stays clickable above phone navigation with a por
 
 test("resident reply composer supports draft controls at every target width", async ({ page }) => {
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Requires the seeded dev/test manager");
-  await signInAsManager(page);
+  await signInAsManager2(page, "/portal/communication/active");
+  const ownerId = await syntheticFixtureActorId(page);
+  const id = `msg_${ownerId}_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  const residentLabel = `Composer QA ${randomUUID().slice(0, 8)}`;
+  const residentEmail = `${residentLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-")}@example.invalid`;
+  const created = await page.request.post(`/api/portal-inbox-threads?scope=${MANAGER_SCOPE}`, {
+    data: {
+      action: "upsert",
+      row: {
+        id,
+        scope: MANAGER_SCOPE,
+        folder: "inbox",
+        from: residentLabel,
+        email: residentEmail,
+        subject: "Resident composer layout fixture",
+        preview: "No messages yet.",
+        unread: false,
+        messages: [],
+        time: new Date().toISOString(),
+      },
+    },
+  });
+  if (!created.ok()) throw new Error(`Owned resident composer fixture creation failed (HTTP ${created.status()}).`);
+  threadByPage.set(page, { id, ownerId });
   await page.goto("/portal/communication/active");
 
-  const conversationLabel = process.env.E2E_INBOX_RESIDENT_LABEL?.trim() || "Test Resident";
-  const residentRow = page.locator(".portal-inbox-row").filter({ hasText: conversationLabel }).getByRole("button").first();
+  const residentRow = page.locator(".portal-inbox-row").filter({ hasText: residentLabel }).getByRole("button").first();
   await expect(residentRow).toBeVisible();
   await residentRow.click();
 
@@ -111,4 +138,20 @@ test("resident reply composer supports draft controls at every target width", as
     await expect(send).toBeDisabled();
   }
 
+});
+
+test.afterEach(async ({ page }) => {
+  const fixture = threadByPage.get(page);
+  if (!fixture) return;
+  const actor = await syntheticFixtureActorId(page);
+  if (actor !== fixture.ownerId || !fixture.id.startsWith(`msg_${actor}_`)) throw new Error("Resident composer cleanup ownership mismatch.");
+  const deleted = await page.request.post(`/api/portal-inbox-threads?scope=${MANAGER_SCOPE}`, {
+    data: { action: "delete", id: fixture.id },
+  });
+  if (!deleted.ok()) throw new Error(`Resident composer fixture cleanup failed (HTTP ${deleted.status()}).`);
+  const readback = await page.request.get(`/api/portal-inbox-threads?scope=${MANAGER_SCOPE}`);
+  if (!readback.ok()) throw new Error("Resident composer cleanup read failed.");
+  const body = await readback.json() as { rows?: Array<{ id?: string }> };
+  if ((body.rows ?? []).some((row) => row.id === fixture.id)) throw new Error("Resident composer fixture remained after cleanup.");
+  threadByPage.delete(page);
 });

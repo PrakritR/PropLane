@@ -7,7 +7,8 @@
  * portal spec here.
  */
 import { test, expect, type Request } from "@playwright/test";
-import { signInAsManager } from "../helpers/auth";
+import { signInAsManager2 } from "../helpers/auth";
+import { syntheticFixtureActorId } from "../helpers/synthetic-property-e2e";
 
 const enabled = process.env.E2E_TESTS_ENABLED === "1";
 
@@ -50,16 +51,15 @@ test.describe("listing editor — save on close, no typing timer", () => {
   }) => {
     const marker = `Close-save QA ${Date.now()}`;
 
-    await signInAsManager(page);
+    await signInAsManager2(page, "/portal/properties");
     await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
 
     // Open the editor via the primary Create action.
     const createButton = page.locator('[data-attr="manager-properties-add-top"]');
     await expect(createButton).toBeEnabled({ timeout: 30_000 });
     await createButton.click();
-    await page.locator('[data-attr="manager-properties-add-property"]').click();
 
-    // The property-name field is the editor's first text input.
+    // The current primary action opens the listing editor directly.
     const nameField = page.getByPlaceholder("Magnolia House");
     await expect(nameField).toBeVisible({ timeout: 20_000 });
 
@@ -72,6 +72,8 @@ test.describe("listing editor — save on close, no typing timer", () => {
       if (body) writes.push(body);
     });
 
+    let draftId = "";
+    try {
     // Type, then wait well past the old 2s debounce — nothing must be sent.
     await nameField.fill(marker);
     await page.waitForTimeout(5_000);
@@ -87,7 +89,7 @@ test.describe("listing editor — save on close, no typing timer", () => {
     );
     await page.getByRole("button", { name: /^Close$/ }).click();
     const savedDraft = propertyWriteBody(await closeWrite);
-    const draftId = typeof savedDraft?.id === "string" ? savedDraft.id : "";
+    draftId = typeof savedDraft?.id === "string" ? savedDraft.id : "";
     expect(draftId, "close write must carry the persisted draft id").not.toBe("");
     await expect(nameField).not.toBeVisible();
     // Give any (unwanted) extra writes a moment to arrive, then assert one.
@@ -102,5 +104,26 @@ test.describe("listing editor — save on close, no typing timer", () => {
     // The draft is in Drafts, carrying the text that was typed.
     await page.goto("/portal/properties/drafts", { waitUntil: "domcontentloaded" });
     await expect(page.getByText(marker).first()).toBeVisible({ timeout: 30_000 });
+    } finally {
+      // Remove only the exact draft this test created, through its normal owner-scoped route.
+      const snapshotResponse = await page.request.get("/api/property-records");
+      if (!snapshotResponse.ok()) throw new Error("Could not read the owned listing draft for cleanup.");
+      const snapshot = await snapshotResponse.json() as {
+        snapshot?: { pendingByUser?: Record<string, Array<{ id?: string; buildingName?: string }>> };
+      };
+      const actorId = await syntheticFixtureActorId(page);
+      const candidates = (snapshot.snapshot?.pendingByUser?.[actorId] ?? []).filter((row) => row.buildingName === marker);
+      if (candidates.length > 0) {
+        if (candidates.length !== 1 || (draftId && candidates[0]?.id !== draftId)) throw new Error("Owned draft marker did not resolve to the exact saved row.");
+        const cleanupId = candidates[0]?.id;
+        if (!cleanupId) throw new Error("Owned draft cleanup could not resolve the saved ID.");
+        const deleted = await page.request.post("/api/property-records", { data: { action: "delete", id: cleanupId } });
+        if (!deleted.ok()) throw new Error(`Owned draft cleanup failed (HTTP ${deleted.status()}).`);
+        const afterDelete = await page.request.get("/api/property-records");
+        if (!afterDelete.ok()) throw new Error("Could not verify owned draft cleanup.");
+        const afterSnapshot = await afterDelete.json() as typeof snapshot;
+        if ((afterSnapshot.snapshot?.pendingByUser?.[actorId] ?? []).some((row) => row.id === cleanupId)) throw new Error("Owned draft remained after cleanup.");
+      }
+    }
   });
 });

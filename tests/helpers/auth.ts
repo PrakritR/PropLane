@@ -146,6 +146,17 @@ export async function signInAsManager(page: Page) {
   await establishActivePortal(page, "manager", "/portal/dashboard");
 }
 
+/** Use the writable self-serve manager account for tests that create owned fixtures. */
+export async function signInAsManager2(page: Page, next = "/portal/dashboard") {
+  // Some full-suite specs install the canonical manager storageState. Clear it
+  // before signing in so the manager2 credentials actually select the account.
+  await page.context().clearCookies();
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
+  await signIn(page, E2E_ACCOUNTS.manager2.email, E2E_ACCOUNTS.manager2.password, next);
+  await establishActivePortal(page, "manager", next);
+}
+
 export async function signInAsResident(page: Page) {
   await signIn(page, E2E_ACCOUNTS.resident.email, E2E_ACCOUNTS.resident.password, "/resident/dashboard");
   if (new URL(page.url()).pathname.startsWith("/resident/")) return;

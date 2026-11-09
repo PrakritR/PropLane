@@ -1,29 +1,54 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { signInAsManager } from "../helpers/auth";
 import { e2eToursContactUrl } from "../helpers/public-urls";
+import { cleanupSyntheticPublicTourManager, createSyntheticPublicTourManager, type SyntheticPublicTourManager } from "../helpers/synthetic-public-tour-manager";
 
 const portalTestsEnabled = process.env.E2E_TESTS_ENABLED === "1";
 
 test.describe("Tour scheduling", () => {
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
-  test("tours-contact page loads with account gate (no guest path)", async ({ page }) => {
-    await page.goto(e2eToursContactUrl());
-    await expect(page.getByRole("heading", { name: /create your resident account|schedule tour|book a tour/i })).toBeVisible({
-      timeout: 15_000,
-    });
-    await expect(page.getByRole("button", { name: /schedule as a guest/i })).toHaveCount(0);
-    const createAccount = page.getByRole("link", { name: /create account/i });
-    if (await createAccount.isVisible().catch(() => false)) {
-      await expect(createAccount).toBeVisible();
-      return;
-    }
-    // Already signed in as resident — tour form is reachable.
-    await expect(page.getByRole("button", { name: /^continue$/i })).toBeVisible({ timeout: 10_000 });
+  const publicFixtureByPage = new WeakMap<object, SyntheticPublicTourManager>();
+  async function openOwnedPublicTourLink(browser: import("@playwright/test").Browser, page: Page, tab?: "message") {
+    test.setTimeout(180_000);
+    const manager = await createSyntheticPublicTourManager(browser);
+    publicFixtureByPage.set(page, manager);
+    // Keep the public surface signed out so these assertions exercise its
+    // intended prospect gate while the linked property is a valid owned row.
+    await page.context().clearCookies();
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
+    const query = new URLSearchParams({ propertyId: manager.property.id });
+    if (tab) query.set("tab", tab);
+    await page.goto(`/rent/tours-contact?${query.toString()}`);
+  }
+
+  test.afterEach(async ({ page }) => {
+    const fixture = publicFixtureByPage.get(page);
+    if (!fixture) return;
+    await cleanupSyntheticPublicTourManager(fixture);
+    publicFixtureByPage.delete(page);
   });
 
-  test("tours-contact page has message or topic input", async ({ page }) => {
-    await page.goto(e2eToursContactUrl({ tab: "message" }));
+  test("tours-contact page requires a resident account before submitting", async ({ browser, page }) => {
+    await openOwnedPublicTourLink(browser, page);
+    await expect(page.getByRole("heading", { name: "Book a tour", exact: true })).toBeVisible({ timeout: 15_000 });
+    const openDays = page.getByRole("group", { name: "Open days" });
+    await expect(openDays.getByRole("button").first()).toBeVisible({ timeout: 25_000 });
+    await openDays.getByRole("button").first().click();
+    const firstTime = page.locator(".ps-j-times button").first();
+    await expect(firstTime).toBeVisible({ timeout: 10_000 });
+    await firstTime.click();
+    await page.getByRole("button", { name: "Continue", exact: true }).last().click();
+    await expect(page.locator('[data-attr="tour-account-step"]')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-attr="tour-account-email"]')).toHaveAttribute("href", /\/auth\/create-account/);
+    await expect(page.getByRole("link", { name: "Continue with email", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /schedule as a guest/i })).toHaveCount(0);
+    await expect(page.locator('[data-attr="tour-book-submit"]')).toHaveCount(0);
+  });
+
+  test("tours-contact page has message or topic input", async ({ browser, page }) => {
+    await openOwnedPublicTourLink(browser, page, "message");
     await expect(page.getByRole("heading", { name: /message proplane/i })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/what do you need help with/i)).toBeVisible({ timeout: 10_000 });
     await expect(page.getByPlaceholder("Tell us more so we can help…")).toBeVisible({ timeout: 10_000 });

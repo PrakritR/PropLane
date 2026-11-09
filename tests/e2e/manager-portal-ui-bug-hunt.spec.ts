@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
-import { mockStripeAllRoutes } from "../helpers/auth";
+import { mockStripeAllRoutes, signInAsManager2 } from "../helpers/auth";
 import { pathToUrlRegExp } from "../helpers/url-match";
 import { MANAGER_PORTAL_SMOKE_PATHS } from "@/lib/portals/pro";
 
@@ -139,11 +139,11 @@ test.describe("Manager portal UI bug hunt", () => {
 
   test("properties: add affordance visible without horizontal clip", async ({ page }) => {
     await page.setViewportSize(MOBILE);
+    // The canonical manager workspace is intentionally owner-locked; use the
+    // dedicated writable self-serve manager account for the create surface.
+    await signInAsManager2(page, "/portal/properties/listed");
     await gotoTolerantly(page, "/portal/properties/listed");
-    const createBtn = page
-      .locator('[data-attr="manager-properties-create"]')
-      .or(page.getByRole("button", { name: /^Add$/i }))
-      .first();
+    const createBtn = page.locator('[data-attr="manager-properties-add-top"]');
     await expect(createBtn).toBeVisible({ timeout: 15_000 });
     const box = await createBtn.boundingBox();
     expect(box).toBeTruthy();
@@ -152,6 +152,8 @@ test.describe("Manager portal UI bug hunt", () => {
       expect(box.x + box.width).toBeLessThanOrEqual((viewport?.width ?? MOBILE.width) + 2);
       expect(box.x).toBeGreaterThanOrEqual(-2);
     }
+    await createBtn.click();
+    await expect(page.getByRole("dialog", { name: "Listing editor" })).toBeVisible({ timeout: 15_000 });
   });
 
   test("filter panel on properties listed opens listbox below trigger", async ({ page }) => {

@@ -1,10 +1,13 @@
 import { test, expect } from "@playwright/test";
-import { E2E_ACCOUNTS } from "../fixtures";
-import { signIn, establishActivePortal } from "../helpers/auth";
+import { signInAsManager2 } from "../helpers/auth";
+import { cleanupSyntheticProperties, createSyntheticProperty } from "../helpers/synthetic-property-e2e";
 
-const QA_PROPERTY_ID = "mgr-demo-emerald";
-
-const BOOKING_CALENDARS_PATH = `/portal/properties/listed/${encodeURIComponent(QA_PROPERTY_ID)}/bookings`;
+const fixtureByPage = new WeakMap<object, { id: string; path: string }>();
+const fixtureFor = (page: object) => {
+  const fixture = fixtureByPage.get(page);
+  if (!fixture) throw new Error("Synthetic calendar property was not initialized.");
+  return fixture;
+};
 
 /**
  * A house's Calendar → Bookings tab.
@@ -16,20 +19,34 @@ const BOOKING_CALENDARS_PATH = `/portal/properties/listed/${encodeURIComponent(Q
  * round trip through the API rather than through a button that no longer ships.
  */
 test.describe("Channel calendars (Airbnb iCal)", () => {
-  test("manager can reach Link calendars from the property Bookings tab", async ({ page }) => {
-    await signIn(
-      page,
-      E2E_ACCOUNTS.manager.email,
-      E2E_ACCOUNTS.manager.password,
-      BOOKING_CALENDARS_PATH,
-    );
-    await establishActivePortal(
-      page,
-      "manager",
-      BOOKING_CALENDARS_PATH,
-    );
+  test.beforeEach(async ({ page }) => {
+    await signInAsManager2(page, "/portal/properties");
+    const property = await createSyntheticProperty(page);
+    fixtureByPage.set(page, { ...property, path: `/portal/properties/listed/${encodeURIComponent(property.id)}/bookings` });
+  });
 
-    await page.goto(BOOKING_CALENDARS_PATH, { waitUntil: "domcontentloaded" });
+  test.afterEach(async ({ page }) => {
+    const fixture = fixtureByPage.get(page);
+    if (fixture) {
+      const list = await page.request.get(`/api/portal/channel-calendar/connections?propertyId=${encodeURIComponent(fixture.id)}&origin=${encodeURIComponent(new URL(page.url()).origin)}`);
+      if (!list.ok()) throw new Error(`Calendar cleanup read failed (HTTP ${list.status()}).`);
+      const body = await list.json() as { connections?: Array<{ id?: string; propertyId?: string }> };
+      for (const connection of body.connections ?? []) {
+        if (connection.propertyId !== fixture.id || !connection.id) throw new Error("Calendar cleanup ownership did not match the synthetic property.");
+        const deleted = await page.request.delete(`/api/portal/channel-calendar/connections?id=${encodeURIComponent(connection.id)}`);
+        if (!deleted.ok()) throw new Error(`Synthetic calendar cleanup failed (HTTP ${deleted.status()}).`);
+      }
+      const verify = await page.request.get(`/api/portal/channel-calendar/connections?propertyId=${encodeURIComponent(fixture.id)}&origin=${encodeURIComponent(new URL(page.url()).origin)}`);
+      if (!verify.ok()) throw new Error(`Calendar cleanup verification read failed (HTTP ${verify.status()}).`);
+      const remaining = await verify.json() as { connections?: Array<{ propertyId?: string }> };
+      if ((remaining.connections ?? []).some((connection) => connection.propertyId === fixture.id)) throw new Error("Synthetic calendar connection remained after cleanup.");
+    }
+    await cleanupSyntheticProperties(page);
+  });
+
+  test("manager can reach Link calendars from the property Bookings tab", async ({ page }) => {
+    const { path } = fixtureFor(page);
+    await page.goto(path, { waitUntil: "domcontentloaded" });
 
     const linkAirbnb = page.locator('[data-attr="portfolio-bookings-link-airbnb"]');
     await expect(linkAirbnb).toBeVisible({ timeout: 30_000 });
@@ -42,47 +59,50 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
   });
 
   test("link a room and round-trip its export URL", async ({ page }) => {
-    await signIn(page, E2E_ACCOUNTS.manager.email, E2E_ACCOUNTS.manager.password, "/portal/dashboard");
-    await establishActivePortal(page, "manager", "/portal/dashboard");
-
-    await page.goto(BOOKING_CALENDARS_PATH, { waitUntil: "domcontentloaded" });
+    const fixture = fixtureFor(page);
+    await page.goto(fixture.path, { waitUntil: "domcontentloaded" });
 
     const linkAirbnb = page.locator('[data-attr="portfolio-bookings-link-airbnb"]');
     await expect(linkAirbnb).toBeVisible({ timeout: 30_000 });
     await linkAirbnb.click();
     await expect(page.getByRole("heading", { name: "Link calendars" })).toBeVisible();
 
-    // Emerald Court has one room. The shared Select renders a button and
+    // The owned fixture has one room. The shared Select renders a button and
     // auto-picks that room after the listing data loads.
     const roomSelect = page.locator('[data-attr="channel-calendar-link-room"]');
     await expect(roomSelect).toBeEnabled({ timeout: 30_000 });
-    await expect(roomSelect).toContainText("Unit 3");
+    await expect(roomSelect).toContainText("Fixture Room");
 
-    // Shape-valid Airbnb export URL: the save is what this asserts, and the
-    // fetch behind "sync" is allowed to fail against a placeholder feed.
-    await page
-      .locator('[data-attr="channel-calendar-link-import-url"]')
-      .fill("https://www.airbnb.com/calendar/ical/e2e-placeholder.ics?s=e2eplaceholder");
-
+    const importUrl = "https://www.airbnb.com/calendar/ical/e2e-placeholder.ics?s=e2eplaceholder";
+    await page.locator('[data-attr="channel-calendar-link-import-url"]').fill(importUrl);
     await page.locator('[data-attr="channel-calendar-save-link"]').click();
     await expect(page.getByText(/Airbnb calendar linked and synced\.|Calendar saved\./)).toBeVisible({
       timeout: 20_000,
     });
 
-    const exportRes = await page.evaluate(async (propertyId) => {
+    const exportRes = await page.evaluate(async ({ propertyId, expectedImportUrl }) => {
       const origin = window.location.origin;
-      const listRes = await fetch(
-        `${origin}/api/portal/channel-calendar/connections?propertyId=${encodeURIComponent(propertyId)}&origin=${encodeURIComponent(origin)}`,
+      const bookingRes = await fetch(
+        `${origin}/api/portal/channel-calendar/bookings?propertyIds=${encodeURIComponent(propertyId)}`,
         { credentials: "include" },
       );
-      const list = (await listRes.json()) as { connections?: { exportUrl: string }[] };
-      const exportUrl = list.connections?.[0]?.exportUrl;
+      const bookingBody = (await bookingRes.json()) as { properties?: Array<{ propertyId: string; rooms: Array<{ exportUrl: string; importUrl: string | null; ranges: Array<{ sourceUid: string; summary: string }> }> }> };
+      const connection = bookingBody.properties?.find((property) => property.propertyId === propertyId)?.rooms[0];
+      const exportUrl = connection?.exportUrl;
       if (!exportUrl) return { ok: false, reason: "no export url" };
+      if (connection?.importUrl !== expectedImportUrl) return { ok: false, reason: "import URL did not persist" };
       const icsRes = await fetch(exportUrl);
       const text = await icsRes.text();
-      return { ok: icsRes.ok && text.includes("BEGIN:VCALENDAR"), status: icsRes.status, snippet: text.slice(0, 80) };
-    }, QA_PROPERTY_ID);
+      return {
+        ok: icsRes.ok && text.includes("BEGIN:VCALENDAR"),
+        echoesSyntheticImportedEvent: text.includes("proplane-qa-calendar-1108@example.invalid") || text.includes("QA synthetic calendar block"),
+        containsImportedRange: connection.ranges.some((range) => range.sourceUid === "proplane-qa-calendar-1108@example.invalid" && range.summary === "QA synthetic calendar block"),
+        status: icsRes.status,
+      };
+    }, { propertyId: fixture.id, expectedImportUrl: importUrl });
 
     expect(exportRes.ok, JSON.stringify(exportRes)).toBe(true);
+    expect(exportRes.echoesSyntheticImportedEvent, "the destination export should not echo its own imported Airbnb event").toBe(false);
+    expect(exportRes.containsImportedRange, "mocked synthetic Airbnb range should appear in the owned property's booking data").toBe(true);
   });
 });

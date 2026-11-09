@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import { mockStripeAllRoutes } from "../helpers/auth";
+import { requestManagerEmailProof, finishManagerEmailProof } from "../helpers/email-onboarding-e2e";
 import { completeManagerSignupOnboarding, pickListingSelect } from "../helpers/manager-onboarding-e2e";
 
 /**
@@ -54,17 +55,16 @@ test.describe("New manager — full journey from scratch", () => {
     if (process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "") !== "https://emstjswhotsnyksqhqyf.supabase.co") throw new Error("Synthetic signup requires the exact dev/test project.");
     const stamp = Date.now();
     const email = `fresh-manager-${stamp}@${syntheticSignupDomain()}`;
-    const password = "FreshManager123!";
     const fullName = "Fresh Journey Manager";
-    const phone = "2065550199";
+    const phone = "+12065550199";
 
     fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
     fs.writeFileSync(
-      path.join(EVIDENCE_DIR, "credentials.json"),
-      JSON.stringify({ email, password, fullName, createdAt: new Date().toISOString() }, null, 2),
+      path.join(EVIDENCE_DIR, "signup.json"),
+      JSON.stringify({ email, fullName, createdAt: new Date().toISOString() }, null, 2),
       { mode: 0o600 },
     );
-    fs.chmodSync(path.join(EVIDENCE_DIR, "credentials.json"), 0o600);
+    fs.chmodSync(path.join(EVIDENCE_DIR, "signup.json"), 0o600);
 
     // ── 1. Discover pricing and choose Pro ──────────────────────────────────
     await page.goto("/partner/pricing");
@@ -76,17 +76,12 @@ test.describe("New manager — full journey from scratch", () => {
     await shot(page, "02-create-account-form");
 
     // ── 2. Create account, then pick property manager portal ─────────────────
-    await page.getByPlaceholder("Full name").fill(fullName);
-    await page.getByPlaceholder("Email").fill(email);
-    await page.getByPlaceholder(/Password \(8\+/).fill(password);
-    await page.getByRole("textbox", { name: "Phone number" }).fill(phone);
-    await shot(page, "03-create-account-filled");
-    await page.getByRole("button", { name: /create property account/i }).click();
-
-    await page.waitForURL(/\/auth\/(get-started|manager\/choose-plan)|\/portal/, { timeout: 90_000 });
-    if (page.url().includes("/auth/get-started")) {
-      await shot(page, "03b-get-started-chooser");
-    }
+    const verificationHref = await requestManagerEmailProof(page, email, undefined, "pro");
+    await shot(page, "03-check-email");
+    await finishManagerEmailProof(page, verificationHref, email, fullName, phone, undefined, "pro");
+    await shot(page, "03b-account-ready");
+    await page.getByRole("button", { name: "Go to portal" }).click();
+    await page.waitForURL(/\/auth\/(get-started|manager\/choose-plan|connect-google-services)|\/portal/, { timeout: 90_000 });
     await completeManagerSignupOnboarding(page);
     await page.waitForLoadState("domcontentloaded");
     await shot(page, "04-portal-landing");

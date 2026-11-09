@@ -83,7 +83,9 @@ export async function finishManagerEmailProof(page: Page, href: string, email: s
       headings: text("h1,h2", knownHeadings),
       alerts: text('[role="alert"]', knownAlerts),
       loadingVisible: /\bLoading(?:…|\.\.\.)?(?=\s|$)/i.test(bodyText),
-      verifiedFormVisible: bodyText.includes("Verified email:"),
+      verifiedFormVisible: Array.from(document.querySelectorAll("input[readonly]")).some((input) =>
+        input instanceof HTMLInputElement && input.labels?.[0]?.textContent?.trim() === "Verified email",
+      ),
     };
   });
   let snapshotTimer: ReturnType<typeof setTimeout> | undefined;
@@ -105,13 +107,15 @@ export async function finishManagerEmailProof(page: Page, href: string, email: s
   const verifiedDeadline = Date.now() + 20_000;
   let verifiedFormVisible = false;
   while (!verifiedFormVisible && Date.now() < verifiedDeadline) {
-    const result = await boundedDomBoolean(page.evaluate(() => Array.from(document.querySelectorAll("p")).some((element) => (element.textContent ?? "").trim().startsWith("Verified email:"))));
+    const result = await boundedDomBoolean(page.getByLabel("Verified email", { exact: true }).isVisible());
     verifiedFormVisible = result === true;
     if (!verifiedFormVisible) await new Promise((resolve) => setTimeout(resolve, 200));
   }
   if (!verifiedFormVisible) throw new Error("Verified-email form did not appear within the bounded wait.");
-  const exactMailboxMatch = await boundedDomBoolean(page.evaluate((expectedEmail) => Array.from(document.querySelectorAll("p")).some((element) => (element.textContent ?? "").trim() === `Verified email: ${expectedEmail}`), email));
+  const verifiedEmailInput = page.getByLabel("Verified email", { exact: true });
+  const exactMailboxMatch = await boundedDomBoolean(verifiedEmailInput.inputValue().then((value) => value === email));
   if (exactMailboxMatch !== true) throw new Error("Verified email did not match the synthetic mailbox.");
+  if (await verifiedEmailInput.isEditable()) throw new Error("Verified email must remain read-only after token verification.");
   onPhase?.("fill-manager-name");
   await page.getByLabel("Full name").fill(fullName);
   onPhase?.("fill-manager-phone");

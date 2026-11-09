@@ -3,7 +3,8 @@ import { test, expect, type Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import fs from "node:fs";
 import path from "node:path";
-import { mockStripeAllRoutes, signIn, establishActivePortal } from "../helpers/auth";
+import { mockStripeAllRoutes } from "../helpers/auth";
+import { requestManagerEmailProof, finishManagerEmailProof } from "../helpers/email-onboarding-e2e";
 import {
   completeManagerSignupOnboarding,
   pickListingSelect,
@@ -49,9 +50,8 @@ function shot(page: Page, name: string) {
 
 async function createFreshManager(page: Page, stamp: number) {
   const email = `e2e-manager-${stamp}@${syntheticSignupDomain()}`;
-  const password = "E2eManager123!";
   const fullName = "E2E Journey Manager";
-  const phone = "2065550199";
+  const phone = "+12065550199";
 
   await page.goto("/partner/pricing");
   await shot(page, "01-pricing");
@@ -60,28 +60,19 @@ async function createFreshManager(page: Page, stamp: number) {
     page.getByRole("button", { name: /choose pro|get started|free/i }).first().click(),
   ]);
 
-  await page.getByPlaceholder("Full name").fill(fullName);
-  await page.getByPlaceholder("Email").fill(email);
-  await page.getByPlaceholder(/Password \(8\+/).fill(password);
-  await page.getByRole("textbox", { name: "Phone number" }).fill(phone);
-  await shot(page, "02-create-account-filled");
-  await page.getByRole("button", { name: /create property account/i }).click();
-
-  await page.waitForURL(/\/auth\/(get-started|manager\/choose-plan)|\/portal/, { timeout: 90_000 });
-  if (page.url().includes("/auth/manager/choose-plan")) {
-    await shot(page, "02b-choose-plan");
-  }
+  const verificationHref = await requestManagerEmailProof(page, email, undefined, "pro");
+  await shot(page, "02-check-email");
+  await finishManagerEmailProof(page, verificationHref, email, fullName, phone, undefined, "pro");
+  await shot(page, "02b-account-ready");
+  await page.getByRole("button", { name: "Go to portal" }).click();
+  await page.waitForURL(/\/auth\/(get-started|manager\/choose-plan|connect-google-services)|\/portal/, { timeout: 90_000 });
   await completeManagerSignupOnboarding(page);
 
-  if (page.url().includes("/auth/sign-in")) {
-    await signIn(page, email, password, "/portal/dashboard");
-    await establishActivePortal(page, "manager", "/portal/dashboard");
-  }
   await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
   await expect(page.locator('[data-attr="manager-properties-add-top"], [data-attr="manager-properties-create"]')).toBeVisible({ timeout: 60_000 });
   await shot(page, "03-manager-portal");
 
-  return { email, password, fullName, phone };
+  return { email, fullName, phone };
 }
 
 async function publishFirstListing(page: Page, stamp: number): Promise<string> {
