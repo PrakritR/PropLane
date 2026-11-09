@@ -3,22 +3,19 @@ import { test, expect, type Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { mockStripeAllRoutes } from "../helpers/auth";
-import { requestManagerEmailProof, finishManagerEmailProof } from "../helpers/email-onboarding-e2e";
-import { clearManagerPhoneGate, type SyntheticPhoneVerification, withSyntheticPhoneFixtureOwnership } from "../helpers/synthetic-phone-verification";
+import { requestManagerEmailProof, finishManagerEmailProof, requestResidentEmailProof, finishResidentEmailProof } from "../helpers/email-onboarding-e2e";
+import { verifySyntheticManagerPhone, verifySyntheticResidentPhone, type SyntheticPhoneVerification, withSyntheticPhoneFixtureOwnership } from "../helpers/synthetic-phone-verification";
 import {
   completeManagerSignupOnboarding,
   pickListingSelect,
 } from "../helpers/manager-onboarding-e2e";
-import { visibleLocator, walkGuestRentalApplication } from "../helpers/rental-wizard-e2e";
-import {
-  mockFreeApplicationFee,
-  resolveManagerUserId,
-  setManagerApplicationFeeFree,
-} from "../helpers/e2e-supabase";
+import { visibleLocator, fillCurrentRentalApplication } from "../helpers/rental-wizard-e2e";
+import { syntheticFixtureActorId } from "../helpers/synthetic-property-e2e";
 
 /**
- * Browser E2E: brand-new manager → publish first listing → guest resident applies
+ * Browser E2E: brand-new manager → publish first listing → verified resident applies
  * → manager sees the application in the portal.
  *
  * Run headed against a local dev server:
@@ -32,9 +29,7 @@ const hasSupabase = Boolean(
     process.env.SUPABASE_SERVICE_ROLE_KEY,
 );
 
-const EVIDENCE_DIR =
-  process.env.MANAGER_RESIDENT_E2E_EVIDENCE ??
-  path.resolve(__dirname, "../../.manager-resident-apply-journey");
+const EVIDENCE_DIR = path.join(process.env.E2E_PRIVATE_FIXTURE_DIR ?? "/nonexistent-private-fixture", `manager-resident-${randomUUID()}`);
 
 const DESKTOP = { width: 1440, height: 1000 };
 
@@ -52,7 +47,7 @@ function shot(page: Page, name: string) {
 async function createFreshManager(page: Page, stamp: number) {
   const email = `e2e-manager-${stamp}@${syntheticSignupDomain()}`;
   const fullName = "E2E Journey Manager";
-  const phone = "+12065550199";
+  const phone = `+1206555${String(stamp % 10_000).padStart(4, "0")}`;
 
   await page.goto("/partner/pricing");
   await shot(page, "01-pricing");
@@ -74,8 +69,9 @@ async function createFreshManager(page: Page, stamp: number) {
   // The mandatory phone gate stands between the proven mailbox and the portal. Cleared as
   // FIXTURE SETUP for this one synthetic account and restored afterwards; no OTP is exercised,
   // and nothing here claims phone verification was tested.
-  const phoneFixture = await clearManagerPhoneGate(page, { email, phone });
+  const phoneFixture = await verifySyntheticManagerPhone(page, { email, phone });
   const ownedSetup = await withSyntheticPhoneFixtureOwnership(phoneFixture, async () => {
+    await page.goto("/portal/dashboard", { waitUntil: "domcontentloaded" });
     await completeManagerSignupOnboarding(page);
     await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
     await expect(page.locator('[data-attr="manager-properties-add-top"], [data-attr="manager-properties-create"]')).toBeVisible({ timeout: 60_000 });
@@ -140,20 +136,19 @@ async function publishFirstListing(page: Page, stamp: number): Promise<string> {
   await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
   await expect(page.getByText(buildingName).first()).toBeVisible({ timeout: 30_000 });
 
-  const { data: users } = await db.auth.admin.listUsers();
-  const manager = users?.users?.find((u) => u.email?.includes(`e2e-manager-${stamp}`));
-  if (!manager?.id) throw new Error("Could not resolve new manager user id");
+  const managerId = await syntheticFixtureActorId(page);
 
   const { data: rows, error } = await db
     .from("manager_property_records")
-    .select("id,status,row_data")
-    .eq("manager_user_id", manager.id)
+    .select("id,status,property_data")
+    .eq("manager_user_id", managerId)
     .eq("status", "live")
     .order("updated_at", { ascending: false })
-    .limit(1);
+    .limit(10);
   if (error) throw error;
-  const propertyId = rows?.[0]?.id;
-  if (!propertyId) throw new Error("No live property row found after submit listing");
+  const exact = (rows ?? []).filter((row) => (row.property_data as { buildingName?: unknown } | null)?.buildingName === buildingName);
+  const propertyId = exact[0]?.id;
+  if (!propertyId || exact.length !== 1) throw new Error("The exact synthetic listing was not uniquely confirmed.");
   return propertyId;
 }
 
@@ -162,30 +157,79 @@ test.describe.configure({ mode: "serial", timeout: 600_000 });
 test.describe("Manager signup → listing → resident apply", () => {
   test.skip(!hasSupabase, "Requires dev/test Supabase env (.env.local)");
 
-  test("new manager publishes a listing and receives a guest application", async ({ browser }) => {
+  test("new manager publishes a listing and receives a verified resident application", async ({ browser }) => {
     test.setTimeout(600_000);
     if (process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "") !== "https://emstjswhotsnyksqhqyf.supabase.co") throw new Error("Synthetic signup requires the exact dev/test project.");
     const stamp = Date.now();
     const guest = {
       name: "Jordan Applicant",
       email: `e2e-applicant-${stamp}@${syntheticSignupDomain()}`,
-      phone: "2065550188",
+      phone: `+1206555${String((stamp + 1) % 10_000).padStart(4, "0")}`,
     };
 
-    fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
+    const base = new URL(process.env.PLAYWRIGHT_BASE_URL ?? "http://invalid");
+    const port = Number(base.port);
+    if (base.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(base.hostname) || !Number.isInteger(port) || port < 3000 || port > 3014) throw new Error("Synthetic journey requires localhost.");
+    const fixtureDir = process.env.E2E_PRIVATE_FIXTURE_DIR;
+    if (!fixtureDir || !path.isAbsolute(fixtureDir)) throw new Error("Private synthetic fixture directory required.");
+    const stat = fs.lstatSync(fixtureDir);
+    const followed = fs.statSync(fixtureDir);
+    if (!stat.isDirectory() || stat.isSymbolicLink() || fs.realpathSync(fixtureDir) !== fixtureDir || stat.uid !== process.getuid?.() || (stat.mode & 0o777) !== 0o700 || followed.ino !== stat.ino || followed.dev !== stat.dev) throw new Error("Synthetic fixture directory must be private and owned.");
+    const managerEmail = `e2e-manager-${stamp}@${syntheticSignupDomain()}`;
+    const managerPhone = `+1206555${String(stamp % 10_000).padStart(4, "0")}`;
+    const manifestPath = path.join(fixtureDir, `manager-resident-journey-${randomUUID()}.json`);
+    const manifest: Record<string, unknown> = { managerEmail, residentEmail: guest.email, state: "reserved", retained: true };
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest), { flag: "wx", mode: 0o600 });
+    const saveManifest = () => fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
+    for (let page = 1; page <= 100; page += 1) {
+      const users = await db.auth.admin.listUsers({ page, perPage: 1000 });
+      if (users.error || users.data.users.some((user) => [managerEmail, guest.email].includes(user.email?.toLowerCase() ?? "") || [managerPhone, guest.phone].includes(user.phone ?? ""))) throw new Error("Synthetic journey identity reservation failed.");
+      if (users.data.users.length < 1000) break;
+      if (page === 100) throw new Error("Synthetic mailbox reservation exceeded its bound.");
+    }
+    for (const email of [managerEmail, guest.email]) {
+      const [profile, application] = await Promise.all([db.from("profiles").select("id").eq("email", email).limit(1), db.from("manager_application_records").select("id").eq("resident_email", email).limit(1)]);
+      if (profile.error || application.error || profile.data?.length || application.data?.length) throw new Error("Synthetic journey mailbox is already in use.");
+    }
+    for (const phone of [managerPhone, guest.phone]) {
+      const profiles = await db.from("profiles").select("id").eq("phone", phone).limit(1);
+      if (profiles.error || profiles.data?.length) throw new Error("Synthetic journey phone is already in use or unreadable.");
+    }
 
-    const managerContext = await browser.newContext({ viewport: DESKTOP });
+    fs.mkdirSync(EVIDENCE_DIR, { mode: 0o700 });
+
+    const managerContext = await browser.newContext({ viewport: DESKTOP, storageState: { cookies: [], origins: [] } });
     const managerPage = await managerContext.newPage();
     managerPage.setDefaultTimeout(30_000);
     await mockStripeAllRoutes(managerPage);
 
     let phoneFixture: SyntheticPhoneVerification | null = null;
     let guestContext: Awaited<ReturnType<typeof browser.newContext>> | null = null;
+    let residentPhoneFixture: SyntheticPhoneVerification | null = null;
     try {
       const manager = await createFreshManager(managerPage, stamp);
       phoneFixture = manager.phoneFixture;
-      await setManagerApplicationFeeFree(db, await resolveManagerUserId(db, manager.email));
+      const managerId = await syntheticFixtureActorId(managerPage);
+      Object.assign(manifest, { managerId, state: "manager-created" }); saveManifest();
+      const settings = await db.from("manager_automation_settings").select("row_data,updated_at").eq("manager_user_id", managerId).maybeSingle();
+      if (settings.error) throw new Error("Could not read the exact synthetic manager fee settings.");
+      Object.assign(manifest, { feeSettingsBefore: settings.data ?? null }); saveManifest();
+      const priorSettings = (settings.data?.row_data ?? {}) as Record<string, unknown>;
+      const priorApplicationSettings = (priorSettings.applicationSettings ?? {}) as Record<string, unknown>;
+      const feeRow = { row_data: { ...priorSettings, applicationSettings: { ...priorApplicationSettings, applicationFeeCents: 0 } }, updated_at: new Date().toISOString() };
+      if (settings.data && !settings.data.updated_at) throw new Error("Synthetic fee settings lack a revision.");
+      const feeWrite = settings.data
+        ? await db.from("manager_automation_settings").update(feeRow).eq("manager_user_id", managerId).eq("updated_at", settings.data.updated_at).select("manager_user_id")
+        : await db.from("manager_automation_settings").insert({ manager_user_id: managerId, ...feeRow }).select("manager_user_id");
+      if (feeWrite.error || feeWrite.data?.length !== 1) throw new Error("Could not configure the exact synthetic manager fee.");
+      const feeRead = await db.from("manager_automation_settings").select("row_data,updated_at").eq("manager_user_id", managerId).single();
+      if (feeRead.error || (feeRead.data?.row_data as { applicationSettings?: { applicationFeeCents?: unknown } })?.applicationSettings?.applicationFeeCents !== 0) throw new Error("Synthetic fee settings were not confirmed.");
+      Object.assign(manifest, { feeSettingsAfter: feeRead.data }); saveManifest();
       const propertyId = await publishFirstListing(managerPage, stamp);
+      Object.assign(manifest, { propertyId, state: "listing-created" }); saveManifest();
+      const feeResponse = await managerPage.request.post("/api/public/application-fee-preview", { data: { propertyId, rentalType: "standard", leaseTerm: "Long-term" } });
+      const fee = await feeResponse.json() as { applicationFeeCents?: unknown; totalCents?: unknown };
+      if (!feeResponse.ok() || fee.applicationFeeCents !== 0 || fee.totalCents !== 0) throw new Error("Synthetic listing must have a real zero application fee.");
       fs.writeFileSync(
         path.join(EVIDENCE_DIR, "run.json"),
         JSON.stringify({ email: manager.email, fullName: manager.fullName, phone: manager.phone,
@@ -194,12 +238,39 @@ test.describe("Manager signup → listing → resident apply", () => {
       );
       fs.chmodSync(path.join(EVIDENCE_DIR, "run.json"), 0o600);
 
-      guestContext = await browser.newContext({ viewport: DESKTOP });
+      guestContext = await browser.newContext({ viewport: DESKTOP, storageState: { cookies: [], origins: [] } });
       const guestPage = await guestContext.newPage();
       guestPage.setDefaultTimeout(30_000);
       await mockStripeAllRoutes(guestPage);
-      await mockFreeApplicationFee(guestPage);
-      await walkGuestRentalApplication(guestPage, propertyId, guest);
+      await guestPage.goto(`/rent/apply?propertyId=${encodeURIComponent(propertyId)}`);
+      const createAccount = guestPage.locator('[data-attr="public-apply-create-account"]').filter({ visible: true });
+      await expect(createAccount).toBeVisible({ timeout: 45_000 });
+      await expect(guestPage.locator('[data-attr="public-apply-continue-guest"]')).toHaveCount(0);
+      await createAccount.click();
+      const href = await requestResidentEmailProof(guestPage, guest.email, propertyId);
+      expect(await finishResidentEmailProof(guestPage, href, guest.email, guest.name, guest.phone)).toBe(200);
+      const residentId = await syntheticFixtureActorId(guestPage);
+      Object.assign(manifest, { residentId, state: "resident-created" }); saveManifest();
+      const auth = await db.auth.admin.getUserById(residentId);
+      const roles = await db.from("profile_roles").select("role").eq("user_id", residentId);
+      if (auth.error || auth.data.user?.email !== guest.email || !auth.data.user.email_confirmed_at || roles.error || !roles.data?.some((r) => r.role === "resident") || roles.data.some((r) => r.role !== "resident")) throw new Error("Synthetic resident identity was not verified.");
+      residentPhoneFixture = await verifySyntheticResidentPhone(guestPage, { email: guest.email, phone: guest.phone });
+      await guestPage.goto(`/rent/apply?propertyId=${encodeURIComponent(propertyId)}`);
+      await expect(visibleLocator(guestPage, '[data-wizard-field="applyingAsGroup"]')).toBeVisible({ timeout: 45_000 });
+      const submitted = guestPage.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/manager-applications", { timeout: 60_000 });
+      await fillCurrentRentalApplication(guestPage, guest, { kind: "solo" });
+      if (!(await submitted).ok()) throw new Error("Verified resident application submission failed.");
+      let confirmedApplication: { id: string; updated_at: string } | null = null;
+      await expect.poll(async () => {
+        const rows = await db.from("manager_application_records").select("id,manager_user_id,property_id,resident_email,row_data,updated_at").eq("resident_email", guest.email).eq("property_id", propertyId).limit(2);
+        if (rows.error || rows.data?.length !== 1) return false;
+        const app = rows.data[0]!;
+        const data = app.row_data as { residentUserId?: string; stage?: string; bucket?: string };
+        if (app.manager_user_id !== managerId || data.residentUserId !== residentId || data.bucket !== "pending" || !data.stage || data.stage === "In progress") return false;
+        confirmedApplication = { id: app.id, updated_at: app.updated_at };
+        return true;
+      }, { timeout: 60_000 }).toBe(true);
+      Object.assign(manifest, { application: confirmedApplication, state: "application-confirmed" }); saveManifest();
       await shot(guestPage, "07-application-submitted");
 
       await managerPage.goto("/portal/properties", { waitUntil: "domcontentloaded" });
@@ -210,10 +281,15 @@ test.describe("Manager signup → listing → resident apply", () => {
     } finally {
       // Always, including on failure: the synthetic phone stamp goes back, and a conflict is
       // reported rather than left behind.
-      const restore = phoneFixture?.restore();
+      const failures: unknown[] = [];
+      try { await residentPhoneFixture?.restore(); } catch (error) { failures.push(error); }
+      try { await phoneFixture?.restore(); } catch (error) { failures.push(error); }
       await managerContext.close();
       await guestContext?.close();
-      await restore;
+      if (failures.length) {
+        Object.assign(manifest, { phoneRestoreFailed: true }); saveManifest();
+        throw new AggregateError(failures, "Synthetic phone fixture restoration failed.");
+      }
     }
   });
 });
