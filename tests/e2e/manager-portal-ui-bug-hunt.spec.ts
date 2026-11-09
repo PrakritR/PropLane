@@ -161,20 +161,21 @@ test.describe("Manager portal UI bug hunt", () => {
     }
   });
 
-  test("filter panel on properties listed opens listbox below trigger", async ({ browser }) => {
+  test("Payments filter dropdown opens Group by options below trigger", async ({ browser }) => {
     const manager = await createWritableSyntheticManager(browser);
     const { page } = manager;
     try {
     await page.setViewportSize(DESKTOP);
-    await gotoTolerantly(page, "/portal/properties/listed");
-    const filterBtn = page.getByRole("button", { name: /^Filter/i }).first();
-    await expect(filterBtn, "the synthetic property list must expose its filter control").toBeVisible({ timeout: 15_000 });
+    await gotoTolerantly(page, "/portal/payments");
+    const filterBtn = page.locator('[data-attr="payments-filter-sheet-open"]').filter({ visible: true }).first();
+    await expect(filterBtn, "Payments should expose its current filter control").toBeVisible({ timeout: 15_000 });
     await filterBtn.click();
     const panel = page.locator('[data-slot="portal-filter-dropdown-panel"]');
     await expect(panel).toBeVisible({ timeout: 10_000 });
-    const fieldTrigger = panel.getByRole("button").first();
+    const fieldTrigger = panel.locator('[data-attr="payments-filter-group-mode-trigger"]');
+    await expect(fieldTrigger).toBeVisible();
     await fieldTrigger.click();
-    const listbox = page.getByRole("listbox").first();
+    const listbox = page.locator('[data-attr="payments-filter-group-mode"]');
     await expect(listbox).toBeVisible({ timeout: 8_000 });
     const triggerBox = await fieldTrigger.boundingBox();
     const listboxBox = await listbox.boundingBox();

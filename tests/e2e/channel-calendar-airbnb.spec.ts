@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Route } from "@playwright/test";
 import { signInAsManager2 } from "../helpers/auth";
 import { cleanupSyntheticProperties, createSyntheticProperty } from "../helpers/synthetic-property-e2e";
 
@@ -50,6 +50,44 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
 
     const manageAirbnb = page.locator('[data-attr="settings-airbnb-manage"]');
     await expect(manageAirbnb).toBeVisible({ timeout: 30_000 });
+
+    // Reload with the real workspace request held between the server response and the browser.
+    // This proves an early click cannot open a stale/unscoped channel modal while workspace
+    // ownership and its property list are still unresolved.
+    let releaseWorkspace!: () => void;
+    const workspaceGate = new Promise<void>((resolve) => { releaseWorkspace = resolve; });
+    let workspaceStatus: number | null = null;
+    const heldRoutes = new Set<Promise<void>>();
+    const routePattern = "**/api/workspaces**";
+    const holdWorkspaceResponse = async (route: Route) => {
+      if (route.request().method() !== "GET" || new URL(route.request().url()).pathname !== "/api/workspaces") {
+        await route.continue();
+        return;
+      }
+      let finishHeldRoute!: () => void;
+      const heldRouteFinished = new Promise<void>((resolve) => { finishHeldRoute = resolve; });
+      heldRoutes.add(heldRouteFinished);
+      try {
+        const response = await route.fetch({ timeout: 15_000 });
+        if (workspaceStatus === null) workspaceStatus = response.status();
+        await workspaceGate;
+        await route.fulfill({ response });
+      } finally {
+        finishHeldRoute();
+        heldRoutes.delete(heldRouteFinished);
+      }
+    };
+    await page.route(routePattern, holdWorkspaceResponse);
+    try {
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect.poll(() => workspaceStatus, { timeout: 20_000, message: "the page should issue its real workspace read" }).toBe(200);
+      await expect(manageAirbnb).toBeDisabled();
+    } finally {
+      releaseWorkspace();
+      while (heldRoutes.size > 0) await Promise.all([...heldRoutes]);
+      await page.unroute(routePattern, holdWorkspaceResponse);
+    }
+    await expect(manageAirbnb).toBeEnabled({ timeout: 20_000 });
     await manageAirbnb.click();
 
     const dialog = page.getByRole("dialog", { name: "Connect Airbnb" });
