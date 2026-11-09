@@ -38,6 +38,10 @@ function propertyApplyPath(propertyId: string, leaderAppId?: string): string {
   return `/rent/apply?${query.toString()}`;
 }
 
+function visibleText(page: Page, text: string | RegExp) {
+  return page.getByText(text, { exact: true }).filter({ visible: true }).first();
+}
+
 function applicantFor(runId: string, index: number, name: string): Applicant {
   const stamp = String(Number(runId) + index - 1);
   return {
@@ -299,8 +303,8 @@ test("group application lifecycle: organizer, re-edit, roommate, account-gated t
     expect(groupId).toMatch(/^PROPLANE-[0-9A-HJKMNP-TV-Z]{8}$/);
     const organizerAppId = String(organizerRow?.id ?? "");
     expect(organizerAppId).toBe(organizer.applicationId);
-    await expect(organizer.page.getByText("Roommate invite", { exact: true })).toBeVisible();
-    await expect(organizer.page.getByText(organizerAppId, { exact: true })).toBeVisible();
+    await expect(visibleText(organizer.page, "Roommate invite")).toBeVisible();
+    await expect(visibleText(organizer.page, organizerAppId)).toBeVisible();
     await expect(organizer.page.locator('[data-attr="group-invite-copy"]')).toBeVisible();
     const inviteText = (await organizer.page.locator("code").filter({ hasText: "groupLeaderAppId" }).textContent())?.trim();
     if (!inviteText) throw new Error("The organizer finish panel did not render its group invite URL.");
@@ -310,7 +314,7 @@ test("group application lifecycle: organizer, re-edit, roommate, account-gated t
     expect(inviteUrl.searchParams.get("propertyId")).toBe(fixture.propertyId);
     expect(inviteUrl.searchParams.get("groupLeaderAppId")).toBe(organizerAppId);
     await organizer.page.setViewportSize({ width: 390, height: 844 });
-    await expect(organizer.page.getByText("Roommate invite", { exact: true })).toBeVisible();
+    await expect(visibleText(organizer.page, "Roommate invite")).toBeVisible();
     await expect(organizer.page.locator('[data-attr="group-invite-copy"]')).toBeVisible();
     await organizer.page.setViewportSize({ width: 1440, height: 1000 });
 
@@ -318,13 +322,13 @@ test("group application lifecycle: organizer, re-edit, roommate, account-gated t
       invitePath: inviteUrl.pathname + inviteUrl.search });
 
     await organizer.page.goto("/resident/applications", { waitUntil: "domcontentloaded" });
-    await expect(organizer.page.getByText(organizer.applicant.name, { exact: true }).first()).toBeVisible({ timeout: 45_000 });
-    await organizer.page.getByText(organizer.applicant.name, { exact: true }).first().click();
-    await expect(organizer.page.getByText("Roommate invite", { exact: true })).toBeVisible({ timeout: 20_000 });
-    await expect(organizer.page.getByText(organizerAppId, { exact: true })).toBeVisible();
+    await expect(visibleText(organizer.page, organizer.applicant.name)).toBeVisible({ timeout: 45_000 });
+    await visibleText(organizer.page, organizer.applicant.name).click();
+    await expect(visibleText(organizer.page, "Roommate invite")).toBeVisible({ timeout: 20_000 });
+    await expect(visibleText(organizer.page, organizerAppId)).toBeVisible();
     await expect(organizer.page.locator('[data-attr="group-invite-copy"]')).toBeVisible();
     await organizer.page.setViewportSize({ width: 390, height: 844 });
-    await expect(organizer.page.getByText("Roommate invite", { exact: true })).toBeVisible();
+    await expect(visibleText(organizer.page, "Roommate invite")).toBeVisible();
     await expect(organizer.page.locator('[data-attr="group-invite-copy"]')).toBeVisible();
     await organizer.page.setViewportSize({ width: 1440, height: 1000 });
     await expect(organizer.page.getByRole("button", { name: /edit application/i }).filter({ visible: true })).toBeVisible({ timeout: 20_000 });
@@ -334,13 +338,13 @@ test("group application lifecycle: organizer, re-edit, roommate, account-gated t
     expect(afterEdit.application.groupId).toBe(groupId);
 
     await manager.page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
-    await expect(manager.page.getByText(manager.property.name, { exact: true }).first()).toBeVisible({ timeout: 45_000 });
+    await expect(visibleText(manager.page, manager.property.name)).toBeVisible({ timeout: 45_000 });
     await manager.page.goto("/portal/applications", { waitUntil: "domcontentloaded" });
     await expect(manager.page.getByText(/Group 1\/2/).filter({ visible: true }).first()).toBeVisible({ timeout: 45_000 });
-    await expect(manager.page.getByText(organizer.applicant.name, { exact: true }).first()).toBeVisible();
-    await manager.page.getByText(organizer.applicant.name, { exact: true }).first().click();
-    await expect(manager.page.getByText(groupId, { exact: true })).toBeVisible({ timeout: 20_000 });
-    await expect(manager.page.getByText(organizer.applicant.name, { exact: true }).last()).toBeVisible();
+    await expect(visibleText(manager.page, organizer.applicant.name)).toBeVisible();
+    await visibleText(manager.page, organizer.applicant.name).click();
+    await expect(visibleText(manager.page, groupId)).toBeVisible({ timeout: 20_000 });
+    await expect(visibleText(manager.page, organizer.applicant.name)).toBeVisible();
 
     const joiner = await createResidentAccount(browser, { runId, index: 2, propertyId: fixture.propertyId, leaderAppId: organizerAppId, name: "Jordan Reyes", onProvisioned: recordProvisioned });
     fixture.residents.push(joiner);
@@ -355,16 +359,16 @@ test("group application lifecycle: organizer, re-edit, roommate, account-gated t
     const joinerRow = await readApplication(fixture.propertyId, joiner.applicant.email);
     expect(joinerRow?.application.groupRole).toBe("joining");
     expect(joinerRow?.application.groupId).toBe(groupId);
-    await expect(joiner.page.getByText("You joined a group application", { exact: true })).toBeVisible();
+    await expect(visibleText(joiner.page, "You joined a group application")).toBeVisible();
 
     await manager.page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
-    await expect(manager.page.getByText(manager.property.name, { exact: true }).first()).toBeVisible({ timeout: 45_000 });
+    await expect(visibleText(manager.page, manager.property.name)).toBeVisible({ timeout: 45_000 });
     await manager.page.goto("/portal/applications", { waitUntil: "domcontentloaded" });
     await expect(manager.page.getByText("Group 2/2", { exact: true }).filter({ visible: true })).toHaveCount(2, { timeout: 45_000 });
-    await manager.page.getByText(joiner.applicant.name, { exact: true }).first().click();
-    await expect(manager.page.getByText(groupId, { exact: true })).toBeVisible({ timeout: 20_000 });
-    await expect(manager.page.getByText(organizer.applicant.name, { exact: true }).last()).toBeVisible();
-    await expect(manager.page.getByText(joiner.applicant.name, { exact: true }).last()).toBeVisible();
+    await visibleText(manager.page, joiner.applicant.name).click();
+    await expect(visibleText(manager.page, groupId)).toBeVisible({ timeout: 20_000 });
+    await expect(visibleText(manager.page, organizer.applicant.name)).toBeVisible();
+    await expect(visibleText(manager.page, joiner.applicant.name)).toBeVisible();
 
     const third = await createResidentAccount(browser, { runId, index: 3, propertyId: fixture.propertyId, leaderAppId: organizerAppId, name: "Sam Ortiz", onProvisioned: recordProvisioned });
     fixture.residents.push(third);
@@ -379,17 +383,17 @@ test("group application lifecycle: organizer, re-edit, roommate, account-gated t
     const thirdRow = await readApplication(fixture.propertyId, third.applicant.email);
     expect(thirdRow?.application.groupRole).toBe("joining");
     expect(thirdRow?.application.groupId).toBe(groupId);
-    await expect(third.page.getByText("You joined a group application", { exact: true })).toBeVisible();
+    await expect(visibleText(third.page, "You joined a group application")).toBeVisible();
 
     await manager.page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
-    await expect(manager.page.getByText(manager.property.name, { exact: true }).first()).toBeVisible({ timeout: 45_000 });
+    await expect(visibleText(manager.page, manager.property.name)).toBeVisible({ timeout: 45_000 });
     await manager.page.goto("/portal/applications", { waitUntil: "domcontentloaded" });
     await expect(manager.page.getByText("Group 3 · 2 declared", { exact: true }).filter({ visible: true })).toHaveCount(3);
-    await manager.page.getByText(third.applicant.name, { exact: true }).first().click();
-    await expect(manager.page.getByText(groupId, { exact: true })).toBeVisible({ timeout: 20_000 });
-    await expect(manager.page.getByText(organizer.applicant.name, { exact: true }).last()).toBeVisible();
-    await expect(manager.page.getByText(joiner.applicant.name, { exact: true }).last()).toBeVisible();
-    await expect(manager.page.getByText(third.applicant.name, { exact: true }).last()).toBeVisible();
+    await visibleText(manager.page, third.applicant.name).click();
+    await expect(visibleText(manager.page, groupId)).toBeVisible({ timeout: 20_000 });
+    await expect(visibleText(manager.page, organizer.applicant.name)).toBeVisible();
+    await expect(visibleText(manager.page, joiner.applicant.name)).toBeVisible();
+    await expect(visibleText(manager.page, third.applicant.name)).toBeVisible();
     const finalRows = await db.from("manager_application_records").select("id,resident_email,row_data").eq("property_id", fixture.propertyId);
     if (finalRows.error || finalRows.data?.length !== 3) throw new Error("The exact fixture must contain three persisted group members.");
     manifest.applicants = fixture.residents.map((resident) => ({ email: resident.applicant.email, userId: resident.userId, applicationId: resident.applicationId }));
