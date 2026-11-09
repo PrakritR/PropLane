@@ -299,8 +299,7 @@ test.describe("Manager signup → listing → resident apply", () => {
       Object.assign(manifest, { application: confirmedApplication, state: "application-confirmed" }); saveManifest();
       await shot(guestPage, "07-application-submitted");
 
-      await managerPage.goto("/portal/properties", { waitUntil: "domcontentloaded" });
-      await managerPage.goto("/portal/applications");
+      await managerPage.goto("/portal/applications/pending", { waitUntil: "domcontentloaded", timeout: 45_000 });
       await expect(managerPage.getByRole("heading").first()).toBeVisible({ timeout: 30_000 });
       await expect(managerPage.getByText(guest.name).first()).toBeVisible({ timeout: 60_000 });
       await shot(managerPage, "08-manager-sees-application");
