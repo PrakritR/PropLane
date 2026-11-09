@@ -40,14 +40,14 @@ vi.mock("@/lib/supabase/service", () => ({
         eq: (column: string) => {
           if (table === "household_charge_refund_attempts" && column !== "operation_key") throw new Error("Unexpected attempt lookup key");
           return {
-          eq: () => ({ maybeSingle: async () => ({ data: rows.payment }), limit: async () => ({ data: [], error: null }) }),
-          // `platform_payment_holds` decides the refund rail: empty means a legacy
-          // destination charge, one row means a central platform capture.
-          limit: async () => ({ data: rows.holds, error: null }),
-          maybeSingle: async () => ({
-            data: table === "household_charge_refund_attempts" ? rows.attempt : table === "ledger_entries" ? rows.payment : rows.charge,
-            error: table === "household_charge_refund_attempts" && rows.attemptError ? { message: "lookup failed" } : null,
-          }),
+            eq: () => ({ maybeSingle: async () => ({ data: rows.payment }), limit: async () => ({ data: [], error: null }) }),
+            // `platform_payment_holds` decides the refund rail: empty means a legacy
+            // destination charge, one row means a central platform capture.
+            limit: async () => ({ data: rows.holds, error: null }),
+            maybeSingle: async () => ({
+              data: table === "household_charge_refund_attempts" ? rows.attempt : table === "ledger_entries" ? rows.payment : rows.charge,
+              error: table === "household_charge_refund_attempts" && rows.attemptError ? { message: "lookup failed" } : null,
+            }),
           };
         },
       }),
@@ -202,6 +202,7 @@ describe("how the money moves", () => {
     expect(res.status).toBe(409);
     expect(reserve).not.toHaveBeenCalled();
     expect(refundsCreate).not.toHaveBeenCalled();
+    expect(runReservedRefund).not.toHaveBeenCalled();
     expect(upserted).toEqual([]);
     expect(attemptUpdates).toEqual([]);
   });
