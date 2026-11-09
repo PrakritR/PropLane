@@ -32,10 +32,15 @@ vi.mock("@/lib/manager-applications-storage", async (importOriginal) => ({
 }));
 vi.mock("@/lib/household-charges", () => ({
   recordApprovedApplicationCharges,
+  mirrorHouseholdChargesToServerAwait: async () => true,
+  readChargesForManager: () => [],
   recordSubmittedApplicationFeeCharge,
   removeAllApplicationCharges,
   removeApprovedApplicationCharges,
 }));
+vi.mock("@/lib/demo-property-pipeline", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/demo-property-pipeline")>()), syncPropertyPipelineFromServer: async () => true }));
+vi.mock("@/lib/rental-application/data", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/rental-application/data")>()), getPropertyById: () => ({ listingSubmission: {} }) }));
+vi.mock("@/lib/application-approval-placement", () => ({ approvalPlacementBlocker: () => null }));
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   // Spread the real module: this file only needs to override demo mode,
   // and a hand-listed mock silently breaks every time the module gains an

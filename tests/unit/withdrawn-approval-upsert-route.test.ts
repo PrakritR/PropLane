@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
 /**
  * Server-owned withdrawal stamp on POST /api/manager-applications.
@@ -72,7 +73,7 @@ function makeDb() {
           return Promise.resolve({ error: null });
         },
         upsert(values: { id: string; row_data: DemoApplicantRow }) {
-          UPSERTS.push(values);
+          if (table === "manager_application_records") UPSERTS.push(values);
           return Promise.resolve({ error: null });
         },
         delete() {
@@ -82,6 +83,8 @@ function makeDb() {
         ilike() {
           return builder;
         },
+        or() { return builder; },
+        neq() { return builder; },
         in(column: string, values: string[]) {
           if (column === "id") {
             state.ids = values;
@@ -96,6 +99,7 @@ function makeDb() {
           return builder;
         },
         maybeSingle() {
+          if (table === "manager_property_records") return Promise.resolve({ data: filters.id === "mgr-demo-pioneer" && filters.manager_user_id === "mgr-1" ? { property_data: { listingSubmission: createDefaultListingSubmission() } } : null, error: null });
           if (table === "profiles") return Promise.resolve({ data: PROFILE, error: null });
           return Promise.resolve({ data: null, error: null });
         },
@@ -129,6 +133,7 @@ function appRow(over: Partial<DemoApplicantRow>): DemoApplicantRow {
     name: "Withdrawn Applicant",
     property: "The Pioneer",
     propertyId: "mgr-demo-pioneer",
+    managerUserId: "mgr-1",
     stage: "Submitted",
     bucket: "pending",
     detail: "",
@@ -199,7 +204,7 @@ describe("POST /api/manager-applications — withdrawnAt is server-owned on a ma
     STORED_ROWS = [{ id: "AXIS-9001", row_data: appRow({}) }];
     const { POST } = await import("@/app/api/manager-applications/route");
     const res = await POST(post({ row: appRow({ bucket: "approved", stage: "Approved" }) }));
-    expect(res.status).toBe(200);
+    expect(res.status, await res.text()).toBe(200);
     expect(UPSERTS).toHaveLength(1);
     expect(provisionApprovedResidentAccount).toHaveBeenCalledTimes(1);
   });
@@ -297,7 +302,7 @@ describe("POST /api/manager-applications action:\"replace\" — the path the man
     const res = await POST(
       post({ action: "replace", rows: [appRow({ bucket: "approved", stage: "Approved" })] }),
     );
-    expect(res.status).toBe(200);
+    expect(res.status, await res.text()).toBe(200);
     expect(UPSERTS).toHaveLength(1);
     expect(provisionApprovedResidentAccount).toHaveBeenCalledTimes(1);
   });
