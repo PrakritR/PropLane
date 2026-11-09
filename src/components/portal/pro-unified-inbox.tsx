@@ -399,6 +399,7 @@ export function ManagerUnifiedInbox({
   const [initialListState, setInitialListState] = useState<"loading" | "ready" | "error">("loading");
   const [initialListViewerId, setInitialListViewerId] = useState<string | null>(null);
   const initialLoadGeneration = useRef(0);
+  const emailChangeRevision = useRef(0);
   const initialListReady = isClient && initialListState === "ready" && initialListViewerId === viewerId;
   const selectionContext = JSON.stringify({
     viewerId,
@@ -438,7 +439,10 @@ export function ManagerUnifiedInbox({
   }, [adapter, isClient]);
 
   useEffect(() => {
-    const sync = () => setEmailThreads(adapter.loadCachedThreads());
+    const sync = () => {
+      emailChangeRevision.current += 1;
+      setEmailThreads(adapter.loadCachedThreads());
+    };
     window.addEventListener(adapter.threadsChangedEvent, sync as EventListener);
     return () => window.removeEventListener(adapter.threadsChangedEvent, sync as EventListener);
   }, [adapter]);
@@ -589,6 +593,9 @@ export function ManagerUnifiedInbox({
       managerInboxSnapshotKey(viewerId, workspaceIdentity.id, adapter.kind),
     );
     if (!hadCachedSnapshot) setInitialListState("loading");
+    const requestViewerEpoch = viewerEpochRef.current;
+    const requestWorkspace = workspaceIdentity.id;
+    const readRevision = emailChangeRevision.current;
     const [inbox, applications, smsOk] = await Promise.all([
       retryWhileStale(() => adapter.syncThreads()),
       // A surface with no contact directory (admin) is ready without one.
@@ -605,14 +612,19 @@ export function ManagerUnifiedInbox({
       // refetching the whole list every time.
       loadSms({ force: !hadCachedSnapshot, initialGeneration: requestGeneration }),
     ]);
-    if (requestGeneration !== initialLoadGeneration.current) return;
+    if (requestGeneration !== initialLoadGeneration.current || viewerEpochRef.current !== requestViewerEpoch ||
+        currentViewerIdRef.current !== viewerId || currentSmsWorkspaceIdRef.current !== requestWorkspace) return;
     if (inbox.stale || applications.stale) {
       // Still stale after the retries: show the error/Retry state, never a skeleton that cannot resolve.
       if (!hadCachedSnapshot) setInitialListState("error");
       return;
     }
     if (applications.ok) onApplicationsLoaded?.();
-    if (inbox.ok) setEmailThreads(inbox.rows);
+    if (inbox.ok) {
+      // A store event after this read may represent a confirmed send or archive
+      // while SMS was still loading. Keep that newer same-viewer state.
+      setEmailThreads((current) => emailChangeRevision.current === readRevision ? inbox.rows : current);
+    }
     const ready = inbox.ok && applications.ok && smsOk;
     // A background revalidation failure after a cache hit keeps the last
     // known-good snapshot on screen (silent) instead of surfacing an error —

@@ -8,7 +8,7 @@
  * buttons, a flat table, a separate "Text messages" card.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { InboxMessage } from "@/lib/demo-admin-partner-inbox";
 
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
@@ -39,7 +39,7 @@ vi.mock("@/components/portal/pro-sms-panel", () => ({
 
 import { AdminCommunication } from "@/components/portal/admin-communication";
 import { resetAdminScheduledForTests } from "@/lib/admin-inbox-source";
-import { seedDemoAdminInbox } from "@/lib/demo-admin-partner-inbox";
+import { appendInboxMessage, seedDemoAdminInbox } from "@/lib/demo-admin-partner-inbox";
 import { resetManagerInboxSnapshotCacheForTests } from "@/components/portal/pro-unified-inbox";
 import { publishAdminWorkNumber } from "@/components/portal/admin-work-identity-card";
 
@@ -142,6 +142,29 @@ describe("admin Communication draws the manager page", () => {
     expect(container.querySelector("table")).toBeNull();
     expect(container.querySelector('[data-attr="admin-inbox-scheduled-toggle"]')).toBeNull();
     expect(container.querySelector('[data-attr="admin-inbox-archived-toggle"]')).toBeNull();
+  });
+
+  it("keeps a confirmed send made while the initial SMS read is pending, then archives it", async () => {
+    seedDemoAdminInbox([]);
+    let resolveSms!: (response: Response) => void;
+    const sms = new Promise<Response>((resolve) => { resolveSms = resolve; });
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).includes("/api/admin/sms-conversations")) return sms;
+      if (String(url).includes("scheduled-inbox-messages")) return Response.json({ messages: [] });
+      return Response.json({ ok: true, rows: [] });
+    });
+    const { container } = render(<AdminCommunication smsUiEnabled />);
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes("assistant-thread"))).toBe(true));
+    await act(async () => {
+      appendInboxMessage({ name: "Broadcast", email: "all-managers@axis.local", topic: "Test", body: "Hello", folder: "sent", senderRole: "admin", composeAudience: "all_managers", composeRecipientLabel: "All managers" });
+      await Promise.resolve();
+    });
+    await act(async () => resolveSms(Response.json({ residents: [] })));
+    await waitFor(() => expect(screen.getByText("All managers")).toBeTruthy());
+    fireEvent.click(screen.getByText("All managers"));
+    await waitFor(() => expect(container.querySelector('[data-attr="admin-communication-move-to-trash"]')).toBeTruthy());
+    fireEvent.click(container.querySelector('[data-attr="admin-communication-move-to-trash"]')!);
+    await waitFor(() => expect(screen.queryByText("All managers")).toBeNull());
   });
 
   it("reads the admin text endpoint once and never the manager's", async () => {
