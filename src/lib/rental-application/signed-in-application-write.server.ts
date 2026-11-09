@@ -1,3 +1,4 @@
+import { managerApplicationDatabaseWriteMessage } from "./application-write-error";
 import { standardizeApplicantStayTimes } from "@/lib/rental-application/standard-stay-times.server";
 /**
  * The signed-in applicant's write of `manager_application_records`, shared by
@@ -203,7 +204,10 @@ export async function persistNormalizedRow(
         if (isDraftApplicationRow(incomingDraft)) query = query.eq("row_data->>bucket", "pending").is("row_data->>withdrawnAt", null);
         query = existing.updated_at == null ? query.is("updated_at", null) : query.eq("updated_at", existing.updated_at);
         const { data, error } = await query.select("id");
-        if (error) throw Object.assign(new Error("Could not save application."), { code: error.code, cause: error });
+        if (error) {
+          const message = managerApplicationDatabaseWriteMessage(error);
+          throw Object.assign(new Error(message), { code: error.code, cause: error });
+        }
         if (!data?.length) throw Object.assign(new Error("Application changed. Refresh and retry."), { code: "40001" });
       }
     } else if (isDraftApplicationRow(incomingDraft)) {

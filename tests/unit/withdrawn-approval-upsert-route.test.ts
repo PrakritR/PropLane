@@ -17,6 +17,7 @@ import { createDefaultListingSubmission } from "@/lib/manager-listing-submission
 const getUser = vi.fn();
 let PROFILE: { role: string; email: string } | null;
 let WITHDRAW_BEFORE_UPDATE = false;
+let UPDATE_ERROR: { code: string; message: string } | null = null;
 let STORED_ROWS: { id: string; row_data: DemoApplicantRow }[];
 let STORED_ERROR: { message: string } | null;
 let UPSERTS: { id: string; row_data: DemoApplicantRow }[];
@@ -105,6 +106,7 @@ function makeDb() {
         },
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
           if (table === "manager_application_records" && pending) {
+            if (UPDATE_ERROR) return Promise.resolve({ data: null, error: UPDATE_ERROR }).then(resolve);
             const match = STORED_ROWS.find((row) => Object.entries(filters).every(([column, expected]) => {
               const value = column.startsWith("row_data->>")
                 ? (row.row_data as unknown as Record<string, unknown>)[column.slice("row_data->>".length)]
@@ -153,6 +155,7 @@ function post(body: unknown) {
 describe("POST /api/manager-applications — withdrawnAt is server-owned on a manager write", () => {
   beforeEach(() => {
     WITHDRAW_BEFORE_UPDATE = false;
+    UPDATE_ERROR = null;
     getUser.mockReset();
     getUser.mockResolvedValue({ data: { user: { id: "mgr-1", email: "mgr@example.com", user_metadata: {} } } });
     PROFILE = { role: "manager", email: "mgr@example.com" };
@@ -189,6 +192,21 @@ describe("POST /api/manager-applications — withdrawnAt is server-owned on a ma
     await expect(persistNormalizedRow(makeDb() as never, draft.id, draft, { id: draft.id, row_data: draft }, null, null, true)).rejects.toMatchObject({ code: "40001" });
     expect(UPSERTS).toHaveLength(0);
     expect(STORED_ROWS[0]?.row_data.withdrawnAt).toBe("2026-07-22T00:00:00.000Z");
+  });
+
+  it.each([
+    [{ code: "P4001", message: "This room is blocked for the requested dates." }, 409, "This room is blocked for the requested dates.", "capacity"],
+    [{ code: "P4001", message: "private database detail" }, 409, "The selected room is unavailable for these dates.", "capacity"],
+    [{ code: "23514", message: "private database detail" }, 422, "Could not save application.", undefined],
+  ] as const)("returns safe manager update refusals", async (error, status, message, blocked) => {
+    const approved = appRow({ bucket: "approved", stage: "Approved" });
+    STORED_ROWS = [{ id: approved.id, row_data: approved }];
+    UPDATE_ERROR = error;
+    const { POST } = await import("@/app/api/manager-applications/route");
+    const res = await POST(post({ row: approved }));
+    expect(res.status).toBe(status);
+    expect(await res.json()).toEqual({ error: message, ...(blocked ? { blocked } : {}) });
+    expect(UPSERTS).toHaveLength(0);
   });
 
   it("fails CLOSED when the stored row cannot be read", async () => {
@@ -228,6 +246,7 @@ describe("POST /api/manager-applications — withdrawnAt is server-owned on a ma
 describe("POST /api/manager-applications action:\"replace\" — the path the manager Approve actually takes", () => {
   beforeEach(() => {
     WITHDRAW_BEFORE_UPDATE = false;
+    UPDATE_ERROR = null;
     getUser.mockReset();
     getUser.mockResolvedValue({ data: { user: { id: "mgr-1", email: "mgr@example.com", user_metadata: {} } } });
     PROFILE = { role: "manager", email: "mgr@example.com" };

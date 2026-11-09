@@ -1,5 +1,7 @@
 "use client";
 
+import { preserveUnchangedResidentPlacement } from "@/lib/resident-edit-placement";
+
 import { managerApplicationsReadSucceeded } from "@/lib/manager-applications-storage";
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { filterPropertyOptionsForActiveWorkspace, isActiveWorkspaceId, workspaceContainsProperty } from "@/lib/workspaces/selection";
@@ -2575,6 +2577,9 @@ export function ManagerResidents({
       nextRow = mergeApplicationLeaseDatesIntoResidentRow(nextRow, nextRow.application);
     }
 
+    nextRow = preserveUnchangedResidentPlacement(existing, nextRow, editResidentForm, {
+      propertyId, roomId, bundleId, moveInDate, moveOutDate,
+    });
     const next = [...rows];
     next[idx] = nextRow;
     setErSaving(true);
