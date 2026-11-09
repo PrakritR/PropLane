@@ -2,13 +2,28 @@ import { mkdtempSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { assertCatalog, assertPrivateDirectory, parseOptions, transaction, safeErrorMessage, verifyCommittedPostflight, refreshAfterBackup, COMMITTED_UNVERIFIED } from "../../scripts/identity-deposit-release-migrations.mjs";
+import { assertCatalog, assertPrivateDirectory, parseOptions, transaction, safeErrorMessage, verifyCommittedPostflight, refreshAfterBackup, readLedgerStateReadOnly, COMMITTED_UNVERIFIED } from "../../scripts/identity-deposit-release-migrations.mjs";
 import { IDENTITY_DEPOSIT_ENTRIES, IDENTITY_DEPOSIT_COMMITTED_PREFIX, identityDepositLedgerState, reviewedIdentityDepositMigrations } from "../../scripts/identity-deposit-release-manifest.mjs";
 import { sha256 } from "../../scripts/sms-durability-release-manifest.mjs";
 
 const ref = "xwszcafaontidfgznlxd";
 const base = ["--target", "staging", "--confirm-ref", ref];
 describe("release transport refusal", () => {
+  it("reads the initial ledger under a read-only local postgres role and rolls back", async () => {
+    const calls: string[] = [];
+    const client = { query: async (sql: string) => { calls.push(sql); return { rows: [] }; } };
+    await readLedgerStateReadOnly(client, []);
+    expect(calls[0]).toBe("begin read only");
+    expect(calls[1]).toBe("set local role postgres");
+    expect(calls[2]).toContain("supabase_migrations.schema_migrations");
+    expect(calls[3]).toBe("rollback");
+  });
+  it("rolls back the role transaction when ledger access fails", async () => {
+    const calls: string[] = [];
+    const client = { query: async (sql: string) => { calls.push(sql); if (sql.includes("schema_migrations")) throw new Error("denied"); return { rows: [] }; } };
+    await expect(readLedgerStateReadOnly(client, [])).rejects.toThrow("denied");
+    expect(calls.at(-1)).toBe("rollback");
+  });
   it("requires exact target, private artifact, and explicit authorization", () => {
     expect(() => parseOptions([...base, "--catalog-file", "/tmp/catalog"])).not.toThrow();
     expect(() => parseOptions(["--target", "staging", "--confirm-ref", "wrong", "--catalog-file", "/tmp/c"])).toThrow();

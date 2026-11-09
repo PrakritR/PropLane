@@ -226,6 +226,17 @@ export async function readLedgerState(client, migrations) {
   return identityDepositLedgerState(rows, migrations);
 }
 
+/** The CLI login needs the explicit local postgres role to read the migration ledger. */
+export async function readLedgerStateReadOnly(client, migrations) {
+  await client.query("begin read only");
+  try {
+    await client.query("set local role postgres");
+    return await readLedgerState(client, migrations);
+  } finally {
+    await client.query("rollback").catch(() => undefined);
+  }
+}
+
 export function assertPrivateDirectory(path) {
   const dir = lstatSync(dirname(resolve(path)));
   if (!dir.isDirectory() || dir.isSymbolicLink() || (dir.mode & 0o777) !== 0o700) throw new Error("Artifact directory must be private");
@@ -237,7 +248,7 @@ async function main() {
   try {
     // The target's own ledger decides which reviewed state it is in, and therefore which
     // migrations may run at all. Nothing is inferred from the presence of a table.
-    const ledger = await readLedgerState(client, migrations);
+    const ledger = await readLedgerStateReadOnly(client, migrations);
     if (options.phase === "preflight" || options.phase === "postflight") {
       const expected = options.phase === "postflight" ? "complete" : ledger.kind;
       const result = await readOnly(client, migrations, expected);
