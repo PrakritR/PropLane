@@ -1,5 +1,7 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import path from "node:path";
+import { lstatSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { mockStripeAllRoutes } from "../helpers/auth";
 import { createWritableSyntheticManager, cleanupWritableSyntheticManager } from "../helpers/writable-synthetic-manager";
 import { fieldSelectTrigger, pickFieldSelect } from "../helpers/field-select";
@@ -125,12 +127,29 @@ test.describe("Promotion UX", () => {
       });
 
       test("creates a post or blurb through the promotion wizard", async ({ browser }) => {
+        test.setTimeout(180_000);
+        const fixtureDir = process.env.E2E_PRIVATE_FIXTURE_DIR;
+        if (!fixtureDir || !path.isAbsolute(fixtureDir)) throw new Error("Private fixture directory required.");
+        const dir = lstatSync(fixtureDir);
+        const followed = statSync(fixtureDir);
+        if (!dir.isDirectory() || dir.isSymbolicLink() || realpathSync(fixtureDir) !== fixtureDir || dir.uid !== process.getuid?.() || (dir.mode & 0o777) !== 0o700 || dir.ino !== followed.ino || dir.dev !== followed.dev) throw new Error("Private fixture directory is invalid.");
         const manager = await createWritableSyntheticManager(browser, { tier: "pro" });
         const page = manager.page;
         await mockStripeAllRoutes(page);
         let beforeIds = new Set<string>();
         let savedId = "";
+        let generationStarted = false;
+        let generationSettled = false;
+        let generationStatus = 0;
+        let upsertSettled = false;
+        let upsertStarted = false;
+        let observedId = "";
+        let generationTask: Promise<import("@playwright/test").Response> | null = null;
+        let upsertTask: Promise<import("@playwright/test").Response> | null = null;
+        const manifestPath = path.join(fixtureDir, `promotion-${randomUUID()}.json`);
+        const retainManifest = (state: string) => writeFileSync(manifestPath, JSON.stringify({ state, propertyId: manager.property.id, propertyName: manager.property.name, actorId: manager.actorId, savedId, observedId }), { mode: 0o600 });
         try {
+        retainManifest("created");
         await page.goto("/portal/promotion", { waitUntil: "domcontentloaded" });
         const fixture = manager.property;
         const frame = await openPromotionSection(page);
@@ -149,10 +168,39 @@ test.describe("Promotion UX", () => {
         await expect(propertyTrigger).toContainText(fixture.name);
         await dialog.getByRole("button", { name: "Next: Content" }).click();
         await dialog.getByRole("button", { name: "Next: Preview" }).click();
+        const isGeneration = (request: import("@playwright/test").Request) => {
+          if (request.method() !== "POST" || new URL(request.url()).pathname !== "/api/portal/promotion-text-generate") return false;
+          try { return request.postDataJSON()?.propertyId === fixture.id; } catch { return false; }
+        };
+        const isUpsert = (request: import("@playwright/test").Request) => {
+          if (request.method() !== "POST" || new URL(request.url()).pathname !== "/api/portal-promotions") return false;
+          try { const body = request.postDataJSON(); return body?.action === "upsert" && body.row?.propertyId === fixture.id && body.row?.managerUserId === actor; } catch { return false; }
+        };
+        page.on("request", (request) => { if (isGeneration(request)) generationStarted = true; if (isUpsert(request)) upsertStarted = true; });
+        const generation = page.waitForResponse((response) => isGeneration(response.request()), { timeout: 75_000 }).then(async (response) => {
+          generationSettled = true;
+          generationStatus = response.status();
+          await response.body();
+          return response;
+        });
+        generationTask = generation;
+        const upsert = page.waitForResponse((response) => isUpsert(response.request()), { timeout: 100_000 }).then(async (response) => {
+          observedId = String(response.request().postDataJSON()?.row?.id ?? "");
+          const body = await response.json() as { ok?: boolean };
+          upsertSettled = true;
+          if (response.status() !== 200 || body.ok !== true || !observedId) throw new Error(`Promotion upsert was not confirmed (HTTP ${response.status()}).`);
+          return response;
+        });
+        upsertTask = upsert;
+        void generation.catch(() => undefined);
+        void upsert.catch(() => undefined);
         await dialog.locator('[data-attr="promotion-text-generate-submit"]').click();
+        const generationResponse = await generation;
+        if (generationResponse.status() === 403) throw new Error("Promotion generation refused access to the fixture property (HTTP 403).");
+        await upsert;
 
         const preview = page.getByRole("dialog");
-        await expect(preview.getByRole("heading", { name: /^View · / })).toBeVisible();
+        await expect(preview.getByRole("heading", { name: /^View · / })).toBeVisible({ timeout: 30_000 });
         await expect(preview.getByRole("button", { name: "Copy text", exact: true })).toBeVisible();
         await preview.getByRole("button", { name: "Close", exact: true }).click();
         await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -163,6 +211,7 @@ test.describe("Promotion UX", () => {
           }
           return matches.length;
         }, { timeout: 15_000 }).toBe(1);
+        expect(savedId).toBe(observedId);
         await expect(list.getByRole("button", { name: new RegExp(fixture.name) })).toBeVisible();
         await page.reload({ waitUntil: "domcontentloaded" });
         await expect.poll(async () => (await promotionRows(page)).filter((row) => row.id === savedId && row.propertyId === fixture.id && row.managerUserId === actor).length).toBe(1);
@@ -172,6 +221,17 @@ test.describe("Promotion UX", () => {
         });
         } finally {
           const cleanupErrors: unknown[] = [];
+          if (generationStarted && !generationSettled && generationTask) await generationTask.catch(() => undefined);
+          if (upsertStarted && !upsertSettled && upsertTask) await upsertTask.catch(() => undefined);
+          // Closing the owned page prevents any further UI-triggered writes. A request
+          // whose outcome is unknown keeps its exact fixture for a reviewed cleanup.
+          await page.close();
+          const uncertain = (generationStarted && !generationSettled) || (upsertStarted && !upsertSettled) || (generationSettled && generationStatus !== 403 && !upsertSettled);
+          if (uncertain) {
+            retainManifest("retained-uncertain-write");
+            try { await manager.phoneFixture?.restore(); } finally { await manager.context.close(); }
+            throw new Error(`Promotion fixture retained for review: ${manifestPath}`);
+          }
           try {
             const newRows = (await promotionRows(page)).filter((row) => !beforeIds.has(row.id) && row.propertyId === manager.property.id && row.managerUserId === manager.actorId);
             if (savedId && (newRows.length !== 1 || newRows[0]?.id !== savedId)) throw new Error("Promotion cleanup marker did not resolve to the exact created record.");
@@ -188,6 +248,7 @@ test.describe("Promotion UX", () => {
           } catch (error) {
             cleanupErrors.push(error);
           }
+          if (cleanupErrors.length === 0) retainManifest("cleaned");
           if (cleanupErrors.length === 1) throw cleanupErrors[0];
           if (cleanupErrors.length > 1) throw new AggregateError(cleanupErrors, "Promotion fixture cleanup failed.");
         }
