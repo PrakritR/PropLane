@@ -44,11 +44,13 @@ export function ResidentApplicationStatusScreen({
   residentEmail,
   residentUserId,
   basePath,
+  detailHref,
 }: {
   row: DemoApplicantRow;
   residentEmail: string;
   residentUserId: string | null;
   basePath: string;
+  detailHref?: string;
 }) {
   const { residentAxisId, profileManagerId, axisResolved } = useResidentPortalAxisContext();
   const contacts = useResidentManagerContacts();
@@ -115,6 +117,7 @@ export function ResidentApplicationStatusScreen({
     <>
       <ResidentLifecycleStatusPanel
         input={view.input}
+        detailHref={detailHref}
         summary={[
           { label: "Home", value: view.home },
           { label: "Move-in", value: view.moveIn },

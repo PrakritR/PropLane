@@ -1406,6 +1406,7 @@ export function ResidentApplicationsPanel({
               residentEmail={residentEmail}
               residentUserId={sessionUserId ?? null}
               basePath={basePath}
+              detailHref={residentApplicationDetailHref(basePath, soleApplication.bucket as ResidentApplicationBucketId, soleApplication.id)}
             />
           </div>
           {withdrawModal}
