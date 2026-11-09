@@ -9,8 +9,8 @@ afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
 
 it("confirms only mutable application and matching recurring rows, and refuses incomplete acknowledgments", async () => {
   const { seedDemoHouseholdCharges, mirrorApplicationHouseholdChargesAwait } = await import("@/lib/household-charges");
-  const base = { residentEmail: "r@example.invalid", residentName: "R", residentUserId: null, propertyId: "p", propertyLabel: "P", managerUserId: "actor", status: "pending", createdAt: "2026-01-01", kind: "rent", title: "Rent", amountLabel: "$1", balanceLabel: "$1", blocksLeaseUntilPaid: false } as HouseholdCharge;
-  const profile = { id: "profile", residentEmail: base.residentEmail, residentName: "R", residentUserId: null, propertyId: "p", propertyLabel: "P", roomLabel: "R", managerUserId: "actor", monthlyRent: 1 } as RecurringRentProfile;
+  const base = { residentEmail: "r@example.invalid", residentName: "R", residentUserId: null, propertyId: "p", propertyLabel: "P", managerUserId: "owner", status: "pending", createdAt: "2026-01-01", kind: "rent", title: "Rent", amountLabel: "$1", balanceLabel: "$1", blocksLeaseUntilPaid: false } as HouseholdCharge;
+  const profile = { id: "profile", residentEmail: base.residentEmail, residentName: "R", residentUserId: null, propertyId: "p", propertyLabel: "P", roomLabel: "R", managerUserId: "owner", monthlyRent: 1 } as RecurringRentProfile;
   seedDemoHouseholdCharges([
     { ...base, id: "app-charge", applicationId: "app", kind: "security_deposit" },
     { ...base, id: "recurring", recurringRentProfileId: "profile", rentMonth: "2026-01" },
@@ -38,6 +38,6 @@ it("does not send a request for an empty target", async () => {
   const { seedDemoHouseholdCharges, mirrorApplicationHouseholdChargesAwait } = await import("@/lib/household-charges");
   seedDemoHouseholdCharges([], []);
   const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
-  expect(await mirrorApplicationHouseholdChargesAwait({ id: "empty", email: "r@example.invalid", propertyId: "p" } as DemoApplicantRow)).toBe(true);
+  expect(await mirrorApplicationHouseholdChargesAwait({ id: "empty", email: "r@example.invalid", propertyId: "p", managerUserId: "owner" } as DemoApplicantRow)).toBe(true);
   expect(fetchMock).not.toHaveBeenCalled();
 });

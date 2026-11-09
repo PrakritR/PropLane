@@ -22,9 +22,10 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
-  mirrorHouseholdChargesToServerAwait,
+  mirrorApplicationHouseholdChargesAwait,
+  recordApprovedApplicationChargesScoped,
+  readAuthoritativeBillingSnapshot,
   readChargesForManager,
-  recordApprovedApplicationCharges,
 } from "@/lib/household-charges";
 import {
   LEASE_PIPELINE_EVENT,
@@ -40,23 +41,23 @@ export type ExecutedLeaseChargesResult =
 
 /** The application rows a fully signed lease bills: its own, plus every member of a joint lease. */
 export function applicationsBilledByLease(lease: LeasePipelineRow, apps: readonly DemoApplicantRow[]): DemoApplicantRow[] {
-  const found = new Map<string, DemoApplicantRow>();
-  const add = (row: DemoApplicantRow | undefined) => {
-    if (row && !found.has(row.id)) found.set(row.id, row);
+  const owner = lease.managerUserId?.trim();
+  const property = lease.propertyId?.trim();
+  if (!owner || !property) return [];
+  const eligible = apps.filter((app) => app.managerUserId?.trim() === owner && (app.assignedPropertyId?.trim() || app.propertyId?.trim() || app.application?.propertyId?.trim()) === property);
+  const find = (id: string | null | undefined, email: string | null | undefined) => {
+    const key = id?.trim().toUpperCase();
+    const normalizedEmail = email?.trim().toLowerCase();
+    const matches = key ? eligible.filter((app) => app.id.trim().toUpperCase() === key) : normalizedEmail ? eligible.filter((app) => app.email?.trim().toLowerCase() === normalizedEmail) : [];
+    return matches.length === 1 ? matches[0] : undefined;
   };
-  const byAxis = (id?: string | null) => {
-    const key = id ? normalizeApplicationAxisId(id) : "";
-    return key ? apps.find((a) => normalizeApplicationAxisId(a.id) === key) : undefined;
-  };
-  const byEmail = (email?: string | null) => {
-    const key = email?.trim().toLowerCase();
-    return key ? apps.find((a) => a.email?.trim().toLowerCase() === key) : undefined;
-  };
-  if (lease.leaseKind === "joint_bundle" && lease.jointLeaseMembers?.length) {
-    for (const member of lease.jointLeaseMembers) add(byAxis(member.applicationId) ?? byEmail(member.residentEmail));
+  if (lease.leaseKind === "joint_bundle") {
+    if (!lease.jointLeaseMembers?.length) return [];
+    const members = lease.jointLeaseMembers.map((member) => member.applicationId?.trim() ? find(member.applicationId, member.residentEmail) : undefined);
+    return members.every((member): member is DemoApplicantRow => Boolean(member)) ? [...new Map(members.map((member) => [member.id, member])).values()] : [];
   }
-  if (found.size === 0) add(byAxis(lease.axisId) ?? byEmail(lease.residentEmail));
-  return [...found.values()];
+  const app = find(lease.axisId, lease.residentEmail);
+  return app ? [app] : [];
 }
 
 /**
@@ -106,13 +107,13 @@ export async function createAtSigningChargesForSentLease(
 
   let changed = false;
   for (const app of apps) {
-    if (recordApprovedApplicationCharges(app, managerUserId, false, { leaseExecuted: false, atSigningOnly: true })) {
-      changed = true;
-    }
-  }
-  if (changed && !isDemoModeActive()) {
-    // Write through before returning so the resident's lease page already shows the payment.
-    await mirrorHouseholdChargesToServerAwait().catch(() => false);
+    const snapshot = await readAuthoritativeBillingSnapshot().catch(() => null);
+    if (!snapshot) return { ok: false, reason: "Lease sent, but charges could not be read. Review and retry." };
+    const generated = recordApprovedApplicationChargesScoped(app, undefined, false, { leaseExecuted: false, atSigningOnly: true }, snapshot);
+    if (!generated.ok || !generated.stage) return { ok: false, reason: "Lease sent, but charges could not be prepared. Review and retry." };
+    changed ||= generated.changed;
+    if (!isDemoModeActive() && !(await mirrorApplicationHouseholdChargesAwait(app, undefined, generated.stage).catch(() => false))) return { ok: false, reason: "Lease sent, but charges could not be confirmed. Review and retry." };
+    if (!generated.stage.commit()) return { ok: false, reason: "Lease sent, but charges changed. Review and retry." };
   }
   return { ok: true, created: changed, applications: apps.length };
 }
@@ -125,6 +126,7 @@ export async function createAtSigningChargesForSentLease(
 export async function createChargesForExecutedLease(
   lease: LeasePipelineRow,
   managerUserId: string | null,
+  options?: { recurringProfileOnly?: boolean },
 ): Promise<ExecutedLeaseChargesResult> {
   if (lease.status !== "Fully Signed") return { ok: false, reason: "The lease is not fully signed yet." };
   if (lease.pendingRenewal) return { ok: false, reason: "A renewal applies its own terms." };
@@ -136,12 +138,19 @@ export async function createChargesForExecutedLease(
     // Signature freezes the money terms before the first bill is posted, so the listing's
     // price from here on is someone else's business.
     const frozen = freezeSignedLeaseTerms(app, { managerUserId, lease });
-    if (frozen.changed) persistFrozenSignedLeaseTerms([frozen.row]);
-    if (recordApprovedApplicationCharges(frozen.row, managerUserId, false, { leaseExecuted: true })) changed = true;
-  }
-  if (changed && !isDemoModeActive()) {
-    // Write through before returning so the resident's Payments is already right when this resolves.
-    await mirrorHouseholdChargesToServerAwait().catch(() => false);
+    let confirmed = frozen.row;
+    if (frozen.changed) {
+      const result = await persistFrozenSignedLeaseTerms([frozen.row], lease.id);
+      if (!result.ok) return { ok: false, reason: "Lease signed, but its payment terms could not be saved. Review and retry." };
+      confirmed = result.rows[0]!;
+    }
+    const snapshot = await readAuthoritativeBillingSnapshot().catch(() => null);
+    if (!snapshot) return { ok: false, reason: "Lease signed, but charges could not be read. Review and retry." };
+    const generated = recordApprovedApplicationChargesScoped(confirmed, app, false, { leaseExecuted: true, ...(options?.recurringProfileOnly ? { recurringProfileOnly: true } : {}) }, snapshot);
+    if (!generated.ok || !generated.stage) return { ok: false, reason: "Lease signed, but charges could not be prepared. Review and retry." };
+    changed ||= generated.changed;
+    if (!isDemoModeActive() && !(await mirrorApplicationHouseholdChargesAwait(confirmed, app, generated.stage).catch(() => false))) return { ok: false, reason: "Lease signed, but charges could not be confirmed. Review and retry." };
+    if (!generated.stage.commit()) return { ok: false, reason: "Lease signed, but charges changed. Review and retry." };
   }
   return { ok: true, created: changed, applications: apps.length };
 }
@@ -149,9 +158,6 @@ export async function createChargesForExecutedLease(
 /** Leases signed this long ago are still looked at; older ones belong to the Payments reconciler. */
 const WATCH_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const handled = new Set<string>();
-/** A pass can find the listing catalog not hydrated yet; a lease gets a few tries, not a loop. */
-const attempts = new Map<string, number>();
-const MAX_ATTEMPTS = 4;
 
 /**
  * For a manager session that did not itself take the last signature (the resident signed last,
@@ -174,13 +180,9 @@ export function watchExecutedLeaseCharges(managerUserId: string | null): () => v
           const sentKey = `sent:${lease.id}`;
           if (!handled.has(sentKey)) {
             const sentApps = applicationsBilledByLease(lease, readManagerApplicationRows());
-            if (sentApps.length > 0 && sentApps.every((app) => applicationHasAtSigningCharges(app.id, managerUserId))) {
-              handled.add(sentKey);
-            } else if (sentApps.length > 0) {
-              const triedSent = (attempts.get(sentKey) ?? 0) + 1;
-              attempts.set(sentKey, triedSent);
+            if (sentApps.length > 0) {
               const sent = await createAtSigningChargesForSentLease(lease, managerUserId).catch(() => null);
-              if (triedSent >= MAX_ATTEMPTS || (sent && sent.ok)) handled.add(sentKey);
+              if (sent?.ok) handled.add(sentKey);
             }
           }
           continue;
@@ -190,15 +192,8 @@ export function watchExecutedLeaseCharges(managerUserId: string | null): () => v
         if (!Number.isFinite(signedAt) || now - signedAt > WATCH_WINDOW_MS) continue;
         const apps = applicationsBilledByLease(lease, readManagerApplicationRows());
         if (apps.length === 0) continue;
-        if (apps.every((app) => applicationHasTenancyCharges(app.id, managerUserId))) {
-          handled.add(lease.id);
-          continue;
-        }
-        const tried = (attempts.get(lease.id) ?? 0) + 1;
-        attempts.set(lease.id, tried);
         const result = await createChargesForExecutedLease(lease, managerUserId).catch(() => null);
-        const done = apps.every((app) => applicationHasTenancyCharges(app.id, managerUserId));
-        if (done || tried >= MAX_ATTEMPTS || (result && !result.ok)) handled.add(lease.id);
+        if (result?.ok) handled.add(lease.id);
       }
     } finally {
       running = false;

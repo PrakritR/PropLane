@@ -1,3 +1,4 @@
+import { freezeSignedTermsForApplication } from "@/lib/rental-application/freeze-signed-terms.server";
 import { approvalPlacementServerBlocker } from "@/lib/application-approval-placement.server";
 import { shortStayApprovalBlocker } from "@/lib/short-stay-pricing-gate.server";
 import { resolveBaselineResidentIdentity } from "@/lib/resident-identity/baseline.server";
@@ -1032,7 +1033,9 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as {
-      action?: "upsert" | "delete" | "replace" | "withdraw";
+      action?: "upsert" | "delete" | "replace" | "withdraw" | "freezeSignedTerms";
+      leaseId?: string;
+      terms?: Record<string, unknown>;
       id?: string;
       row?: DemoApplicantRow;
       rows?: DemoApplicantRow[];
@@ -1043,6 +1046,15 @@ export async function POST(req: Request) {
     };
     const db = createSupabaseServiceRoleClient();
     const user = await sessionUser();
+
+    if (body.action === "freezeSignedTerms") {
+      if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+      const gate = await assertManagerOrAdminWriteAccess(db, user);
+      if (gate) return gate;
+      if (typeof body.id !== "string" || !body.id.trim() || typeof body.leaseId !== "string" || !body.leaseId.trim() || !body.terms || typeof body.terms !== "object" || Array.isArray(body.terms)) return NextResponse.json({ error: "Application, lease and terms are required." }, { status: 400 });
+      const result = await freezeSignedTermsForApplication(db, user.id, body.id.trim(), body.leaseId.trim(), body.terms);
+      return result.ok ? NextResponse.json({ ok: true, row: result.row }) : NextResponse.json({ error: result.error }, { status: result.status });
+    }
 
     if (body.action === "replace") {
       if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });

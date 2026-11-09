@@ -66,7 +66,9 @@ vi.mock("@/lib/household-charges", () => ({
   mirrorHouseholdChargesToServerAwait: () => mirrorWrite(),
   mirrorApplicationHouseholdChargesAwait: (row: unknown, previous: unknown) => mirrorWrite(row, previous),
   syncHouseholdChargesFromServer: () => syncCharges(),
+  readAuthoritativeBillingSnapshot: async () => ({ charges: [], rentProfiles: [] }),
   recordApprovedApplicationCharges: () => true,
+  recordApprovedApplicationChargesScoped: () => ({ ok: true, changed: true }),
 }));
 vi.mock("@/lib/manager-applications-storage", () => ({
   writeManagerApplicationRows: writeRows,

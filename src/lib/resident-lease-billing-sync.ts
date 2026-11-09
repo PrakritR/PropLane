@@ -6,6 +6,10 @@ import {
   mirrorHouseholdChargesToServerAwait,
   mirrorApplicationHouseholdChargesAwait,
   recordApprovedApplicationCharges,
+  recordApprovedApplicationChargesScoped,
+  readAuthoritativeBillingSnapshot,
+  type AuthoritativeBillingSnapshot,
+  type ScopedBillingStage,
   syncHouseholdChargesFromServer,
 } from "@/lib/household-charges";
 import {
@@ -65,9 +69,9 @@ export function mergeApplicationLeaseDatesIntoResidentRow(
  * lets the read-back settle on its own. Awaiting all four made one "Save resident" six sequential
  * round trips on a free-tier project, which is the "saving takes forever" this splits apart.
  */
-async function mirrorResidentBillingWrite(row?: DemoApplicantRow, previousRow?: DemoApplicantRow): Promise<void> {
-  if (isDemoModeActive()) return;
-  if (!(await (row ? mirrorApplicationHouseholdChargesAwait(row, previousRow) : mirrorHouseholdChargesToServerAwait()))) throw new Error("Could not save charges.");
+async function mirrorResidentBillingWrite(row?: DemoApplicantRow, previousRow?: DemoApplicantRow, stage?: ScopedBillingStage): Promise<void> {
+  if (!isDemoModeActive() && !(await (row ? mirrorApplicationHouseholdChargesAwait(row, previousRow, stage) : mirrorHouseholdChargesToServerAwait()))) throw new Error("Could not save charges.");
+  if (stage && !stage.commit()) throw new Error("Charges changed while saving.");
 }
 
 function refreshResidentBillingReads(managerUserId: string | null): Promise<unknown> {
@@ -98,6 +102,7 @@ export type ResidentBillingSyncOutcome = {
   leasesRegenerated: number;
   /** Why nothing (or not everything) propagated — manager-facing, empty when all ran. */
   skipped: string[];
+  billingStage?: ScopedBillingStage;
 };
 
 /**
@@ -121,13 +126,15 @@ export type ResidentBillingSyncOutcome = {
 function regenerateBillingForRow(
   row: DemoApplicantRow,
   managerUserId: string | null,
-  options?: { voidSentLeases?: boolean; persistLeases?: boolean; leaseIds?: readonly string[] },
+  options?: { voidSentLeases?: boolean; persistLeases?: boolean; leaseIds?: readonly string[]; previousRow?: DemoApplicantRow; scopedBilling?: boolean; snapshot?: AuthoritativeBillingSnapshot },
 ): ResidentBillingSyncOutcome {
   if (options?.voidSentLeases && row.email?.trim()) {
     voidOutForSignatureLeasesForResidentEdit(row.email, managerUserId, undefined, { persist: options?.persistLeases, leaseIds: options?.leaseIds });
   }
   const skipped: string[] = [];
-  const chargesRegenerated = recordApprovedApplicationCharges(row, managerUserId, true);
+  const scoped = options?.scopedBilling ? recordApprovedApplicationChargesScoped(row, options.previousRow, true, {}, options.snapshot) : null;
+  if (scoped && !scoped.ok) throw new Error("Could not safely generate resident charges.");
+  const chargesRegenerated = scoped ? scoped.changed : recordApprovedApplicationCharges(row, managerUserId, true);
   if (!chargesRegenerated) {
     skipped.push(
       "charges were not rebuilt — this resident's property could not be resolved (an unlisted or draft listing does not resolve here)",
@@ -137,7 +144,7 @@ function regenerateBillingForRow(
   const residentEmail = row.email?.trim();
   if (!residentEmail || !row.application) {
     skipped.push("the lease was not regenerated — this resident has no application on file");
-    return { chargesRegenerated, leasesRegenerated: 0, skipped };
+    return { chargesRegenerated, leasesRegenerated: 0, skipped, billingStage: scoped?.stage };
   }
 
   const leasesRegenerated = regenerateEditableLeasesForResident(
@@ -152,7 +159,7 @@ function regenerateBillingForRow(
     );
   }
 
-  return { chargesRegenerated, leasesRegenerated, skipped };
+  return { chargesRegenerated, leasesRegenerated, skipped, billingStage: scoped?.stage };
 }
 
 /** After a short-term stay-total payment edit, align application dates, charges, and editable leases. */
@@ -262,10 +269,11 @@ export async function persistResidentProfileEdit(input: {
 
   let sync: ResidentBillingSyncOutcome;
   try {
+    const snapshot = await readAuthoritativeBillingSnapshot();
     const before = new Map(readLeasePipeline(managerUserId).map((lease) => [lease.id, structuredClone(lease)]));
     const previousRow = input.rows.find((row) => row.id === savedRow.id);
     const scope = residentEditLeaseIds(readStoredLeasePipelineForResidentEdit(managerUserId), savedRow, previousRow);
-    sync = regenerateBillingForRow(savedRow, managerUserId, { voidSentLeases, persistLeases: false, leaseIds: scope.ids });
+    sync = regenerateBillingForRow(savedRow, managerUserId, { voidSentLeases, persistLeases: false, leaseIds: scope.ids, previousRow, scopedBilling: true, snapshot });
     if (scope.skippedJointMember) sync.skipped.push("the joint lease was not regenerated for this group member");
     if (!scope.ids.length && !scope.skippedJointMember) sync.skipped.push("no lease matched this application's stored identity and placement");
     const changed = readLeasePipeline(managerUserId).filter((lease) =>
@@ -289,7 +297,7 @@ export async function persistResidentProfileEdit(input: {
       }
     }
     // The write must finish before any forced read can replace the local charges.
-    await mirrorResidentBillingWrite(savedRow, input.rows.find((row) => row.id === savedRow.id));
+    await mirrorResidentBillingWrite(savedRow, input.rows.find((row) => row.id === savedRow.id), sync.billingStage);
   } catch {
     return { ok: false, error: "Resident saved, but billing could not be updated. Please try saving again." };
   }

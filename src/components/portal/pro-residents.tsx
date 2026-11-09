@@ -2958,16 +2958,22 @@ export function ManagerResidents({
       if (renewalApplied) setHcTick((n) => n + 1);
       // The last signature just landed: payments are created now, from the signed terms.
       let paymentsScheduled = false;
+      let paymentWarning = false;
       if (fullySigned && !signingLease.pendingRenewal) {
         const executed = readLeasePipeline(userId).find((r) => r.id === signingLease.id);
         if (executed) {
           const made = await createChargesForExecutedLease(executed, userId ?? null).catch(() => null);
           paymentsScheduled = Boolean(made && made.ok && made.created);
+          paymentWarning = !made || !made.ok;
           if (paymentsScheduled) setHcTick((n) => n + 1);
+        } else {
+          paymentWarning = true;
         }
       }
       showToast(
-        renewalApplied
+        paymentWarning
+          ? "Lease signed, but the payment schedule could not be confirmed. Review and retry."
+          : renewalApplied
           ? "Lease fully signed. Rent and payment schedule updated to the renewed terms."
           : fullySigned
             ? paymentsScheduled

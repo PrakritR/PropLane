@@ -13,13 +13,11 @@ import {
   syncLeasePipelineFromServer,
 } from "@/lib/lease-pipeline-storage";
 import { buildResidentLeaseDocumentRows, resolveResidentLeaseDocumentView } from "@/lib/resident-lease-documents";
-import { HOUSEHOLD_CHARGES_EVENT, recordApprovedApplicationCharges } from "@/lib/household-charges";
+import { syncHouseholdChargesFromServer } from "@/lib/household-charges";
 import { ResidentSignAndPayMoveIn } from "@/components/portal/resident-sign-and-pay-move-in";
 import { useResidentAtSigning } from "@/hooks/use-resident-at-signing";
 import { AT_SIGNING_UNPAID_MESSAGE } from "@/lib/lease-at-signing";
 import { leaseHtmlForScopedDomDisplay } from "@/lib/lease-html-sections";
-import { freezeSignedLeaseTerms, persistFrozenSignedLeaseTerms } from "@/lib/lease-signed-terms";
-import { normalizeApplicationAxisId, readManagerApplicationRows } from "@/lib/manager-applications-storage";
 
 export function ResidentSignAndPayClient() {
   const session = usePortalSession();
@@ -90,21 +88,7 @@ export function ResidentSignAndPayClient() {
         showToast(result.error ?? "Could not sign the lease.");
         return;
       }
-      const axisId = pipelineRow.axisId ? normalizeApplicationAxisId(pipelineRow.axisId) : "";
-      const app = readManagerApplicationRows().find(
-        (a) =>
-          (axisId && normalizeApplicationAxisId(a.id) === axisId) ||
-          (email && a.email?.trim().toLowerCase() === email),
-      );
-      if (app) {
-        const frozen = freezeSignedLeaseTerms(app, { managerUserId: app.managerUserId ?? null, lease: pipelineRow });
-        if (frozen.changed) persistFrozenSignedLeaseTerms([frozen.row]);
-        recordApprovedApplicationCharges(frozen.row, app.managerUserId ?? null, true, {
-          leaseExecuted: false,
-          moveInAtResidentSign: true,
-        });
-        window.dispatchEvent(new Event(HOUSEHOLD_CHARGES_EVENT));
-      }
+      void syncHouseholdChargesFromServer(true, { skipReconcile: true }).catch(() => undefined);
       showToast("Lease signed. Pay move-in costs below.");
     } finally {
       setSigning(false);
