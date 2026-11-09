@@ -198,30 +198,6 @@ export function ManagerAddServiceModal({
     };
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    queueMicrotask(() => {
-      if (defaultResident) {
-        setPropertyId(defaultResident.propertyId.trim());
-        setResidentEmail(defaultResident.residentEmail.trim().toLowerCase());
-        setRoomChoice(defaultResident.assignedRoomChoice?.trim() || "");
-      } else {
-        setPropertyId(defaultPropertyId?.trim() || "");
-        setResidentEmail("");
-        setRoomChoice("");
-      }
-      setAddTask(false);
-      setAssignee(null);
-      setRequestPrice("");
-      setRequestDeposit("");
-      setPhotos([]);
-      setResidentCharge("");
-      setForm({ ...createEmptyServiceIntakeFormState([]), entryPermission: "allowed" });
-      setStepIdx(0);
-      setStepError(null);
-    });
-  }, [open, defaultPropertyId, defaultResident]);
-
   /**
    * The assignment message goes to a vendor, or a teammate who is not the
    * manager logging the service. Assigning yourself sends nothing.
@@ -596,10 +572,18 @@ export function ManagerAddServiceModal({
   };
 
   const workspaceDraft = useWorkspaceDraft({
-    scope: `service`,
+    scope: `service:${JSON.stringify([defaultPropertyId?.trim() || "", defaultResident?.propertyId.trim() || "", defaultResident?.residentEmail.trim().toLowerCase() || "", defaultResident?.assignedRoomChoice?.trim() || ""])}`,
     actor: managerUserId,
     open, value: { propertyId, roomChoice, residentEmail, addTask, assignee, requestPrice, requestDeposit, photos, residentCharge, stepIdx, form },
     restore: (saved) => { setPropertyId(saved.propertyId); setRoomChoice(saved.roomChoice); setResidentEmail(saved.residentEmail); setAddTask(saved.addTask); setAssignee(saved.assignee); setRequestPrice(saved.requestPrice); setRequestDeposit(saved.requestDeposit); setPhotos(saved.photos); setResidentCharge(saved.residentCharge); setStepIdx(saved.stepIdx); setForm(saved.form); },
+    initialize: () => {
+      setPropertyId(defaultResident?.propertyId.trim() || defaultPropertyId?.trim() || "");
+      setResidentEmail(defaultResident?.residentEmail.trim().toLowerCase() || "");
+      setRoomChoice(defaultResident?.assignedRoomChoice?.trim() || "");
+      setAddTask(false); setAssignee(null); setRequestPrice(""); setRequestDeposit(""); setPhotos([]); setResidentCharge("");
+      setForm({ ...createEmptyServiceIntakeFormState([]), entryPermission: "allowed" });
+      setStepIdx(0); setStepError(null);
+    },
   });
 
   if (!open) return null;

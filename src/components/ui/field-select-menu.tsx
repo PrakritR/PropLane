@@ -783,6 +783,7 @@ export function useFieldSelectMenu({
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape" && closeOnEscapeRef.current) {
+        event.preventDefault();
         onOpenChangeRef.current(false);
         buttonRef.current?.focus();
       }
