@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   transition: vi.fn(async () => ({ ok: true, approvalSms: null })),
   syncProperty: vi.fn(async () => true),
   sharedReady: false,
+  noBeds: false,
   demo: false,
 }));
 
@@ -25,7 +26,7 @@ vi.mock("@/lib/rental-application/data", () => ({ getPropertyById: () => ({ list
 vi.mock("@/lib/application-approval-placement", () => ({ approvalPlacementBlocker: () => null }));
 vi.mock("@/lib/rental-application/placement-values", () => ({ resolvePlacementValuesForRow: () => ({ signedMonthlyRent: 1250, roomLabel: "" }) }));
 vi.mock("@/lib/application-approval-slots", () => ({
-  applicationRoomPricesPerResident: () => mocks.sharedReady, approvalBedOptions: () => mocks.sharedReady ? [{ slot: 1, label: "Bed A · $1,250/mo", monthlyRent: 1250 }] : [], bedLabelForSlot: () => "Bed A",
+  applicationRoomPricesPerResident: () => mocks.sharedReady, approvalBedOptions: () => mocks.sharedReady && !mocks.noBeds ? [{ slot: 1, label: "Bed A · $1,250/mo", monthlyRent: 1250 }] : [], bedLabelForSlot: () => "Bed A",
   residentSlotsForApplicationRow: () => mocks.sharedReady ? [{ slot: 1, price: { slot: 1, monthlyRent: 1250 }, holder: null }] : [], roomForApplicationRow: () => null,
 }));
 vi.mock("@/lib/application-review", () => ({ transitionApplicationBucket: mocks.transition }));
@@ -88,6 +89,7 @@ describe("approving with a needed-before-review form still owed", () => {
   beforeEach(() => {
     mocks.requests = [];
     mocks.sharedReady = false;
+    mocks.noBeds = false;
     mocks.demo = false;
     mocks.syncProperty.mockReset().mockResolvedValue(true);
   });
@@ -115,6 +117,15 @@ describe("approving with a needed-before-review form still owed", () => {
     open();
     await waitFor(() => expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled());
     expect(screen.getByText(/Bed A/)).toBeInTheDocument();
+  });
+
+  it("disables approval when the selected bed is no longer open", async () => {
+    mocks.syncProperty.mockImplementation(async () => { mocks.sharedReady = true; return true; });
+    const view = render(<ApproveApplicationDialog row={row} userId="manager-1" onClose={() => undefined} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled());
+    mocks.noBeds = true;
+    view.rerender(<ApproveApplicationDialog row={{ ...row }} userId="manager-1" onClose={() => undefined} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled());
   });
 
   it("says plainly that the application is waiting on a form", () => {

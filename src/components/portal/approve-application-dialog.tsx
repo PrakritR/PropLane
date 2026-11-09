@@ -165,7 +165,8 @@ function ApproveApplicationDialogBody({ row, userId, automation, onClose, onAppr
 
   // A bed that stopped being open (someone else was approved while the popup sat open) is no longer pickable.
   useEffect(() => {
-    if ((slot == null || !beds.some((b) => b.slot === slot)) && beds.length > 0) setSlot(beds[0]!.slot);
+    const fallback = beds[0]?.slot ?? null;
+    if (!beds.some((bed) => bed.slot === slot) && slot !== fallback) setSlot(fallback);
   }, [beds, slot]);
 
 
