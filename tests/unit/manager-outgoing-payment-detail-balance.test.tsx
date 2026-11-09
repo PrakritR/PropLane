@@ -93,8 +93,10 @@ function mockFetch({ balanceEligible, approveResponse }: { balanceEligible: bool
   return calls;
 }
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  // Radix FocusScope schedules its unmount event; drain it while this jsdom realm is alive.
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   showToast.mockClear();
