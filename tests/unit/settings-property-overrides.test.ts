@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   ForeignPropertyError,
@@ -50,7 +50,7 @@ function makeDb(tables: Record<string, Row[]>): SupabaseClient {
       let updateObj: Row = {};
       const builder: Record<string, unknown> = {
         select(cols?: string) {
-          mode = "select";
+          if (mode !== "update") mode = "select";
           selectCols = cols ?? "*";
           return builder;
         },
@@ -94,8 +94,8 @@ const HOUSE_B = "house-b";
 function seed(): Record<string, Row[]> {
   return {
     manager_property_records: [
-      { id: HOUSE_A, manager_user_id: MGR, row_data: { title: "House A" } },
-      { id: HOUSE_B, manager_user_id: MGR, row_data: { title: "House B" } },
+      { id: HOUSE_A, manager_user_id: MGR, updated_at: "2026-01-01T00:00:00.000Z", row_data: { title: "House A" } },
+      { id: HOUSE_B, manager_user_id: MGR, updated_at: "2026-01-01T00:00:00.000Z", row_data: { title: "House B" } },
       // A house owned by someone else — never visible to MGR.
       { id: "foreign-house", manager_user_id: "other-mgr", row_data: {} },
     ],
@@ -201,6 +201,67 @@ describe("property overrides — ownership is fail-closed", () => {
 });
 
 describe("property overrides — savePropertyOverride merges, never replaces (PLAN-0916-1040 §1)", () => {
+  it("preserves concurrent namespace saves and a concurrent clear at the same clock time", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    try {
+      const tables = seed();
+      const db = makeDb(tables);
+      await Promise.all([
+        savePropertyOverride(db, MGR, HOUSE_A, "tourSettings", { lead: 7 }),
+        savePropertyOverride(db, MGR, HOUSE_A, "applicationAutomation", { enabled: true }),
+      ]);
+      await Promise.all([
+        clearPropertyOverride(db, MGR, HOUSE_A, "tourSettings"),
+        savePropertyOverride(db, MGR, HOUSE_A, "paymentAutomation", { enabled: true }),
+      ]);
+      expect(await loadPropertyOverride(db, MGR, HOUSE_A, "tourSettings")).toBeNull();
+      expect(await loadPropertyOverride(db, MGR, HOUSE_A, "applicationAutomation")).toEqual({ enabled: true });
+      expect(await loadPropertyOverride(db, MGR, HOUSE_A, "paymentAutomation")).toEqual({ enabled: true });
+      expect(Date.parse(String(tables.manager_property_records[0]!.updated_at))).toBeGreaterThan(Date.now());
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("refuses missing revisions and never writes them", async () => {
+    const tables = seed();
+    delete tables.manager_property_records[0]!.updated_at;
+    await expect(savePropertyOverride(makeDb(tables), MGR, HOUSE_A, "tourSettings", { lead: 7 })).rejects.toThrow("revision");
+    expect(tables.manager_property_records[0]!.row_data).toEqual({ title: "House A" });
+  });
+
+  it("does not retry an unknown update error", async () => {
+    const read = vi.fn(async () => ({ data: { id: HOUSE_A, row_data: {}, updated_at: "2026-01-01T00:00:00.000Z" }, error: null }));
+    const write = vi.fn(async () => ({ data: null, error: { message: "uncertain" } }));
+    const db = { from: () => ({
+      select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: read }) }) }),
+      update: () => ({ eq: () => ({ eq: () => ({ eq: () => ({ select: write }) }) }) }),
+    }) } as unknown as SupabaseClient;
+    await expect(savePropertyOverride(db, MGR, HOUSE_A, "tourSettings", { lead: 7 })).rejects.toEqual({ message: "uncertain" });
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails after bounded definite conflicts", async () => {
+    const read = vi.fn(async () => ({ data: { id: HOUSE_A, row_data: {}, updated_at: "2026-01-01T00:00:00.000Z" }, error: null }));
+    const write = vi.fn(async () => ({ data: [], error: null }));
+    const db = { from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: read }) }) }),
+      update: () => ({ eq: () => ({ eq: () => ({ eq: () => ({ select: write }) }) }) }) }) } as unknown as SupabaseClient;
+    await expect(savePropertyOverride(db, MGR, HOUSE_A, "tourSettings", { lead: 7 })).rejects.toThrow("changed");
+    expect(read).toHaveBeenCalledTimes(3);
+    expect(write).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(["deleted", "reowned"])("refuses a property %s after a conflicting update", async () => {
+    const read = vi.fn().mockResolvedValueOnce({ data: { id: HOUSE_A, row_data: {}, updated_at: "2026-01-01T00:00:00.000Z" }, error: null }).mockResolvedValueOnce({ data: null, error: null });
+    const write = vi.fn(async () => ({ data: [], error: null }));
+    const db = { from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: read }) }) }),
+      update: () => ({ eq: () => ({ eq: () => ({ eq: () => ({ select: write }) }) }) }) }) } as unknown as SupabaseClient;
+    await expect(clearPropertyOverride(db, MGR, HOUSE_A, "tourSettings")).resolves.toBeUndefined();
+    // Save has a write to race; clear of a missing override is correctly a no-op.
+    read.mockReset().mockResolvedValueOnce({ data: { id: HOUSE_A, row_data: {}, updated_at: "2026-01-01T00:00:00.000Z" }, error: null }).mockResolvedValueOnce({ data: null, error: null });
+    await expect(savePropertyOverride(db, MGR, HOUSE_A, "tourSettings", { lead: 7 })).rejects.toBeInstanceOf(ForeignPropertyError);
+    expect(write).toHaveBeenCalledTimes(1);
+  });
   it("a second save adds its own top-level keys without dropping the first's", async () => {
     const db = makeDb(seed());
     await savePropertyOverride(db, MGR, HOUSE_A, "reminderRules", { tour: { enabled: true } });
