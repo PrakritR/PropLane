@@ -45,16 +45,25 @@ function fakePage(
 
 function fakeDb(row: ProfileRow | null, over: {
   authEmail?: string;
+  authConfirmed?: boolean;
+  managerRole?: string | null;
   loseFirstUpdateAck?: boolean;
   failBeforeFirstUpdate?: boolean;
+  throwFirstUpdateBeforeCommit?: boolean;
+  throwFirstUpdateAfterCommit?: boolean;
   replaceWithNewerStampAfterFirstUpdate?: boolean;
   returnOffsetTimestamp?: boolean;
 } = {}) {
   const updates: Array<{ patch: Record<string, unknown>; filters: Record<string, unknown> }> = [];
   let current: Record<string, unknown> | null = row ? { ...row } : null;
   const client = {
-    auth: { admin: { getUserById: async () => ({ data: { user: { id: ACTOR, email: over.authEmail ?? EMAIL } }, error: null }) } },
-    from: () => {
+    auth: { admin: { getUserById: async () => ({ data: { user: {
+      id: ACTOR,
+      email: over.authEmail ?? EMAIL,
+      email_confirmed_at: over.authConfirmed === false ? null : "2026-11-01T00:00:00.000Z",
+      confirmed_at: null,
+    } }, error: null }) } },
+    from: (table: string) => {
       let operation: "select" | "update" = "select";
       let patch: Record<string, unknown> = {};
       const filters: Record<string, unknown> = {};
@@ -63,8 +72,10 @@ function fakeDb(row: ProfileRow | null, over: {
         update: (next: Record<string, unknown>) => { operation = "update"; patch = next; return builder; },
         eq: (key: string, value: unknown) => { filters[key] = value; return builder; },
         is: (key: string, value: unknown) => { filters[key] = value; return builder; },
-        maybeSingle: async () => ({ data: current ? { ...current } : null, error: current ? null : { message: "no rows" } }),
-        then: (resolve: (value: unknown) => unknown) => Promise.resolve().then(() => {
+        maybeSingle: async () => table === "profile_roles"
+          ? ({ data: over.managerRole === null ? null : { role: over.managerRole ?? "manager" }, error: null })
+          : ({ data: current ? { ...current } : null, error: current ? null : { message: "no rows" } }),
+        then: (resolve: (value: unknown) => unknown, reject?: (reason?: unknown) => unknown) => Promise.resolve().then(() => {
           if (operation !== "update") return resolve({ data: null, error: null });
           updates.push({ patch: { ...patch }, filters: { ...filters } });
           if (!current || current.id !== filters.id || current.email !== filters.email || current.phone !== filters.phone) {
@@ -74,11 +85,13 @@ function fakeDb(row: ProfileRow | null, over: {
           const currentStamp = current.phone_verified_at;
           const stampMatches = expected === null ? currentStamp === null : currentStamp === expected;
           if (!stampMatches) return resolve({ data: [], error: null });
+          if (updates.length === 1 && over.throwFirstUpdateBeforeCommit) return reject?.(new Error("write rejected before commit"));
           if (updates.length === 1 && over.failBeforeFirstUpdate) return resolve({ data: null, error: { message: "write rejected" } });
           current = { ...current, ...patch };
           if (updates.length === 1 && over.replaceWithNewerStampAfterFirstUpdate) {
             current.phone_verified_at = "2026-11-10T00:00:00.000Z";
           }
+          if (updates.length === 1 && over.throwFirstUpdateAfterCommit) return reject?.(new Error("ack rejected after commit"));
           if (updates.length === 1 && over.loseFirstUpdateAck) return resolve({ data: null, error: { message: "ack lost" } });
           const returned = { ...current };
           if (over.returnOffsetTimestamp && typeof returned.phone_verified_at === "string") {
@@ -171,6 +184,8 @@ describe("the synthetic phone fixture refuses anything but its own account", () 
 
   it.each([
     ["a mailbox the Auth user does not hold", { authEmail: "other@test.proplane.local" }, /Auth user does not match/],
+    ["an Auth user with an unconfirmed email", { authConfirmed: false }, /Auth email to be confirmed/],
+    ["a legacy manager profile without an authoritative manager role", { managerRole: null }, /authoritative manager role/],
   ])("refuses %s", async (_name, over, message) => {
     const { client } = fakeDb(profile(), over);
     supabase.createClient.mockReturnValue(client);
@@ -251,6 +266,24 @@ describe("what the fixture writes, and puts back", () => {
     await expect(verifySyntheticManagerPhone(fakePage(), { email: EMAIL, phone: PHONE }))
       .rejects.toThrow("attempted write was compensated");
     expect(updates).toHaveLength(2);
+    expect(getCurrent()?.phone_verified_at).toBeNull();
+  });
+
+  it("compensates when the write promise rejects after the database commit", async () => {
+    const { client, updates, getCurrent } = fakeDb(profile(), { throwFirstUpdateAfterCommit: true });
+    supabase.createClient.mockReturnValue(client);
+    await expect(verifySyntheticManagerPhone(fakePage(), { email: EMAIL, phone: PHONE }))
+      .rejects.toThrow("attempted write was compensated");
+    expect(updates).toHaveLength(2);
+    expect(getCurrent()?.phone_verified_at).toBeNull();
+  });
+
+  it("verifies the original state when the write promise rejects before commit", async () => {
+    const { client, updates, getCurrent } = fakeDb(profile(), { throwFirstUpdateBeforeCommit: true });
+    supabase.createClient.mockReturnValue(client);
+    await expect(verifySyntheticManagerPhone(fakePage(), { email: EMAIL, phone: PHONE }))
+      .rejects.toThrow("attempted write was compensated");
+    expect(updates).toHaveLength(1);
     expect(getCurrent()?.phone_verified_at).toBeNull();
   });
 

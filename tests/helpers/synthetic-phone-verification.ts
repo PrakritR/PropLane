@@ -178,6 +178,19 @@ export async function verifySyntheticManagerPhone(
   if (String(auth.data.user.email ?? "").trim().toLowerCase() !== email) {
     throw new Error("Synthetic phone fixture Auth user does not match the synthetic mailbox.");
   }
+  if (!auth.data.user.email_confirmed_at && !auth.data.user.confirmed_at) {
+    throw new Error("Synthetic phone fixture requires the exact Auth email to be confirmed.");
+  }
+
+  const { data: managerRole, error: roleError } = await db
+    .from("profile_roles")
+    .select("role")
+    .eq("user_id", actor.id)
+    .eq("role", "manager")
+    .maybeSingle();
+  if (roleError || !managerRole || managerRole.role !== "manager") {
+    throw new Error("Synthetic phone fixture requires an authoritative manager role.");
+  }
 
   const { data: profile, error } = await db
     .from("profiles")
@@ -201,14 +214,27 @@ export async function verifySyntheticManagerPhone(
   // Persist the exact before-state and intended CAS value before the DB write, so a lost
   // acknowledgement has a private receipt and a bounded compensation target.
   writePrivateBeforeImage({ ...before, attemptedVerifiedAt: verifiedAt, recordedAt: new Date().toISOString() });
-  const applied = await db
-    .from("profiles")
-    .update({ phone_verified_at: verifiedAt })
-    .eq("id", actor.id)
-    .eq("email", profile.email)
-    .eq("phone", input.phone)
-    .is("phone_verified_at", null)
-    .select("id, phone_verified_at");
+  let applied;
+  try {
+    applied = await db
+      .from("profiles")
+      .update({ phone_verified_at: verifiedAt })
+      .eq("id", actor.id)
+      .eq("email", profile.email)
+      .eq("phone", input.phone)
+      .is("phone_verified_at", null)
+      .select("id, phone_verified_at");
+  } catch (writeError) {
+    try {
+      await restoreAttemptedStamp(db, { id: actor.id, email, phone: input.phone, attemptedAt: verifiedAt });
+    } catch (compensationError) {
+      throw new AggregateError(
+        [new Error("Synthetic phone fixture write acknowledgement was lost."), compensationError],
+        "Synthetic phone fixture write rejected and exact compensation could not be confirmed.",
+      );
+    }
+    throw new Error("Synthetic phone fixture write rejected; attempted write was compensated.", { cause: writeError });
+  }
   if (applied.error || applied.data?.length !== 1 || applied.data[0]?.id !== actor.id ||
       !sameInstant(applied.data[0]?.phone_verified_at, verifiedAt)) {
     try {
