@@ -6,8 +6,10 @@ export function visibleLocator(page: Page, selector: string): Locator {
   return page.locator(selector).filter({ visible: true }).first();
 }
 
-export function continueBtn(page: Page): Locator {
-  return visibleLocator(page, '[data-attr="rental-wizard-continue"]');
+export function continueBtn(page: Page, existing = false): Locator {
+  return existing
+    ? page.getByRole("button", { name: "Continue", exact: true }).filter({ visible: true }).first()
+    : visibleLocator(page, '[data-attr="rental-wizard-continue"]');
 }
 
 export async function yesNo(page: Page, fieldKey: string, answer: "Yes" | "No") {
@@ -80,25 +82,25 @@ export async function fillCurrentRentalApplication(
   await fillLeaseChoiceStep(page);
   await fillPropertyLeaseStep(page);
   await fillHouseholdStep(page, household);
-  await continueBtn(page).click();
+  await continueBtn(page, options.existing).click();
   await expect(visibleLocator(page, '[data-application-section="personal"]')).toBeVisible({ timeout: 30_000 });
   await fillSignerStep(page, applicant);
-  await continueBtn(page).click();
+  await continueBtn(page, options.existing).click();
   await expect(visibleLocator(page, '[placeholder="Start typing your street address…"]')).toBeVisible({ timeout: 30_000 });
   await fillCurrentAddressStep(page);
   await visibleLocator(page, "#currentLandlordName").fill("QA Property Manager");
   await visibleLocator(page, "#currentMoveIn").fill(usDateInDays(-900));
   await visibleLocator(page, "#currentReasonLeaving").fill("Relocating for work");
-  await continueBtn(page).click();
+  await continueBtn(page, options.existing).click();
   await expect(visibleLocator(page, "#employer")).toBeVisible({ timeout: 30_000 });
   await fillEmploymentStep(page);
-  await continueBtn(page).click();
+  await continueBtn(page, options.existing).click();
   await expect(visibleLocator(page, "#ref1Name")).toBeVisible({ timeout: 30_000 });
   await fillReferencesStep(page);
-  await continueBtn(page).click();
+  await continueBtn(page, options.existing).click();
   await expect(visibleLocator(page, '[data-attr="select-occupancyCount"]')).toBeVisible({ timeout: 30_000 });
   await fillAdditionalDetailsStep(page);
-  await continueBtn(page).click();
+  await continueBtn(page, options.existing).click();
   await expect(visibleLocator(page, "#digitalSignature")).toBeVisible({ timeout: 30_000 });
   await fillConsentStep(page, applicant.name);
   await assertPlacementReview(page);
@@ -294,12 +296,15 @@ function applicationSubmitted(page: Page) {
 }
 
 export async function submitReviewAndApplication(page: Page, opts?: { expectFinishPanel?: boolean; existing?: boolean }) {
-  await expect(continueBtn(page)).toHaveText(opts?.existing ? /save application/i : /submit application/i, { timeout: 30_000 });
+  const submitButton = opts?.existing
+    ? page.getByRole("button", { name: "Save application", exact: true }).filter({ visible: true }).first()
+    : continueBtn(page);
+  await expect(submitButton).toHaveText(opts?.existing ? "Save application" : /submit application/i, { timeout: 30_000 });
   const responsePromise = page.waitForResponse((response) => {
     const url = new URL(response.url());
     return response.request().method() === "POST" && url.pathname === "/api/manager-applications";
   }, { timeout: 45_000 });
-  await continueBtn(page).click();
+  await submitButton.click();
   const response = await responsePromise;
   if (!response.ok()) throw new Error(`Application ${opts?.existing ? "edit" : "submit"} failed (HTTP ${response.status()}).`);
   if (opts?.expectFinishPanel !== false) {

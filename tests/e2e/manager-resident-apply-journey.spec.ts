@@ -143,7 +143,7 @@ async function publishFirstListing(page: Page, stamp: number): Promise<string> {
   const { planStatus: reopenPlanStatus, planBody: reopenPlan } = await navigateToPropertiesAndReadPlan(page, draftPreviewPath);
   if (reopenPlanStatus < 200 || reopenPlanStatus >= 300) throw new Error(`Could not resolve the manager subscription before reopening the draft (HTTP ${reopenPlanStatus}).`);
   if (reopenPlan.effectiveTier !== "pro" || reopenPlan.planUnknown !== false) throw new Error("The draft editor cannot reopen before the Pro subscription is resolved.");
-  await page.locator('[data-attr="draft-continue-editing"]').click();
+  await visibleLocator(page, '[data-attr="draft-continue-editing"]').click();
   const resumedEditor = page.getByRole("dialog", { name: "Listing editor" });
   await expect(resumedEditor).toBeVisible({ timeout: 20_000 });
   await resumedEditor.locator('[data-attr="listing-v2-rail-review"]').click();
