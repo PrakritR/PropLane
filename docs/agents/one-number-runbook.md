@@ -171,6 +171,7 @@ branch, and `db:push` applies it only once merged):
 | 20261103101000 | `email_onboarding_tour_slot` | `email_onboarding_handoffs.tour_slot_key` (a prospect's pre-account tour pick rides the emailed handoff; prefill only, booking re-checks the slot) |
 | 20261104120000 | `sms_durable_ingress` | owner-neutral durable SMS envelopes and prepared platform replies; service-only claim, checkpoint, reconciliation, callback and bounded retention |
 | 20261106120000 | `identity_deposit_recovery_guards` | Attaches signature-checked recovery guards to six owned identity and deposit tables |
+| 20261108130000 | `resident_identity_null_provider_guard` | Rejects identity provider events with a missing provider status |
 
 Check after the push (SQL editor, read-only):
 

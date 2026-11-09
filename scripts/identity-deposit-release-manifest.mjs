@@ -13,6 +13,7 @@ export const IDENTITY_DEPOSIT_ENTRIES = Object.freeze([
   ["20261030123000", "resident_identity_provider_state", "a84d45b35b58dfe77f6340ce4ae61a528f77edcc73b8ed643173ffaa8581d7c3"],
   ["20261030130000", "resident_evidence_policies", "a0a031afd9d1416c7835f7d67eaf73165770212b68d74599c2f938c69cc075be"],
   ["20261106120000", "identity_deposit_recovery_guards", "1f62ec00ff11b39fa8b4affef27fddc161c3c8c31a4a9e87411d9480a983adba"],
+  ["20261108130000", "resident_identity_null_provider_guard", "d855c3bed7ad146d3b99e43897b3f36bd44ed4a9de4a3a1b6f2420a3c23a1188"],
 ]);
 export function reviewedIdentityDepositMigrations() {
   return IDENTITY_DEPOSIT_ENTRIES.map(([version, name, hash]) => {
