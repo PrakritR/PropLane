@@ -251,15 +251,13 @@ describe("property overrides — savePropertyOverride merges, never replaces (PL
     expect(write).toHaveBeenCalledTimes(3);
   });
 
-  it.each(["deleted", "reowned"])("refuses a property %s after a conflicting update", async () => {
-    const read = vi.fn().mockResolvedValueOnce({ data: { id: HOUSE_A, row_data: {}, updated_at: "2026-01-01T00:00:00.000Z" }, error: null }).mockResolvedValueOnce({ data: null, error: null });
+  it.each(["save", "clear"])("refuses %s when the owned row disappears after a conflict", async (operation) => {
+    const read = vi.fn().mockResolvedValueOnce({ data: { id: HOUSE_A, row_data: { operationsSettings: { tourSettings: { lead: 1 } } }, updated_at: "2026-01-01T00:00:00.000Z" }, error: null }).mockResolvedValueOnce({ data: null, error: null });
     const write = vi.fn(async () => ({ data: [], error: null }));
     const db = { from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: read }) }) }),
       update: () => ({ eq: () => ({ eq: () => ({ eq: () => ({ select: write }) }) }) }) }) } as unknown as SupabaseClient;
-    await expect(clearPropertyOverride(db, MGR, HOUSE_A, "tourSettings")).resolves.toBeUndefined();
-    // Save has a write to race; clear of a missing override is correctly a no-op.
-    read.mockReset().mockResolvedValueOnce({ data: { id: HOUSE_A, row_data: {}, updated_at: "2026-01-01T00:00:00.000Z" }, error: null }).mockResolvedValueOnce({ data: null, error: null });
-    await expect(savePropertyOverride(db, MGR, HOUSE_A, "tourSettings", { lead: 7 })).rejects.toBeInstanceOf(ForeignPropertyError);
+    const result = operation === "save" ? savePropertyOverride(db, MGR, HOUSE_A, "tourSettings", { lead: 7 }) : clearPropertyOverride(db, MGR, HOUSE_A, "tourSettings");
+    await expect(result).rejects.toBeInstanceOf(ForeignPropertyError);
     expect(write).toHaveBeenCalledTimes(1);
   });
   it("a second save adds its own top-level keys without dropping the first's", async () => {

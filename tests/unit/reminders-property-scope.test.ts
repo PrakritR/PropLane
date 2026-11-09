@@ -47,7 +47,7 @@ function makeDb(tables: Record<string, Row[]>): SupabaseClient {
       let updateObj: Row = {};
       const builder: Record<string, unknown> = {
         select(cols?: string) {
-          mode = "select";
+          if (mode !== "update") mode = "select";
           selectCols = cols ?? "*";
           return builder;
         },
@@ -234,7 +234,7 @@ describe("loadReminderSettingsForProperty — fixed reminders (S020): a stored o
     const { savePropertyOverride } = await import("@/lib/settings/property-overrides.server");
     const db = makeDb({
       manager_automation_settings: [{ manager_user_id: MGR, row_data: { reminderRules: workspace } }],
-      manager_property_records: [{ id: BALLARD, manager_user_id: MGR, row_data: {} }],
+      manager_property_records: [{ id: BALLARD, manager_user_id: MGR, updated_at: "2026-01-01T00:00:00.000Z", row_data: {} }],
     });
     // Saving still works (S020: "do not delete stored data") — it is simply
     // never consulted by anything that decides what actually sends.
