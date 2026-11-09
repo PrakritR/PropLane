@@ -8,7 +8,7 @@ vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () =
   const builder = {
     select: () => builder,
     eq: (_key: string, value: string) => { id = value; return builder; },
-    in: async (_key: string, ids: string[]) => ({ data: ids.filter((key) => state.rows.has(key)).map((key) => ({ id: key, manager_user_id: state.rows.get(key) })), error: state.lookupError ? { message: "failure" } : null }),
+    in: async (_key: string, ids: string[]) => ({ data: state.lookupError && !state.partial ? null : ids.filter((key) => state.rows.has(key)).map((key) => ({ id: key, manager_user_id: state.rows.get(key) })), error: state.lookupError ? { message: "failure" } : null }),
     maybeSingle: async () => ({ data: state.rows.has(id) && (!state.lookupError || state.partial) ? { manager_user_id: state.rows.get(id), row_data: { propertyId: "house" } } : null, error: state.lookupError ? { message: "failure" } : null }),
     upsert: async (row: { id: string; manager_user_id: string }) => { state.writes.push({ op: "upsert", id: row.id, owner: row.manager_user_id }); return { error: null }; },
     delete: () => ({ eq: (_key: string, value: string) => ({ eq: async (_ownerKey: string, owner: string) => { state.writes.push({ op: "delete", id: value, owner }); return { error: null }; }, then: (resolve: (value: unknown) => void) => resolve({ error: null }) }) }),
@@ -26,8 +26,8 @@ const request = (body: unknown) => new Request("http://localhost/api/portal-prom
 const row = (id: string) => ({ id, propertyId: "house", inputs: {}, status: "draft" });
 beforeEach(() => { state.rows.clear(); state.lookupError = false; state.partial = false; state.oversight = false; state.grant = false; state.writes = []; });
 
-it.each(["replace", "upsert", "delete"])("fails closed on %s ownership lookup errors, even with partial data", async (action) => {
-  state.rows.set("foreign", "other"); state.rows.set("own", "actor"); state.lookupError = true; state.partial = true;
+it.each(["replace", "upsert", "delete"].flatMap((action) => [false, true].map((partial) => ({ action, partial }))))("fails closed on $action lookup errors (partial=$partial)", async ({ action, partial }) => {
+  state.rows.set("foreign", "other"); state.rows.set("own", "actor"); state.lookupError = true; state.partial = partial;
   const response = await POST(request(action === "replace" ? { action, rows: [row("own"), row("foreign")] } : action === "delete" ? { action, id: "foreign" } : { action, row: row("foreign") }));
   expect(response.status).toBe(500); expect(state.writes).toEqual([]);
 });
