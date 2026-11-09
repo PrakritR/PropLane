@@ -34,8 +34,8 @@ const route = createJsonRecordRoute({
     return ids.every((id) => owned.some((record) => record.logicalId === id)) ? owned.map((record) => record.id) : [];
   },
   buildUpsert: (row, user) => {
-    const safeRow = { ...row, managerUserId: user.id };
-    for (const key of ["manager_user_id", "relatedUserId", "related_user_id", "relatedEmail", "related_email"]) delete safeRow[key as keyof typeof safeRow];
+    const safeRow: Record<string, unknown> = { ...row, managerUserId: user.id };
+    for (const key of ["manager_user_id", "relatedUserId", "related_user_id", "relatedEmail", "related_email"]) delete safeRow[key];
     return {
       id: typeof row.id === "string" && row.id ? relationshipStorageId(user.id, row.id) : null,
       manager_user_id: user.id,
