@@ -178,6 +178,58 @@ describe("replay and uncertainty", () => {
     expect(attempts(db)).toHaveLength(1);
   });
 
+  it("replays a managed refund after its rail budget is depleted without resolving or sending again", async () => {
+    const db = seeded();
+    rail.resolveHouseholdChargeRefundRail.mockResolvedValue({ rail: "managed", paymentIntentId: "pi_1" });
+    await run(db, { basis: { kind: "charge_refund", detail: "same" } });
+    rail.resolveHouseholdChargeRefundRail.mockReset().mockRejectedValue(new rail.ReviewError("depleted"));
+    rail.refundPaidHouseholdCharge.mockClear();
+    expect(await run(db, { basis: { detail: "same", kind: "charge_refund" } })).toMatchObject({ kind: "pending", refundId: "re_1" });
+    expect(rail.resolveHouseholdChargeRefundRail).not.toHaveBeenCalled();
+    expect(rail.refundPaidHouseholdCharge).not.toHaveBeenCalled();
+    expect(await run(db, { paymentIntentId: "pi_other" })).toMatchObject({ kind: "review" });
+    expect(await run(db, { stripeChargeId: "ch_other" })).toMatchObject({ kind: "review" });
+    expect(await run(db, { chargeId: "other-charge" })).toMatchObject({ kind: "review" });
+    expect(await run(db, { ownerUserId: "other" })).toMatchObject({ kind: "review" });
+    expect(await run(db, { amountCents: 1 })).toMatchObject({ kind: "review" });
+    expect(await run(db, { basis: { kind: "changed" } })).toMatchObject({ kind: "review" });
+    expect(rail.refundPaidHouseholdCharge).not.toHaveBeenCalled();
+  });
+
+  it("refuses an unexpected fresh reservation during replay validation", async () => {
+    const db = seeded();
+    await run(db);
+    const rpc = db.rpc;
+    db.rpc = (async (name, args) => name === "reserve_household_charge_refund"
+      ? { data: { id: attempts(db)[0]!.id, created: true, status: "reserved" }, error: null }
+      : rpc(name, args)) as typeof db.rpc;
+    rail.refundPaidHouseholdCharge.mockClear();
+    expect(await run(db)).toMatchObject({ kind: "review" });
+    expect(rail.refundPaidHouseholdCharge).not.toHaveBeenCalled();
+  });
+
+  it.each(["reserved", "unknown"])("never sends on a stored %s replay", async (status) => {
+    const db = seeded();
+    await run(db);
+    attempts(db)[0]!.status = status;
+    rail.resolveHouseholdChargeRefundRail.mockClear();
+    rail.refundPaidHouseholdCharge.mockClear();
+    expect(await run(db)).toMatchObject({ kind: "unknown" });
+    expect(rail.resolveHouseholdChargeRefundRail).not.toHaveBeenCalled();
+    expect(rail.refundPaidHouseholdCharge).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the operation lookup cannot be read", async () => {
+    const db = seeded();
+    const from = db.from;
+    db.from = ((table: string) => table === "household_charge_refund_attempts"
+      ? { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: { message: "read failed" } }) }) }) }
+      : from(table)) as typeof db.from;
+    expect(await run(db)).toMatchObject({ kind: "review" });
+    expect(rail.resolveHouseholdChargeRefundRail).not.toHaveBeenCalled();
+    expect(rail.refundPaidHouseholdCharge).not.toHaveBeenCalled();
+  });
+
   it("refuses the same operation key used for a different basis", async () => {
     const db = seeded();
     await run(db);

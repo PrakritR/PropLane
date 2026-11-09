@@ -83,6 +83,30 @@ export async function runHouseholdChargeRefund(
     reason?: Stripe.RefundCreateParams.Reason;
   },
 ): Promise<HouseholdChargeRefundOutcome> {
+  // Replays must be checked before re-resolving the remaining rail budget: the original
+  // managed refund may already have consumed that budget while its answer was pending.
+  const { data: existing, error: lookupError } = await db.from("household_charge_refund_attempts")
+    .select("id,rail,stripe_payment_intent_id")
+    .eq("operation_key", input.operationKey).maybeSingle();
+  if (lookupError) return { kind: "review", message: "Refund requires reconciliation before retrying." };
+  if (existing) {
+    const existingRail = existing.rail;
+    const existingIntent = existing.stripe_payment_intent_id ?? null;
+    if (!existing.id || !["central", "destination", "managed"].includes(existingRail) ||
+        (input.paymentIntentId && input.paymentIntentId !== existingIntent)) {
+      return { kind: "review", message: "Refund requires reconciliation before retrying." };
+    }
+    const { data, error } = await db.rpc("reserve_household_charge_refund", {
+      p_owner: input.ownerUserId, p_charge: input.chargeId, p_operation_key: input.operationKey,
+      p_stripe_charge: input.stripeChargeId, p_payment_intent: existingIntent, p_rail: existingRail,
+      p_amount: input.amountCents, p_basis: { ...input.basis, rail: existingRail, amountCents: input.amountCents },
+    });
+    const attempt = (data ?? null) as ReservedAttempt | null;
+    if (error || !attempt || attempt.id !== existing.id || attempt.created !== false) {
+      return { kind: "review", message: "Refund requires reconciliation before retrying." };
+    }
+    return storedOutcome(attempt);
+  }
   let rail: Awaited<ReturnType<typeof resolveHouseholdChargeRefundRail>>;
   try {
     rail = await resolveHouseholdChargeRefundRail(db, {

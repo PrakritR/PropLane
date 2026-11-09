@@ -5,6 +5,8 @@
  * upsert / delete, plus `row_data->>key` filters). It is NOT a SQL engine - just enough that a
  * test can seed rows, run the real code, and read back what was written.
  */
+import { isDeepStrictEqual } from "node:util";
+
 export type Row = Record<string, unknown>;
 
 export type FakeDb = {
@@ -53,9 +55,9 @@ function reserveHouseholdChargeRefund(tables: Record<string, Row[]>, args: Row, 
   const replay = attempts.find((row) => row.operation_key === args.p_operation_key);
   if (replay) {
     const differs = replay.source_charge_id !== args.p_charge || replay.manager_user_id !== args.p_owner ||
-      replay.stripe_charge_id !== args.p_stripe_charge || replay.rail !== args.p_rail ||
+      replay.stripe_charge_id !== args.p_stripe_charge || replay.stripe_payment_intent_id !== (args.p_payment_intent ?? null) || replay.rail !== args.p_rail ||
       replay.amount_cents !== args.p_amount ||
-      JSON.stringify(replay.basis) !== JSON.stringify(args.p_basis);
+      !isDeepStrictEqual(replay.basis, args.p_basis);
     return differs
       ? { data: null, error: { message: "Operation key differs from reservation" } }
       : { data: { ...replay, created: false }, error: null };
