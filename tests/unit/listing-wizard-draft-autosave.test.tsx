@@ -123,8 +123,10 @@ beforeEach(() => {
   );
 });
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  // Radix schedules focus restoration on the next task; drain it while jsdom is alive.
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
