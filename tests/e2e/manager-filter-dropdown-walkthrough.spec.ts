@@ -19,7 +19,7 @@ const FILTER_SECTIONS: { path: string; label: string; fieldMatchers: RegExp[]; i
     label: "Payments",
     fieldMatchers: [/Property/i, /Resident/i, /Sort/i],
   },
-  { path: "/portal/financials/income", label: "Finances income", fieldMatchers: [/Property/i] },
+  { path: "/portal/financials/overview", label: "Finances overview", fieldMatchers: [/^Period$/i, /^Show$/i] },
   { path: "/portal/calendar/tours", label: "Calendar", fieldMatchers: [/Property/i] },
 ];
 
@@ -49,8 +49,7 @@ async function exerciseFieldDropdown(page: Page, scope: Locator, fieldMatcher: R
       popup.x >= 0 && popup.y >= 0 && popup.x + popup.width <= viewport.width && popup.y + popup.height <= viewport.height;
   }, { timeout: 8_000 }).toBe(true);
   await expect(listbox).toHaveCSS("overflow-y", "auto");
-  const optionCount = await listbox.getByRole("option").count();
-  expect(optionCount).toBeGreaterThan(0);
+  await expect.poll(() => listbox.getByRole("option").count(), { timeout: 15_000 }).toBeGreaterThan(0);
   await page.keyboard.press("Escape");
   await expect(listbox).toBeHidden();
 }

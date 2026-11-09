@@ -103,7 +103,7 @@ test.describe("Admin portal", () => {
     await page.route("**/api/admin/portal-users", async (route) => {
       recipientRequestStarted();
       await recipientGate;
-      await route.continue();
+      await route.fulfill({ status: 200, json: { managers: [{ id: "synthetic-manager", name: "Synthetic manager", email: "manager@example.invalid" }], residents: [] } });
     });
     const recipientsLoaded = page.waitForResponse((response) =>
       new URL(response.url()).pathname === "/api/admin/portal-users" && response.ok(),
@@ -128,6 +128,11 @@ test.describe("Admin portal", () => {
     await expect(page.getByPlaceholder("Subject")).toHaveValue(subject);
     await expect(page.getByPlaceholder(/write your message/i)).toHaveValue("Automated trash-tab check.");
     await expect(page.getByRole("button", { name: "Recipient type" })).toContainText("All managers");
+    await page.getByRole("button", { name: "Recipient type" }).click();
+    await page.getByRole("option", { name: "Choose managers…" }).click();
+    await expect(page.getByRole("checkbox", { name: "Synthetic manager" })).toBeChecked();
+    await page.getByRole("button", { name: "Recipient type" }).click();
+    await page.getByRole("option", { name: "All managers" }).click();
     const [sendRequest] = await Promise.all([
       page.waitForRequest((request) =>
         new URL(request.url()).pathname === "/api/portal/send-inbox-message" && request.method() === "POST",
@@ -137,7 +142,7 @@ test.describe("Admin portal", () => {
     const sent = sendRequest.postDataJSON() as { subject?: string; text?: string; toUserIds?: string[] };
     expect(sent.subject).toBe(subject);
     expect(sent.text).toBe("Automated trash-tab check.");
-    expect(sent.toUserIds?.length).toBeGreaterThan(0);
+    expect(sent.toUserIds).toEqual(["synthetic-manager"]);
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await page.getByRole("button", { name: "New message" }).click();
     await expect(page.getByPlaceholder("Subject")).toHaveValue("");

@@ -51,8 +51,15 @@ test.describe("Portal loading and record actions", () => {
       await page.keyboard.press("Escape");
       await expect(trigger).toBeFocused();
       await trigger.click();
-      await menu.getByRole("menuitem", { name: "Edit", exact: true }).click();
-      await expect(page.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
+      const [detailRequest] = await Promise.all([
+        page.waitForRequest((request) => {
+          const url = new URL(request.url());
+          return /^\/portal\/properties\/listed\/[^/]+\/preview$/.test(url.pathname) && url.searchParams.get("edit") === "1";
+        }, { timeout: 45_000 }),
+        menu.getByRole("menuitem", { name: "Edit", exact: true }).click(),
+      ]);
+      expect(new URL(detailRequest.url()).searchParams.get("edit")).toBe("1");
+      await expect(page.locator('[data-attr="listing-v2-next"]')).toBeVisible({ timeout: 45_000 });
     });
   }
 

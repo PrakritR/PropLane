@@ -130,8 +130,8 @@ test.describe("Dark mode — property portal", () => {
 test.describe("Appearance setting", () => {
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
   test("preferences exposes Appearance only when enabled", async ({ page }) => {
-    await signInAsManager(page);
-    await page.goto("/portal/profile?tab=preferences");
+    await signInAsAdmin(page);
+    await page.goto("/admin/profile?tab=preferences");
     await expect(page.getByRole("heading", { name: "Preferences", exact: true })).toBeVisible();
     const appearance = page.getByRole("heading", { name: "Appearance", exact: true });
     if (DARK_MODE_ENABLED) await expect(appearance).toBeVisible();

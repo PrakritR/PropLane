@@ -1,5 +1,4 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
-import fs from "node:fs";
 import path from "node:path";
 import { mockStripeAllRoutes } from "../helpers/auth";
 import { createSyntheticProperty } from "../helpers/synthetic-property-e2e";
@@ -7,8 +6,7 @@ import { fieldSelectTrigger, pickFieldSelect } from "../helpers/field-select";
 
 /**
  * Promotion UX: All / Text / Image command-bar sections plus search, and
- * "New promotion" drops straight into the picked type's form inside one
- * modal — no intermediate "Continue" step.
+ * "New promotion" moves through Kind, Content and Preview in one workspace.
  *
  * Driven through the signed-in manager portal at /portal/promotion.
  */
@@ -77,75 +75,47 @@ test.describe("Promotion UX", () => {
         });
       });
 
-      test("New promotion opens one modal whose dropdown swaps the form inline", async ({ page }) => {
+      test("New promotion offers each kind and its content step", async ({ page }) => {
         await openPromotionSection(page);
         await page.locator('[data-attr="promotion-new"]').click();
-
         const dialog = page.getByRole("dialog");
-        await expect(dialog.getByText("New promotion", { exact: true })).toBeVisible();
-
-        await expect(dialog.getByRole("button", { name: /^continue$/i })).toHaveCount(0);
-        const kind = promotionKindTrigger(dialog);
-        await expect(kind).toContainText("Flyer");
+        await expect(promotionKindTrigger(dialog)).toContainText("Flyer");
+        await dialog.getByRole("button", { name: "Next: Content" }).click();
         await expect(headlineInput(dialog)).toBeVisible();
-        await expect(dialog.getByRole("button", { name: "Generate flyer" })).toBeVisible();
-        await dialog.screenshot({
-          path: `${SHOT_DIR}/${viewport.name}-03-new-modal-flyer.png`,
-        });
-
-        await selectPromotionKind(page, dialog, "Text");
-        await expect(dialog.getByText("New promotion", { exact: true })).toBeVisible();
+        await dialog.getByRole("button", { name: "Back", exact: true }).click();
+        await selectPromotionKind(page, dialog, "Post or blurb");
+        await dialog.getByRole("button", { name: "Next: Content" }).click();
         await expect(dialog.locator('[data-attr="select-promotion-text-format"]')).toBeVisible();
-        await expect(headlineInput(dialog)).toHaveCount(0);
-        await expect(dialog.getByRole("button", { name: /^continue$/i })).toHaveCount(0);
-        await dialog.screenshot({
-          path: `${SHOT_DIR}/${viewport.name}-04-new-modal-text.png`,
-        });
-
-        await dialog.getByRole("button", { name: "Close", exact: true }).click();
-        await expect(page.getByRole("dialog")).toHaveCount(0);
+        await dialog.getByRole("button", { name: "Back", exact: true }).click();
+        await selectPromotionKind(page, dialog, "Upload your own");
+        await dialog.getByRole("button", { name: "Next: Content" }).click();
+        await expect(dialog.locator('input[type="file"]').first()).toBeAttached();
       });
 
       test("switching type after entering content warns before discarding", async ({ page }) => {
         await openPromotionSection(page);
         await page.locator('[data-attr="promotion-new"]').click();
-        const dialog = page.getByRole("dialog");
-        const kind = promotionKindTrigger(dialog);
-
+        const dialog = page.getByRole("dialog").first();
+        await dialog.getByRole("button", { name: "Next: Content" }).click();
         await headlineInput(dialog).fill("Sunlit 2BR — first month free");
-        await dialog.screenshot({
-          path: `${SHOT_DIR}/${viewport.name}-05-flyer-content-entered.png`,
-        });
-
-        const dismissed = page.waitForEvent("dialog").then(async (d) => {
-          const message = d.message();
-          await d.dismiss();
-          return message;
-        });
-        await selectPromotionKind(page, dialog, "Text");
-        const message = await dismissed;
-        expect(message).toMatch(/discard/i);
-        fs.mkdirSync(SHOT_DIR, { recursive: true });
-        fs.writeFileSync(
-          `${SHOT_DIR}/${viewport.name}-06-type-switch-confirm.txt`,
-          `browser confirm() shown on type switch with entered content:\n${message}\n`,
-        );
-        await expect(kind).toContainText("Flyer");
+        await dialog.getByRole("button", { name: "Back", exact: true }).click();
+        await selectPromotionKind(page, dialog, "Post or blurb");
+        const confirmation = page.getByRole("dialog").filter({ hasText: "Switch promotion type?" });
+        await expect(confirmation).toBeVisible();
+        await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+        await expect(promotionKindTrigger(dialog)).toContainText("Flyer");
+        await dialog.getByRole("button", { name: "Next: Content" }).click();
         await expect(headlineInput(dialog)).toHaveValue("Sunlit 2BR — first month free");
-
-        page.once("dialog", (d) => void d.accept());
-        await selectPromotionKind(page, dialog, "Text");
-        await expect(kind).toContainText("Text");
-        await expect(dialog.locator('[data-attr="select-promotion-text-format"]')).toBeVisible();
-
+        await dialog.getByRole("button", { name: "Back", exact: true }).click();
+        await selectPromotionKind(page, dialog, "Post or blurb");
+        await page.getByRole("dialog").filter({ hasText: "Switch promotion type?" }).getByRole("button", { name: "Switch", exact: true }).click();
+        await expect(promotionKindTrigger(dialog)).toContainText("Post or blurb");
         await selectPromotionKind(page, dialog, "Flyer");
+        await dialog.getByRole("button", { name: "Next: Content" }).click();
         await expect(headlineInput(dialog)).toHaveValue("");
-
-        await dialog.getByRole("button", { name: /close/i }).click();
-        await expect(page.getByRole("dialog")).toHaveCount(0);
       });
 
-      test("creates a text promotion straight from the type dropdown", async ({ page }) => {
+      test("creates a post or blurb through the promotion wizard", async ({ page }) => {
         await page.goto("/portal/promotion", { waitUntil: "domcontentloaded" });
         const fixture = await createSyntheticProperty(page);
         const frame = await openPromotionSection(page);
@@ -154,13 +124,15 @@ test.describe("Promotion UX", () => {
 
         await page.locator('[data-attr="promotion-new"]').click();
         const dialog = page.getByRole("dialog");
-        await selectPromotionKind(page, dialog, "Text");
+        await selectPromotionKind(page, dialog, "Post or blurb");
 
-        const propertyTrigger = fieldSelectTrigger(dialog, "select-promotion-text-property");
+        const propertyTrigger = fieldSelectTrigger(dialog, "promotion-new-property");
         await expect(propertyTrigger).toBeVisible();
         await propertyTrigger.click();
         await page.getByRole("option", { name: fixture.name, exact: true }).click();
         await expect(propertyTrigger).toContainText(fixture.name);
+        await dialog.getByRole("button", { name: "Next: Content" }).click();
+        await dialog.getByRole("button", { name: "Next: Preview" }).click();
         await dialog.locator('[data-attr="promotion-text-generate-submit"]').click();
 
         const preview = page.getByRole("dialog");

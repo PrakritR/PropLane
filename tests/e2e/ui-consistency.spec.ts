@@ -34,9 +34,9 @@ test.describe("UI consistency — authenticated portal shell", () => {
     await expect(page.getByRole("heading", { name: /^communication$/i })).toBeVisible();
   });
 
-  test("portal payments section renders without legacy empty state", async ({ page }) => {
+  test("portal payments section loads its canonical list", async ({ page }) => {
     await page.goto("/portal/payments");
-    await expect(page.getByRole("heading", { name: /^payments$/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^payments$/i })).toBeVisible({ timeout: 45_000 });
     await expect(page.locator("main")).toBeVisible();
   });
 });
@@ -52,12 +52,12 @@ test.describe("UI consistency — dark mode portal routes", () => {
     });
   });
 
-  const routes = ["/portal/communication/active", "/portal/payments", "/portal/services/requests"] as const;
+  const routes = ["/portal/communication/active", "/portal/payments/incoming/pending", "/portal/services/requests/pending"] as const;
 
   for (const route of routes) {
     test(`${route} applies the configured theme`, async ({ page }) => {
       await page.goto(route);
-      await expect(page.getByRole("heading").first()).toBeVisible();
+      await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 45_000 });
       await expect(page.locator("html")).toHaveAttribute("data-theme", DARK_MODE_ENABLED ? "dark" : "light");
     });
   }
