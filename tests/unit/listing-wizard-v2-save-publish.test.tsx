@@ -4,6 +4,7 @@ import React from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { listingV2PublishPricingBlocker, PUBLISH_BLOCKER_RENT } from "@/lib/listing-wizard-validation";
 
 const saveDraft = vi.hoisted(() => vi.fn());
 const publishDraft = vi.hoisted(() => vi.fn());
@@ -93,6 +94,26 @@ describe("V2 editor action availability", () => {
 });
 
 describe("V2 publish gate and recovery", () => {
+	it("stores the displayed long-term choice for a fresh listing", async () => {
+		render(<ListingWizardV2 onClose={() => {}} showToast={showToast} userId="manager-1" skuTier="starter" />);
+		expect(document.querySelector('[data-attr="listing-v2-stay-long-term"]')).toHaveAttribute("aria-checked", "true");
+		fireEvent.change(screen.getByPlaceholderText("Magnolia House"), { target: { value: "Fresh home" } });
+		fireEvent.click(screen.getByRole("button", { name: "Close" }));
+		await waitFor(() => expect(saveDraft).toHaveBeenCalled());
+		const saved = saveDraft.mock.calls[0]!.find((arg: unknown) => !!arg && typeof arg === "object" && "allowedLeaseTerms" in arg) as ManagerListingSubmissionV1;
+		expect(saved.allowedLeaseTerms).toEqual([LONG_TERM_LEASE_TERM]);
+		expect(listingV2PublishPricingBlocker(saved)).toBe(PUBLISH_BLOCKER_RENT);
+	});
+
+	it("does not seed an explicitly supplied empty draft", async () => {
+		const sub = createDefaultListingSubmission();
+		render(<ListingWizardV2 onClose={() => {}} showToast={showToast} userId="manager-1" skuTier="starter" initialSubmission={sub} initialDraftId="draft-1" />);
+		fireEvent.change(screen.getByPlaceholderText("Magnolia House"), { target: { value: "Existing home" } });
+		fireEvent.click(screen.getByRole("button", { name: "Close" }));
+		await waitFor(() => expect(saveDraft).toHaveBeenCalled());
+		const saved = saveDraft.mock.calls[0]!.find((arg: unknown) => !!arg && typeof arg === "object" && "allowedLeaseTerms" in arg) as ManagerListingSubmissionV1;
+		expect(saved.allowedLeaseTerms).toEqual([]);
+	});
 	it("publishes a complete listing from an early step", async () => {
 		const onPublished = vi.fn();
 		render(

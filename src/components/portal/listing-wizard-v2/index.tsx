@@ -43,6 +43,7 @@ import {
   applyListingBedroomSlots,
   createDefaultListingSubmission,
   normalizeManagerListingSubmissionV1,
+  withOfferedLeaseTermsFilled,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
 import { deleteManagerPropertyDraft } from "@/lib/demo-admin-property-inventory";
@@ -194,7 +195,7 @@ export function ListingWizardV2({
   const [submission, setSubmission] = useState<ManagerListingSubmissionV1>(() => {
     // A brand-new listing (no draft, no saved record) starts with the recommended leasing setup.
     const loaded = normalizeManagerListingSubmissionV1(
-      initialSubmission ?? submissionWithDefaultLeasingSetup(createDefaultListingSubmission()),
+      initialSubmission ?? submissionWithDefaultLeasingSetup(withOfferedLeaseTermsFilled(createDefaultListingSubmission())),
     );
     // A listing saved while the Pricing step blanked a room ticked "Same as
     // default room" holds $0 rent on that room although the card drew $1,050.

@@ -133,7 +133,6 @@ export function PropertyPricingPanel({
 
   const filteredRooms = rooms.filter((r) => match(r.name?.trim() || "room") || match(propertyPricingRoomSummary(r, sub, sub.roomPricingMeta?.[r.id])));
   const filteredBundles = bundles.filter((b) => match(b.label?.trim() || "bundle") || match(propertyPricingBundleSummary(b, sub)));
-  const showWholeTab = !entireHome || sub.entireHomeOffered || (sub.entireHomeMonthlyRent ?? 0) > 0;
 
   // Server-confirmed: "Pricing saved" is only said once the record is stored, never on a background mirror that
   // can still be refused (a refused mirror put the old prices back on the next reload).
@@ -180,9 +179,7 @@ export function PropertyPricingPanel({
   const tabItems = [
     { id: "rooms" as const, label: "Rooms", count: rooms.length },
     { id: "bundles" as const, label: "Room bundles", count: bundles.length },
-    ...(showWholeTab
-      ? [{ id: "whole" as const, label: "Whole house", count: sub.entireHomeOffered || entireHome ? 1 : 0 }]
-      : []),
+    { id: "whole" as const, label: "Whole house", count: sub.entireHomeOffered || entireHome ? 1 : 0 },
     { id: "fees" as const, label: "Rent & fees", count: undefined },
   ];
   const onFeesTab = tab === "fees";
@@ -235,7 +232,7 @@ export function PropertyPricingPanel({
             ? filteredRooms.length === 0
             : tab === "bundles"
               ? filteredBundles.length === 0
-              : !showWholeTab
+              : false
         }
         emptyCard={{ title: emptyCopy, section: "pricing" }}
       >
@@ -307,7 +304,7 @@ export function PropertyPricingPanel({
             ))
           : null}
 
-        {tab === "whole" && showWholeTab ? (
+        {tab === "whole" ? (
           <PortalPropertyRecordRow
             title="Whole house"
             leading={<PricingRowTile icon={House} />}
