@@ -13,7 +13,8 @@ function assertDev(page: Page) {
   if (url !== "https://emstjswhotsnyksqhqyf.supabase.co" || !["localhost", "127.0.0.1"].includes(host)) throw new Error("Synthetic property test requires the exact dev/test project and localhost.");
 }
 
-async function actorId(page: Page): Promise<string> {
+export async function syntheticFixtureActorId(page: Page): Promise<string> {
+  assertDev(page);
   const cookies = await page.context().cookies();
   const chunks = cookies.filter((c) => /^sb-emstjswhotsnyksqhqyf-auth-token(\.\d+)?$/.test(c.name)).sort((a, b) => Number(a.name.match(/\.(\d+)$/)?.[1] ?? 0) - Number(b.name.match(/\.(\d+)$/)?.[1] ?? 0)).map((c) => decodeURIComponent(c.value)).join("");
   const raw = chunks.startsWith("base64-") ? Buffer.from(chunks.slice(7), "base64").toString("utf8") : chunks;
@@ -35,7 +36,7 @@ export async function cleanupSyntheticProperties(page: Page): Promise<void> {
   const tracked = fixtures.get(page) ?? [];
   if (!tracked.length) return;
   assertDev(page);
-  const actor = await actorId(page);
+  const actor = await syntheticFixtureActorId(page);
   for (const fixture of tracked) {
     if (actor !== fixture.actorId || !/^e2e-safe-[0-9a-f-]{36}$/.test(fixture.id)) throw new Error("Synthetic property cleanup actor or ID mismatch.");
     const matches = (await rows(page)).filter((row) => row.id === fixture.id);
@@ -50,7 +51,7 @@ export async function cleanupSyntheticProperties(page: Page): Promise<void> {
 /** Only a new, uniquely named fixture may be mutated by these browser tests. */
 export async function createSyntheticProperty(page: Page): Promise<{ id: string; name: string }> {
   assertDev(page);
-  const actor = await actorId(page);
+  const actor = await syntheticFixtureActorId(page);
   const id = `e2e-safe-${randomUUID()}`;
   const name = `E2E Safe ${randomUUID()}`;
   const base = createDefaultListingSubmission();

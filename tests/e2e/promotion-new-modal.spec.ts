@@ -1,7 +1,7 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import path from "node:path";
 import { mockStripeAllRoutes } from "../helpers/auth";
-import { cleanupSyntheticProperties, createSyntheticProperty } from "../helpers/synthetic-property-e2e";
+import { cleanupSyntheticProperties, createSyntheticProperty, syntheticFixtureActorId } from "../helpers/synthetic-property-e2e";
 import { fieldSelectTrigger, pickFieldSelect } from "../helpers/field-select";
 
 /**
@@ -45,7 +45,29 @@ async function openPromotionSection(page: Page) {
   return page.locator('[data-slot="portal-page-shell"]').first();
 }
 
+type PromotionFixture = { id: string; propertyId: string; actorId: string };
+const createdPromotions = new WeakMap<Page, PromotionFixture[]>();
+type PromotionRow = { id: string; propertyId: string | null; managerUserId: string };
+async function promotionRows(page: Page): Promise<PromotionRow[]> {
+  const response = await page.request.get("/api/portal-promotions");
+  if (!response.ok()) throw new Error("Promotion fixture read failed.");
+  const body = await response.json() as { rows?: PromotionRow[] };
+  if (!Array.isArray(body.rows)) throw new Error("Promotion fixture read is invalid.");
+  return body.rows;
+}
+
 test.afterEach(async ({ page }) => {
+  const tracked = createdPromotions.get(page) ?? [];
+  if (tracked.length) {
+    const actor = await syntheticFixtureActorId(page);
+    for (const fixture of tracked) {
+      const matches = (await promotionRows(page)).filter((row) => row.id === fixture.id);
+      if (actor !== fixture.actorId || matches.length !== 1 || matches[0].managerUserId !== actor || matches[0].propertyId !== fixture.propertyId) throw new Error("Promotion cleanup ownership mismatch.");
+      const response = await page.request.post("/api/portal-promotions", { data: { action: "delete", id: fixture.id } });
+      if (!response.ok() || (await promotionRows(page)).some((row) => row.id === fixture.id)) throw new Error("Promotion cleanup was not confirmed.");
+    }
+    createdPromotions.delete(page);
+  }
   await cleanupSyntheticProperties(page);
 });
 
@@ -124,7 +146,8 @@ test.describe("Promotion UX", () => {
         const fixture = await createSyntheticProperty(page);
         const frame = await openPromotionSection(page);
         const list = page.locator('[data-attr="promotion-content-direct"]');
-        const beforeCount = await list.getByRole("checkbox").count();
+        const actor = await syntheticFixtureActorId(page);
+        const beforeIds = new Set((await promotionRows(page)).map((row) => row.id));
 
         await page.locator('[data-attr="promotion-new"]').click();
         const dialog = page.getByRole("dialog");
@@ -144,7 +167,19 @@ test.describe("Promotion UX", () => {
         await expect(preview.getByRole("button", { name: "Copy text", exact: true })).toBeVisible();
         await preview.getByRole("button", { name: "Close", exact: true }).click();
         await expect(page.getByRole("dialog")).toHaveCount(0);
-        await expect(list.getByRole("checkbox")).toHaveCount(beforeCount + 1);
+        await expect.poll(async () => {
+          const matches = (await promotionRows(page)).filter((row) => !beforeIds.has(row.id) && row.propertyId === fixture.id && row.managerUserId === actor);
+          if (matches.length === 1) {
+            const saved = matches[0];
+            if (!(createdPromotions.get(page) ?? []).some((row) => row.id === saved.id)) createdPromotions.set(page, [...(createdPromotions.get(page) ?? []), { id: saved.id, propertyId: fixture.id, actorId: actor }]);
+          }
+          return matches.length;
+        }, { timeout: 15_000 }).toBe(1);
+        await expect(list.getByRole("button", { name: new RegExp(fixture.name) })).toBeVisible();
+        const savedId = createdPromotions.get(page)![0].id;
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await expect.poll(async () => (await promotionRows(page)).filter((row) => row.id === savedId && row.propertyId === fixture.id && row.managerUserId === actor).length).toBe(1);
+        await expect(page.locator('[data-attr="promotion-content-direct"]').getByRole("button", { name: new RegExp(fixture.name) })).toBeVisible();
         await frame.screenshot({
           path: `${SHOT_DIR}/${viewport.name}-07-text-promotion-created.png`,
         });
