@@ -5,6 +5,8 @@ const state = vi.hoisted(() => ({
   profileEmail: "r@example.test",
   decision: vi.fn(async () => ({ required: false, hasApplication: false, applicationStatus: null, blocked: null })),
   create: vi.fn(async () => ({ ok: true, row: { kind: "tour" }, inquiryId: "inquiry" })),
+  ensure: vi.fn(async () => ({ ok: true })),
+  link: vi.fn(async () => undefined),
 }));
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }), headers: async () => ({ get: () => null }) }));
 vi.mock("next/navigation", () => ({ redirect: () => { throw new Error("unexpected redirect"); } }));
@@ -13,8 +15,8 @@ vi.mock("@/lib/rate-limit", () => ({ clientIpFrom: () => "test", rateLimit: asyn
 vi.mock("@/lib/application-before-tour.server", () => ({ resolveApplicationBeforeTour: state.decision }));
 vi.mock("@/lib/tour-inquiry-create.server", () => ({ createTourInquiry: state.create, textValue: (value: unknown) => typeof value === "string" ? value : "" }));
 vi.mock("@/lib/listing-channels/lead-source.server", () => ({ readListingSource: async () => null }));
-vi.mock("@/lib/auth/ensure-signed-in-resident.server", () => ({ ensureSignedInResidentAccount: async () => undefined }));
-vi.mock("@/lib/tour-resident-link.server", () => ({ linkTourInquiryToResident: async () => undefined }));
+vi.mock("@/lib/auth/ensure-signed-in-resident.server", () => ({ ensureSignedInResidentAccount: state.ensure }));
+vi.mock("@/lib/tour-resident-link.server", () => ({ linkTourInquiryToResident: state.link }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({
   auth: { getUser: async () => ({ data: { user: state.user }, error: null }) },
   from: (table: string) => ({ select: () => ({ eq: () => table === "profiles"
@@ -31,12 +33,27 @@ beforeEach(() => {
   state.profileEmail = "r@example.test";
   state.decision.mockClear();
   state.create.mockClear();
+  state.ensure.mockClear();
+  state.link.mockClear();
 });
 
 it("allows a verified session to reach tour creation with the authoritative mailbox", async () => {
   const response = await POST(new Request("http://localhost/api/public/partner-inquiries", { method: "POST", body: JSON.stringify({ row: { kind: "tour", email: "forged@example.test" } }) }));
   expect(response.status).toBe(200);
   expect(state.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ incoming: expect.objectContaining({ email: "r@example.test" }), verifiedApplicantEmail: "r@example.test", verifiedApplicantUserId: "resident" }));
+  const args = (state.create.mock.calls as unknown as unknown[][])[0]![1] as { beforeTourNotifications: (created: { row: Record<string, unknown>; inquiryId: string }) => Promise<void> };
+  await args.beforeTourNotifications({ row: { kind: "tour" }, inquiryId: "exact-inquiry" });
+  expect(state.ensure).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: "resident" }));
+  expect(state.link).toHaveBeenCalledWith(expect.anything(), { userId: "resident", inquiryId: "exact-inquiry", email: "r@example.test" });
+});
+
+it("does not link when ensuring resident access fails", async () => {
+  state.ensure.mockResolvedValueOnce({ ok: false });
+  const response = await POST(new Request("http://localhost/api/public/partner-inquiries", { method: "POST", body: JSON.stringify({ row: { kind: "tour" } }) }));
+  expect(response.status).toBe(200);
+  const args = (state.create.mock.calls as unknown as unknown[][])[0]![1] as { beforeTourNotifications: (created: { row: Record<string, unknown>; inquiryId: string }) => Promise<void> };
+  await args.beforeTourNotifications({ row: { kind: "tour" }, inquiryId: "exact-inquiry" });
+  expect(state.link).not.toHaveBeenCalled();
 });
 
 it.each(["unconfirmed", "mismatch", "view-as"])("refuses a %s tour before creation", async (kind) => {

@@ -14,8 +14,8 @@
  * opted in, and `confirm_tour_inquiry` is what actually books. That is the
  * approval-first invariant in docs/agents/tours-scheduling.md.
  *
- * Callers own two things this function does not: rate limiting, and linking a
- * signed-in resident to the inquiry afterwards.
+ * Callers own rate limiting and resident linking; a trusted hook can link the
+ * newly created inquiry before notifications begin.
  */
 import type { NoticeChannel } from "@/lib/notice-channel";
 import "server-only";
@@ -357,6 +357,8 @@ export async function createTourInquiry(
      * text, otherwise the web channel. A request carrying `smsOrigin` is always `sms`.
      */
     noticeChannel?: NoticeChannel;
+    /** Trusted server caller may establish resident access before notifications begin. */
+    beforeTourNotifications?: (created: { row: Record<string, unknown>; inquiryId: string }) => Promise<void>;
   },
 ): Promise<CreateTourInquiryResult> {
   // Strip this internal provenance key before copying public input. It is set
@@ -619,6 +621,14 @@ export async function createTourInquiry(
   const consentPhone = textValue(row.phone);
   if (smsConsent && consentPhone) {
     await recordOptIn(db, consentPhone, null, "tours-contact").catch(() => undefined);
+  }
+
+  if (isTour && args.beforeTourNotifications) {
+    try {
+      await args.beforeTourNotifications({ row, inquiryId: id });
+    } catch {
+      // Linking is best-effort; the durable booking must still succeed.
+    }
   }
 
   if (isTour && notify) {

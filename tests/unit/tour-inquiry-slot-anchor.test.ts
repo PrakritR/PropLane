@@ -141,6 +141,30 @@ describe("anchorTourWindowToSlotKey", () => {
 });
 
 describe("createTourInquiry anchors the stored window to the slot key", () => {
+  it("waits for the trusted link before dispatching each notice once", async () => {
+    let finish!: () => void;
+    const binding = new Promise<void>((resolve) => { finish = resolve; });
+    const hook = vi.fn(async (_created: { row: Record<string, unknown>; inquiryId: string }) => binding);
+    const pending = createTourInquiry(fakeDb(), { incoming: tourRequest({ id: "forged-id" }), beforeTourNotifications: hook });
+    await vi.waitFor(() => expect(hook).toHaveBeenCalledTimes(1));
+    expect(upserts.length).toBeGreaterThan(0);
+    const hookPayload = hook.mock.calls[0]![0] as { inquiryId: string; row: { id: string } };
+    expect(hookPayload.inquiryId).toBe(hookPayload.row.id);
+    expect(hookPayload.inquiryId).not.toBe("forged-id");
+    expect(notifyTenantTourRequestReceived).not.toHaveBeenCalled();
+    expect(notifyManagerTourRequest).not.toHaveBeenCalled();
+    finish();
+    expect((await pending).ok).toBe(true);
+    expect(notifyTenantTourRequestReceived).toHaveBeenCalledTimes(1);
+    expect(notifyManagerTourRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the booking and dispatches once when linking rejects", async () => {
+    const result = await createTourInquiry(fakeDb(), { incoming: tourRequest(), beforeTourNotifications: async () => { throw new Error("link failed"); } });
+    expect(result.ok).toBe(true);
+    expect(notifyTenantTourRequestReceived).toHaveBeenCalledTimes(1);
+    expect(notifyManagerTourRequest).toHaveBeenCalledTimes(1);
+  });
   it("stores, records, and notifies the slot's time — never the client's", async () => {
     const result = await createTourInquiry(fakeDb(), { incoming: tourRequest() });
 
@@ -180,7 +204,9 @@ describe("createTourInquiry anchors the stored window to the slot key", () => {
   });
 
   it("refuses a key that names no slot instead of storing the client's time", async () => {
+    const hook = vi.fn();
     const result = await createTourInquiry(fakeDb(), {
+      beforeTourNotifications: hook,
       incoming: tourRequest({
         requestedWindows: [{ start: WRONG_START_ISO, end: WRONG_END_ISO, adminUserId: "mgr-1", slotKey: "garbage" }],
       }),
@@ -188,6 +214,7 @@ describe("createTourInquiry anchors the stored window to the slot key", () => {
 
     expect(result).toMatchObject({ ok: false, reason: "slot_unavailable" });
     expect(upserts).toEqual([]);
+    expect(hook).not.toHaveBeenCalled();
   });
 
   it("keeps a window that already agrees with its slot byte-for-byte", async () => {

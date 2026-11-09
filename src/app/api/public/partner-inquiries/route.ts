@@ -90,25 +90,17 @@ export async function POST(req: Request) {
       verifiedApplicantEmail: linkingEmail,
       verifiedApplicantUserId: linkingUser?.id ?? null,
       sourceChannel: textValue(incoming.kind) === "tour" ? await readListingSource(req) : null,
+      beforeTourNotifications: linkingUser && linkingEmail ? async ({ inquiryId }) => {
+        const ensured = await ensureSignedInResidentAccount(db, linkingUser);
+        if (!ensured.ok) return;
+        await linkTourInquiryToResident(db, { userId: linkingUser.id, inquiryId, email: linkingEmail });
+      } : undefined,
     });
     if (!created.ok) {
       return NextResponse.json(
         { error: created.error, ...(created.reason === "identity_required" ? { blocked: "identity", href: "/resident/profile?tab=profile#verification" } : {}) },
         { status: STATUS_BY_REASON[created.reason] ?? 500 },
       );
-    }
-
-    if (linkingUser && linkingEmail && textValue(created.row.kind) === "tour") {
-      try {
-        await ensureSignedInResidentAccount(db, linkingUser);
-        await linkTourInquiryToResident(db, {
-          userId: linkingUser.id,
-          inquiryId: created.inquiryId,
-          email: linkingEmail,
-        });
-      } catch {
-        // A link failure must not fail the booking — backfill runs on portal load.
-      }
     }
 
     return NextResponse.json({ ok: true, row: created.row });
