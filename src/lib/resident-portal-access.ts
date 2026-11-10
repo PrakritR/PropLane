@@ -1,3 +1,4 @@
+import { provenLegacyResidentLeases, type BoundLeaseApplication, type LegacyLeaseCandidate } from "@/lib/auth/resident-legacy-lease-evidence";
 import { cache } from "react";
 import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import {
@@ -155,6 +156,36 @@ function latestApplicationOf(owned: OwnedApplication[]): {
  * and nothing downstream that asks "is the lease signed" should start getting
  * `true` for a lease that is not.
  */
+/** Server-bound applications are required before a null-subject lease can count. */
+async function legacyLeaseRowsForBoundResident(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>, userId: string, email: string,
+  managerUserId?: string | null, applications?: BoundLeaseApplication[] | null,
+): Promise<Record<string, unknown>[]> {
+  if (!userId || !email) return [];
+  try {
+    let apps = applications;
+    if (!apps) {
+      let query = db.from("manager_application_records").select("id, manager_user_id, resident_email, property_id, assigned_property_id, row_data").eq("row_data->>residentUserId", userId);
+      if (managerUserId) query = query.eq("manager_user_id", managerUserId);
+      const result = await query.limit(100);
+      if (result.error || !result.data || result.data.length >= 100) return [];
+      apps = result.data;
+    }
+    if (!apps.length || apps.length >= 100) return [];
+    if (!apps.some((record) => {
+      const data = record.row_data as Record<string, unknown> | null;
+      return record.id && record.manager_user_id && record.resident_email && data?.residentUserId === userId && data.bucket === "approved" && !data.withdrawnAt;
+    })) return [];
+    const escaped = email.replace(/[\\%_]/g, "\\$&");
+    let query = db.from("portal_lease_pipeline_records").select("id, manager_user_id, resident_user_id, resident_email, property_id, row_data").is("resident_user_id", null).ilike("resident_email", escaped);
+    if (managerUserId) query = query.eq("manager_user_id", managerUserId);
+    const result = await query.limit(100);
+    if (result.error || !result.data || result.data.length >= 100) return [];
+    return provenLegacyResidentLeases(apps, result.data as LegacyLeaseCandidate[], userId, email)
+      .map((record) => record.row_data as Record<string, unknown>);
+  } catch { return []; }
+}
+
 export async function loadResidentManagerAttestedTenancy(
   email: string,
   managerUserId?: string,
@@ -168,8 +199,12 @@ export async function loadResidentManagerAttestedTenancy(
     .select("row_data");
   query = residentUserId ? query.eq("resident_user_id", residentUserId) : query.eq("resident_email", normalizedEmail);
   if (managerUserId) query = query.eq("manager_user_id", managerUserId);
-  const { data } = await query.order("updated_at", { ascending: false });
-  return (data ?? []).some((record) => leaseRowAttestsTenancy(record.row_data as Record<string, unknown> | null));
+  const { data, error } = await query.order("updated_at", { ascending: false });
+  if (error) return false;
+  if ((data ?? []).some((record) => leaseRowAttestsTenancy(record.row_data as Record<string, unknown> | null))) return true;
+  const verified = residentUserId ? await verifiedTourFallbackEmail(db, residentUserId, normalizedEmail) : "";
+  const legacy = verified && residentUserId ? await legacyLeaseRowsForBoundResident(db, residentUserId, verified, managerUserId) : [];
+  return legacy.some(leaseRowAttestsTenancy);
 }
 
 /** The two row facts that say "this person is mid-tenancy" without a signature. */
@@ -199,9 +234,12 @@ export async function loadResidentLeaseSignedStatus(email: string, managerUserId
   let query = db.from("portal_lease_pipeline_records").select("row_data");
   query = residentUserId ? query.eq("resident_user_id", residentUserId) : query.eq("resident_email", normalizedEmail);
   if (managerUserId) query = query.eq("manager_user_id", managerUserId);
-  const { data } = await query.order("updated_at", { ascending: false });
-  if (!data?.length) return false;
-  return data.some((record) => leaseRowIsFullySigned(record.row_data as Record<string, unknown> | null));
+  const { data, error } = await query.order("updated_at", { ascending: false });
+  if (error) return false;
+  if (data?.some((record) => leaseRowIsFullySigned(record.row_data as Record<string, unknown> | null))) return true;
+  const verified = residentUserId ? await verifiedTourFallbackEmail(db, residentUserId, normalizedEmail) : "";
+  const legacy = verified && residentUserId ? await legacyLeaseRowsForBoundResident(db, residentUserId, verified, managerUserId) : [];
+  return legacy.some(leaseRowIsFullySigned);
 }
 
 /** Both signatures present, in either the current or the legacy shape. */
@@ -285,11 +323,11 @@ const loadResidentPortalAccessStateCached = cache(
     email = userId ? await verifiedTourFallbackEmail(db, userId, email) : "";
     let applicationQuery = db
       .from("manager_application_records")
-      .select("id, row_data, updated_at, resident_email, manager_user_id")
+      .select("id, row_data, updated_at, resident_email, manager_user_id, property_id, assigned_property_id")
       .eq("row_data->>residentUserId", userId);
     if (managerUserId) applicationQuery = applicationQuery.eq("manager_user_id", managerUserId);
-    // The resident's lease rows are read ONCE here: the signed and attested-tenancy answers and the
-    // applications those leases name all come off the same rows (AGENTS.md § Performance & egress).
+    // Bound lease rows serve both access facts and form scope. Only if they do not unlock access,
+    // probe bounded legacy null-subject candidates against already-loaded bound applications.
     let leaseQuery = db.from("portal_lease_pipeline_records").select("row_data").eq("resident_user_id", userId);
     if (managerUserId) leaseQuery = leaseQuery.eq("manager_user_id", managerUserId);
     const [applicationResult, leaseResult, hasTourLink, hasStays] = await Promise.all([
@@ -302,7 +340,11 @@ const loadResidentPortalAccessStateCached = cache(
     const leaseRows = ((leaseResult.data ?? []) as { row_data?: unknown }[]).map(
       (record) => (record.row_data ?? null) as Record<string, unknown> | null,
     );
-    const leaseSigned = leaseRows.some(leaseRowIsFullySigned);
+    const directAccess = leaseRows.some((row) => leaseRowIsFullySigned(row) || leaseRowAttestsTenancy(row));
+    const legacyLeaseRows = !directAccess && !applicationResult.error && !leaseResult.error && email
+      ? await legacyLeaseRowsForBoundResident(db, userId, email, managerUserId, (applicationRows ?? []) as BoundLeaseApplication[])
+      : [];
+    const leaseSigned = [...leaseRows, ...legacyLeaseRows].some(leaseRowIsFullySigned);
     // Null, not an empty list: a scope read that failed must lock the forms gate rather than read
     // as "this login is bound to nothing".
     const boundApplicationIds: string[] | null = applicationResult.error || leaseResult.error
@@ -383,7 +425,7 @@ const loadResidentPortalAccessStateCached = cache(
     // A tenant onboarded from a paper lease has no signed document and is still
     // a tenant. `leaseSigned` stays honest about the document; access keys on
     // either (PRP-239).
-    const attestedTenancy = leaseSigned ? false : leaseRows.some(leaseRowAttestsTenancy);
+    const attestedTenancy = leaseSigned ? false : [...leaseRows, ...legacyLeaseRows].some(leaseRowAttestsTenancy);
     const leaseAccessUnlocked = leaseSigned || attestedTenancy;
     const isPreLeaseResident =
       roleOk &&

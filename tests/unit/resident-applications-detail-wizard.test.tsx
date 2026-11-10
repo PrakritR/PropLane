@@ -79,7 +79,7 @@ vi.mock("@/components/portal/pro-applications", () => ({
   ),
 }));
 vi.mock("@/components/portal/resident-application-editor", () => ({ ResidentApplicationEditor: () => null }));
-vi.mock("@/components/marketing/rental-application-finish-panel", () => ({ GroupShareCallout: () => null }));
+vi.mock("@/components/marketing/rental-application-finish-panel", () => ({ GroupShareCallout: () => <div data-testid="group-share" /> }));
 vi.mock("@/components/marketing/rental-application-wizard", () => ({
   RentalApplicationWizard: () => <div data-testid="rental-wizard" />,
 }));
@@ -88,7 +88,8 @@ vi.mock("@/components/portal/resident-linked-forms-section", () => ({
   ResidentLinkedFormsSection: () => <div data-testid="linked-helper-forms">Co-signer application</div>,
 }));
 vi.mock("@/components/portal/resident-application-status-screen", () => ({
-  ResidentApplicationStatusScreen: () => <div data-testid="application-status" />,
+  ResidentApplicationStatusScreen: ({ detailHref }: { detailHref?: string }) => <div data-testid="application-status" data-detail-href={detailHref} />,
+  ResidentApplicationOwedForms: () => null,
 }));
 
 import { ResidentApplicationsPanel } from "@/components/portal/resident-applications-panel";
@@ -172,4 +173,13 @@ it("shows helper forms even when one submitted application opens its status scre
   render(<ResidentApplicationsPanel />);
   expect(await screen.findByTestId("linked-helper-forms")).toBeTruthy();
   expect(screen.getByTestId("application-status")).toBeTruthy();
+  expect(screen.getByTestId("application-status")).toHaveAttribute("data-detail-href", "/resident/applications/pending/PROPLANE-BBBB0002");
+});
+
+it("keeps group sharing and editing on the detail without a self-link", async () => {
+  ROWS = [{ ...inProgressRow("PROPLANE-GROUP0001", "mgr-test-spruce", "Spruce Studio"), stage: "Submitted", application: { propertyId: "mgr-test-spruce", email: "jamie.rivera@example.com", applyingAsGroup: "yes", groupRole: "first" } } as DemoApplicantRow];
+  render(<ResidentApplicationsPanel applicationId="PROPLANE-GROUP0001" bucket="pending" applicationDetailTab="application-form" />);
+  expect(await screen.findByTestId("group-share")).toBeTruthy();
+  expect(screen.getByRole("button", { name: /edit application/i })).toBeTruthy();
+  expect(screen.getByTestId("application-status")).not.toHaveAttribute("data-detail-href");
 });

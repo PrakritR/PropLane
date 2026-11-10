@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
 import fs from "node:fs";
 import { E2E_ACCOUNTS } from "../fixtures";
+import { establishActivePortal, signIn } from "../helpers/auth";
 
 /**
  * Headed Chrome walkthrough for bundle+group joint lease UI.
@@ -102,11 +103,8 @@ test.describe("Bundle group manual Chrome walkthrough", () => {
   });
 
   test("manager sign-in → applications group section copy", async ({ page }) => {
-    await page.goto(`/auth/sign-in?next=${encodeURIComponent("/portal/applications")}`);
-    await page.getByPlaceholder("Email").fill(MANAGER.email);
-    await page.getByPlaceholder("Password").fill(MANAGER.password);
-    await page.getByRole("button", { name: /^sign in$/i }).click();
-    await page.waitForURL(/\/portal/, { timeout: 45_000 });
+    await signIn(page, MANAGER.email, MANAGER.password, "/portal/applications");
+    await establishActivePortal(page, "manager", "/portal/applications");
 
     await page.goto("/portal/properties");
     await expect(txt(page, /Magnolia House/i)).toBeVisible({ timeout: 45_000 });
@@ -122,11 +120,8 @@ test.describe("Bundle group manual Chrome walkthrough", () => {
   });
 
   test("manager leases panel loads joint bundle badge surface", async ({ page }) => {
-    await page.goto(`/auth/sign-in?next=${encodeURIComponent("/portal/leases")}`);
-    await page.getByPlaceholder("Email").fill(MANAGER.email);
-    await page.getByPlaceholder("Password").fill(MANAGER.password);
-    await page.getByRole("button", { name: /^sign in$/i }).click();
-    await page.waitForURL(/\/portal/, { timeout: 45_000 });
+    await signIn(page, MANAGER.email, MANAGER.password, "/portal/leases");
+    await establishActivePortal(page, "manager", "/portal/leases");
 
     await page.goto("/portal/leases");
     await expect(

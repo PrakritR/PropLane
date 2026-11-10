@@ -14,6 +14,7 @@ import {
 } from "@/lib/resident-autopay.server";
 import { loadWorkspacePaymentSettingsForProperty, workspaceAutopayEnabled } from "@/lib/workspace-payment-settings.server";
 import { formatPacificDate } from "@/lib/pacific-time";
+import { serviceChargeDisplayTitle } from "@/lib/service-charge-title";
 import { track } from "@/lib/analytics/posthog";
 
 export const runtime = "nodejs";
@@ -74,7 +75,7 @@ async function loadLatestFailedRun(
 
   return {
     chargeId: String(runRow.charge_id),
-    chargeTitle: charge.title || "your charge",
+    chargeTitle: serviceChargeDisplayTitle(charge, "your charge"),
     failureReason: String(runRow.failure_reason ?? "The payment was declined."),
   };
 }

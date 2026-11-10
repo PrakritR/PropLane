@@ -8,6 +8,7 @@ const room = (provider: string, roomId: string, hasImportUrl = true) => ({
   exportUrl: `https://proplane.ai/api/calendar/export/token-${roomId}.ics`,
 });
 const bookings = vi.hoisted(() => ({ rooms: [] as unknown[] }));
+const workspaceState = vi.hoisted(() => ({ loading: false, error: null as string | null, available: true }));
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useConfirm: () => () => Promise.resolve(true),
@@ -16,7 +17,7 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
 vi.mock("@/components/portal/workspace-provider", () => ({
   useWorkspaces: () => {
     const active = { id: "w1", name: "Seattle", owned: true, canManageMembers: true, propertyIds: ["p1"], propertyLabels: { p1: "4709A" } };
-    return { workspaces: [active], active };
+    return { workspaces: [active], active: workspaceState.available ? active : null, loading: workspaceState.loading, error: workspaceState.error };
   },
 }));
 vi.mock("@/components/portal/channel-calendar-link-modal", () => ({ ChannelCalendarLinkModal: ({ open, initialProvider }: { open: boolean; initialProvider?: string }) => open ? <div data-testid="connect-modal">{initialProvider}</div> : null }));
@@ -33,9 +34,27 @@ vi.mock("@/lib/channel-calendar/client", () => ({
 
 import { ManagerBookingChannelsPanel } from "@/components/portal/integrations-bookings-panel";
 
-afterEach(() => { cleanup(); toast.mockClear(); });
+afterEach(() => { cleanup(); toast.mockClear(); workspaceState.loading = false; workspaceState.error = null; workspaceState.available = true; });
 
 describe("Settings → Integrations → Bookings", () => {
+  it("waits for the active workspace before enabling calendar connections", () => {
+    workspaceState.loading = true;
+    workspaceState.available = false;
+    const { rerender } = render(<ManagerBookingChannelsPanel />);
+    const airbnb = document.querySelector('[data-attr="settings-airbnb-manage"]') as HTMLButtonElement;
+    expect(airbnb.disabled).toBe(true);
+    fireEvent.click(airbnb);
+    expect(screen.queryByTestId("connect-modal")).toBeNull();
+    workspaceState.loading = false;
+    workspaceState.available = true;
+    rerender(<ManagerBookingChannelsPanel />);
+    expect(airbnb.disabled).toBe(false);
+    fireEvent.click(airbnb);
+    expect(screen.getByTestId("connect-modal").textContent).toBe("airbnb");
+    workspaceState.error = "Unavailable";
+    rerender(<ManagerBookingChannelsPanel />);
+    expect(airbnb.disabled).toBe(true);
+  });
   it("counts only each channel's own links and opens the popup on that channel", async () => {
     bookings.rooms = [room("airbnb", "r1"), room("booking_com", "r2"), room("airbnb", "r2", false)];
     render(<ManagerBookingChannelsPanel />);

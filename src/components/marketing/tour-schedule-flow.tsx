@@ -344,9 +344,24 @@ export function TourScheduleFlow({
   const [availabilityLoading, setAvailabilityLoading] = useState(true);
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
   const [bookingTour, setBookingTour] = useState(false);
+  const [identityRequired, setIdentityRequired] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [detailsFooter, setDetailsFooter] = useState<ReactNode | null>(null);
   const [occupancySyncEpoch, setOccupancySyncEpoch] = useState(0);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(`tour-verification:${property.id}`) ?? "null") as { day?: number; slot?: number; month?: number; year?: number; room?: string | null } | null;
+      if (!saved || !Number.isInteger(saved.day) || !Number.isInteger(saved.slot) || !Number.isInteger(saved.month) || !Number.isInteger(saved.year)) return;
+      queueMicrotask(() => { setSelectedDay(saved.day!); setSelectedSlotIndex(saved.slot!); setCalMonth(saved.month!); setCalYear(saved.year!); setSelectedRoomKey(saved.room ?? null); setStep(2); setMaxStepReached(2); });
+      sessionStorage.removeItem(`tour-verification:${property.id}`);
+    } catch { /* A missing or invalid local draft is ignored. */ }
+  }, [property.id]);
+
+  const showIdentityHandoff = () => {
+    try { sessionStorage.setItem(`tour-verification:${property.id}`, JSON.stringify({ day: selectedDay, slot: selectedSlotIndex, month: calMonth, year: calYear, room: selectedRoomKey })); } catch { /* The link remains usable without local storage. */ }
+    setIdentityRequired(true);
+  };
 
   useEffect(() => {
     void syncPublicApprovedApplicationsFromServer().then(() =>
@@ -756,6 +771,11 @@ export function TourScheduleFlow({
 
   return (
     <div className={embedded ? "space-y-6" : "ps-j-stack"}>
+      {identityRequired && <div role="alert" className="rounded-xl border border-border p-4 space-y-3"><p>Verify your identity to request this tour.</p>{(() => {
+        const target = returnAfterAuth.startsWith("/") && !returnAfterAuth.startsWith("//") ? returnAfterAuth : "/resident/tour/schedule";
+        const profile = `/resident/profile?${new URLSearchParams({ tab: "profile", returnTo: target }).toString()}#verification`;
+        return signedInUserId ? <Link className="text-primary font-semibold" href={profile}>Verify identity</Link> : <div className="flex gap-4"><Link className="text-primary font-semibold" href={residentSignInHref(profile)}>Sign in</Link><Link className="text-primary font-semibold" href={residentCreateAccountHref(profile)}>Create account</Link></div>;
+      })()}</div>}
       {pub ? (
         <ol className="ps-j-steps" aria-label="Tour steps">
           {steps.map((st) => {
@@ -1005,6 +1025,7 @@ export function TourScheduleFlow({
                 });
                 setBookingTour(false);
                 if (!result.ok) {
+                  if (result.blocked === "identity") { showIdentityHandoff(); return; }
                   // Inline, on the step that asked, with the time still picked: a toast vanishes and a wiped
                   // pick sends a prospect back to square one over a refusal that may only need another try.
                   setSubmitError(result.error ?? "That tour time is no longer available.");
@@ -1067,6 +1088,7 @@ export function TourScheduleFlow({
               setBookingTour(false);
               const failedResult = results.find((item) => !item.ok);
               if (failedResult) {
+                if (failedResult.blocked === "identity") { showIdentityHandoff(); return; }
                 setSubmitError(failedResult.error ?? "That tour time is no longer available.");
                 if (failedResult.status === 401) setSessionExpired(true);
                 void loadAvailability();

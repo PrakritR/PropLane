@@ -16,7 +16,11 @@ import { APPLICATION_DETAIL_TAB_LABELS, MANAGER_TOUR_BUCKET_LABELS } from "@/lib
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/", useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }) }));
 
-afterEach(cleanup);
+afterEach(async () => {
+  cleanup();
+  // Radix schedules focus restoration on the next task; drain it while jsdom is alive.
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+});
 // A lazy chunk of real wizard pieces can take a few seconds to transform on a loaded machine.
 vi.setConfig({ testTimeout: 40000 });
 

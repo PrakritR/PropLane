@@ -66,9 +66,28 @@ test.describe("Admin portal", () => {
     await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 15_000 });
   });
 
-  test("unified inbox archives a message and Delete all archived empties it", async ({ page }) => {
+  test("mocked UI: unified inbox archives a message and Delete all archived empties it", async ({ page }) => {
+    // All inbox reads and mutations are confined to this test's in-memory rows.
+    let inboxRows: Array<Record<string, unknown>> = [];
+    await page.route("**/api/portal-inbox-threads**", async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({ status: 200, json: { rows: inboxRows } });
+        return;
+      }
+      if (route.request().method() !== "POST") { await route.fulfill({ status: 405, json: { error: "Unexpected test request" } }); return; }
+      const body = route.request().postDataJSON() as { action?: string; row?: Record<string, unknown>; rows?: Array<Record<string, unknown>>; ids?: string[]; folderAction?: string };
+      if (body.action === "replace" && Array.isArray(body.rows)) inboxRows = body.rows;
+      else if (body.action === "upsert" && body.row && typeof body.row.id === "string") inboxRows = [...inboxRows.filter((row) => row.id !== body.row!.id), body.row];
+      else if (body.action === "changeFolder" && Array.isArray(body.ids) && ["archive", "restore"].includes(body.folderAction ?? "")) inboxRows = inboxRows.map((row) => body.ids!.includes(String(row.id)) ? { ...row, folder: body.folderAction === "archive" ? "trash" : "inbox" } : row);
+      else if (body.action === "deleteIds" && Array.isArray(body.ids)) inboxRows = inboxRows.filter((row) => !body.ids!.includes(String(row.id)));
+      else if (body.action === "markRead") { /* Local-only read receipt. */ }
+      else { await route.fulfill({ status: 400, json: { error: "Unexpected test mutation" } }); return; }
+      await route.fulfill({ status: 200, json: { ok: true } });
+    });
+    await page.route("**/api/admin/assistant-thread**", (route) => route.fulfill({ status: 200, json: { thread: null } }));
+    await page.route("**/api/portal/scheduled-inbox-messages**", (route) => route.fulfill({ status: route.request().method() === "GET" ? 200 : 405, json: { messages: [] } }));
     // Keep the compose flow from delivering to real recipient inboxes/push devices.
-    await page.route("**/api/portal/send-inbox-message", (route) =>
+    await page.route("**/api/portal/send-inbox-message**", (route) =>
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) }),
     );
     const evidenceDir = process.env.E2E_EVIDENCE_DIR;
@@ -84,7 +103,7 @@ test.describe("Admin portal", () => {
     await page.route("**/api/admin/portal-users", async (route) => {
       recipientRequestStarted();
       await recipientGate;
-      await route.continue();
+      await route.fulfill({ status: 200, json: { managers: [{ id: "synthetic-manager", name: "Synthetic manager", email: "manager@example.invalid" }], residents: [] } });
     });
     const recipientsLoaded = page.waitForResponse((response) =>
       new URL(response.url()).pathname === "/api/admin/portal-users" && response.ok(),
@@ -109,14 +128,21 @@ test.describe("Admin portal", () => {
     await expect(page.getByPlaceholder("Subject")).toHaveValue(subject);
     await expect(page.getByPlaceholder(/write your message/i)).toHaveValue("Automated trash-tab check.");
     await expect(page.getByRole("button", { name: "Recipient type" })).toContainText("All managers");
-    const sendRequest = page.waitForRequest((request) =>
-      new URL(request.url()).pathname === "/api/portal/send-inbox-message" && request.method() === "POST",
-    );
-    await page.getByRole("button", { name: "Send", exact: true }).click();
-    const sent = (await sendRequest).postDataJSON() as { subject?: string; text?: string; toUserIds?: string[] };
+    await page.getByRole("button", { name: "Recipient type" }).click();
+    await page.getByRole("option", { name: "Choose managers…" }).click();
+    await expect(page.getByRole("checkbox", { name: "Synthetic manager" })).toBeChecked();
+    await page.getByRole("button", { name: "Recipient type" }).click();
+    await page.getByRole("option", { name: "All managers" }).click();
+    const [sendRequest] = await Promise.all([
+      page.waitForRequest((request) =>
+        new URL(request.url()).pathname === "/api/portal/send-inbox-message" && request.method() === "POST",
+      ),
+      page.getByRole("button", { name: "Send message", exact: true }).click(),
+    ]);
+    const sent = sendRequest.postDataJSON() as { subject?: string; text?: string; toUserIds?: string[] };
     expect(sent.subject).toBe(subject);
     expect(sent.text).toBe("Automated trash-tab check.");
-    expect(sent.toUserIds?.length).toBeGreaterThan(0);
+    expect(sent.toUserIds).toEqual(["synthetic-manager"]);
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await page.getByRole("button", { name: "New message" }).click();
     await expect(page.getByPlaceholder("Subject")).toHaveValue("");

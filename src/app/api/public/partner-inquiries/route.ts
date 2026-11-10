@@ -21,6 +21,8 @@ const STATUS_BY_REASON: Record<string, number> = {
   slot_unavailable: 403,
   application_required: 403,
   sign_in_required: 401,
+  identity_required: 403,
+  identity_unavailable: 503,
   conflict: 409,
   duplicate_request: 409,
   rate_limited: 429,
@@ -86,26 +88,19 @@ export async function POST(req: Request) {
     const created = await createTourInquiry(db, {
       incoming,
       verifiedApplicantEmail: linkingEmail,
+      verifiedApplicantUserId: linkingUser?.id ?? null,
       sourceChannel: textValue(incoming.kind) === "tour" ? await readListingSource(req) : null,
+      beforeTourNotifications: linkingUser && linkingEmail ? async ({ inquiryId }) => {
+        const ensured = await ensureSignedInResidentAccount(db, linkingUser);
+        if (!ensured.ok) return;
+        await linkTourInquiryToResident(db, { userId: linkingUser.id, inquiryId, email: linkingEmail });
+      } : undefined,
     });
     if (!created.ok) {
       return NextResponse.json(
-        { error: created.error },
+        { error: created.error, ...(created.reason === "identity_required" ? { blocked: "identity", href: "/resident/profile?tab=profile#verification" } : {}) },
         { status: STATUS_BY_REASON[created.reason] ?? 500 },
       );
-    }
-
-    if (linkingUser && linkingEmail && textValue(created.row.kind) === "tour") {
-      try {
-        await ensureSignedInResidentAccount(db, linkingUser);
-        await linkTourInquiryToResident(db, {
-          userId: linkingUser.id,
-          inquiryId: created.inquiryId,
-          email: linkingEmail,
-        });
-      } catch {
-        // A link failure must not fail the booking — backfill runs on portal load.
-      }
     }
 
     return NextResponse.json({ ok: true, row: created.row });

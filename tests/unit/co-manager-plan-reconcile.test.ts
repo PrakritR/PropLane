@@ -20,6 +20,7 @@ vi.mock("@/lib/supabase/service", () => ({
 function serviceClientWithInvites(rows: Array<Record<string, unknown>>) {
   const updated: string[] = [];
   const deleted: string[] = [];
+  const sweepFilters: Array<Array<[string, string]>> = [];
   const client = {
     from(table: string) {
       if (table === "account_link_invites") {
@@ -41,6 +42,7 @@ function serviceClientWithInvites(rows: Array<Record<string, unknown>>) {
       }
       return {
         delete: () => {
+          const filters: Array<[string, string]> = [];
           const builder: Record<string, unknown> = {
             eq: (col: string, value: string) => {
               if (col === "id") {
@@ -49,14 +51,15 @@ function serviceClientWithInvites(rows: Array<Record<string, unknown>>) {
               }
               return builder;
             },
-            filter: () => Promise.resolve({ error: null }),
+            filter: (column: string, _op: string, value: string) => { filters.push([column, value]); return builder; },
+            then: (resolve: (value: unknown) => void) => { sweepFilters.push(filters); return Promise.resolve({ error: null }).then(resolve); },
           };
           return builder;
         },
       };
     },
   };
-  return { client, updated, deleted };
+  return { client, updated, deleted, sweepFilters };
 }
 
 describe("disconnectCoManagerLinksForPlanDowngrade", () => {
@@ -100,6 +103,37 @@ describe("disconnectCoManagerLinksForPlanDowngrade", () => {
     expect(await disconnectCoManagerLinksForPlanDowngrade("mgr-a")).toBe(1);
     expect(updated).toEqual(["invite-1"]);
     expect(deleted).toEqual(["invite-1"]);
+  });
+  it("keeps another invite between the same participants when revoking one", async () => {
+    getManagerPurchaseSku.mockResolvedValue({ tier: "free", readFailed: false });
+    const { relationshipStorageId } = await import("@/lib/auth/pro-relationship-storage-id.server");
+    const mirrorRows = ["invite-1", "invite-2"].flatMap((id) => [
+      { id: relationshipStorageId("mgr-a", id), owner: "mgr-a", axis: "axis-b", invite: id },
+      { id: relationshipStorageId("mgr-b", id), owner: "mgr-b", axis: "axis-a", invite: id },
+    ]);
+    const { client } = serviceClientWithInvites([
+      { id: "invite-1", inviter_user_id: "mgr-a", invitee_user_id: "mgr-b", inviter_axis_id: "axis-a", invitee_axis_id: "axis-b", status: "accepted" },
+    ]);
+    const originalFrom = client.from;
+    const scopedClient = { ...client, from: (table: string) => {
+      if (table === "account_link_invites") return originalFrom(table);
+      return { delete: () => {
+        const tests: Array<(row: typeof mirrorRows[number]) => boolean> = [];
+        const builder = {
+          eq: (key: string, value: string) => { tests.push((row) => key === "id" ? row.id === value : row.owner === value); return builder; },
+          filter: (key: string, _op: string, value: string) => { tests.push((row) => key === "row_data->>id" ? row.invite === value : row.axis === value); return builder; },
+          then: (resolve: (value: unknown) => void) => {
+            for (let i = mirrorRows.length - 1; i >= 0; i--) if (tests.every((test) => test(mirrorRows[i]!))) mirrorRows.splice(i, 1);
+            return Promise.resolve({ error: null }).then(resolve);
+          },
+        };
+        return builder;
+      } };
+    } };
+    createSupabaseServiceRoleClient.mockReturnValue(scopedClient);
+    const { disconnectCoManagerLinksForPlanDowngrade } = await import("@/lib/co-manager-plan-reconcile.server");
+    await disconnectCoManagerLinksForPlanDowngrade("mgr-a");
+    expect(mirrorRows.map((row) => row.invite)).toEqual(["invite-2", "invite-2"]);
   });
   it.each([
     ["pro", false, 0],

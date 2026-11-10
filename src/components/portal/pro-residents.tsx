@@ -1,5 +1,7 @@
 "use client";
 
+import { preserveUnchangedResidentPlacement } from "@/lib/resident-edit-placement";
+
 import { managerApplicationsReadSucceeded } from "@/lib/manager-applications-storage";
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { filterPropertyOptionsForActiveWorkspace, isActiveWorkspaceId, workspaceContainsProperty } from "@/lib/workspaces/selection";
@@ -2575,11 +2577,12 @@ export function ManagerResidents({
       nextRow = mergeApplicationLeaseDatesIntoResidentRow(nextRow, nextRow.application);
     }
 
-    const next = [...rows];
-    next[idx] = nextRow;
+    nextRow = preserveUnchangedResidentPlacement(existing, nextRow, editResidentForm, {
+      propertyId, roomId, bundleId, moveInDate, moveOutDate, leaseTerm, leaseTermCustomMode,
+    });
     setErSaving(true);
     return persistResidentProfileEdit({
-      rows: next,
+      rows,
       nextRow,
       managerUserId: userId ?? null,
       voidSentLeases: options?.voidSentLeases,
@@ -2607,7 +2610,7 @@ export function ManagerResidents({
             ? `Resident updated, but ${result.sync.skipped.join("; ")}.`
             : "Resident updated — application, lease and charges rebuilt.",
         );
-      })
+      }, () => showToast("Could not confirm the resident was saved. Please try again."))
       .finally(() => setErSaving(false));
   }
 
@@ -2954,16 +2957,22 @@ export function ManagerResidents({
       if (renewalApplied) setHcTick((n) => n + 1);
       // The last signature just landed: payments are created now, from the signed terms.
       let paymentsScheduled = false;
+      let paymentWarning = false;
       if (fullySigned && !signingLease.pendingRenewal) {
         const executed = readLeasePipeline(userId).find((r) => r.id === signingLease.id);
         if (executed) {
           const made = await createChargesForExecutedLease(executed, userId ?? null).catch(() => null);
           paymentsScheduled = Boolean(made && made.ok && made.created);
+          paymentWarning = !made || !made.ok;
           if (paymentsScheduled) setHcTick((n) => n + 1);
+        } else {
+          paymentWarning = true;
         }
       }
       showToast(
-        renewalApplied
+        paymentWarning
+          ? "Lease signed, but the payment schedule could not be confirmed. Review and retry."
+          : renewalApplied
           ? "Lease fully signed. Rent and payment schedule updated to the renewed terms."
           : fullySigned
             ? paymentsScheduled

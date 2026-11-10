@@ -211,6 +211,7 @@ export const requestTourTool = defineWriteTool<z.infer<typeof requestTourInput>,
         requestedWindows: [{ start: slot.start, end: slot.end, slotKey: slot.slotKey, adminUserId: slot.hostUserId }],
       },
       verifiedApplicantEmail: ctx.email,
+      verifiedApplicantUserId: ctx.userId,
       // The owner's-number agent is the Messages channel: the guest is answered by text.
       noticeChannel: "sms",
     });

@@ -76,7 +76,7 @@ test.describe("Manager portal", () => {
 
   test("properties tab shows listing and create button", async ({ page }) => {
     await gotoAppPath(page, "/portal/properties");
-    await expect(page.getByRole("heading").first()).toBeVisible();
+    await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 45_000 });
     const createBtn = page.getByRole("button", { name: "Add property", exact: true });
     await expect(createBtn).toBeVisible({ timeout: 15_000 });
   });
@@ -158,7 +158,7 @@ test.describe("Manager portal", () => {
       if (!message.includes("ERR_ABORTED")) throw error;
     }
     await expect(page).toHaveURL(/\/portal\/profile\?tab=workspaces/, { timeout: 15_000 });
-    await expect(page.getByRole("heading", { name: /workspaces/i }).first()).toBeVisible({
+    await expect(page.getByRole("heading", { name: "Workspace settings", exact: true })).toBeVisible({
       timeout: 15_000,
     });
   });

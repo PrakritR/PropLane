@@ -37,6 +37,7 @@
  * Coverage: `tests/unit/lease-signed-terms.test.ts`, `tests/unit/charges-follow-the-lease.test.ts`.
  */
 
+import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { buildLeaseBillingSnapshot } from "@/lib/lease-billing-snapshot";
 import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
@@ -44,14 +45,15 @@ import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submi
 import {
   normalizeApplicationAxisId,
   readManagerApplicationRows,
-  upsertApplicationRowToServer,
-  writeManagerApplicationRows,
+  replaceManagerApplicationRowInCache,
 } from "@/lib/manager-applications-storage";
+import { portalSessionEnded, portalSessionViewerId } from "@/lib/auth/portal-session-gate";
+import { selectedWorkspaceId } from "@/lib/workspaces/selection";
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { roomIsDailyPriced, roomIsWeeklyPriced } from "@/lib/room-pricing";
 import type { UploadedLeaseParse } from "@/lib/uploaded-lease-extraction";
-import { resolvedFieldValue } from "@/lib/uploaded-lease-extraction";
 
 /** The slice of an executed lease row this module reads. Kept structural so tests need no pipeline. */
 export type ExecutedLeaseTermsSource = {
@@ -66,81 +68,8 @@ export type ExecutedLeaseTermsSource = {
   leaseKind?: string;
 };
 
-export type SignedLeaseTerms = {
-  monthlyRent?: number;
-  monthlyUtilities?: number;
-  securityDeposit?: number;
-  moveInFee?: number;
-};
-
-const SUMMARY_ROW = (label: string) =>
-  new RegExp(
-    String.raw`<t[hd][^>]*>\s*${label}\s*</t[hd]>\s*<td[^>]*>([\s\S]*?)</td>`,
-    "i",
-  );
-
-const COMPACT_PARAGRAPH = (label: string) =>
-  new RegExp(
-    String.raw`<p\b[^>]*>\s*<strong\b[^>]*>\s*${label}\s*:\s*</strong>([\s\S]*?)</p>`,
-    "i",
-  );
-
-function moneyFromHtml(html: string, label: string, compactLabel = label): number | undefined {
-  const value = SUMMARY_ROW(label).exec(html)?.[1] ?? COMPACT_PARAGRAPH(compactLabel).exec(html)?.[1];
-  if (value == null) return undefined;
-  const plain = value.trim().replace(/^<strong\b[^>]*>([\s\S]*)<\/strong>$/i, "$1").trim();
-  if (!/^\$\s*(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{2})?$/.test(plain)) return undefined;
-  const amount = parseMoneyAmount(plain);
-  return Number.isFinite(amount) && amount >= 0 ? amount : undefined;
-}
-
-/**
- * The money terms as the generated lease document states them. The summary
- * table `build-lease-html.ts` renders is the contract: `<th>Monthly rent</th>`
- * followed by the amount cell. A document that says "Daily rent" states no
- * monthly figure and returns none for rent.
- */
-export function signedTermsFromLeaseHtml(html: string | null | undefined): SignedLeaseTerms {
-  if (!html) return {};
-  const out: SignedLeaseTerms = {};
-  const rent = moneyFromHtml(html, "Monthly rent");
-  if (rent !== undefined && rent > 0) out.monthlyRent = rent;
-  const utilities = moneyFromHtml(html, "Monthly utilities", "Utilit(?:y|ies)");
-  if (utilities !== undefined) out.monthlyUtilities = utilities;
-  const deposit = moneyFromHtml(html, "Security deposit");
-  if (deposit !== undefined) out.securityDeposit = deposit;
-  const moveIn = moneyFromHtml(html, "Move-in fee");
-  if (moveIn !== undefined) out.moveInFee = moveIn;
-  return out;
-}
-
-/** The money terms an uploaded PDF's structured parse extracted (manager overrides win). */
-export function signedTermsFromUploadedParse(parse: UploadedLeaseParse | null | undefined): SignedLeaseTerms {
-  if (!parse || parse.status !== "parsed") return {};
-  const out: SignedLeaseTerms = {};
-  for (const field of parse.fields) {
-    if (field.key !== "monthlyRent" && field.key !== "securityDeposit") continue;
-    const { value } = resolvedFieldValue(field, parse.review);
-    if (!value.trim()) continue;
-    const amount = parseMoneyAmount(value);
-    if (!Number.isFinite(amount) || amount < 0) continue;
-    if (field.key === "monthlyRent" && amount > 0) out.monthlyRent = amount;
-    if (field.key === "securityDeposit") out.securityDeposit = amount;
-  }
-  return out;
-}
-
-/** The terms the executed document states, generated HTML first, then the upload parse. */
-export function signedTermsFromExecutedLease(lease: ExecutedLeaseTermsSource | null | undefined): SignedLeaseTerms {
-  if (!lease) return {};
-  const html =
-    lease.generatedHtml ||
-    lease.signedLeaseSnapshots?.find((s) => s.generatedHtml)?.generatedHtml ||
-    null;
-  const fromHtml = signedTermsFromLeaseHtml(html);
-  const fromParse = signedTermsFromUploadedParse(lease.uploadedLeaseParse);
-  return { ...fromParse, ...fromHtml };
-}
+export { signedTermsFromLeaseHtml, signedTermsFromUploadedParse, signedTermsFromExecutedLease } from "@/lib/signed-lease-document-terms";
+import { signedTermsFromExecutedLease } from "@/lib/signed-lease-document-terms";
 
 /** The executed lease that covers this application row, by axis id or email (joint members included). */
 export function executedLeaseForRow(
@@ -303,10 +232,23 @@ export function freezeSignedLeaseTerms(
 }
 
 /** Persist frozen rows into the local cache and mirror each to the server. */
-export function persistFrozenSignedLeaseTerms(frozen: readonly DemoApplicantRow[]): void {
-  if (!frozen.length) return;
-  const byId = new Map(frozen.map((r) => [r.id, r] as const));
-  const rows = readManagerApplicationRows().map((r) => byId.get(r.id) ?? r);
-  writeManagerApplicationRows(rows);
-  for (const row of frozen) upsertApplicationRowToServer(row);
+export async function persistFrozenSignedLeaseTerms(frozen: readonly DemoApplicantRow[], leaseId: string): Promise<{ ok: true; rows: DemoApplicantRow[] } | { ok: false }> {
+  const confirmed: DemoApplicantRow[] = [];
+  for (const row of frozen) {
+    if (isDemoModeActive()) { replaceManagerApplicationRowInCache(row); confirmed.push(row); continue; }
+    try {
+      const viewer = portalSessionViewerId();
+      const workspace = selectedWorkspaceId();
+      const oversight = adminOversightUrl("/api/manager-applications");
+      const original = JSON.stringify(readManagerApplicationRows().find((item) => item.id === row.id));
+      const { requestTimeoutSignal } = await import("@/lib/fetch-timeout");
+      const response = await fetch("/api/manager-applications", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", signal: requestTimeoutSignal(20_000), body: JSON.stringify({ action: "freezeSignedTerms", id: row.id, leaseId, terms: { signedMonthlyRent: row.signedMonthlyRent, managerRentOverride: row.application?.managerRentOverride, managerUtilitiesOverride: row.application?.managerUtilitiesOverride, managerSecurityDepositOverride: row.application?.managerSecurityDepositOverride, managerMoveInFeeOverride: row.application?.managerMoveInFeeOverride } }) });
+      const result = await response.json().catch(() => null) as { ok?: boolean; row?: DemoApplicantRow } | null;
+      if (!response.ok || result?.ok !== true || !result.row || result.row.id !== row.id) return { ok: false };
+      if (viewer !== portalSessionViewerId() || workspace !== selectedWorkspaceId() || oversight !== adminOversightUrl("/api/manager-applications") || portalSessionEnded() || original !== JSON.stringify(readManagerApplicationRows().find((item) => item.id === row.id))) return { ok: false };
+      replaceManagerApplicationRowInCache(result.row);
+      confirmed.push(result.row);
+    } catch { return { ok: false }; }
+  }
+  return { ok: true, rows: confirmed };
 }

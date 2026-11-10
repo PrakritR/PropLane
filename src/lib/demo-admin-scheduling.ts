@@ -360,7 +360,7 @@ async function flushJsonWrite(key: string): Promise<boolean> {
 
 async function persistPublicPartnerInquiry(
   row: PartnerInquiry,
-): Promise<{ ok: boolean; row?: PartnerInquiry; error?: string; status?: number }> {
+): Promise<{ ok: boolean; row?: PartnerInquiry; error?: string; blocked?: string; status?: number }> {
   if (!isBrowser()) return { ok: false, error: "Browser required." };
   const res = await fetch("/api/public/partner-inquiries", {
     method: "POST",
@@ -378,13 +378,15 @@ async function persistPublicPartnerInquiry(
     return { ok: true, row };
   }
   let error = "Could not save inquiry.";
+  let blocked: string | undefined;
   try {
-    const body = (await res.json()) as { error?: unknown };
+    const body = (await res.json()) as { error?: unknown; blocked?: unknown };
     if (typeof body.error === "string" && body.error.trim()) error = body.error;
+    if (typeof body.blocked === "string") blocked = body.blocked;
   } catch {
     // Keep the generic message when the response is not JSON.
   }
-  return { ok: false, error, status: res.status };
+  return { ok: false, error, blocked, status: res.status };
 }
 
 async function writeJsonToServer(
@@ -837,10 +839,10 @@ export function appendPartnerInquiry(payload: Omit<PartnerInquiry, "id" | "statu
 
 export async function appendPartnerInquiryToServer(
   payload: Omit<PartnerInquiry, "id" | "status" | "createdAt">,
-): Promise<{ ok: boolean; row?: PartnerInquiry; error?: string; status?: number }> {
+): Promise<{ ok: boolean; row?: PartnerInquiry; error?: string; blocked?: string; status?: number }> {
   const row = buildPartnerInquiry(payload);
   const result = await persistPublicPartnerInquiry(row);
-  if (!result.ok) return { ok: false, error: result.error, status: result.status };
+  if (!result.ok) return { ok: false, error: result.error, blocked: result.blocked, status: result.status };
   const persistedRow = result.row ?? row;
   insertPartnerInquiryLocally(persistedRow);
   return { ok: true, row: persistedRow };

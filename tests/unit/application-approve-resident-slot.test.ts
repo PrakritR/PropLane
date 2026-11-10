@@ -360,8 +360,8 @@ describe("POST /api/manager-applications — approving a per-resident room's slo
 
   it("never reads or prices a room on a property owned by a DIFFERENT manager", async () => {
     // The room choice names a real per-resident room, but it belongs to
-    // another manager entirely — the lookup must not resolve it, so this
-    // guard treats it as inapplicable rather than pricing off a stranger's room.
+    // another manager entirely — the lookup must refuse the approval rather
+    // than price it from a stranger's room or trust the client's override.
     PROPERTY_RECORDS = {
       [LISTING]: { row_data: { listingSubmission: sharedRoomListing() }, manager_user_id: "mgr-someone-else" },
     };
@@ -375,11 +375,19 @@ describe("POST /api/manager-applications — approving a per-resident room's slo
     };
     const res = await upsert(approvingRow);
 
-    expect(res.status).toBe(200);
-    expect(UPSERTS).toHaveLength(1);
-    // Falls through untouched — the same as a nonexistent property id — never
-    // the other manager's real slot price.
-    expect(UPSERTS[0]!.row_data.application!.managerRentOverride).toBe("1");
+    expect(res.status).toBe(409);
+    expect(res.body.blocked).toBe("placement");
+    expect(UPSERTS).toHaveLength(0);
+  });
+
+  it("refuses an approval when the owned listing is missing its pricing source", async () => {
+    PROPERTY_RECORDS = { [LISTING]: { row_data: {}, manager_user_id: OWNER } };
+    const grace = applicationRow("AXIS-GRACE");
+    STORED_ROWS = [{ id: grace.id, row_data: grace, manager_user_id: OWNER }];
+    const res = await upsert({ ...grace, bucket: "approved" });
+    expect(res.status).toBe(409);
+    expect(res.body.blocked).toBe("placement");
+    expect(UPSERTS).toHaveLength(0);
   });
 
   it("fails CLOSED (refuses the approval) when the property lookup errors, instead of keeping the client's override", async () => {

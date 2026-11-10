@@ -12,28 +12,31 @@ export function clearWorkspaceDraft(scope: string): void { drafts.delete(scope);
 export function clearAllWorkspaceDrafts(): void { drafts.clear(); }
 
 /** Closing keeps the exact typed state; only a successful commit clears it. */
-export function useWorkspaceDraft<T>({ scope: formScope, actor, open = true, value, restore }: {
+export function useWorkspaceDraft<T>({ scope: formScope, actor, open = true, value, restore, initialize }: {
   scope: string;
   actor?: string | null;
   open?: boolean;
   value: T;
   restore: (value: T) => void;
+  initialize?: () => void;
 }) {
   const session = usePortalSession();
   const actorId = actor ?? session.userId;
   const scope = `${actorId ?? "signed-out"}:${formScope}`;
   const preserved = useRef(false);
-  const latest = useRef({ scope, open, value, restore });
+  const latest = useRef({ scope, open, value, restore, initialize });
   const cleared = useRef(false);
   useEffect(() => {
-    latest.current = { scope, open, value, restore };
+    latest.current = { scope, open, value, restore, initialize };
   });
   useEffect(() => {
-    if (!open || !actorId) return;
+    if (!open) return;
+    if (!actorId) { latest.current.initialize?.(); return; }
     cleared.current = false;
     preserved.current = false;
     const saved = drafts.get(scope) as T | undefined;
     if (saved !== undefined) latest.current.restore(saved);
+    else latest.current.initialize?.();
     return () => {
       if (!cleared.current && !preserved.current) drafts.set(scope, latest.current.value);
     };

@@ -22,6 +22,7 @@ import type { RentRuleAddress } from "@/lib/seattle-rent-rule";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { parseRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
 import { parseMoneyAmount } from "@/lib/parse-money";
+import { SERVICE_CHARGE_TITLE_PREFIX, serviceChargeDisplayTitle } from "@/lib/service-charge-title";
 import { requestTimeoutSignal } from "@/lib/fetch-timeout";
 import { paymentAtSigningPriceLabel } from "@/lib/rental-application/listing-fees-display";
 import {
@@ -100,7 +101,7 @@ import {
   moneyLabel,
 } from "@/lib/bundle-group/bundle-cost-split";
 import { formatChargeMoneyLabel, humanizeChargeDate } from "@/lib/charge-due-label";
-import { notePortalResponse, portalSessionEnded } from "@/lib/auth/portal-session-gate";
+import { notePortalResponse, portalSessionEnded, portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import { WORKSPACE_SELECTION_EVENT, selectedWorkspaceId } from "@/lib/workspaces/selection";
 
 export const HOUSEHOLD_CHARGES_EVENT = "axis:household-charges";
@@ -115,6 +116,35 @@ let memoryRentProfiles: RecurringRentProfile[] = [];
 const HOUSEHOLD_CHARGES_SYNC_TTL_MS = 15_000;
 let householdChargesLastSyncedAt = 0;
 type HouseholdChargesSyncResult = { charges: HouseholdCharge[]; rentProfiles: RecurringRentProfile[] };
+export type AuthoritativeBillingSnapshot = HouseholdChargesSyncResult;
+
+const billingSnapshotRefreshers = new Map<string, CoalescedRefresher<AuthoritativeBillingSnapshot>>();
+
+/** Complete fresh server snapshot, without mutating or mirroring the local cache. */
+export async function readAuthoritativeBillingSnapshot(): Promise<AuthoritativeBillingSnapshot> {
+  if (isDemoModeActive()) return { charges: readAll(), rentProfiles: readRentProfiles() };
+  if (!isBrowser() || portalSessionEnded()) throw new Error("Billing is unavailable.");
+  const workspace = selectedWorkspaceId();
+  const viewer = portalSessionViewerId();
+  const url = adminOversightUrl("/api/portal-household-charges");
+  const key = JSON.stringify([workspace, viewer, url]);
+  let refresher = billingSnapshotRefreshers.get(key);
+  if (!refresher) {
+    refresher = createCoalescedRefresher(async () => {
+      if (workspace !== selectedWorkspaceId() || viewer !== portalSessionViewerId() || url !== adminOversightUrl("/api/portal-household-charges") || portalSessionEnded()) throw new Error("Billing workspace changed.");
+      const res = await fetch(url, { signal: householdWriteSignal() });
+      if (!res.ok) throw new Error("Billing could not be read.");
+      const body = await res.json() as { charges?: HouseholdCharge[]; rentProfiles?: RecurringRentProfile[]; chargesTruncated?: boolean; rentProfilesTruncated?: boolean };
+      if (!Array.isArray(body.charges) || !Array.isArray(body.rentProfiles) || body.chargesTruncated || body.rentProfilesTruncated || body.charges.length >= HOUSEHOLD_CHARGE_READ_CAP || body.rentProfiles.length >= HOUSEHOLD_RENT_PROFILE_READ_CAP || workspace !== selectedWorkspaceId() || viewer !== portalSessionViewerId() || url !== adminOversightUrl("/api/portal-household-charges") || portalSessionEnded()) throw new Error("Billing could not be read completely.");
+      return { charges: body.charges, rentProfiles: body.rentProfiles };
+    });
+    billingSnapshotRefreshers.set(key, refresher);
+  }
+  const prior = JSON.stringify([readAll(), readRentProfiles()]);
+  const snapshot = await refresher.run(true);
+  if (workspace !== selectedWorkspaceId() || viewer !== portalSessionViewerId() || url !== adminOversightUrl("/api/portal-household-charges") || prior !== JSON.stringify([readAll(), readRentProfiles()])) throw new Error("Billing changed while it was being read.");
+  return snapshot;
+}
 let householdChargesSyncPromise: Promise<HouseholdChargesSyncResult> | null = null;
 const householdChargesRefreshers = new Map<string, CoalescedRefresher<HouseholdChargesSyncResult>>();
 export const HOUSEHOLD_CHARGES_SESSION_KEY = "axis:household-charges:v1";
@@ -300,6 +330,8 @@ export type HouseholdCharge = {
   processingStartedAt?: string;
   /** Total cents charged to the resident at checkout, when higher than the charge face amount. */
   paidAmountCents?: number;
+  /** Cumulative verified refunds, projected server-side from settled provider evidence. */
+  refundedCents?: number;
   /** Immutable provider source for a verified online payment. */
   stripeCheckoutSessionId?: string;
   stripePaymentStatus?: string;
@@ -489,8 +521,18 @@ function hydrateConfirmedIdsFromSession() {
   }
 }
 
+let scopedBillingGeneration = false;
+let scopedBillingApplication: DemoApplicantRow | null = null;
+const pendingFrozenBilling = new Map<string, DemoApplicantRow>();
+const frozenBillingInFlight = new Set<string>();
+function frozenBillingKey(row: DemoApplicantRow): string { return `${row.managerUserId ?? ""}|${row.id}`; }
+function profileAwaitingFrozenTerms(profile: RecurringRentProfile): boolean {
+  if (scopedBillingGeneration) return false;
+  return [...pendingFrozenBilling.values()].some((row) => row.managerUserId === profile.managerUserId && row.email?.trim().toLowerCase() === profile.residentEmail.trim().toLowerCase() && applicationPropertyIdForCharges(row) === profile.propertyId);
+}
+
 function hydrateHouseholdStateFromSession() {
-  if (!isBrowser()) return;
+  if (!isBrowser() || scopedBillingGeneration) return;
   hydrateConfirmedIdsFromSession();
   try {
     if (memoryCharges.length === 0) {
@@ -513,7 +555,7 @@ function hydrateHouseholdStateFromSession() {
 }
 
 function persistHouseholdStateToSession() {
-  if (!isBrowser()) return;
+  if (!isBrowser() || scopedBillingGeneration) return;
   try {
     window.sessionStorage.setItem(HOUSEHOLD_CHARGES_SESSION_KEY, JSON.stringify(memoryCharges));
     window.sessionStorage.setItem(HOUSEHOLD_RENT_PROFILES_SESSION_KEY, JSON.stringify(memoryRentProfiles));
@@ -533,7 +575,27 @@ function persistHouseholdStateToSession() {
 function reconcileChargeWithLocal(serverCharge: HouseholdCharge, local: HouseholdCharge | undefined): HouseholdCharge {
   if (!local) return serverCharge;
   const residentVisibleAt = local.residentVisibleAt ?? serverCharge.residentVisibleAt;
-  const localWithServerFields: HouseholdCharge = residentVisibleAt ? { ...local, residentVisibleAt } : local;
+  let localWithServerFields: HouseholdCharge = residentVisibleAt ? { ...local, residentVisibleAt } : local;
+  // Provider evidence belongs to one physical charge, never a business-key alias.
+  // A settled server receipt is authoritative even when a stale local row wins edits.
+  const sameCharge = Boolean(local.managerUserId?.trim()) && local.id === serverCharge.id && local.managerUserId === serverCharge.managerUserId;
+  const settledProvider = sameCharge && (serverCharge.status === "paid" || serverCharge.status === "refunded") &&
+    Boolean(serverCharge.stripeCheckoutSessionId?.trim());
+  if (settledProvider) {
+    localWithServerFields = {
+      ...localWithServerFields,
+      stripeCheckoutSessionId: serverCharge.stripeCheckoutSessionId,
+      ...(serverCharge.stripePaymentStatus !== undefined ? { stripePaymentStatus: serverCharge.stripePaymentStatus } : {}),
+      ...(serverCharge.paidAmountCents !== undefined ? { paidAmountCents: serverCharge.paidAmountCents } : {}),
+      paidMethod: serverCharge.paidMethod,
+    };
+    if (Number.isSafeInteger(serverCharge.refundedCents) && serverCharge.refundedCents! >= 0) {
+      const localRefund = Number.isSafeInteger(local.refundedCents) && local.refundedCents! >= 0 ? local.refundedCents! : 0;
+      localWithServerFields.refundedCents = Math.max(localRefund, serverCharge.refundedCents!);
+    }
+    if (serverCharge.status === "refunded") return { ...localWithServerFields, status: "refunded", paidAt: serverCharge.paidAt ?? local.paidAt, balanceLabel: "$0.00" };
+  }
+  if (sameCharge && local.status === "refunded" && serverCharge.status === "paid") return localWithServerFields;
   // Local mark-paid must win over stale server pending rows (including duplicate ids for the same bill).
   if (local.status === "paid") {
     return {
@@ -559,22 +621,24 @@ export function mergeHouseholdChargesWithServer(
   merged: HouseholdCharge[];
   hasUpdated: boolean;
 } {
-  const localById = new Map(localCharges.map((c) => [c.id, c]));
-  const localByBusinessKey = new Map(localCharges.map((c) => [chargeBusinessKey(c), c]));
-  const serverIds = new Set(serverCharges.map((c) => c.id));
-  const serverKeys = new Set(serverCharges.map((c) => chargeBusinessKey(c)));
+  const ownedId = (c: HouseholdCharge) => `${c.managerUserId ?? ""}|${c.id}`;
+  const keyFor = scopedChargeKeys([...serverCharges, ...localCharges]);
+  const localById = new Map(localCharges.map((c) => [ownedId(c), c]));
+  const localByBusinessKey = new Map(localCharges.map((c) => [keyFor(c), c]));
+  const serverIds = new Set(serverCharges.map((c) => ownedId(c)));
+  const serverKeys = new Set(serverCharges.map((c) => keyFor(c)));
   let hasUpdated = false;
 
   const reconciled: HouseholdCharge[] = serverCharges.map((sc) => {
-    const local = localById.get(sc.id) ?? localByBusinessKey.get(chargeBusinessKey(sc));
+    const local = localById.get(ownedId(sc)) ?? localByBusinessKey.get(keyFor(sc));
     const merged = reconcileChargeWithLocal(sc, local);
-    if (local?.status === "paid" && sc.status !== "paid") hasUpdated = true;
+    if (local?.status === "paid" && sc.status !== "paid" && merged.status === "paid") hasUpdated = true;
     if (local && (local.amountLabel !== sc.amountLabel || local.title !== sc.title)) hasUpdated = true;
     return merged;
   });
 
   const localOnly = localCharges.filter(
-    (c) => !serverIds.has(c.id) && !serverKeys.has(chargeBusinessKey(c)) && !confirmedServerIds?.has(c.id),
+    (c) => !serverIds.has(ownedId(c)) && !serverKeys.has(keyFor(c)) && !confirmedServerIds?.has(c.id),
   );
   if (localOnly.some((c) => c.status === "paid")) hasUpdated = true;
   return { merged: dedupeCharges([...reconciled, ...localOnly]), hasUpdated };
@@ -586,17 +650,17 @@ export function mergeServerAuthoritativeRentProfiles(
   localProfiles: RecurringRentProfile[],
   confirmedServerIds?: ReadonlySet<string>,
 ) {
-  const serverIds = new Set(serverProfiles.map((profile) => profile.id));
-  const serverKeys = new Set(serverProfiles.map((profile) => recurringRentProfileKey(profile)));
+  const serverIds = new Set(serverProfiles.map((profile) => `${profile.managerUserId ?? ""}|${profile.id}`));
+  const serverKeys = new Set(serverProfiles.map((profile) => ownedRecurringRentProfileKey(profile)));
   const localOnly = localProfiles.filter(
     (profile) =>
-      !serverIds.has(profile.id) && !serverKeys.has(recurringRentProfileKey(profile)) && !confirmedServerIds?.has(profile.id),
+      !serverIds.has(`${profile.managerUserId ?? ""}|${profile.id}`) && !serverKeys.has(ownedRecurringRentProfileKey(profile)) && !confirmedServerIds?.has(profile.id),
   );
   return dedupeRecurringRentProfiles([...serverProfiles, ...localOnly]);
 }
 
 function emit() {
-  if (!isBrowser()) return;
+  if (!isBrowser() || scopedBillingGeneration) return;
   window.dispatchEvent(new Event(HOUSEHOLD_CHARGES_EVENT));
 }
 
@@ -655,6 +719,7 @@ export function resetHouseholdViewerRoleForTests() {
 }
 
 function postHouseholdPayload(body: unknown) {
+  if (scopedBillingGeneration) return;
   if (!isBrowser() || isDemoModeActive()) return;
   if (householdWritesForbidden()) return;
   const action = (body as { action?: string }).action;
@@ -713,6 +778,48 @@ export async function mirrorHouseholdChargesToServerAwait(): Promise<boolean> {
     charges: readAll(),
     rentProfiles: readRentProfiles(),
   });
+}
+
+/** Confirm only the billing rows associated with the authoritative application. */
+export async function mirrorApplicationHouseholdChargesAwait(row: DemoApplicantRow, previousRow?: DemoApplicantRow, stage?: ScopedBillingStage, authoritative?: AuthoritativeBillingSnapshot): Promise<boolean> {
+  if (stage && !stage.scopeValid()) return false;
+  const pairs = [row, previousRow].filter((item): item is DemoApplicantRow => !!item).map((item) => ({
+    propertyId: applicationPropertyIdForCharges(item), email: item.email?.trim().toLowerCase() ?? "",
+  }));
+  const owner = row.managerUserId?.trim() || null;
+  if (!owner) return false;
+  if (readAll().some((charge) => charge.applicationId === row.id && charge.managerUserId !== owner)) return false;
+  const matchingProfiles = (stage?.profiles ?? readRentProfiles()).filter((profile) =>
+    profile.managerUserId === owner && pairs.some(({ email, propertyId }) => !!email && !!propertyId && profile.residentEmail.trim().toLowerCase() === email && profile.propertyId === propertyId),
+  );
+  const profiles = matchingProfiles;
+  const profileIds = new Set(profiles.map((profile) => profile.id));
+  const charges = (stage?.charges ?? readAll()).filter((charge) =>
+    charge.managerUserId === owner && ["pending", "cancelled", "failed"].includes(charge.status) &&
+    (charge.applicationId === row.id || (!charge.applicationId && !!charge.recurringRentProfileId && profileIds.has(charge.recurringRentProfileId))),
+  );
+  if (stage && authoritative) {
+    const serverProfiles = authoritative.rentProfiles.filter((profile) => profile.managerUserId === owner && pairs.some(({ email, propertyId }) => !!email && !!propertyId && profile.residentEmail.trim().toLowerCase() === email && profile.propertyId === propertyId));
+    const serverProfileIds = new Set(serverProfiles.map((profile) => profile.id));
+    const serverCharges = authoritative.charges.filter((charge) => charge.managerUserId === owner && ["pending", "cancelled", "failed"].includes(charge.status) && (charge.applicationId === row.id || (!charge.applicationId && !!charge.recurringRentProfileId && serverProfileIds.has(charge.recurringRentProfileId))));
+    const ordered = <T extends { id: string }>(items: T[]) => [...items].sort((a, b) => a.id.localeCompare(b.id));
+    if (JSON.stringify(ordered(charges)) === JSON.stringify(ordered(serverCharges)) && JSON.stringify(ordered(profiles)) === JSON.stringify(ordered(serverProfiles))) return stage.scopeValid();
+  }
+  if (!charges.length && !profiles.length) return true;
+  if (!isBrowser() || isDemoModeActive() || householdWritesForbidden()) return false;
+  const signal = householdWriteSignal();
+  const res = await fetch(adminOversightUrl("/api/portal-household-charges"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "replace", confirmWrites: true, charges, rentProfiles: profiles }),
+    ...(signal ? { signal } : {}),
+  });
+  if (!res.ok) return false;
+  const body = await res.json().catch(() => null) as { ok?: boolean; confirmedChargeIds?: string[]; confirmedProfileIds?: string[] } | null;
+  if (body?.ok !== true || !Array.isArray(body.confirmedChargeIds) || !Array.isArray(body.confirmedProfileIds)) return false;
+  const confirmedCharges = new Set(body.confirmedChargeIds);
+  const confirmedProfiles = new Set(body.confirmedProfileIds);
+  return charges.every((charge) => confirmedCharges.has(charge.id)) && profiles.every((profile) => confirmedProfiles.has(profile.id));
 }
 
 function mirrorRentProfiles(rows: RecurringRentProfile[]) {
@@ -906,10 +1013,10 @@ async function runHouseholdChargesSync({
         // (not yet read back, so not "confirmed" themselves). Otherwise they would be uploaded as
         // orphans of a rent schedule that no longer exists. Money that moved is history: kept.
         if (profileAbsenceIsDeletion) {
-          const keptKeys = new Set(mergedProfiles.map((profile) => recurringRentProfileKey(profile)));
+          const keptKeys = new Set(mergedProfiles.map((profile) => ownedRecurringRentProfileKey(profile)));
           const deletedProfileIds = new Set(
             memoryRentProfiles
-              .filter((profile) => confirmedProfileIds.has(profile.id) && !keptKeys.has(recurringRentProfileKey(profile)))
+              .filter((profile) => confirmedProfileIds.has(profile.id) && !keptKeys.has(ownedRecurringRentProfileKey(profile)))
               .map((profile) => profile.id),
           );
           if (deletedProfileIds.size > 0) {
@@ -1029,7 +1136,7 @@ function writeAll(rows: HouseholdCharge[], silent = false, mirror = true) {
   persistHouseholdStateToSession();
   // A local-only write never reached the server, so it must not pass for a server read: stamping the
   // sync clock here would suppress the next unforced `syncHouseholdChargesFromServer` for its TTL.
-  if (mirror) {
+  if (mirror && !scopedBillingGeneration) {
     householdChargesLastSyncedAt = Date.now();
     mirrorChargeRows(normalized);
   }
@@ -1051,15 +1158,15 @@ function readRentProfiles(): RecurringRentProfile[] {
   return isBrowser() ? memoryRentProfiles : [];
 }
 
-function writeRentProfiles(rows: RecurringRentProfile[]) {
+function writeRentProfiles(rows: RecurringRentProfile[], priorCreatedAt?: ReadonlyMap<string, string>) {
   if (!isBrowser()) return;
   const normalized = dedupeRecurringRentProfiles(rows);
   if (!rentProfilesChanged(memoryRentProfiles, normalized)) return;
   memoryRentProfiles = normalized;
   persistHouseholdStateToSession();
-  householdChargesLastSyncedAt = Date.now();
+  if (!scopedBillingGeneration) householdChargesLastSyncedAt = Date.now();
   mirrorRentProfiles(normalized);
-  syncAllRecurringRentCharges();
+  syncAllRecurringRentCharges(priorCreatedAt);
   emit();
 }
 
@@ -1154,11 +1261,17 @@ function approvedChargeId(applicationId: string, kind: HouseholdChargeKind): str
 function recurringRentProfileKey(profile: Pick<RecurringRentProfile, "residentEmail" | "propertyId">): string {
   return `${profile.residentEmail.trim().toLowerCase()}|${profile.propertyId}`;
 }
+function ownedRecurringRentProfileKey(profile: RecurringRentProfile): string {
+  return `${profile.managerUserId ?? ""}|${recurringRentProfileKey(profile)}`;
+}
+function ownedChargeBusinessKey(charge: HouseholdCharge): string {
+  return `${charge.managerUserId ?? ""}|${chargeBusinessKey({ ...charge, residentEmail: charge.residentEmail ?? "", residentName: charge.residentName ?? "", propertyLabel: charge.propertyLabel ?? "" })}`;
+}
 
 function dedupeRecurringRentProfiles(rows: RecurringRentProfile[]): RecurringRentProfile[] {
   const byKey = new Map<string, RecurringRentProfile>();
   for (const profile of rows) {
-    const key = recurringRentProfileKey(profile);
+    const key = ownedRecurringRentProfileKey(profile);
     const existing = byKey.get(key);
     if (!existing) {
       byKey.set(key, profile);
@@ -1173,6 +1286,22 @@ function dedupeRecurringRentProfiles(rows: RecurringRentProfile[]): RecurringRen
   return [...byKey.values()];
 }
 
+/** Preserve legacy slot equivalence unless distinct explicit applications share the slot. */
+function scopedChargeKeys(rows: HouseholdCharge[]): (charge: HouseholdCharge) => string {
+  const applications = new Map<string, Set<string>>();
+  for (const charge of rows) {
+    const id = charge.applicationId?.trim();
+    if (!id) continue;
+    const key = ownedChargeBusinessKey(charge);
+    const ids = applications.get(key) ?? new Set<string>();
+    ids.add(id); applications.set(key, ids);
+  }
+  return (charge) => {
+    const key = ownedChargeBusinessKey(charge);
+    return (applications.get(key)?.size ?? 0) > 1 ? `${key}|application:${charge.applicationId?.trim() || "legacy"}` : key;
+  };
+}
+
 function applicationPropertyIdForCharges(row: DemoApplicantRow): string {
   return row.assignedPropertyId?.trim() || row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
 }
@@ -1180,16 +1309,17 @@ function applicationPropertyIdForCharges(row: DemoApplicantRow): string {
 /** Update rent profiles with monthly utilities from approved application data (no sync recursion). */
 function backfillMonthlyUtilitiesOnRentProfiles(): void {
   if (!isBrowser()) return;
-  const apps = readManagerApplicationRows().filter((a) => a.bucket === "approved" && a.email?.trim());
+  const apps = (scopedBillingGeneration && scopedBillingApplication ? [scopedBillingApplication] : readManagerApplicationRows()).filter((a) => a.bucket === "approved" && a.email?.trim());
   if (apps.length === 0) return;
   const profiles = readRentProfiles();
   let changed = false;
   const next = profiles.map((p) => {
-    if (!p.active) return p;
+    if (!p.active || profileAwaitingFrozenTerms(p)) return p;
     if ((p.monthlyUtilities ?? 0) > 0) return p;
     const email = p.residentEmail.trim().toLowerCase();
     const propId = p.propertyId.trim();
     const app = apps.find((a) => {
+      if (scopedBillingGeneration && a.managerUserId !== p.managerUserId) return false;
       if (a.email!.trim().toLowerCase() !== email) return false;
       return applicationPropertyIdForCharges(a) === propId;
     });
@@ -1242,16 +1372,16 @@ export function recurringBasisMonthlyAddon(profile: RecurringRentProfile, prorat
 /** Repairs profiles that stored full monthly rent alongside a daily/weekly basis rate. */
 function backfillBasisBillingRentOnProfiles(): void {
   if (!isBrowser()) return;
-  const apps = readManagerApplicationRows().filter((a) => a.bucket === "approved" && a.email?.trim());
+  const apps = (scopedBillingGeneration && scopedBillingApplication ? [scopedBillingApplication] : readManagerApplicationRows()).filter((a) => a.bucket === "approved" && a.email?.trim());
   const profiles = readRentProfiles();
   let changed = false;
   const next = profiles.map((p) => {
-    if (!p.active || !profileHasLegacyBasisBillingMonthlyRent(p)) return p;
+    if (!p.active || profileAwaitingFrozenTerms(p) || !profileHasLegacyBasisBillingMonthlyRent(p)) return p;
 
     const email = p.residentEmail.trim().toLowerCase();
     const propId = p.propertyId.trim();
     const app = apps.find(
-      (a) => a.email?.trim() && a.email.trim().toLowerCase() === email && applicationPropertyIdForCharges(a) === propId,
+      (a) => (!scopedBillingGeneration || a.managerUserId === p.managerUserId) && a.email?.trim() && a.email.trim().toLowerCase() === email && applicationPropertyIdForCharges(a) === propId,
     );
 
     if (!app) {
@@ -1458,6 +1588,7 @@ function mergeApprovedApplicationChargeRows(
 }
 
 function dedupeCharges(rows: HouseholdCharge[]): HouseholdCharge[] {
+  const keyFor = scopedChargeKeys(rows);
   const byKey = new Map<string, HouseholdCharge>();
   for (const raw of rows) {
     // Rows hydrated from localStorage/server JSON (readAll → line ~137, server
@@ -1477,7 +1608,7 @@ function dedupeCharges(rows: HouseholdCharge[]): HouseholdCharge[] {
             residentName: raw.residentName ?? "",
             propertyLabel: raw.propertyLabel ?? "",
           };
-    const key = chargeBusinessKey(charge);
+    const key = keyFor(charge);
     const existing = byKey.get(key);
     if (!existing) {
       byKey.set(key, charge);
@@ -1877,6 +2008,18 @@ export function chargeDueLabel(charge: HouseholdCharge): string {
   }
 }
 
+/**
+ * What a person reads for a charge's title. The one decision lives in
+ * `service-charge-title.ts` so the manager ledger projection and the server routes that put a
+ * title into an email, a text or a banner reach the same answer this does.
+ */
+export function householdChargeDisplayTitle(
+  charge: Pick<HouseholdCharge, "kind" | "title"> | { kind?: HouseholdChargeKind; title?: string },
+  fallback = "Charge",
+): string {
+  return serviceChargeDisplayTitle(charge, fallback);
+}
+
 /** "Parking" → "parking" for "Prorated parking"; an acronym ("HOA / community") keeps its case. */
 function proratedFeeNoun(label: string): string {
   const t = label.trim() || "fee";
@@ -1922,7 +2065,7 @@ function chargeTitle(kind: HouseholdChargeKind): string {
     case "payment_at_signing":
       return "Payment due at signing";
     case "work_order_charge":
-      return "Work order charge";
+      return "Service charge";
     case "late_fee":
       return "Late payment fee";
     default:
@@ -2858,7 +3001,7 @@ export function recordWorkOrderResidentCharge(input: {
     propertyLabel: joinPropertyAndUnitLabel(input.propertyLabel, input.unit),
     managerUserId: input.managerUserId,
     kind: "work_order_charge",
-    title: `Work order · ${input.workOrderTitle}`,
+    title: `${SERVICE_CHARGE_TITLE_PREFIX}${input.workOrderTitle}`,
     amountLabel: balance,
     balanceLabel: isPaid ? "$0.00" : balance,
     status: isPaid ? "paid" : "pending",
@@ -2945,7 +3088,7 @@ export function reconcilePendingRecurringChargeAmountsFromProfiles(): boolean {
     if (charge.status === "processing" || charge.status === "partially_paid") return charge;
     if (!charge.recurringRentProfileId || !charge.rentMonth) return charge;
     const profile = profileById.get(charge.recurringRentProfileId);
-    if (!profile?.active) return charge;
+    if (!profile?.active || profileAwaitingFrozenTerms(profile)) return charge;
 
     const dueDayMode = profile.dueDayMode ?? "first_of_month";
     const dueDay = effectiveDueDayForMonth(profile.dueDay, dueDayMode, charge.rentMonth);
@@ -3005,24 +3148,31 @@ export function reconcilePendingRecurringChargeAmountsFromProfiles(): boolean {
   return true;
 }
 
-function syncAllRecurringRentCharges(): boolean {
+function syncAllRecurringRentCharges(priorCreatedAt?: ReadonlyMap<string, string>): boolean {
   if (!isBrowser()) return false;
   backfillMonthlyUtilitiesOnRentProfiles();
   backfillBasisBillingRentOnProfiles();
   const held = new Set(readManagerApplicationRows().filter(row => row.migrationBillingHold).map(row => `${row.managerUserId}|${row.email?.trim().toLowerCase()}`));
   const profiles = readRentProfiles().filter(
-    (p) => !held.has(`${p.managerUserId}|${p.residentEmail.trim().toLowerCase()}`) && p.active && (p.monthlyRent > 0 || (p.dailyRentPrice ?? 0) > 0 || (p.weeklyRentPrice ?? 0) > 0 || (p.monthlyUtilities ?? 0) > 0),
+    (p) => !profileAwaitingFrozenTerms(p) && !held.has(`${p.managerUserId}|${p.residentEmail.trim().toLowerCase()}`) && p.active && (p.monthlyRent > 0 || (p.dailyRentPrice ?? 0) > 0 || (p.weeklyRentPrice ?? 0) > 0 || (p.monthlyUtilities ?? 0) > 0),
   );
   if (profiles.length === 0) return false;
 
-  const existing = readAll();
+  const blockedProfileIds = new Set(readRentProfiles().filter(profileAwaitingFrozenTerms).map((profile) => profile.id));
+  const allExisting = readAll();
+  const protectedCharges = allExisting.filter((charge) => charge.recurringRentProfileId && blockedProfileIds.has(charge.recurringRentProfileId));
+  const existing = allExisting.filter((charge) => !charge.recurringRentProfileId || !blockedProfileIds.has(charge.recurringRentProfileId));
   const { newCharges, staleIds, activeExisting } = planRecurringRentCharges({ profiles, existing, now: new Date() });
 
   // Remove stale pending recurring charges that violate profile boundaries.
   const cleanedExisting = staleIds.size > 0 ? activeExisting : existing;
   let wrote = false;
   if (newCharges.length > 0 || staleIds.size > 0) {
-    writeAll([...cleanedExisting, ...newCharges], true);
+    const regenerated = newCharges.map((charge) => {
+      const createdAt = charge.managerUserId ? priorCreatedAt?.get(`${charge.managerUserId}\0${charge.id}`) : undefined;
+      return createdAt === undefined ? charge : { ...charge, createdAt };
+    });
+    writeAll([...protectedCharges, ...cleanedExisting, ...regenerated], true);
     wrote = true;
   }
   // PRP-408 part 2: existing unpaid months must track the current profile rent
@@ -3121,27 +3271,32 @@ export function reconcileApprovedResidentPaymentSchedules(managerUserId: string 
   // freeze existed, or e-signed since this browser last loaded — is frozen
   // here, before it is billed, so the listing's current price never reaches a
   // signed resident's charges. Persisted once for the whole pass.
-  const frozenRows: DemoApplicantRow[] = [];
   for (const row of currentRows) {
     const leaseExecuted = row.manuallyAdded === true || rowHasExecutedLease(row, executedKeys);
-    let billingRow = row;
-    if (leaseExecuted && !rowHasFrozenTerms(row)) {
-      const frozen = freezeSignedLeaseTerms(row, {
-        managerUserId,
-        lease: executedLeaseForRow(row, executedLeases),
-      });
-      if (frozen.changed) {
-        billingRow = frozen.row;
-        frozenRows.push(frozen.row);
+    if (leaseExecuted && (!rowHasFrozenTerms(row) || pendingFrozenBilling.has(frozenBillingKey(row)))) {
+      const sourceLease = executedLeases.find((lease) => lease.managerUserId === row.managerUserId && lease.propertyId === applicationPropertyIdForCharges(row) && (lease.axisId === row.id || (lease.leaseKind === "joint_bundle" && lease.jointLeaseMembers?.some((member) => member.applicationId === row.id))));
+      if (!sourceLease) continue;
+      const frozen = freezeSignedLeaseTerms(row, { managerUserId, lease: sourceLease });
+      if (frozen.changed || pendingFrozenBilling.has(frozenBillingKey(row))) {
+        const key = frozenBillingKey(row);
+        pendingFrozenBilling.set(key, row);
+        if (!frozenBillingInFlight.has(key)) {
+          frozenBillingInFlight.add(key);
+          void (async () => {
+            const result = frozen.changed ? await persistFrozenSignedLeaseTerms([frozen.row], sourceLease.id) : { ok: true as const, rows: [row] };
+            if (!result.ok) return;
+            const confirmed = result.rows[0]!;
+            const snapshot = await readAuthoritativeBillingSnapshot();
+            const generated = recordApprovedApplicationChargesScoped(confirmed, row, force, { leaseExecuted: true }, snapshot);
+            if (!generated.ok || !generated.stage || !(await mirrorApplicationHouseholdChargesAwait(confirmed, row, generated.stage)) || !generated.stage.commit()) return;
+            pendingFrozenBilling.delete(key);
+          })().catch(() => { pendingFrozenBilling.set(key, row); }).finally(() => { frozenBillingInFlight.delete(key); });
+        }
+        continue;
       }
     }
-    if (recordApprovedApplicationCharges(billingRow, managerUserId, force, { leaseExecuted })) {
-      changed = true;
-    }
-  }
-  if (frozenRows.length) {
-    persistFrozenSignedLeaseTerms(frozenRows);
-    changed = true;
+    if (pendingFrozenBilling.has(frozenBillingKey(row))) continue;
+    if (recordApprovedApplicationCharges(row, managerUserId, force, { leaseExecuted })) changed = true;
   }
   if (syncAllRecurringRentCharges()) changed = true;
   return changed;
@@ -3191,7 +3346,7 @@ export function upsertRecurringRentProfile(input: {
   leaseEnd?: string;
   /** Omitted inherits the existing profile's prior rent; an explicit `null` clears it. */
   priorRent?: { beforeMonth: string; monthlyRent: number } | null;
-}): RecurringRentProfile | null {
+}, priorCreatedAt?: ReadonlyMap<string, string>): RecurringRentProfile | null {
   if (!isBrowser()) return null;
   const profiles = readRentProfiles();
   const key = `${input.residentEmail.trim().toLowerCase()}|${input.propertyId}`;
@@ -3244,7 +3399,7 @@ export function upsertRecurringRentProfile(input: {
   const next = profiles.some((p) => recurringRentProfileKey(p) === key)
     ? profiles.map((p) => (recurringRentProfileKey(p) === key ? profile : p))
     : [...profiles, profile];
-  writeRentProfiles(next);
+  writeRentProfiles(next, priorCreatedAt);
   return profile;
 }
 
@@ -4398,7 +4553,7 @@ function upsertRecurringRentProfileForApprovedRow(
   },
 ): boolean {
   const { leaseStart, leaseEnd, residentEmail, residentName, propertyId, propertyLabel } = ctx;
-  const effectiveManagerUserId = managerUserId ?? row.managerUserId ?? prop?.managerUserId ?? null;
+  const effectiveManagerUserId = row.managerUserId ?? prop?.managerUserId ?? managerUserId ?? null;
   const room = roomForRow(sub, row, prop?.unitLabel);
   const dailyBasisRate = residentNegotiatedMonthlyRent(row) > 0 ? undefined : roomDailyRentPrice(room);
   const weeklyBasisRate = residentNegotiatedMonthlyRent(row) > 0 ? undefined : roomWeeklyRentPrice(room);
@@ -4457,13 +4612,110 @@ function upsertRecurringRentProfileForApprovedRow(
   return true;
 }
 
+export type ScopedBillingStage = { charges: HouseholdCharge[]; profiles: RecurringRentProfile[]; scopeValid: () => boolean; commit: () => boolean };
+
+/** Run the synchronous generator against only this owner's application and placements. */
+export function recordApprovedApplicationChargesScoped(
+  row: DemoApplicantRow, previousRow: DemoApplicantRow | undefined, force: boolean,
+  opts: Parameters<typeof recordApprovedApplicationCharges>[3] = {},
+  authoritative?: AuthoritativeBillingSnapshot,
+): { ok: boolean; changed: boolean; stage?: ScopedBillingStage } {
+  if (!isBrowser() || scopedBillingGeneration) return { ok: false, changed: false };
+  const workspace = selectedWorkspaceId();
+  const viewer = portalSessionViewerId();
+  const oversightUrl = adminOversightUrl("/api/portal-household-charges");
+  const scopeValid = () => workspace === selectedWorkspaceId() && viewer === portalSessionViewerId() && oversightUrl === adminOversightUrl("/api/portal-household-charges") && !portalSessionEnded();
+  const owner = row.managerUserId?.trim();
+  const pairs = [row, previousRow].filter((item): item is DemoApplicantRow => !!item).map((item) => ({ email: item.email?.trim().toLowerCase() ?? "", property: applicationPropertyIdForCharges(item) })).filter((pair) => pair.email && pair.property);
+  if (!owner || !row.id?.trim() || !pairs.length) return { ok: false, changed: false };
+  const property = getPropertyById(applicationPropertyIdForCharges(row));
+  if (!property || (property.managerUserId && property.managerUserId !== owner)) return { ok: false, changed: false };
+  hydrateHouseholdStateFromSession();
+  const originalCharges = memoryCharges;
+  const originalProfiles = memoryRentProfiles;
+  if (originalCharges.some((charge) => charge.applicationId === row.id && charge.managerUserId !== owner)) return { ok: false, changed: false };
+  if (authoritative?.charges.some((charge) => charge.applicationId === row.id && charge.managerUserId !== owner)) return { ok: false, changed: false };
+  const matchesPair = (value: { residentEmail: string; propertyId: string }) => pairs.some((pair) => value.residentEmail.trim().toLowerCase() === pair.email && value.propertyId === pair.property);
+  const localProfiles = originalProfiles.filter((profile) => profile.managerUserId === owner && matchesPair(profile));
+  const selectedProfiles = (authoritative?.rentProfiles ?? originalProfiles).filter((profile) => profile.managerUserId === owner && matchesPair(profile));
+  const profileIds = new Set(selectedProfiles.map((profile) => profile.id));
+  const matchesCharge = (charge: HouseholdCharge) => charge.managerUserId === owner && (charge.applicationId === row.id || (!charge.applicationId && matchesPair(charge)) || Boolean(!charge.applicationId && charge.recurringRentProfileId && profileIds.has(charge.recurringRentProfileId)));
+  const localCharges = originalCharges.filter(matchesCharge);
+  const selectedCharges = (authoritative?.charges ?? originalCharges).filter(matchesCharge);
+  // Never regress a locally observed payment to a stale server pending row.
+  if (authoritative && localCharges.some((charge) => {
+    const server = selectedCharges.find((item) => item.id === charge.id);
+    if (charge.manualAmountOverrideAt) {
+      const localTime = Date.parse(charge.manualAmountOverrideAt);
+      const serverTime = Date.parse(server?.manualAmountOverrideAt ?? "");
+      if (!Number.isFinite(localTime) || !Number.isFinite(serverTime) || localTime > serverTime) return true;
+    }
+    if (charge.status === "pending" || charge.status === "cancelled" || charge.status === "failed") return Boolean(charge.paidAmountCents) && (!server || server.paidAmountCents !== charge.paidAmountCents);
+    const evidence = (item: HouseholdCharge | undefined) => item && [item.status, item.amountLabel, item.balanceLabel, item.paidAmountCents, item.processingStartedAt, item.paidAt, item.paidMethod, item.stripeCheckoutSessionId, item.stripePaymentStatus];
+    return JSON.stringify(evidence(server)) !== JSON.stringify(evidence(charge));
+  })) return { ok: false, changed: false };
+  const excludedCharges = originalCharges.filter((charge) => !localCharges.includes(charge));
+  const excludedProfiles = originalProfiles.filter((profile) => !localProfiles.includes(profile));
+  let nextCharges: HouseholdCharge[] | undefined;
+  let nextProfiles: RecurringRentProfile[] | undefined;
+  let changed = false;
+  scopedBillingGeneration = true;
+  scopedBillingApplication = row;
+  try {
+    memoryCharges = structuredClone(selectedCharges);
+    memoryRentProfiles = structuredClone(selectedProfiles);
+    changed = recordApprovedApplicationCharges(row, owner, force, opts);
+    // Regeneration can rebuild an existing pending row; creation time belongs to
+    // the confirmed physical row, including when its calculated amount changes.
+    if (authoritative) {
+      const priorCreatedAt = new Map(selectedCharges.map((charge) => [charge.id, charge.createdAt]));
+      memoryCharges = memoryCharges.map((charge) => {
+        const createdAt = charge.managerUserId === owner ? priorCreatedAt.get(charge.id) : undefined;
+        return createdAt === undefined ? charge : { ...charge, createdAt };
+      });
+    }
+    const excludedChargeIds = new Set(excludedCharges.map((charge) => charge.id));
+    const excludedProfileIds = new Set(excludedProfiles.map((profile) => profile.id));
+    if (memoryCharges.some((charge) => excludedChargeIds.has(charge.id)) || memoryRentProfiles.some((profile) => excludedProfileIds.has(profile.id))) return { ok: false, changed: false };
+    nextCharges = memoryCharges;
+    nextProfiles = memoryRentProfiles;
+  } finally {
+    memoryCharges = originalCharges;
+    memoryRentProfiles = originalProfiles;
+    scopedBillingGeneration = false;
+    scopedBillingApplication = null;
+  }
+  if (!nextCharges || !nextProfiles) return { ok: false, changed: false };
+  const stagedCharges = nextCharges;
+  const stagedProfiles = nextProfiles;
+  const originalChargeIds = new Set(localCharges.map((charge) => charge.id));
+  const originalProfileIds = new Set(localProfiles.map((profile) => profile.id));
+  const unchanged = <T extends { id: string }>(current: T[], initial: T[]) => initial.every((item) => JSON.stringify(current.find((row) => row.id === item.id)) === JSON.stringify(item));
+  const stage: ScopedBillingStage = {
+    charges: stagedCharges,
+    profiles: stagedProfiles,
+    scopeValid,
+    commit: () => {
+      if (!scopeValid()) return false;
+      if (!unchanged(memoryCharges, localCharges) || !unchanged(memoryRentProfiles, localProfiles)) return false;
+      if (memoryCharges.filter(matchesCharge).length !== localCharges.length || memoryRentProfiles.filter((profile) => profile.managerUserId === owner && matchesPair(profile)).length !== localProfiles.length) return false;
+      if (stagedCharges.some((charge) => !originalChargeIds.has(charge.id) && memoryCharges.some((current) => current.id === charge.id)) || stagedProfiles.some((profile) => !originalProfileIds.has(profile.id) && memoryRentProfiles.some((current) => current.id === profile.id))) return false;
+      memoryCharges = [...memoryCharges.filter((charge) => !originalChargeIds.has(charge.id)), ...stagedCharges];
+      memoryRentProfiles = [...memoryRentProfiles.filter((profile) => !originalProfileIds.has(profile.id)), ...stagedProfiles];
+      persistHouseholdStateToSession();
+      emit();
+      return true;
+    },
+  };
+  return { ok: true, changed, stage };
+}
+
 export function recordApprovedApplicationCharges(
   row: DemoApplicantRow,
   managerUserId: string | null,
   force = false,
   opts: {
     leaseExecuted?: boolean;
-    moveInAtResidentSign?: boolean;
     recurringProfileOnly?: boolean;
     /**
      * The lease was just SENT and nobody has signed: post ONLY the lines collected at signing (the lease
@@ -4480,7 +4732,6 @@ export function recordApprovedApplicationCharges(
   // kept by the retention predicate and next month's rent still materializes
   // from the stored recurring profile.
   const leaseExecuted = opts.leaseExecuted ?? resolveLeaseExecutedForRow(row, managerUserId);
-  const moveInAtResidentSign = Boolean(opts.moveInAtResidentSign && !leaseExecuted);
   if (row.migrationBillingHold) return false;
   if (!isBrowser()) return false;
   const residentEmail = row.email?.trim();
@@ -4508,7 +4759,7 @@ export function recordApprovedApplicationCharges(
   const allowListingDefaults = !row.manuallyAdded;
   const residentName = row.name?.trim() || row.application?.fullLegalName?.trim() || "Resident";
   const propertyLabel = prop?.title ?? row.property ?? "Listing";
-  const effectiveManagerUserId = managerUserId ?? row.managerUserId ?? prop?.managerUserId ?? null;
+  const effectiveManagerUserId = row.managerUserId ?? prop?.managerUserId ?? managerUserId ?? null;
   const { leaseStart, leaseEnd } = resolveLeaseDatesForBilling(row);
   const moveInDue = dueLabelForLeaseStart(leaseStart);
   const savedAmount = (raw: string | undefined, fallback: string | undefined): number => {
@@ -4540,8 +4791,7 @@ export function recordApprovedApplicationCharges(
   // A SENT lease obliges: the at-signing lines may be posted for anyone with a live application row
   // (approved, or still reading pending while the lease is out) — never an ended tenancy or a billing hold.
   const atSigningOnly = Boolean(opts.atSigningOnly && !leaseExecuted && !residentTenancyEnded(row));
-  const canPostMoveInSchedule =
-    chargeMoment === "signed" || (moveInAtResidentSign && row.bucket === "approved") || atSigningOnly;
+  const canPostMoveInSchedule = chargeMoment === "signed" || atSigningOnly;
   if (!canPostMoveInSchedule) return wroteApplicationFee;
 
   if (opts.recurringProfileOnly) {
@@ -4635,6 +4885,7 @@ export function recordApprovedApplicationCharges(
   }
   // Preserve paid charges — only wipe pending ones so they can be regenerated with correct amounts.
   // Also wipe pending recurring rent/utilities for this resident+property so updated amounts are used.
+  const priorCreatedAt = new Map(readAll().filter((charge) => !!charge.managerUserId).map((charge) => [`${charge.managerUserId}\0${charge.id}`, charge.createdAt]));
   const rows = readAll().filter((charge) => {
     if (charge.utilityAllocationId || charge.migrationSourceId) return true;
     // A figure the manager typed by hand outranks the listing's, for EVERY kind. The
@@ -4700,11 +4951,12 @@ export function recordApprovedApplicationCharges(
     });
     if (atSigningOnly && !dueAtSigning) return;
     const label = moneyAmountLabel(Number(finalAmount.toFixed(2)));
+    const chargeId = customFeeId ? `${approvedChargeId(applicationId, kind)}_cf_${chargeKeyPart(customFeeId)}` : approvedChargeId(applicationId, kind);
     const charge: HouseholdCharge = ({
       // A custom fee needs its OWN id per fee — approvedChargeId keys only on (app, kind),
       // so several custom fees would otherwise share one id and collapse to one row.
-      id: customFeeId ? `${approvedChargeId(applicationId, kind)}_cf_${chargeKeyPart(customFeeId)}` : approvedChargeId(applicationId, kind),
-      createdAt: new Date().toISOString(),
+      id: chargeId,
+      createdAt: (effectiveManagerUserId && priorCreatedAt.get(`${effectiveManagerUserId}\0${chargeId}`)) || new Date().toISOString(),
       applicationId,
       residentEmail,
       residentName,
@@ -5095,7 +5347,7 @@ export function recordApprovedApplicationCharges(
         dueDayMode,
         startMonth: computedStartMonth,
         leaseEnd,
-      });
+      }, priorCreatedAt);
     }
   }
 
@@ -5121,7 +5373,7 @@ export function recordApprovedApplicationCharges(
   }
 
   // Always re-sync recurring charges so wiped monthly entries are recreated with current amounts.
-  syncAllRecurringRentCharges();
+  syncAllRecurringRentCharges(priorCreatedAt);
 
   return changed;
 }
@@ -5408,7 +5660,7 @@ export function recordShortToLongTermConversionCharges(
   if (!sub) return false;
 
   const propertyLabel = prop?.title ?? row.property ?? "Listing";
-  const effectiveManagerUserId = managerUserId ?? row.managerUserId ?? prop?.managerUserId ?? null;
+  const effectiveManagerUserId = row.managerUserId ?? prop?.managerUserId ?? managerUserId ?? null;
   const residentName = row.name?.trim() || row.application?.fullLegalName?.trim() || "Resident";
 
   const breakdown = shortToLongTermUpgradeBreakdown(propertyId);
@@ -5692,7 +5944,7 @@ export function householdChargeToLedgerRow(c: HouseholdCharge): DemoManagerPayme
       (c.kind === "payment_at_signing" || isPendingUpfrontMoveInCharge(c)),
     residentName: c.residentName,
     residentEmail: c.residentEmail,
-    chargeTitle: c.title,
+    chargeTitle: serviceChargeDisplayTitle(c),
     lineAmount: c.amountLabel,
     amountPaid: c.status === "paid" ? c.amountLabel : "$0.00",
     balanceDue: settled ? "$0.00" : c.balanceLabel,
@@ -5719,7 +5971,7 @@ export function householdChargeToLedgerRow(c: HouseholdCharge): DemoManagerPayme
         : c.kind === "work_order_charge"
           ? c.status === "paid" ? "Service charge recorded as paid."
             : c.status === "refunded" ? ""
-            : "Work order pass-through — resident is billed this amount; mark as paid when you receive payment."
+            : "Service pass-through — resident is billed this amount; mark as paid when you receive payment."
           : c.status === "paid" || c.status === "refunded" ? "" : "Awaiting payment.",
   };
 }

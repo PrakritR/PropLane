@@ -39,6 +39,7 @@ export function ManagerBookingChannelsPanel() {
   const { showToast } = useAppUi();
   const workspaceCtx = useWorkspaces();
   const activeWorkspace = workspaceCtx?.active ?? null;
+  const workspaceReady = !!activeWorkspace && workspaceCtx?.loading === false && !workspaceCtx.error;
   const [channelOpen, setChannelOpen] = useState<ChannelCalendarProvider | null>(null);
   const [counts, setCounts] = useState<ChannelCounts>(EMPTY_COUNTS);
   // The rooms and links this panel already loaded; the Connect popup opens from them instead of
@@ -115,7 +116,7 @@ export function ManagerBookingChannelsPanel() {
             fact={channelRowFact({ linked: counts[provider] ?? 0, total: totalUnits, lastSyncedAt: syncs[provider] })}
             factDataAttr={`settings-${provider}-status`}
             action={
-              <Button variant="ghost" data-attr={`settings-${provider}-manage`} onClick={() => setChannelOpen(provider)}>
+              <Button variant="ghost" data-attr={`settings-${provider}-manage`} disabled={!workspaceReady} onClick={() => setChannelOpen(provider)}>
                 {counts[provider] && counts[provider] >= totalUnits ? "Manage" : "Connect"}
               </Button>
             }
@@ -130,7 +131,7 @@ export function ManagerBookingChannelsPanel() {
           fact={roomsFact(vrboRooms)}
           factDataAttr="settings-vrbo-status"
           action={
-            <Button variant="ghost" data-attr="settings-vrbo-manage" onClick={() => setChannelOpen("vrbo")}>
+            <Button variant="ghost" data-attr="settings-vrbo-manage" disabled={!workspaceReady} onClick={() => setChannelOpen("vrbo")}>
               Manage
             </Button>
           }
@@ -152,7 +153,7 @@ export function ManagerBookingChannelsPanel() {
           name="Other calendar"
           fact={counts.ical ? `Connected · ${counts.ical} ${counts.ical === 1 ? "link" : "links"} · ${icalSites.join(", ")}` : OTHER_CALENDAR_HINT}
           factDataAttr="settings-ical-status"
-          action={<PortalIconAction icon={Plus} label="Connect an Other calendar" data-attr="settings-ical-manage" onClick={() => setChannelOpen("ical")} />}
+          action={<PortalIconAction icon={Plus} label="Connect an Other calendar" data-attr="settings-ical-manage" disabled={!workspaceReady} onClick={() => setChannelOpen("ical")} />}
         />
       </PortalSettingsGroup>
       <ChannelCalendarLinkModal

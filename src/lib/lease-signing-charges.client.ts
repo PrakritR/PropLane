@@ -20,11 +20,14 @@
  * browser — which is why a resident's own browser never runs this.
  */
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
+import { portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { selectedWorkspaceId } from "@/lib/workspaces/selection";
 import {
-  mirrorHouseholdChargesToServerAwait,
-  readChargesForManager,
-  recordApprovedApplicationCharges,
+  mirrorApplicationHouseholdChargesAwait,
+  recordApprovedApplicationChargesScoped,
+  readAuthoritativeBillingSnapshot,
 } from "@/lib/household-charges";
 import {
   LEASE_PIPELINE_EVENT,
@@ -32,59 +35,58 @@ import {
   type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
 import { freezeSignedLeaseTerms, persistFrozenSignedLeaseTerms } from "@/lib/lease-signed-terms";
-import { normalizeApplicationAxisId, readManagerApplicationRows } from "@/lib/manager-applications-storage";
+import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 
 export type ExecutedLeaseChargesResult =
   | { ok: true; created: boolean; applications: number }
   | { ok: false; reason: string };
 
-/** The application rows a fully signed lease bills: its own, plus every member of a joint lease. */
-export function applicationsBilledByLease(lease: LeasePipelineRow, apps: readonly DemoApplicantRow[]): DemoApplicantRow[] {
-  const found = new Map<string, DemoApplicantRow>();
-  const add = (row: DemoApplicantRow | undefined) => {
-    if (row && !found.has(row.id)) found.set(row.id, row);
-  };
-  const byAxis = (id?: string | null) => {
-    const key = id ? normalizeApplicationAxisId(id) : "";
-    return key ? apps.find((a) => normalizeApplicationAxisId(a.id) === key) : undefined;
-  };
-  const byEmail = (email?: string | null) => {
-    const key = email?.trim().toLowerCase();
-    return key ? apps.find((a) => a.email?.trim().toLowerCase() === key) : undefined;
-  };
-  if (lease.leaseKind === "joint_bundle" && lease.jointLeaseMembers?.length) {
-    for (const member of lease.jointLeaseMembers) add(byAxis(member.applicationId) ?? byEmail(member.residentEmail));
-  }
-  if (found.size === 0) add(byAxis(lease.axisId) ?? byEmail(lease.residentEmail));
-  return [...found.values()];
+/**
+ * Who this browser is acting as, right now: the workspace, the signed-in viewer and the admin
+ * oversight target. Every authoritative read, every stage and every acknowledged write in one
+ * batch has to belong to the SAME one — a workspace switch between two members of a joint lease
+ * would otherwise let the second member stage into a scope the first member's read never saw.
+ * `recordApprovedApplicationChargesScoped` guards changes after ITS stage was created; this
+ * guards the batch around them.
+ */
+function billingScopeToken(): string {
+  return JSON.stringify([
+    selectedWorkspaceId(),
+    portalSessionViewerId(),
+    adminOversightUrl("/api/portal-household-charges"),
+  ]);
 }
 
 /**
- * True once the application carries any tenancy charge (an application fee alone is not one). The lines
- * created when the lease was SENT (`dueAtSigning`: the lease fee, deposit, move-in fee) are the start of the
- * schedule, not all of it, so they alone do not mean the executed lease has been billed.
+ * The billing-relevant revision of one application: everything the generator reads to decide
+ * WHAT to bill. A change here is a new basis, not a retry of the old one — which is why the
+ * retry budget is keyed on it rather than on the application id or a charge amount.
  */
-export function applicationHasTenancyCharges(applicationId: string, managerUserId: string | null): boolean {
-  const key = normalizeApplicationAxisId(applicationId);
-  return readChargesForManager(managerUserId).some(
-    (charge) =>
-      charge.applicationId &&
-      normalizeApplicationAxisId(charge.applicationId) === key &&
-      charge.kind !== "application_fee" &&
-      charge.kind !== "holding_deposit" &&
-      charge.dueAtSigning !== true,
-  );
+function applicationBillingRevision(app: DemoApplicantRow): unknown {
+  // Preserve the full application basis: the generator reads fees, move-in/out,
+  // manual-resident fields and template terms beyond the rent fields.
+  return app;
 }
 
-/** True once the application carries any line collected at signing (stamped when the lease is sent). */
-export function applicationHasAtSigningCharges(applicationId: string, managerUserId: string | null): boolean {
-  const key = normalizeApplicationAxisId(applicationId);
-  return readChargesForManager(managerUserId).some(
-    (charge) =>
-      charge.dueAtSigning === true &&
-      charge.applicationId &&
-      normalizeApplicationAxisId(charge.applicationId) === key,
-  );
+/** The application rows a fully signed lease bills: its own, plus every member of a joint lease. */
+export function applicationsBilledByLease(lease: LeasePipelineRow, apps: readonly DemoApplicantRow[]): DemoApplicantRow[] {
+  const owner = lease.managerUserId?.trim();
+  const property = lease.propertyId?.trim();
+  if (!owner || !property) return [];
+  const eligible = apps.filter((app) => app.managerUserId?.trim() === owner && (app.assignedPropertyId?.trim() || app.propertyId?.trim() || app.application?.propertyId?.trim()) === property);
+  const find = (id: string | null | undefined, email: string | null | undefined) => {
+    const key = id?.trim().toUpperCase();
+    const normalizedEmail = email?.trim().toLowerCase();
+    const matches = key ? eligible.filter((app) => app.id.trim().toUpperCase() === key) : normalizedEmail ? eligible.filter((app) => app.email?.trim().toLowerCase() === normalizedEmail) : [];
+    return matches.length === 1 ? matches[0] : undefined;
+  };
+  if (lease.leaseKind === "joint_bundle") {
+    if (!lease.jointLeaseMembers?.length) return [];
+    const members = lease.jointLeaseMembers.map((member) => member.applicationId?.trim() ? find(member.applicationId, member.residentEmail) : undefined);
+    return members.every((member): member is DemoApplicantRow => Boolean(member)) ? [...new Map(members.map((member) => [member.id, member])).values()] : [];
+  }
+  const app = find(lease.axisId, lease.residentEmail);
+  return app ? [app] : [];
 }
 
 /**
@@ -104,15 +106,25 @@ export async function createAtSigningChargesForSentLease(
   const apps = applicationsBilledByLease(lease, readManagerApplicationRows());
   if (apps.length === 0) return { ok: false, reason: "No application is on file for this lease." };
 
+  // One AUTHORITATIVE read per member, taken after the previous member's write was
+  // acknowledged. Members of a joint lease are not provably disjoint — the resolver dedupes
+  // application ids, not emails, and a scoped recurring profile is selected by owner + email +
+  // property — so two explicit members can share a profile or a legacy charge slice. Reusing one
+  // pre-loop snapshot would stage the second member from state that predates the first member's
+  // acknowledged rows and write them back out.
+  const batchScope = billingScopeToken();
   let changed = false;
   for (const app of apps) {
-    if (recordApprovedApplicationCharges(app, managerUserId, false, { leaseExecuted: false, atSigningOnly: true })) {
-      changed = true;
-    }
-  }
-  if (changed && !isDemoModeActive()) {
-    // Write through before returning so the resident's lease page already shows the payment.
-    await mirrorHouseholdChargesToServerAwait().catch(() => false);
+    if (billingScopeToken() !== batchScope) return { ok: false, reason: "The workspace changed while charges were being prepared. Review and retry." };
+    const snapshot = await readAuthoritativeBillingSnapshot().catch(() => null);
+    if (!snapshot) return { ok: false, reason: "Lease sent, but charges could not be read. Review and retry." };
+    if (billingScopeToken() !== batchScope) return { ok: false, reason: "The workspace changed while charges were being prepared. Review and retry." };
+    const generated = recordApprovedApplicationChargesScoped(app, undefined, false, { leaseExecuted: false, atSigningOnly: true }, snapshot);
+    if (!generated.ok || !generated.stage) return { ok: false, reason: "Lease sent, but charges could not be prepared. Review and retry." };
+    changed ||= generated.changed;
+    if (!isDemoModeActive() && !(await mirrorApplicationHouseholdChargesAwait(app, undefined, generated.stage, snapshot).catch(() => false))) return { ok: false, reason: "Lease sent, but charges could not be confirmed. Review and retry." };
+    if (billingScopeToken() !== batchScope) return { ok: false, reason: "The workspace changed while charges were being saved. Review and retry." };
+    if (!generated.stage.commit()) return { ok: false, reason: "Lease sent, but charges changed. Review and retry." };
   }
   return { ok: true, created: changed, applications: apps.length };
 }
@@ -125,33 +137,98 @@ export async function createAtSigningChargesForSentLease(
 export async function createChargesForExecutedLease(
   lease: LeasePipelineRow,
   managerUserId: string | null,
+  options?: { recurringProfileOnly?: boolean },
 ): Promise<ExecutedLeaseChargesResult> {
   if (lease.status !== "Fully Signed") return { ok: false, reason: "The lease is not fully signed yet." };
   if (lease.pendingRenewal) return { ok: false, reason: "A renewal applies its own terms." };
   const apps = applicationsBilledByLease(lease, readManagerApplicationRows());
   if (apps.length === 0) return { ok: false, reason: "No application is on file for this lease." };
 
+  // One AUTHORITATIVE read per member, taken after the previous member's write was
+  // acknowledged — joint members can share a recurring-profile or legacy-charge slice, so a
+  // reused snapshot would restore state from before the earlier member's rows landed.
+  const batchScope = billingScopeToken();
   let changed = false;
   for (const app of apps) {
+    if (billingScopeToken() !== batchScope) return { ok: false, reason: "The workspace changed while charges were being prepared. Review and retry." };
     // Signature freezes the money terms before the first bill is posted, so the listing's
     // price from here on is someone else's business.
     const frozen = freezeSignedLeaseTerms(app, { managerUserId, lease });
-    if (frozen.changed) persistFrozenSignedLeaseTerms([frozen.row]);
-    if (recordApprovedApplicationCharges(frozen.row, managerUserId, false, { leaseExecuted: true })) changed = true;
-  }
-  if (changed && !isDemoModeActive()) {
-    // Write through before returning so the resident's Payments is already right when this resolves.
-    await mirrorHouseholdChargesToServerAwait().catch(() => false);
+    let confirmed = frozen.row;
+    if (frozen.changed) {
+      const result = await persistFrozenSignedLeaseTerms([frozen.row], lease.id);
+      if (!result.ok) return { ok: false, reason: "Lease signed, but its payment terms could not be saved. Review and retry." };
+      confirmed = result.rows[0]!;
+    }
+    const snapshot = await readAuthoritativeBillingSnapshot().catch(() => null);
+    if (!snapshot) return { ok: false, reason: "Lease signed, but charges could not be read. Review and retry." };
+    if (billingScopeToken() !== batchScope) return { ok: false, reason: "The workspace changed while charges were being prepared. Review and retry." };
+    const generated = recordApprovedApplicationChargesScoped(confirmed, app, false, { leaseExecuted: true, ...(options?.recurringProfileOnly ? { recurringProfileOnly: true } : {}) }, snapshot);
+    if (!generated.ok || !generated.stage) return { ok: false, reason: "Lease signed, but charges could not be prepared. Review and retry." };
+    changed ||= generated.changed;
+    if (!isDemoModeActive() && !(await mirrorApplicationHouseholdChargesAwait(confirmed, app, generated.stage, snapshot).catch(() => false))) return { ok: false, reason: "Lease signed, but charges could not be confirmed. Review and retry." };
+    if (billingScopeToken() !== batchScope) return { ok: false, reason: "The workspace changed while charges were being saved. Review and retry." };
+    if (!generated.stage.commit()) return { ok: false, reason: "Lease signed, but charges changed. Review and retry." };
   }
   return { ok: true, created: changed, applications: apps.length };
 }
 
 /** Leases signed this long ago are still looked at; older ones belong to the Payments reconciler. */
 const WATCH_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-const handled = new Set<string>();
-/** A pass can find the listing catalog not hydrated yet; a lease gets a few tries, not a loop. */
-const attempts = new Map<string, number>();
+
+/**
+ * TWO sets, and the difference between them is the whole point.
+ *
+ * `acknowledged` holds only what the server confirmed: a batch whose every member's charges were
+ * written AND acknowledged. Nothing else may enter it. A failure that merely ran out of tries is
+ * not a completed write, and recording it as one would leave a signed lease unbilled with no
+ * trace.
+ *
+ * `spentAttempts` is the backoff. A pass can find the listing catalog not hydrated yet, so a
+ * batch gets a few tries — not one per lease-pipeline event forever, because each attempt costs
+ * an authoritative charges GET and a write (AGENTS.md § Performance & egress).
+ *
+ * Both are keyed on the BASIS, not on the lease id: the scope this browser is acting in, the
+ * lease's own generation, and every billed application's billing revision. So a workspace or
+ * viewer switch inherits neither success nor exhaustion, and an edit to the lease or the
+ * application earns a fresh budget rather than being refused by a stale one. Module globals
+ * survive SPA navigation, which is why an explicit retry has
+ * {@link clearExecutedLeaseChargeBackoff}.
+ */
+const acknowledged = new Set<string>();
+const spentAttempts = new Map<string, number>();
 const MAX_ATTEMPTS = 4;
+
+/** Test seam: drops the per-session dedupe so a watcher pass starts from nothing. */
+export function resetExecutedLeaseChargeWatchState(): void {
+  acknowledged.clear();
+  spentAttempts.clear();
+}
+
+/**
+ * An explicit "try again" from a person. It drops the BACKOFF only — an acknowledged write is
+ * still acknowledged, so a retry never bills the same lease twice.
+ */
+export function clearExecutedLeaseChargeBackoff(): void {
+  spentAttempts.clear();
+}
+
+function billingBatchKey(
+  stage: "sent" | "executed",
+  lease: LeasePipelineRow,
+  apps: readonly DemoApplicantRow[],
+): string {
+  return JSON.stringify([
+    stage,
+    billingScopeToken(),
+    lease.id,
+    lease.status,
+    lease.versionNumber ?? null,
+    lease.updatedAtIso ?? null,
+    lease.fullySignedAt ?? null,
+    apps.map((app) => applicationBillingRevision(app)),
+  ]);
+}
 
 /**
  * For a manager session that did not itself take the last signature (the resident signed last,
@@ -171,34 +248,27 @@ export function watchExecutedLeaseCharges(managerUserId: string | null): () => v
         // A lease sent by a path that did not create its at-signing lines (another session, an agent) gets
         // them here, so the resident is never offered a signature that skips the payment.
         if (lease.status === "Resident Signature Pending" && !lease.residentSignature && !lease.pendingRenewal) {
-          const sentKey = `sent:${lease.id}`;
-          if (!handled.has(sentKey)) {
-            const sentApps = applicationsBilledByLease(lease, readManagerApplicationRows());
-            if (sentApps.length > 0 && sentApps.every((app) => applicationHasAtSigningCharges(app.id, managerUserId))) {
-              handled.add(sentKey);
-            } else if (sentApps.length > 0) {
-              const triedSent = (attempts.get(sentKey) ?? 0) + 1;
-              attempts.set(sentKey, triedSent);
+          const sentApps = applicationsBilledByLease(lease, readManagerApplicationRows());
+          if (sentApps.length > 0) {
+            const key = billingBatchKey("sent", lease, sentApps);
+            if (!acknowledged.has(key) && (spentAttempts.get(key) ?? 0) < MAX_ATTEMPTS) {
+              spentAttempts.set(key, (spentAttempts.get(key) ?? 0) + 1);
               const sent = await createAtSigningChargesForSentLease(lease, managerUserId).catch(() => null);
-              if (triedSent >= MAX_ATTEMPTS || (sent && sent.ok)) handled.add(sentKey);
+              if (sent?.ok) acknowledged.add(key);
             }
           }
           continue;
         }
-        if (lease.status !== "Fully Signed" || lease.pendingRenewal || handled.has(lease.id)) continue;
+        if (lease.status !== "Fully Signed" || lease.pendingRenewal) continue;
         const signedAt = Date.parse(lease.fullySignedAt ?? "");
         if (!Number.isFinite(signedAt) || now - signedAt > WATCH_WINDOW_MS) continue;
         const apps = applicationsBilledByLease(lease, readManagerApplicationRows());
         if (apps.length === 0) continue;
-        if (apps.every((app) => applicationHasTenancyCharges(app.id, managerUserId))) {
-          handled.add(lease.id);
-          continue;
-        }
-        const tried = (attempts.get(lease.id) ?? 0) + 1;
-        attempts.set(lease.id, tried);
+        const key = billingBatchKey("executed", lease, apps);
+        if (acknowledged.has(key) || (spentAttempts.get(key) ?? 0) >= MAX_ATTEMPTS) continue;
+        spentAttempts.set(key, (spentAttempts.get(key) ?? 0) + 1);
         const result = await createChargesForExecutedLease(lease, managerUserId).catch(() => null);
-        const done = apps.every((app) => applicationHasTenancyCharges(app.id, managerUserId));
-        if (done || tried >= MAX_ATTEMPTS || (result && !result.ok)) handled.add(lease.id);
+        if (result?.ok) acknowledged.add(key);
       }
     } finally {
       running = false;

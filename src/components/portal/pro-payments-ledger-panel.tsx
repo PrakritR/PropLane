@@ -72,6 +72,7 @@ import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { POPUP_FIELD_LABEL_CLASS } from "@/components/portal/popup-phone-styles";
 import {
   PortalBulkMessageCarouselModal,
 } from "@/components/portal/portal-bulk-message-carousel-modal";
@@ -355,6 +356,15 @@ export function ManagerPaymentsLedgerPanel({
   const [offlineDate, setOfflineDate] = useState(new Date().toLocaleDateString("en-CA"));
   const [offlineMethod, setOfflineMethod] = useState<"Cash" | "Check" | "Bank transfer" | "Other">("Check");
   const [offlineNote, setOfflineNote] = useState("");
+  const [depositReturnRow, setDepositReturnRow] = useState<DemoManagerPaymentLedgerRow | null>(null);
+  // Whether Return deposit can do anything, answered by the SERVER from the same deployment gate
+  // and test-identity classification the POST applies. Fail closed: until it says yes, the
+  // action is not offered, so nobody fills in an amount and every deduction line only to be
+  // refused. The client never decides this.
+  const [depositReturnEnabled, setDepositReturnEnabled] = useState(false);
+  const [depositReturnAmount, setDepositReturnAmount] = useState("");
+  const refundOperations = useRef(new Map<string, { basis: string; id: string }>());
+  const [depositDeductions, setDepositDeductions] = useState<Array<{ label: string; amount: string }>>([]);
   const [returningDepositId, setReturningDepositId] = useState<string | null>(null);
   const [refundingChargeId, setRefundingChargeId] = useState<string | null>(null);
   const navigate = usePortalNavigate();
@@ -372,6 +382,15 @@ export function ManagerPaymentsLedgerPanel({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   const reminderChargeId = reminderPreview?.row.householdChargeId ?? null;
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/portal/deposit-return", { credentials: "include", cache: "no-store", signal: controller.signal })
+      .then(async (res) => (res.ok ? (await res.json()) as { enabled?: boolean } : null))
+      .then((body) => setDepositReturnEnabled(body?.enabled === true))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
   useEffect(() => {
     if (!reminderChargeId) {
       queueMicrotask(() => setReminderCapability(null));
@@ -1330,7 +1349,7 @@ export function ManagerPaymentsLedgerPanel({
           actions.push({ id: "edit", label: "Edit", icon: Pencil });
         }
       } else {
-        if (isReturnableDepositRow(row)) {
+        if (isReturnableDepositRow(row) && depositReturnEnabled) {
           actions.push({ id: "return-deposit", label: "Return deposit", icon: RotateCcw });
         } else if (isRefundableChargeRow(row)) {
           actions.push({ id: "refund", label: "Refund", icon: RotateCcw });
@@ -1342,7 +1361,7 @@ export function ManagerPaymentsLedgerPanel({
       }
       return actions;
     },
-    [rowDeletable, rowEditable],
+    [rowDeletable, rowEditable, depositReturnEnabled],
   );
 
   const renderPaymentOverviewPanel = (row: DemoManagerPaymentLedgerRow) => {
@@ -1507,33 +1526,42 @@ export function ManagerPaymentsLedgerPanel({
   // C023: return a security deposit to its resident. Shared by the bulk selection bar and a
   // paid deposit's record page — one flow, two entry points. Sends real money; Stripe will not
   // un-refund it, so it always confirms first and re-reads everything server-side but the id.
-  const returnDepositForRow = async (row: DemoManagerPaymentLedgerRow) => {
-    if (
-      !(await confirm({
-        title: "Return deposit",
-        description: `Return the security deposit to ${row.residentName}?`,
-        confirmLabel: "Return deposit",
-      }))
-    ) {
+  const returnDepositForRow = (row: DemoManagerPaymentLedgerRow) => {
+    setDepositReturnAmount("");
+    setDepositDeductions([]);
+    setDepositReturnRow(row);
+  };
+
+  const submitDepositReturn = async () => {
+    const row = depositReturnRow;
+    if (!row?.householdChargeId || returningDepositId) return;
+    const amount = Number(depositReturnAmount);
+    const itemization = depositDeductions.map((line) => ({ label: line.label.trim(), amountCents: Math.round(Number(line.amount) * 100) }));
+    if (!Number.isFinite(amount) || amount <= 0 || !/^\d+(?:\.\d{1,2})?$/.test(depositReturnAmount) ||
+        itemization.some((line) => !line.label || !Number.isSafeInteger(line.amountCents) || line.amountCents <= 0)) {
+      showToast("Enter a valid return amount and deduction amounts.");
       return;
     }
-    setReturningDepositId(row.householdChargeId ?? row.id);
+    setReturningDepositId(row.householdChargeId);
     try {
       const res = await fetch("/api/portal/deposit-return", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chargeId: row.householdChargeId }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chargeId: row.householdChargeId, amountCents: Math.round(amount * 100), itemization }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; remainingCents?: number };
-      if (!res.ok) {
-        showToast(data.error || "Could not return the deposit.");
+      const data = (await res.json().catch(() => ({}))) as { error?: string; status?: string };
+      // `pending` is the ONLY outcome this route reports as accepted: the provider refund was
+      // reserved and sent, and the webhook performs the terminal accounting. There is no
+      // "returned" answer to render, so nothing here claims one.
+      if (res.ok && data.status === "pending") {
+        showToast("Deposit return pending.");
+        setDepositReturnRow(null);
+        setSelectedIds(new Set());
+        onRowsChanged?.();
         return;
       }
-      showToast(data.remainingCents ? "Deposit partially returned." : `Deposit returned to ${row.residentName}.`);
-      setSelectedIds(new Set());
-      onRowsChanged?.();
+      showToast(data.error || "Deposit return requires reconciliation.");
     } catch {
-      showToast("Could not return the deposit.");
+      showToast("Deposit return status is unknown. Review before retrying.");
     } finally {
       setReturningDepositId(null);
     }
@@ -1552,20 +1580,33 @@ export function ManagerPaymentsLedgerPanel({
       return;
     }
     setRefundingChargeId(row.householdChargeId ?? row.id);
+    // One id for this submission, so a retry after a timeout resumes the same reservation
+    // instead of opening a second one against the same balance.
+    const chargeId = row.householdChargeId ?? row.id;
+    const charge = readHouseholdCharges().find((item) => item.id === chargeId);
+    const basis = JSON.stringify([row.amountPaid, charge?.refundedCents ?? 0]);
+    let operation = refundOperations.current.get(chargeId);
+    if (!operation || operation.basis !== basis) {
+      operation = { basis, id: crypto.randomUUID() };
+      refundOperations.current.set(chargeId, operation);
+    }
+    const operationId = operation.id;
     try {
       const res = await fetch("/api/portal/charge-refund", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chargeId: row.householdChargeId }),
+        body: JSON.stringify({ chargeId: row.householdChargeId, operationId }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; remainingCents?: number };
-      if (!res.ok) {
-        showToast(data.error || "Could not refund this charge.");
+      const data = (await res.json().catch(() => ({}))) as { error?: string; status?: string; remainingCents?: number };
+      // `pending` is the only accepted outcome: the refund is reserved and sent, and the money
+      // lands on the charge when the refund webhook settles it. Nothing says "refunded" here.
+      if (res.ok && data.status === "pending") {
+        showToast(data.remainingCents ? "Partial refund pending." : "Refund pending.");
+        setSelectedIds(new Set());
+        onRowsChanged?.();
         return;
       }
-      showToast(data.remainingCents ? "Charge partially refunded." : `Refunded ${row.residentName}.`);
-      setSelectedIds(new Set());
-      onRowsChanged?.();
+      showToast(data.error || "Could not refund this charge.");
     } catch {
       showToast("Could not refund this charge.");
     } finally {
@@ -1578,7 +1619,7 @@ export function ManagerPaymentsLedgerPanel({
     const showSendReminder = !isPaidRow(row);
     const showMoveToPending = activeBucket === "paid" && !row.householdChargeId;
     const showDelete = rowDeletable(row);
-    const showReturnDeposit = isReturnableDepositRow(row);
+    const showReturnDeposit = depositReturnEnabled && isReturnableDepositRow(row);
     const showRefund = isRefundableChargeRow(row);
     const btnClass = RESIDENT_DETAIL_HEADER_ACTION_BTN;
 
@@ -1742,6 +1783,7 @@ export function ManagerPaymentsLedgerPanel({
     onEmbeddedDetailActions,
     paymentIdProp,
     detailRow,
+    depositReturnEnabled,
     editingRowId,
     sendingReminderId,
     activeBucket,
@@ -1752,6 +1794,7 @@ export function ManagerPaymentsLedgerPanel({
     const selectedIdList = [...selectedIds].sort().join(",");
     const meta = [
       activeBucket,
+      depositReturnEnabled ? "1" : "0",
       sendingReminderId ?? "",
       singleSelectedRow?.id ?? "",
       singleSelectedRow?.householdChargeId ?? "",
@@ -1765,6 +1808,7 @@ export function ManagerPaymentsLedgerPanel({
   }, [
     selectedIds,
     activeBucket,
+    depositReturnEnabled,
     sendingReminderId,
     singleSelectedRow,
     remindableSelectedRows.length,
@@ -1804,7 +1848,7 @@ export function ManagerPaymentsLedgerPanel({
 
     // One deposit/charge at a time and confirmed first: this sends real money and Stripe will
     // not un-refund it. A bulk version would make a mis-click expensive in a way no undo covers.
-    const returnableDeposits = selectedRows.filter(isReturnableDepositRow);
+    const returnableDeposits = depositReturnEnabled ? selectedRows.filter(isReturnableDepositRow) : [];
     if (returnableDeposits.length === 1) {
       const row = returnableDeposits[0]!;
       actions.push({
@@ -1998,6 +2042,7 @@ export function ManagerPaymentsLedgerPanel({
     );
   }, [
     activeBucket,
+    depositReturnEnabled,
     deleteSelected,
     rowDeletable,
     rowEditable,
@@ -2315,6 +2360,28 @@ export function ManagerPaymentsLedgerPanel({
         onConfirm={(scope, options) => void doSendBulkReminders(scope, options)}
       />
     ) : null}
+      <PortalDialog open={Boolean(depositReturnRow)} title="Return deposit" onClose={() => setDepositReturnRow(null)} primaryAction={{ label: returningDepositId ? "Returning…" : "Return deposit", onClick: submitDepositReturn }}>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <label className={POPUP_FIELD_LABEL_CLASS} htmlFor="deposit-return-amount">Return amount</label>
+            <Input id="deposit-return-amount" type="number" min="0.01" step="0.01" value={depositReturnAmount} onChange={(event) => setDepositReturnAmount(event.target.value)} data-attr="deposit-return-amount" />
+          </div>
+          {depositDeductions.map((line, index) => (
+            <div key={index} className="flex items-end gap-2">
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <label className={POPUP_FIELD_LABEL_CLASS} htmlFor={`deposit-return-deduction-${index}`}>Deduction</label>
+                <Input id={`deposit-return-deduction-${index}`} value={line.label} onChange={(event) => setDepositDeductions((items) => items.map((item, i) => i === index ? { ...item, label: event.target.value } : item))} data-attr="deposit-return-deduction-label" />
+              </div>
+              <div className="space-y-1.5">
+                <label className={POPUP_FIELD_LABEL_CLASS} htmlFor={`deposit-return-deduction-amount-${index}`}>Amount</label>
+                <Input id={`deposit-return-deduction-amount-${index}`} type="number" min="0.01" step="0.01" value={line.amount} onChange={(event) => setDepositDeductions((items) => items.map((item, i) => i === index ? { ...item, amount: event.target.value } : item))} data-attr="deposit-return-deduction-amount" />
+              </div>
+              <PortalIconAction icon={Trash2} label={`Remove deduction ${index + 1}`} tone="danger" onClick={() => setDepositDeductions((items) => items.filter((_, i) => i !== index))} data-attr="deposit-return-remove-deduction" />
+            </div>
+          ))}
+          <Button variant="ghost" onClick={() => setDepositDeductions((items) => [...items, { label: "", amount: "" }])} data-attr="deposit-return-add-deduction">Add deduction</Button>
+        </div>
+      </PortalDialog>
       <PortalDialog
         open={Boolean(waiveRow)}
         title={waiveRow?.restore ? "Restore lease fee" : "Waive lease fee"}

@@ -1,3 +1,4 @@
+import { managerApplicationDatabaseWriteMessage } from "./application-write-error";
 import { standardizeApplicantStayTimes } from "@/lib/rental-application/standard-stay-times.server";
 /**
  * The signed-in applicant's write of `manager_application_records`, shared by
@@ -16,6 +17,7 @@ import { persistRenamedApplicationRecord, type ApplicationRecordSnapshot } from 
 import { prepareApplicantIdentityWrite, sealApplicantRow } from "@/lib/security/applicant-identity";
 import { applicantRoomChoicesForListing } from "@/lib/auth/guest-application-upsert";
 import { linkResidentOnApplicationSubmit } from "@/lib/auth/link-resident-on-application-submit";
+import { resolveBaselineResidentIdentity } from "@/lib/resident-identity/baseline.server";
 import { recordResidentWorkspaceBinding } from "@/lib/auth/resident-workspace-binding";
 import { provisionApprovedResidentAccount } from "@/lib/auth/provision-approved-resident";
 import { isDraftApplicationRow, normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
@@ -202,7 +204,10 @@ export async function persistNormalizedRow(
         if (isDraftApplicationRow(incomingDraft)) query = query.eq("row_data->>bucket", "pending").is("row_data->>withdrawnAt", null);
         query = existing.updated_at == null ? query.is("updated_at", null) : query.eq("updated_at", existing.updated_at);
         const { data, error } = await query.select("id");
-        if (error) throw Object.assign(new Error("Could not save application."), { code: error.code, cause: error });
+        if (error) {
+          const message = managerApplicationDatabaseWriteMessage(error);
+          throw Object.assign(new Error(message), { code: error.code, cause: error });
+        }
         if (!data?.length) throw Object.assign(new Error("Application changed. Refresh and retry."), { code: "40001" });
       }
     } else if (isDraftApplicationRow(incomingDraft)) {
@@ -418,6 +423,11 @@ export async function prepareResidentSelfWrite(
   }
   if (existing && existing.bucket !== "pending") {
     return refuse(403, { error: "This application can no longer be edited." });
+  }
+  if ((!existing || isDraftShapedApplicationRow(existing)) && !isDraftShapedApplicationRow(row)) {
+    const identity = await resolveBaselineResidentIdentity(db, user.id);
+    if (identity === "required") return refuse(403, { error: "Verify your identity to submit an application.", blocked: "identity", href: "/resident/profile?tab=profile#verification" });
+    if (identity === "unavailable") return refuse(503, { error: "Identity verification is unavailable.", blocked: "identity_unavailable", href: "/resident/profile?tab=profile#verification" });
   }
   if (row.bucket !== "pending") {
     return refuse(403, { error: "Residents cannot change application status." });

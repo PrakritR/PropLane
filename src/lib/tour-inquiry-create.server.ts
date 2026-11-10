@@ -14,8 +14,8 @@
  * opted in, and `confirm_tour_inquiry` is what actually books. That is the
  * approval-first invariant in docs/agents/tours-scheduling.md.
  *
- * Callers own two things this function does not: rate limiting, and linking a
- * signed-in resident to the inquiry afterwards.
+ * Callers own rate limiting and resident linking; a trusted hook can link the
+ * newly created inquiry before notifications begin.
  */
 import type { NoticeChannel } from "@/lib/notice-channel";
 import "server-only";
@@ -31,6 +31,7 @@ import {
   managerMayHostPropertyTour,
 } from "@/lib/public-tour-booking-guard";
 import { applicationBeforeTourRefusal } from "@/lib/application-before-tour.server";
+import { resolveBaselineResidentIdentity } from "@/lib/resident-identity/baseline.server";
 import { listPropertyTourHostUserIds } from "@/lib/tour-host-enumeration.server";
 import { notifyManagerTourRequest, notifyTenantTourRequestReceived } from "@/lib/tour-notification-delivery.server";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
@@ -58,7 +59,7 @@ export type CreateTourInquiryResult =
   | { ok: true; row: Record<string, unknown>; inquiryId: string }
   | {
       ok: false;
-      reason: "invalid_contact" | "missing_host" | "slot_unavailable" | "application_required" | "sign_in_required";
+      reason: "invalid_contact" | "missing_host" | "slot_unavailable" | "application_required" | "sign_in_required" | "identity_required" | "identity_unavailable";
       error: string;
     }
   | { ok: false; reason: "duplicate_request" | "rate_limited"; error: string }
@@ -347,6 +348,8 @@ export async function createTourInquiry(
      * requires an application before a tour reads as "no application".
      */
     verifiedApplicantEmail?: string | null;
+    /** Server-authenticated resident ID, never supplied in the request body. */
+    verifiedApplicantUserId?: string | null;
     /** Listing site the prospect came from (the `pl_src` cookie); re-validated against the allowlist here. */
     sourceChannel?: string | null;
     /**
@@ -354,6 +357,8 @@ export async function createTourInquiry(
      * text, otherwise the web channel. A request carrying `smsOrigin` is always `sms`.
      */
     noticeChannel?: NoticeChannel;
+    /** Trusted server caller may establish resident access before notifications begin. */
+    beforeTourNotifications?: (created: { row: Record<string, unknown>; inquiryId: string }) => Promise<void>;
   },
 ): Promise<CreateTourInquiryResult> {
   // Strip this internal provenance key before copying public input. It is set
@@ -403,6 +408,11 @@ export async function createTourInquiry(
   row.noticeChannel = args.smsOrigin?.senderPhoneE164 || args.noticeChannel === "sms" ? "sms" : "portal";
   const propertyId = typeof row["propertyId"] === "string" ? row["propertyId"] : null;
   const isTour = textValue(row.kind) === "tour";
+  if (isTour) {
+    const identity = await resolveBaselineResidentIdentity(db, args.verifiedApplicantUserId ?? null);
+    if (identity === "required") return { ok: false, reason: "identity_required", error: "Sign in and verify your identity to request a tour." };
+    if (identity === "unavailable") return { ok: false, reason: "identity_unavailable", error: "Identity verification is unavailable." };
+  }
 
   // A window's `slotKey` is the authority for WHEN (PRP-368). The client
   // builds `start`/`end` in the prospect's own browser zone, so a guest booking
@@ -611,6 +621,14 @@ export async function createTourInquiry(
   const consentPhone = textValue(row.phone);
   if (smsConsent && consentPhone) {
     await recordOptIn(db, consentPhone, null, "tours-contact").catch(() => undefined);
+  }
+
+  if (isTour && args.beforeTourNotifications) {
+    try {
+      await args.beforeTourNotifications({ row, inquiryId: id });
+    } catch {
+      // Linking is best-effort; the durable booking must still succeed.
+    }
   }
 
   if (isTour && notify) {

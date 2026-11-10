@@ -32,6 +32,7 @@ import {
   type CommunicationThreadFilters,
 } from "@/lib/communication-thread-filters";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { requestTimeoutSignal } from "@/lib/fetch-timeout";
 import { selectCommunicationSegmentUrl } from "@/lib/portal-communication-nav";
 import type { CommunicationListSort } from "@/lib/unified-inbox-merge";
 
@@ -109,16 +110,23 @@ export function AdminCommunication({
   useEffect(() => {
     // The people admin can write to are read when the compose first opens.
     if (!composeOpen || recipientsLoaded || isDemoModeActive()) return;
-    setRecipientsLoaded(true);
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch("/api/admin/portal-users", { credentials: "include" });
-        const body = (await res.json()) as { managers?: AdminComposeRecipient[]; residents?: AdminComposeRecipient[] };
-        if (!res.ok || cancelled) return;
-        setRecipients({ managers: body.managers ?? [], residents: body.residents ?? [] });
+        const signal = requestTimeoutSignal(20_000);
+        const res = await fetch("/api/admin/portal-users", { credentials: "include", ...(signal ? { signal } : {}) });
+        const body = (await res.json()) as { managers?: unknown; residents?: unknown } | null;
+        if (!res.ok || cancelled || !body || !Array.isArray(body.managers) || !Array.isArray(body.residents)) return;
+        const validRecipient = (value: unknown): value is AdminComposeRecipient =>
+          typeof value === "object" && value !== null &&
+          typeof (value as AdminComposeRecipient).id === "string" &&
+          typeof (value as AdminComposeRecipient).name === "string" &&
+          typeof (value as AdminComposeRecipient).email === "string";
+        if (!body.managers.every(validRecipient) || !body.residents.every(validRecipient)) return;
+        setRecipients({ managers: body.managers, residents: body.residents });
+        setRecipientsLoaded(true);
       } catch {
-        if (!cancelled) setRecipientsLoaded(false);
+        // Leave the load retryable the next time the compose opens.
       }
     })();
     return () => {

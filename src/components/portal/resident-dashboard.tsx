@@ -40,6 +40,7 @@ import {
   isHouseholdChargeOverdue,
   isPendingUpfrontMoveInCharge,
   chargesImplyTenancy,
+  householdChargeDisplayTitle,
   readChargesForResident,
   syncHouseholdChargesFromServer,
 } from "@/lib/household-charges";
@@ -1059,7 +1060,7 @@ export function ResidentDashboard({
                   // tab holds it. It starts no payment; the resident pays from the record.
                   href={`${BASE}/payments?pay=${encodeURIComponent(charge.id)}`}
                   tone={sectionTone}
-                  title={charge.title || "Charge"}
+                  title={householdChargeDisplayTitle(charge)}
                   subtitle={overdue ? "Overdue" : chargeDueLabel(charge)}
                   meta={charge.balanceLabel}
                   pill={

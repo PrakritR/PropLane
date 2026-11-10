@@ -457,16 +457,20 @@ export function ManagerLeasesPipelinePanel({
       // The last signature just landed: the deposit, first month and rent schedule are created now,
       // from the signed terms — nothing waits for Payments to be opened.
       let paymentsScheduled = false;
+      let paymentWarning = false;
       if (fullySigned && !signingRow.pendingRenewal) {
         for (const leaseRow of [signingRow, ...siblingsToSign]) {
           const executed = readLeasePipeline(managerUserId).find((r) => r.id === leaseRow.id);
-          if (!executed) continue;
+          if (!executed) { paymentWarning = true; continue; }
           const made = await createChargesForExecutedLease(executed, managerUserId ?? null).catch(() => null);
           if (made && made.ok && made.created) paymentsScheduled = true;
+          if (!made || !made.ok) paymentWarning = true;
         }
       }
       showToast(
-        renewalApplied
+        paymentWarning
+          ? "Lease signed, but the payment schedule could not be confirmed. Review and retry."
+          : renewalApplied
           ? "Lease fully signed. Rent and payment schedule updated to the renewed terms."
           : fullySigned
             ? paymentsScheduled
@@ -739,7 +743,7 @@ export function ManagerLeasesPipelinePanel({
           if (!result.ok) return result.error;
           setMarkSignedRowId(null);
           setSelectedIds(new Set());
-          showToast(`Lease marked as signed. ${markSignedRow.residentName}'s portal is unlocked.`);
+          showToast(result.warning ?? `Lease marked as signed. ${markSignedRow.residentName}'s portal is unlocked.`);
           // "completed" is the Signed tab; "signed" is Manager signature.
           if (listBasePath) navigate(leaseListHref(listBasePath, "completed"));
           return null;

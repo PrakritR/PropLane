@@ -11,16 +11,14 @@
 import { track } from "@/lib/analytics/track-client";
 import { recordDelightMoment } from "@/lib/native/app-review";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
-import { recordApprovedApplicationCharges } from "@/lib/household-charges";
+import { createChargesForExecutedLease } from "@/lib/lease-signing-charges.client";
 import { applySignedLeaseRenewal } from "@/lib/lease-renewal-payments";
 import { readLeasePipeline, syncLeasePipelineFromServer, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
-import { freezeSignedLeaseTerms, persistFrozenSignedLeaseTerms } from "@/lib/lease-signed-terms";
-import { normalizeApplicationAxisId, readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { readDataUrlFromFile } from "@/lib/resident-document-import.client";
 
 export const LEASE_PDF_MAX_BYTES = 3.5 * 1024 * 1024;
 
-export type MarkLeaseSignedResult = { ok: true; row: LeasePipelineRow | null } | { ok: false; error: string };
+export type MarkLeaseSignedResult = { ok: true; row: LeasePipelineRow | null; warning?: string } | { ok: false; error: string };
 
 /** The client-side half of the PDF rules; the route re-checks both. */
 export function validateSignedLeasePdf(file: File): string | null {
@@ -82,32 +80,22 @@ export async function markLeaseSignedOffPlatform(
   // not post here posts on the next Payments materialize.
   // New terms stashed as pendingRenewal apply here too — mark-signed is the
   // paper path; manager countersign is the e-sign path.
+  let warning: string | undefined;
   try {
     if ((marked ?? row).pendingRenewal) {
-      await applySignedLeaseRenewal(rowId, opts.managerUserId);
+      if (!(await applySignedLeaseRenewal(rowId, opts.managerUserId))) warning = "Lease signed, but the payment schedule could not be confirmed. Review and retry.";
     } else {
-      const axisId = (marked ?? row).axisId ? normalizeApplicationAxisId((marked ?? row).axisId) : "";
-      const email = (marked ?? row).residentEmail.trim().toLowerCase();
-      const app = readManagerApplicationRows().find(
-        (a) => (axisId && normalizeApplicationAxisId(a.id) === axisId) || (email && a.email?.trim().toLowerCase() === email),
-      );
-      if (app) {
-        // Signature freezes the money terms before the first bill is posted, so the
-        // listing's price from here on is someone else's business.
-        const frozen = freezeSignedLeaseTerms(app, { managerUserId: opts.managerUserId, lease: marked ?? row });
-        if (frozen.changed) persistFrozenSignedLeaseTerms([frozen.row]);
-        const residentAlreadySigned = Boolean(
-          (marked ?? row).residentSignature?.signedAtIso || (marked ?? row).signedAtIso,
-        );
-        recordApprovedApplicationCharges(frozen.row, opts.managerUserId, true, {
-          leaseExecuted: true,
-          recurringProfileOnly: residentAlreadySigned,
-        });
+      if (!marked) {
+        warning = "Lease signed, but the payment schedule could not be confirmed. Review and retry.";
+      } else {
+        const residentAlreadySigned = Boolean(marked.residentSignature?.signedAtIso || marked.signedAtIso);
+        const result = await createChargesForExecutedLease(marked, opts.managerUserId, { recurringProfileOnly: residentAlreadySigned });
+        if (!result.ok) warning = result.reason;
       }
     }
   } catch {
-    /* charges reconcile on the next materialize */
+    warning = "Lease signed, but the payment schedule could not be confirmed. Review and retry.";
   }
 
-  return { ok: true, row: marked };
+  return { ok: true, row: marked, ...(warning ? { warning } : {}) };
 }

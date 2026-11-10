@@ -41,7 +41,19 @@ const EXEMPT: Record<string, string> = {
   "src/lib/move-in-forms/server.ts": "writes move-in forms only",
   "src/lib/reminders/subjects/move-in-forms.server.ts": "writes move-in forms only",
   "src/lib/channel-calendar/stay-meta.server.ts": "writes schedule records only",
+  "src/lib/rental-application/freeze-signed-terms.server.ts":
+    "READS the lease to copy its signed money terms, and writes manager_application_records only",
 };
+
+/**
+ * A write whose receiver IS the lease table. The offender scan above is deliberately broader
+ * than this — a file that names the table and writes ANYTHING is suspect until a human says
+ * otherwise — but an exemption is a human's claim that the file never writes a lease row, and
+ * this is what checks that claim instead of trusting it.
+ */
+const LEASE_TABLE_WRITE =
+  /from\(\s*(?:["'`]portal_lease_pipeline_records["'`]|LEASE_TABLE)\s*\)\s*(?:\r?\n\s*)?\.(?:insert|upsert|update)\(/;
+const LEASE_WRITE_RPC = /\.rpc\(\s*["'`](?:persist_lease_with_action_event|commit_room_lease_extension)/;
 
 describe("lease row writers strip applicant identity", () => {
   const files = walk(join(ROOT, "src"))
@@ -62,6 +74,15 @@ describe("lease row writers strip applicant identity", () => {
       })
       .map(({ rel }) => rel);
     expect(offenders).toEqual([]);
+  });
+
+  it("every exemption is a file that really does not write a lease row", () => {
+    const wrong: string[] = [];
+    for (const [rel, reason] of Object.entries(EXEMPT)) {
+      const source = readFileSync(join(ROOT, rel), "utf8");
+      if (LEASE_TABLE_WRITE.test(source) || LEASE_WRITE_RPC.test(source)) wrong.push(`${rel} — ${reason}`);
+    }
+    expect(wrong).toEqual([]);
   });
 
   it("the explicitly strip-guarded writers import the helper", () => {

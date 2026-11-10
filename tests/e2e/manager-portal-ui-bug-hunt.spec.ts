@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
 import { mockStripeAllRoutes } from "../helpers/auth";
 import { pathToUrlRegExp } from "../helpers/url-match";
+import { createWritableSyntheticManager, cleanupWritableSyntheticManager } from "../helpers/writable-synthetic-manager";
 import { MANAGER_PORTAL_SMOKE_PATHS } from "@/lib/portals/pro";
 
 /**
@@ -137,13 +138,14 @@ test.describe("Manager portal UI bug hunt", () => {
     expect(inset).not.toBe("0px");
   });
 
-  test("properties: add affordance visible without horizontal clip", async ({ page }) => {
+  test("properties: add affordance visible without horizontal clip", async ({ browser }) => {
+    const manager = await createWritableSyntheticManager(browser, { properties: 0 });
+    const { page } = manager;
+    try {
     await page.setViewportSize(MOBILE);
+    await mockStripeAllRoutes(page);
     await gotoTolerantly(page, "/portal/properties/listed");
-    const createBtn = page
-      .locator('[data-attr="manager-properties-create"]')
-      .or(page.getByRole("button", { name: /^Add$/i }))
-      .first();
+    const createBtn = page.locator('[data-attr="manager-properties-add-top"]');
     await expect(createBtn).toBeVisible({ timeout: 15_000 });
     const box = await createBtn.boundingBox();
     expect(box).toBeTruthy();
@@ -152,22 +154,28 @@ test.describe("Manager portal UI bug hunt", () => {
       expect(box.x + box.width).toBeLessThanOrEqual((viewport?.width ?? MOBILE.width) + 2);
       expect(box.x).toBeGreaterThanOrEqual(-2);
     }
+    await createBtn.click();
+    await expect(page.getByRole("dialog", { name: "Listing editor" })).toBeVisible({ timeout: 15_000 });
+    } finally {
+      await cleanupWritableSyntheticManager(manager);
+    }
   });
 
-  test("filter panel on properties listed opens listbox below trigger", async ({ page }) => {
+  test("Payments filter dropdown opens Group by options below trigger", async ({ browser }) => {
+    const manager = await createWritableSyntheticManager(browser);
+    const { page } = manager;
+    try {
     await page.setViewportSize(DESKTOP);
-    await gotoTolerantly(page, "/portal/properties/listed");
-    const filterBtn = page.getByRole("button", { name: /^Filter/i }).first();
-    if (await filterBtn.count() === 0) {
-      test.skip(true, "No filter button on this properties view");
-      return;
-    }
+    await gotoTolerantly(page, "/portal/payments");
+    const filterBtn = page.locator('[data-attr="payments-filter-sheet-open"]').filter({ visible: true }).first();
+    await expect(filterBtn, "Payments should expose its current filter control").toBeVisible({ timeout: 15_000 });
     await filterBtn.click();
     const panel = page.locator('[data-slot="portal-filter-dropdown-panel"]');
     await expect(panel).toBeVisible({ timeout: 10_000 });
-    const fieldTrigger = panel.getByRole("button").first();
+    const fieldTrigger = panel.locator('[data-attr="payments-filter-group-mode-trigger"]');
+    await expect(fieldTrigger).toBeVisible();
     await fieldTrigger.click();
-    const listbox = page.getByRole("listbox").first();
+    const listbox = page.locator('[data-attr="payments-filter-group-mode"]');
     await expect(listbox).toBeVisible({ timeout: 8_000 });
     const triggerBox = await fieldTrigger.boundingBox();
     const listboxBox = await listbox.boundingBox();
@@ -176,5 +184,8 @@ test.describe("Manager portal UI bug hunt", () => {
       expect(listboxBox.y).toBeGreaterThanOrEqual(triggerBox.y - 4);
     }
     await expect(listbox).toHaveCSS("overflow-y", "auto");
+    } finally {
+      await cleanupWritableSyntheticManager(manager);
+    }
   });
 });

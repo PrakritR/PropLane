@@ -97,12 +97,17 @@ export async function establishActivePortal(page: Page, role: PortalRole, next: 
   // hard-navigate with `window.location.assign` — the chooser button may never
   // paint. Poll for either the destination or a visible chooser option.
   try {
+    const boundedEnabled = async () => {
+      const count = await option.count().catch(() => 0);
+      if (count === 0) return false;
+      return option.first().isEnabled({ timeout: 1_000 }).catch(() => false);
+    };
     await expect
       .poll(
         async () => {
           const pathname = new URL(page.url()).pathname;
           if (nextPathRe.test(pathname)) return "arrived";
-          if ((await option.count()) > 0 && (await option.first().isEnabled().catch(() => false))) {
+          if (await boundedEnabled()) {
             return "chooser";
           }
           return "pending";
@@ -129,8 +134,13 @@ export async function establishActivePortal(page: Page, role: PortalRole, next: 
 
   if (nextPathRe.test(new URL(page.url()).pathname)) return;
 
-  await option.first().click();
-
+  try {
+    await option.first().click({ timeout: 10_000 });
+  } catch (error) {
+    // A single-role chooser can navigate itself while the option locator is
+    // resolving; accept that race only when the requested destination arrived.
+    if (!nextPathRe.test(new URL(page.url()).pathname)) throw error;
+  }
   await expect.poll(() => new URL(page.url()).pathname, { timeout: 45_000 }).toMatch(nextPathRe);
 }
 
@@ -144,6 +154,17 @@ export async function signInAsManager(page: Page) {
   await signIn(page, E2E_ACCOUNTS.manager.email, E2E_ACCOUNTS.manager.password, "/portal/dashboard");
   if (new URL(page.url()).pathname.startsWith("/portal/")) return;
   await establishActivePortal(page, "manager", "/portal/dashboard");
+}
+
+/** Use the writable self-serve manager account for tests that create owned fixtures. */
+export async function signInAsManager2(page: Page, next = "/portal/dashboard") {
+  // Some full-suite specs install the canonical manager storageState. Clear it
+  // before signing in so the manager2 credentials actually select the account.
+  await page.context().clearCookies();
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
+  await signIn(page, E2E_ACCOUNTS.manager2.email, E2E_ACCOUNTS.manager2.password, next);
+  await establishActivePortal(page, "manager", next);
 }
 
 export async function signInAsResident(page: Page) {

@@ -1,7 +1,15 @@
+import { persistApprovalNegotiatedRent } from "@/lib/approval-negotiated-rent";
+import { portalSessionEnded, portalSessionViewerId } from "@/lib/auth/portal-session-gate";
+import { selectedWorkspaceId } from "@/lib/workspaces/selection";
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
+import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
+import { getPropertyById } from "@/lib/rental-application/data";
+import { approvalPlacementBlocker } from "@/lib/application-approval-placement";
 import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-portal";
 import { normalizeApplicationAxisId, readManagerApplicationRows, writeManagerApplicationRows } from "@/lib/manager-applications-storage";
 import {
   recordApprovedApplicationCharges,
+  mirrorApplicationHouseholdChargesAwait,
   recordSubmittedApplicationFeeCharge,
   removeAllApplicationCharges,
   removeApprovedApplicationCharges,
@@ -82,6 +90,8 @@ const UNREACHABLE_APPROVAL_MESSAGE =
 export type ApplicationBucketTransition = {
   row: DemoApplicantRow;
   welcomeSent: boolean;
+  /** The server accepted this approval; later setup may still need retry. */
+  approvalSaved?: boolean;
   /** Set when the transition did NOT take effect; or its post-commit access setup needs retry. */
   blocked?: "withdrawn" | "error" | "capacity";
   message?: string;
@@ -138,6 +148,7 @@ export async function transitionApplicationBucket(
      * write is accepted — a refused approval leaves the stored application exactly as it was.
      */
     applicationPatch?: Partial<NonNullable<DemoApplicantRow["application"]>>;
+    negotiatedRent?: number;
     /** The manager's own welcome note from the Approve popup, placed above the standard setup email. */
     welcomeNote?: string;
     /**
@@ -150,6 +161,13 @@ export async function transitionApplicationBucket(
   const rows = readManagerApplicationRows();
   const row = rows.find((r) => r.id === id);
   if (!row) return null;
+  const scope = () => JSON.stringify([portalSessionViewerId(), selectedWorkspaceId(), adminOversightUrl("/api/manager-applications"), portalSessionEnded()]);
+  const originalScope = scope();
+  let expectedRow = JSON.stringify(row);
+  const unchanged = () => !portalSessionEnded() && scope() === originalScope && JSON.stringify(readManagerApplicationRows().find((item) => item.id === id)) === expectedRow;
+  let approvalSaved = false;
+  let welcomeSent = false;
+  const changed = (): ApplicationBucketTransition => ({ row, welcomeSent, blocked: "error", ...(approvalSaved ? { approvalSaved: true } : {}), message: approvalSaved ? "Approval saved, but the application changed. Refresh and retry setup." : "The application changed. Refresh and try again." });
   // Money-path guard: a resident-withdrawn application must never be approved.
   // Approving it would provision a resident account + rent/deposit charges for
   // someone who explicitly pulled out. The manager UI already hides Approve for
@@ -171,7 +189,16 @@ export async function transitionApplicationBucket(
         }
       : r,
   );
-  const updatedRow = next.find((r) => r.id === id) ?? row;
+  let updatedRow = next.find((r) => r.id === id) ?? row;
+  if (nextBucket === "approved" && !isDemoModeActive()) {
+    const propertyId = updatedRow.assignedPropertyId?.trim() || updatedRow.propertyId?.trim() || updatedRow.application?.propertyId?.trim() || "";
+    const synced = await syncPropertyPipelineFromServer({ force: true, userId: opts.userId, linkedPropertyIds: propertyId ? [propertyId] : [] }).catch(() => false);
+    if (!unchanged()) return changed();
+    if (!synced) return { row, welcomeSent: false, blocked: "error", message: "Could not verify this property's pricing. Refresh and try again." };
+    const property = getPropertyById(propertyId);
+    const placementError = approvalPlacementBlocker(updatedRow, property?.publicProjection ? undefined : property?.listingSubmission);
+    if (placementError) return { row, welcomeSent: false, blocked: "error", message: placementError };
+  }
   // Reserve the bed on the server BEFORE local publication, charges or lease sync.
   if (nextBucket === "approved" && !isDemoModeActive()) {
     try {
@@ -180,6 +207,8 @@ export async function transitionApplicationBucket(
         body: JSON.stringify({ action: "upsert", row: updatedRow }),
       });
       const result = await response.json().catch(() => ({}));
+      approvalSaved = response.ok && result.ok === true;
+      if (!unchanged()) return changed();
       if (response.status === 409 && /withdrawn/i.test(String(result.error))) {
         const confirmed = refusalConfirmsThisApplication(id, result);
         if (confirmed) writeManagerApplicationRows(readManagerApplicationRows().map(r => r.id === id ? { ...r, withdrawnAt: r.withdrawnAt || new Date().toISOString() } : r), { serverConfirmed: true });
@@ -197,13 +226,29 @@ export async function transitionApplicationBucket(
         };
       }
       if (!response.ok || result.ok !== true) return { row, welcomeSent: false, blocked: "error", message: result.error || "Approval could not be saved. Refresh and retry." };
+      if (result.row?.id === id) updatedRow = result.row as DemoApplicantRow;
     } catch { return { row, welcomeSent: false, blocked: "error", message: UNREACHABLE_APPROVAL_MESSAGE }; }
   }
+  if (nextBucket === "approved" && opts.negotiatedRent !== undefined && !isDemoModeActive()) {
+    try {
+      const negotiated = await persistApprovalNegotiatedRent(updatedRow, opts.negotiatedRent);
+      if (!unchanged()) return changed();
+      if (!negotiated) return { row: updatedRow, welcomeSent: false, blocked: "error", approvalSaved: true, message: "Approval saved, but the negotiated rent could not be saved. Retry to finish setup." };
+      updatedRow = negotiated;
+    } catch {
+      return { row: updatedRow, welcomeSent: false, blocked: "error", approvalSaved: true, message: "Approval saved, but the negotiated rent could not be saved. Retry to finish setup." };
+    }
+  }
   writeManagerApplicationRows(readManagerApplicationRows().map(r => r.id === id ? updatedRow : r), { serverConfirmed: nextBucket === "approved" && !isDemoModeActive() });
+  expectedRow = JSON.stringify(readManagerApplicationRows().find((item) => item.id === id));
 
   try {
     if (nextBucket === "approved") {
       recordApprovedApplicationCharges(updatedRow, opts.userId ?? null);
+      if (!isDemoModeActive() && !(await mirrorApplicationHouseholdChargesAwait(updatedRow, row))) {
+        return { row: updatedRow, welcomeSent: false, blocked: "error", approvalSaved: true, message: "Approval saved, but payments could not be synchronized. Retry to finish setup." };
+      }
+      if (!unchanged()) return changed();
     } else if (nextBucket === "pending") {
       removeApprovedApplicationCharges(id, opts.userId ?? null);
       recordSubmittedApplicationFeeCharge(updatedRow, opts.userId ?? null);
@@ -211,7 +256,7 @@ export async function transitionApplicationBucket(
       removeAllApplicationCharges(id, opts.userId ?? null);
     }
   } catch {
-    /* Keep approval flow moving even if charge reconciliation fails. */
+    if (nextBucket === "approved") return { row: updatedRow, welcomeSent: false, blocked: "error", approvalSaved: true, message: "Approval saved, but payments could not be synchronized. Retry to finish setup." };
   }
 
   // The application is now authoritative. A profile-sync failure cannot revoke
@@ -219,18 +264,19 @@ export async function transitionApplicationBucket(
   let approvalSms: ApplicationApprovalNotification | undefined;
   try {
     const sync = await syncResidentApprovalStatus(updatedRow, nextBucket, opts.approvalNotification);
+    if (nextBucket === "approved" && !unchanged()) return changed();
     approvalSms = sync.sms;
     if (nextBucket === "approved" && sync.response && !sync.response.ok) {
-      return { row: updatedRow, welcomeSent: false, blocked: "error", message: "Approval saved, but resident access could not be synchronized. Retry to finish setup." };
+      return { row: updatedRow, welcomeSent: false, blocked: "error", approvalSaved: true, message: "Approval saved, but resident access could not be synchronized. Retry to finish setup." };
     }
   } catch {
-    if (nextBucket === "approved") return { row: updatedRow, welcomeSent: false, blocked: "error", message: "Approval saved, but resident access could not be synchronized. Retry to finish setup." };
+    if (nextBucket === "approved") return { row: updatedRow, welcomeSent: false, blocked: "error", approvalSaved: true, message: "Approval saved, but resident access could not be synchronized. Retry to finish setup." };
   }
 
-  let welcomeSent = false;
   if (nextBucket === "approved" && updatedRow.email?.trim() && !opts.skipWelcomeEmail && opts.approvalNotification?.viaEmail !== false) {
     const welcome = await requestResidentWelcomeEmail(updatedRow, opts.welcomeNote);
     welcomeSent = welcome.status === "sent";
+    if (!unchanged()) return changed();
   }
 
   // Post-approval automation runs ONLY here, after the server has committed the placement —
@@ -246,6 +292,7 @@ export async function transitionApplicationBucket(
   if (nextBucket === "approved" && opts.automation && wantsAutomation) {
     try {
       const { runPostApprovalAutomation } = await import("@/lib/application-automation-run.client");
+      if (!unchanged()) return changed();
       automation = await runPostApprovalAutomation({
         applicationId: id,
         residentEmail: updatedRow.email ?? "",
@@ -262,7 +309,7 @@ export async function transitionApplicationBucket(
     }
   }
 
-  return { row: updatedRow, welcomeSent, automation, ...(nextBucket === "approved" && approvalSms ? { approvalSms } : {}) };
+  return { row: updatedRow, welcomeSent, automation, ...(nextBucket === "approved" ? { approvalSaved: true } : {}), ...(nextBucket === "approved" && approvalSms ? { approvalSms } : {}) };
 }
 
 /**

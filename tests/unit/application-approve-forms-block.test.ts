@@ -8,6 +8,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 
 const getUser = vi.fn();
@@ -57,6 +58,7 @@ function makeDb() {
         order: () => builder,
         limit: () => builder,
         maybeSingle() {
+          if (table === "manager_property_records") return Promise.resolve({ data: filters.id === "prop-1" && filters.manager_user_id === OWNER ? { property_data: { listingSubmission: createDefaultListingSubmission() } } : null, error: null });
           if (table === "profiles") return Promise.resolve({ data: PROFILE, error: null });
           if (table === "manager_application_records") {
             const hit = STORED_ROWS.find((r) => (state.ids ? state.ids.includes(r.id) : true));

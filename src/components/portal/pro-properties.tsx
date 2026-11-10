@@ -541,6 +541,7 @@ export function ManagerProperties({
                 <PortalPrimaryIconAction
                   label="Add property"
                   data-attr="manager-properties-add-top"
+                  disabled={!skuLoaded}
                   onClick={() => {
                     if (!canOpenAdd()) return;
                     tryOpenAdd();

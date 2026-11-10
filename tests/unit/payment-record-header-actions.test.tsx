@@ -147,8 +147,10 @@ describe("payment record page header actions", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.includes("charge-refund")) {
-          return new Response(JSON.stringify({ ok: true, refundId: "re_1", remainingCents: 0 }), {
-            status: 200,
+          // The route reserves the refund and answers 202 `pending`; the money lands on the
+          // charge only when the refund webhook settles it, so that is the one accepted shape.
+          return new Response(JSON.stringify({ status: "pending", refundId: "re_1", remainingCents: 0 }), {
+            status: 202,
             headers: { "content-type": "application/json" },
           });
         }
@@ -162,8 +164,28 @@ describe("payment record page header actions", () => {
     const button = document.querySelector('[data-attr="record-header-action-refund"]')!;
     fireEvent.click(button);
     await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Refunded Maya Chen."));
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Refund pending."));
+    expect(showToast).not.toHaveBeenCalledWith("Refunded Maya Chen.");
     expect(deleteHouseholdCharge).not.toHaveBeenCalled();
+  });
+
+  it("retains the same refund operation after an uncertain response", async () => {
+    const operations: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("charge-refund")) {
+        operations.push((JSON.parse(String(init?.body)) as { operationId: string }).operationId);
+        if (operations.length === 1) throw new Error("lost response");
+        return new Response(JSON.stringify({ status: "pending", remainingCents: 0 }), { status: 202 });
+      }
+      return new Response(JSON.stringify({ messages: [], settings: null, rows: [] }), { status: 200 });
+    }));
+    renderDetail(providerBackedPaidRow());
+    fireEvent.click(document.querySelector('[data-attr="record-header-action-refund"]')!);
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Could not refund this charge."));
+    fireEvent.click(document.querySelector('[data-attr="record-header-action-refund"]')!);
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Refund pending."));
+    expect(operations).toHaveLength(2);
+    expect(operations[1]).toBe(operations[0]);
   });
 
   it("still wires Send reminder — unaffected by the record-payment/delete rewiring", () => {

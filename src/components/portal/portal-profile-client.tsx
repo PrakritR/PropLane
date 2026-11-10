@@ -976,7 +976,7 @@ export function PortalProfileClient({
   return (
     <ManagerPortalPageShell title="Settings" navigationProvidesTitle hideTitleOnMobileNav>
       <div ref={layoutTopRef} data-attr="settings-layout" className="lg:flex lg:h-full lg:min-h-0 lg:flex-1 lg:gap-10">
-        <nav aria-label="Settings sections" className="hidden w-[216px] shrink-0 space-y-1 lg:block">
+        <nav aria-label="Settings sections" className="hidden w-[216px] shrink-0 space-y-1 lg:block lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain">
           {settingsScope ? <SettingsScopeSwitcher scope={settingsScope} /> : null}
           {variant === "manager" ? <p className={`${groupLabelClass} pt-0`} data-attr="settings-group-profile">Profile</p> : null}
           {profileGroups.map(navButton)}
@@ -986,7 +986,7 @@ export function PortalProfileClient({
             {workspaceGroups.map(navButton)}
           </> : null}
         </nav>
-        <div ref={contentColRef} className="min-w-0 flex-1 lg:min-h-0 lg:max-w-[720px] lg:overflow-y-auto lg:overscroll-contain">
+        <div ref={contentColRef} data-attr="settings-content" className="min-w-0 flex-1 lg:min-h-0 lg:max-w-[720px] lg:overflow-y-auto lg:overscroll-contain">
           {homeVisible ? <div className="space-y-6 lg:hidden" data-attr="settings-home">
             <button type="button" aria-label="Back" data-attr="settings-home-back" className="grid h-11 w-11 place-items-center" onClick={() => (canGoBackInApp() ? router.back() : router.replace(pathname.replace(/\/profile$/, "/dashboard")))}><ChevronLeft className="h-6 w-6" /></button>
             <h2 className="text-[30px] font-semibold tracking-tight">Settings</h2>

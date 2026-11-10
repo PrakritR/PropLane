@@ -12,6 +12,7 @@ import "server-only";
  * writes nothing, which is how the sheet learns what its button should say.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { resolveBaselineResidentIdentity } from "@/lib/resident-identity/baseline.server";
 import { propertyStayClockFromRecord } from "@/lib/bookings/property-stay-times.server";
 import { normalizeStayTime, type PropertyStayTimes } from "@/lib/bookings/stay-times";
 import { residentPortalUrl } from "@/lib/claw-resident-links";
@@ -286,7 +287,7 @@ export type GuestBookBody = {
 
 export type GuestBookResult =
   | { ok: true; dryRun: boolean; results: GuestRangeResult[]; action: GuestBookAction; summary: string }
-  | { ok: false; status: 400 | 404 | 409 | 429 | 503; error: string };
+  | { ok: false; status: 400 | 403 | 404 | 409 | 429 | 503; error: string };
 
 const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
@@ -313,6 +314,11 @@ export async function bookGuestStays(
   const roomId = str(body.roomId, 200);
   const guests = Number(body.guests);
   const dryRun = body.dryRun === true;
+  if (!dryRun) {
+    const identity = await resolveBaselineResidentIdentity(db, input.userId);
+    if (identity === "required") return { ok: false, status: 403, error: "Verify your identity in Settings before requesting a stay." };
+    if (identity === "unavailable") return { ok: false, status: 503, error: "Identity verification is unavailable." };
+  }
   if (!propertyId || !roomId) return { ok: false, status: 400, error: "Choose a room." };
   if (!Number.isInteger(guests) || guests < 1 || guests > SHORT_STAY_MAX_GUESTS) {
     return { ok: false, status: 400, error: "Choose how many guests." };

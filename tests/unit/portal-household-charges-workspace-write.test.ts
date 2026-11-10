@@ -63,7 +63,7 @@ vi.mock("@/lib/payment-reminder-bootstrap", () => ({
 vi.mock("@/lib/reports/ledger-sync", () => ({
   deleteLedgerEntriesForCharge: async () => undefined,
   householdChargeLedgerFingerprint: () => "fp",
-  reconcileDuplicateChargeList: async () => undefined,
+  reconcileDuplicateChargeList: async () => ({ removedChargeIds: [] }),
   syncLedgerChargeEntry: (...args: unknown[]) => syncLedgerChargeEntry(...(args as [])),
   syncLedgerPaymentEntry: (...args: unknown[]) => syncLedgerPaymentEntry(...(args as [])),
 }));
@@ -349,5 +349,16 @@ describe("offline receipt server authority", () => {
     expect((await post(receipt)).status).toBe(200);
     expect((await post(receipt)).status).toBe(200);
     expect(syncLedgerPaymentEntry).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("scoped charge acknowledgments", () => {
+  it.each([false, true])("acknowledges a co-manager write only with payments edit: %s", async (allowed) => {
+    resolveManagerWorkspaceRowScope.mockResolvedValue({ propertyIds: ["prop-a"], untaggedOwnedVisible: true });
+    managerHasCoManagerPermissionForProperty.mockResolvedValue(allowed);
+    resolvePropertyPayoutOwners.mockResolvedValue(new Map([["prop-a", { ok: true, ownerUserId: "owner" }]]) as never);
+    const res = await post({ action: "replace", confirmWrites: true, charges: [{ id: "target", propertyId: "prop-a", status: "pending", kind: "rent" }] });
+    expect(res.status).toBe(200);
+    expect((await res.json()).confirmedChargeIds).toEqual(allowed ? ["target"] : []);
   });
 });

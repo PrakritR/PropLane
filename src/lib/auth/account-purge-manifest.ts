@@ -47,6 +47,11 @@ export type PurgeTableRule = {
 };
 
 export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
+  { table: "resident_evidence_policies", phase: 1, manager: { ids: ["manager_user_id"] } },
+  { table: "resident_identity_webhook_events", phase: 1, resident: { ids: ["resident_user_id"] } },
+  { table: "resident_identity_manual_reviews", phase: 1, resident: { ids: ["resident_user_id"] } },
+  { table: "resident_identity_inquiries", phase: 2, resident: { ids: ["resident_user_id"] } },
+  { table: "resident_identity_subjects", phase: 3, resident: { ids: ["resident_user_id"] } },
   { table: "tour_signup_capabilities", phase: 1, resident: { ids: ["consumed_user_id"], emails: ["recipient_email"] }, manager: { ids: ["manager_user_id"] } },
   { table: "email_onboarding_handoffs", phase: 1, resident: { ids: ["user_id"] }, manager: { ids: ["user_id"] }, vendor: { ids: ["user_id"] } },
   {
@@ -178,6 +183,19 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     phase: 1,
     manager: { ids: ["manager_user_id"] },
     resident: { ids: ["resident_user_id"], emails: ["resident_email"], preserveFinancial: true },
+  },
+  {
+    // Retain provider reconciliation evidence after the manager or deposit is removed.
+    table: "security_deposit_return_attempts",
+    phase: 1,
+    manager: { detachIds: ["manager_user_id"] },
+  },
+  {
+    // Same rule for a general charge refund: the reconciliation evidence of money that actually
+    // moved is retained, and only the deleted account's identity is detached from it.
+    table: "household_charge_refund_attempts",
+    phase: 1,
+    manager: { detachIds: ["manager_user_id"] },
   },
   {
     table: "security_deposit_ledger",
@@ -1396,6 +1414,7 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
  * entry here as a decision; an unlisted table is a gap.
  */
 export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
+  security_deposit_unmatched_refunds: "Provider refund evidence retains source identifiers for reconciliation.",
   sms_ingress_envelopes: "Owner-neutral provider receipts have no Auth owner. Runtime-fenced transport audit expires after 24h and is purged after 30 days by purge_sms_ingress_retention; never used as an account identity grant.",
   sms_platform_replies: "Owner-neutral reply evidence cascades with its ingress receipt after at most 30 days; no client account owner or wallet is fabricated.",
   tour_subject_bindings: "Retained inquiry/group keys and hashed resident subject prevent historical tour reassignment after resident or manager deletion; no raw Auth IDs are stored.",

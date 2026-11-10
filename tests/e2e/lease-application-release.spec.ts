@@ -5,7 +5,7 @@ import { E2E_ACCOUNTS } from "../fixtures";
 test.describe("Application deep link", () => {
   test.use({ storageState: { cookies: [], origins: [] } });
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Requires seeded dev/test accounts");
-  test("signed-out sign-in preserves the requested section and query", async ({ page }) => {
+  test("signed-out sign-in preserves the legacy bucket through canonical redirect", async ({ page }) => {
     const destination = "/portal/applications?bucket=pending";
     await page.goto(destination);
     await expect(page).toHaveURL(/\/auth\/sign-in/);
@@ -24,7 +24,7 @@ test.describe("Application deep link", () => {
       await expect(property).toBeVisible();
       await property.click();
     }
-    await expect(page).toHaveURL(/\/portal\/applications\?bucket=pending/);
+    await expect(page).toHaveURL(/\/portal\/applications\/pending(?:\?.*)?$/);
     await expect(page.getByRole("heading", { name: "Applications", exact: true })).toBeVisible();
   });
 });

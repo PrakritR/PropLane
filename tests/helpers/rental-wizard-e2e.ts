@@ -1,13 +1,15 @@
 import { expect, type Locator, type Page } from "@playwright/test";
-import { pickListingSelect } from "./manager-onboarding-e2e";
+import { pickFieldSelect } from "./field-select";
 
 /** The portal renders a hidden mobile shell alongside the desktop one — always take the visible node. */
 export function visibleLocator(page: Page, selector: string): Locator {
   return page.locator(selector).filter({ visible: true }).first();
 }
 
-export function continueBtn(page: Page): Locator {
-  return visibleLocator(page, '[data-attr="rental-wizard-continue"]');
+export function continueBtn(page: Page, existing = false): Locator {
+  return existing
+    ? page.getByRole("button", { name: "Continue", exact: true }).filter({ visible: true }).first()
+    : visibleLocator(page, '[data-attr="rental-wizard-continue"]');
 }
 
 export async function yesNo(page: Page, fieldKey: string, answer: "Yes" | "No") {
@@ -26,10 +28,10 @@ export function usDateInDays(days: number) {
   return `${mm}/${dd}/${d.getFullYear()}`;
 }
 
-export async function pickApplySelect(page: Page, fieldLabel: string | RegExp, optionName: string) {
-  const section = page.locator("div").filter({ has: page.getByText(fieldLabel) }).last();
-  await section.getByRole("button").first().click();
-  await page.getByRole("option", { name: optionName, exact: true }).filter({ visible: true }).first().click();
+export async function pickApplySelect(page: Page, dataAttr: string, optionName: string | RegExp) {
+  const trigger = visibleLocator(page, `[data-attr="${dataAttr}"]`);
+  await expect(trigger, `application select ${dataAttr} should be visible`).toBeVisible();
+  await pickFieldSelect(page, trigger, optionName);
 }
 
 export async function openApplyAccountGate(page: Page, propertyId: string) {
@@ -66,35 +68,57 @@ export async function walkSignedInRentalApplication(
     return;
   }
   await expect(householdStep).toBeVisible({ timeout: 60_000 });
+  await fillCurrentRentalApplication(page, applicant, household);
+}
 
-  await fillHouseholdStep(page, household);
-  await continueBtn(page).click();
-
-  await fillSignerStep(page, applicant);
-  await continueBtn(page).click();
-
+/** Fill the current seven-step wizard through its final submit action. */
+export async function fillCurrentRentalApplication(
+  page: Page,
+  applicant: ApplicantInfo,
+  household: HouseholdConfig,
+  options: { existing?: boolean } = {},
+) {
+  await expect(page.locator("[data-wizard-lease-choice]").filter({ visible: true }).first()).toBeVisible({ timeout: 60_000 });
+  await fillLeaseChoiceStep(page);
   await fillPropertyLeaseStep(page);
-  await continueBtn(page).click();
-
+  await fillHouseholdStep(page, household);
+  await continueBtn(page, options.existing).click();
+  await expect(visibleLocator(page, '[data-application-section="personal"]')).toBeVisible({ timeout: 30_000 });
+  await fillSignerStep(page, applicant);
+  await continueBtn(page, options.existing).click();
+  await expect(visibleLocator(page, '[placeholder="Start typing your street address…"]')).toBeVisible({ timeout: 30_000 });
   await fillCurrentAddressStep(page);
-  await continueBtn(page).click();
-
-  await fillPreviousAddressStep(page);
-  await continueBtn(page).click();
-
+  await visibleLocator(page, "#currentLandlordName").fill("QA Property Manager");
+  await visibleLocator(page, "#currentMoveIn").fill(usDateInDays(-900));
+  await visibleLocator(page, "#currentReasonLeaving").fill("Relocating for work");
+  await continueBtn(page, options.existing).click();
+  await expect(visibleLocator(page, "#employer")).toBeVisible({ timeout: 30_000 });
   await fillEmploymentStep(page);
-  await continueBtn(page).click();
-
+  await continueBtn(page, options.existing).click();
+  await expect(visibleLocator(page, "#ref1Name")).toBeVisible({ timeout: 30_000 });
   await fillReferencesStep(page);
-  await continueBtn(page).click();
-
+  await continueBtn(page, options.existing).click();
+  await expect(visibleLocator(page, '[data-attr="select-occupancyCount"]')).toBeVisible({ timeout: 30_000 });
   await fillAdditionalDetailsStep(page);
-  await continueBtn(page).click();
-
+  await continueBtn(page, options.existing).click();
+  await expect(visibleLocator(page, "#digitalSignature")).toBeVisible({ timeout: 30_000 });
   await fillConsentStep(page, applicant.name);
-  await continueBtn(page).click();
+  await assertPlacementReview(page);
+  await submitReviewAndApplication(page, { ...(options.existing ? { existing: true } : {}), expectFinishPanel: !options.existing });
+}
 
-  await submitReviewAndApplication(page);
+async function assertPlacementReview(page: Page) {
+  const propertySection = page.locator("section").filter({ has: page.getByRole("heading", { name: "Property information", exact: true }) }).first();
+  await expect(propertySection).toBeVisible();
+  const placementLabel = propertySection.locator("dt").filter({ hasText: /^(Room|Unit|Lease bundle)$/ }).first();
+  await expect(placementLabel, "the submitted fixture must have a room, unit, or selected lease bundle").toBeVisible();
+  const placementValue = placementLabel.locator("xpath=following-sibling::dd");
+  await expect(placementValue).not.toHaveText("—");
+  const moveInLabel = propertySection.locator("dt").filter({ hasText: /^(Move-in date|Check-in date)$/ }).first();
+  await expect(moveInLabel, "the submitted fixture must include its selected start date").toBeVisible();
+  await expect(moveInLabel.locator("xpath=following-sibling::dd")).not.toHaveText("—");
+  const moveOutLabel = propertySection.locator("dt").filter({ hasText: /^(Move-out date|Check-out date)$/ }).first();
+  if (await moveOutLabel.count()) await expect(moveOutLabel.locator("xpath=following-sibling::dd")).not.toHaveText("—");
 }
 
 /** @deprecated Use {@link walkSignedInRentalApplication} — guest path removed. */
@@ -110,30 +134,29 @@ export async function walkGuestRentalApplication(
 export type HouseholdConfig =
   | { kind: "solo" }
   | { kind: "group-first"; size: string }
-  | { kind: "group-joining"; groupId: string };
+  | { kind: "group-joining"; groupLeaderAppId: string };
 
 export async function fillHouseholdStep(page: Page, config: HouseholdConfig, cosigner: "Yes" | "No" = "No") {
-  if (config.kind === "solo") {
-    await yesNo(page, "applyingAsGroup", "No");
-  } else {
-    await yesNo(page, "applyingAsGroup", "Yes");
-    if (config.kind === "group-first") {
-      await page
-        .getByRole("button", { name: /I am the first person applying/i })
-        .filter({ visible: true })
-        .first()
-        .click();
-      await visibleLocator(page, "#groupSize").selectOption(config.size);
-    } else {
-      await page
-        .getByRole("button", { name: /I am joining an existing group/i })
-        .filter({ visible: true })
-        .first()
-        .click();
-      await visibleLocator(page, "#groupId").fill(config.groupId);
+  const groupSelect = visibleLocator(page, '[data-attr="application-group"]');
+  await expect(groupSelect).toBeVisible();
+  await pickFieldSelect(page, groupSelect, config.kind === "solo" ? /^No$/ : /^Yes$/);
+  if (config.kind === "group-first") {
+    const stepper = page.locator('[data-attr="group-size-stepper"]').filter({ visible: true }).first();
+    await expect(stepper).toBeVisible();
+    const count = await stepper.locator('[aria-live="polite"]').innerText();
+    const current = Number(count);
+    const target = Number(config.size);
+    if (!Number.isInteger(current) || !Number.isInteger(target) || target < 2 || target > 12) {
+      throw new Error("Group fixture requires a valid group size from 2 through 12.");
     }
+    for (let value = current; value > target; value -= 1) await stepper.getByRole("button", { name: /Fewer people in the group/i }).click();
+    for (let value = current; value < target; value += 1) await stepper.getByRole("button", { name: /More people in the group/i }).click();
+  } else if (config.kind === "group-joining") {
+    const leader = visibleLocator(page, "#groupLeaderAppId");
+    await leader.fill(config.groupLeaderAppId);
+    await expect(page.getByText(/Linked to .* group/i).filter({ visible: true })).toBeVisible({ timeout: 15_000 });
   }
-  await yesNo(page, "hasCosigner", cosigner);
+  await pickApplySelect(page, "application-cosigner", new RegExp(`^${cosigner}$`));
 }
 
 export type ApplicantInfo = { name: string; email: string; phone: string };
@@ -149,50 +172,71 @@ export async function fillSignerStep(page: Page, applicant: ApplicantInfo, dateO
   if (await email.isEditable()) await email.fill(applicant.email);
 }
 
-/** Step 1 opens with "Which lease are you applying for?": the lease type (and room or home) come before everything else. */
-export async function fillLeaseChoiceStep(page: Page, leaseTerm = "12-Month") {
-  await expect(page.getByText(/Which lease are you applying for\?/i).filter({ visible: true }).first()).toBeVisible({
-    timeout: 30_000,
-  });
-  const leaseTrigger = page.getByRole("button", { name: "Select lease length" }).filter({ visible: true }).first();
-  if (await leaseTrigger.count()) {
-    await pickListingSelect(page, "Select lease length", leaseTerm);
-  } else {
-    const nativeLease = visibleLocator(page, "#leaseTerm");
-    if (await nativeLease.count()) {
-      const values = await nativeLease
-        .locator("option")
-        .evaluateAll((opts) => (opts as HTMLOptionElement[]).map((o) => o.value).filter(Boolean));
-      if (values[0]) await nativeLease.selectOption(values[0]);
+/** Step 1 is “Your lease”; it holds the selected property, lease type, dates and room/unit. */
+export async function fillLeaseChoiceStep(page: Page, leaseTerm = "Long-term") {
+  const leaseStep = page.locator("[data-wizard-lease-choice]").filter({ visible: true }).first();
+  await expect(leaseStep).toBeVisible({ timeout: 30_000 });
+  const kind = leaseTerm.toLowerCase().includes("short") ? "short" : "long";
+  const kindChoice = visibleLocator(page, `[data-attr="rental-wizard-lease-kind-${kind}"]`);
+  if (await kindChoice.isVisible().catch(() => false)) {
+    if (await kindChoice.getAttribute("aria-checked") !== "true") await kindChoice.click();
+  }
+  const lengthTrigger = visibleLocator(page, '[data-attr="select-longTermLength"]');
+  if (await lengthTrigger.isVisible().catch(() => false)) {
+    const current = (await lengthTrigger.innerText()).trim();
+    if (/pick a length/i.test(current)) {
+      await lengthTrigger.click();
+      const options = page.getByRole("option").filter({ visible: true });
+      const count = await options.count();
+      let selected = false;
+      for (let index = 0; index < count; index += 1) {
+        const option = options.nth(index);
+        const label = (await option.innerText()).trim();
+        if (label && !/pick a length/i.test(label) && (await option.getAttribute("aria-disabled")) !== "true") {
+          await option.click();
+          selected = true;
+          break;
+        }
+      }
+      if (!selected) throw new Error("The offered lease lengths did not contain a selectable choice.");
     }
   }
 }
 
-/** Step 3: the lease dates (the lease type was chosen on step 1). */
-export async function fillPropertyLeaseStep(page: Page) {
-  await expect(page.getByText(/Move-in dates/i).filter({ visible: true }).first()).toBeVisible({
-    timeout: 30_000,
-  });
-  const startBox = page
-    .getByRole("textbox", { name: /Lease start date/i })
-    .filter({ visible: true })
-    .first();
-  if (await startBox.count()) {
-    await startBox.fill(usDateInDays(30));
-    await startBox.blur();
-  } else {
-    const legacyStart = visibleLocator(page, "#leaseStart");
-    await legacyStart.fill(usDateInDays(30));
-    await legacyStart.blur();
+/** Step 1 dates and (when needed) room/unit are part of the same “Your lease” screen. */
+export async function fillPropertyLeaseStep(page: Page, startDays = 30, endDays = 395) {
+  await expect(page.locator("[data-wizard-lease-choice]").filter({ visible: true }).first()).toBeVisible({ timeout: 30_000 });
+  const start = visibleLocator(page, "#leaseStart");
+  await expect(start, "the active lease form must expose its move-in or check-in date").toBeVisible();
+  if (!(await start.inputValue())) {
+    await start.fill(usDateInDays(startDays));
+    await start.blur();
   }
-  const endBox = page
-    .getByRole("textbox", { name: /Lease end date/i })
-    .filter({ visible: true })
-    .first();
-  const legacyEnd = visibleLocator(page, "#leaseEnd");
-  const endTarget = (await endBox.count()) ? endBox : legacyEnd;
-  if (await endTarget.isVisible() && !(await endTarget.inputValue())) {
-    await endTarget.fill(usDateInDays(395));
+  await expect(start).not.toHaveValue("");
+  const end = visibleLocator(page, "#leaseEnd");
+  if (await end.isVisible().catch(() => false) && !(await end.inputValue())) {
+    await end.fill(usDateInDays(endDays));
+    await end.blur();
+  }
+  if (await end.isVisible().catch(() => false)) await expect(end).not.toHaveValue("");
+
+  const roomField = page.locator('[data-wizard-field="roomChoice1"]').filter({ visible: true }).first();
+  const roomTrigger = roomField.getByRole("button").filter({ visible: true }).first();
+  if (await roomTrigger.isVisible().catch(() => false)) {
+    const current = (await roomTrigger.innerText()).trim();
+    if (/^(select a room|select a unit)$/i.test(current)) {
+      await roomTrigger.click();
+      // FieldSingleSelect option text can include a visual checkmark and the placeholder can
+      // contain the word “room”. Select by its semantic value instead of parsing presentation.
+      const options = page.locator('[role="option"][data-field-select-option-value]:not([data-field-select-option-value=""]):not([aria-disabled="true"])')
+        .filter({ visible: true });
+      const count = await options.count();
+      if (count === 0) throw new Error("The selected property has no available room or unit option.");
+      const firstAvailable = options.first();
+      await expect(firstAvailable).toBeEnabled();
+      await firstAvailable.click();
+    }
+    await expect(roomTrigger).not.toContainText(/^(select a room|select a unit)$/i);
   }
 }
 
@@ -200,8 +244,9 @@ export async function fillCurrentAddressStep(
   page: Page,
   address = { street: "1200 Pike St, Unit 8", city: "Seattle", state: "WA", zip: "98101" },
 ) {
-  await expect(visibleLocator(page, "#currentStreet")).toBeVisible();
-  await visibleLocator(page, "#currentStreet").fill(address.street);
+  const street = visibleLocator(page, '[placeholder="Start typing your street address…"]');
+  await expect(street).toBeVisible();
+  await street.fill(address.street);
   await visibleLocator(page, "#currentCity").fill(address.city);
   await visibleLocator(page, "#currentState").fill(address.state);
   await visibleLocator(page, "#currentZip").fill(address.zip);
@@ -228,13 +273,8 @@ export async function fillReferencesStep(
 }
 
 export async function fillAdditionalDetailsStep(page: Page, occupants = "1") {
-  await expect(page.getByText(/Additional Details/i)).toBeVisible();
-  const nativeOccupants = visibleLocator(page, "#occupancyCount");
-  if (await nativeOccupants.count()) {
-    await nativeOccupants.selectOption(occupants);
-  } else {
-    await pickApplySelect(page, /Number of occupants/, occupants);
-  }
+  await expect(visibleLocator(page, '[data-attr="select-occupancyCount"]')).toBeVisible();
+  await pickApplySelect(page, "select-occupancyCount", new RegExp(`^${occupants}$`));
   await yesNo(page, "evictionHistory", "No");
   await yesNo(page, "bankruptcyHistory", "No");
   await yesNo(page, "criminalHistory", "No");
@@ -255,15 +295,22 @@ function applicationSubmitted(page: Page) {
     .first();
 }
 
-export async function submitReviewAndApplication(page: Page, opts?: { expectFinishPanel?: boolean }) {
-  await expect(continueBtn(page)).toBeVisible({ timeout: 15_000 });
-  await continueBtn(page).click();
-  await expect(continueBtn(page)).toHaveText(/submit application/i, { timeout: 30_000 });
-  await continueBtn(page).click();
+export async function submitReviewAndApplication(page: Page, opts?: { expectFinishPanel?: boolean; existing?: boolean }) {
+  const submitButton = opts?.existing
+    ? page.getByRole("button", { name: "Save application", exact: true }).filter({ visible: true }).first()
+    : continueBtn(page);
+  await expect(submitButton).toHaveText(opts?.existing ? "Save application" : /submit application/i, { timeout: 30_000 });
+  const responsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === "POST" && url.pathname === "/api/manager-applications";
+  }, { timeout: 45_000 });
+  await submitButton.click();
+  const response = await responsePromise;
+  if (!response.ok()) throw new Error(`Application ${opts?.existing ? "edit" : "submit"} failed (HTTP ${response.status()}).`);
   if (opts?.expectFinishPanel !== false) {
     await expect(applicationSubmitted(page)).toBeVisible({ timeout: 120_000 });
   }
 }
 
-/** Walk the 11-step rental wizard as a signed-in resident and submit. */
+/** Walk the current seven-screen rental wizard as a signed-in resident and submit. */
 // (legacy walkGuestRentalApplication body removed — see walkSignedInRentalApplication above)

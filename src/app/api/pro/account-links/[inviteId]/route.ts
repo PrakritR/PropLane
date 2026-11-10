@@ -159,7 +159,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
           .from("portal_pro_relationship_records")
           .delete()
           .eq("manager_user_id", scope.managerUserId)
-          .filter("row_data->>linkedAxisId", "eq", scope.linkedAxisId);
+          .filter("row_data->>linkedAxisId", "eq", scope.linkedAxisId)
+          .filter("row_data->>id", "eq", id);
       }
 
       return NextResponse.json({ ok: true, invite: serializeInvite(updated as InviteRow, user.id) });
@@ -434,7 +435,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
             .from("portal_pro_relationship_records")
             .select("id, row_data")
             .eq("manager_user_id", scope.managerUserId)
-            .filter("row_data->>linkedAxisId", "eq", scope.linkedAxisId);
+            .filter("row_data->>linkedAxisId", "eq", scope.linkedAxisId)
+            .filter("row_data->>id", "eq", id);
           for (const scoped of scopedRows ?? []) {
             const scopedId = String((scoped as { id?: unknown }).id ?? "").trim();
             if (!scopedId || scopedId === id) continue;

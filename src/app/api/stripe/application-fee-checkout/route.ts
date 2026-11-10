@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClaimedApplicationFeeCheckout } from "@/lib/application-fee-payment-claim.server";
 import { resolveAppOrigin } from "@/lib/app-url";
 import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
-import { isResidentSetupTokenValid } from "@/lib/auth/resident-setup-token";
+import { buildResidentSetupHref, isResidentSetupTokenValid } from "@/lib/auth/resident-setup-token";
 import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
@@ -13,6 +13,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { stripeNotConfiguredError } from "@/lib/stripe-axis-ach-checkout";
+import { resolveBaselineResidentIdentity } from "@/lib/resident-identity/baseline.server";
 
 export const runtime = "nodejs";
 
@@ -86,16 +87,21 @@ export async function POST(req: Request) {
     const auth = await createSupabaseServerClient();
     const { data: { user } } = await auth.auth.getUser();
     let authorized = false;
+    let authenticatedResidentId: string | null = null;
     if (user?.email?.trim().toLowerCase() === residentEmail.toLowerCase()) {
       const { data: profile, error: profileError } = await db.from("profiles")
         .select("role").eq("id", user.id).maybeSingle();
       if (profileError) throw new Error(profileError.message);
       authorized = await authorizeResidentRole(db, { userId: user.id, legacyRole: profile?.role });
+      if (authorized) authenticatedResidentId = user.id;
     }
     if (!authorized && typeof body.setupToken === "string") {
       authorized = isResidentSetupTokenValid(application.row_data ?? {}, body.setupToken);
     }
     if (!authorized) return NextResponse.json({ error: "Application access required before payment." }, { status: 403 });
+    const identity = await resolveBaselineResidentIdentity(db, authenticatedResidentId);
+    if (identity === "required") return NextResponse.json({ error: "Sign in and verify your identity before payment.", code: "IDENTITY_REQUIRED", blocked: "identity", href: authenticatedResidentId ? "/resident/profile?tab=profile#verification" : buildResidentSetupHref(body.setupToken!, applicationId) }, { status: 403 });
+    if (identity === "unavailable") return NextResponse.json({ error: "Identity verification is unavailable.", code: "IDENTITY_UNAVAILABLE", blocked: "identity_unavailable" }, { status: 503 });
     let savedApplication: DemoApplicantRow["application"];
     try {
       savedApplication = openApplicantRow(application.row_data as DemoApplicantRow, application.id).application;

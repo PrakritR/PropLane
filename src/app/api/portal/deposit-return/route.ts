@@ -1,38 +1,42 @@
 import { NextResponse } from "next/server";
-import { resolveManagerWorkspaceRowScope, rowInWorkspaceScope } from "@/lib/auth/co-manager-module-scope";
-import {
-  decideDepositReturn,
-  depositReturnIdempotencyKey,
-  type DepositReturnContext,
-} from "@/lib/deposit-return";
-import { resolveChargePaidCents } from "@/lib/charge-paid-cents.server";
-import { HouseholdChargeRefundReviewError,
-  refundPaidHouseholdCharge } from "@/lib/household-charge-refund-rail.server";
+import { randomUUID } from "node:crypto";
+import { refundPaidHouseholdCharge } from "@/lib/household-charge-refund-rail.server";
 import { getStripe } from "@/lib/stripe";
+import { resolveManagerWorkspaceRowScope, rowInWorkspaceScope } from "@/lib/auth/co-manager-module-scope";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
+/** One submission's own id, retained by the client across its retries of that submission. */
+/** The reservation states the RPC can return. Anything else is not a reservation. */
+const RESERVATION_STATES = ["reserved", "pending", "unknown", "succeeded", "failed", "reconciled"];
+
+/** True only where the provider return is actually deployable for this actor. */
+function depositReturnProviderEnabled(): boolean {
+  return process.env.DEPOSIT_RETURN_PROVIDER_ENABLED === "true";
+}
+
 /**
- * Return a security deposit to the resident who paid it.
+ * Whether Return deposit can do anything at all right now, so the manager is not asked for an
+ * amount and every deduction line before being refused.
  *
- * The manager presses one button; money leaves their balance and goes back to the resident's
- * original payment method. Stripe will not un-refund, so the decision of whether and how much
- * lives in `deposit-return.ts` and is made before anything is called.
- *
- * Two things this route does NOT do, on purpose:
- *
- * The ledger is not written here. `charge.refunded` already reverses the deposit liability
- * through the financial webhook, and writing it here too would double-count every return — the
- * webhook fires whether the refund came from this button or from the Stripe dashboard, so it is
- * the one place that can be correct for both.
- *
- * It does not trust the client for anything but the charge id and an optional amount. Ownership,
- * the amount already returned, and the Stripe charge to refund against are all re-read server-side
- * from the record, because every one of them decides how much money moves.
+ * The answer is derived HERE, from the same deployment gate and the same test-identity
+ * classification the POST applies — the client is told what it may offer, it never decides. It
+ * names no charge and reads no row, so it is not an oracle for which deposits exist.
  */
+export async function GET() {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  const db = createSupabaseServiceRoleClient();
+  const classification = await resolveTestWorkspaceClassification(user.id, db).catch(() => null);
+  const enabled = classification?.kind === "normal" && depositReturnProviderEnabled();
+  return NextResponse.json({ enabled }, { headers: { "Cache-Control": "no-store" } });
+}
+
+/** Refuse provider returns until reservation and trust settlement are atomic. */
 export async function POST(req: Request) {
   try {
     const supabase = await createSupabaseServerClient();
@@ -82,77 +86,71 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Deposit not found." }, { status: 404 });
     }
 
+    // Deployment remains opt-in until the SQL reservation and settlement have
+    // been exercised against the bounded dev/test database.
+    if (!depositReturnProviderEnabled()) {
+      return NextResponse.json({ error: "Deposit returns are unavailable while accounting is being reconciled.", status: "unavailable" }, { status: 503 });
+    }
     const charge = (row.row_data ?? {}) as Record<string, unknown>;
-
-    // The Stripe charge the money arrived on, taken from the ledger's payment entry rather than
-    // from the record — the ledger is what the refund webhook keys on, so a refund issued against
-    // anything else could not be reconciled back.
-    const { data: payment, error: paymentError } = await db
-      .from("ledger_entries")
-      .select("stripe_charge_id, amount_cents")
-      .eq("source_charge_id", chargeId)
-      .eq("entry_type", "payment")
-      .maybeSingle();
-
-    if (paymentError) return NextResponse.json({ error: "Could not verify the payment ledger." }, { status: 500 });
-
-    const ctx: DepositReturnContext = {
-      kind: String(charge.kind ?? ""),
-      status: String(row.status ?? charge.status ?? ""),
-      paidCents: resolveChargePaidCents(payment?.amount_cents, charge),
-      alreadyReturnedCents: Number(charge.depositReturnedCents ?? 0),
-      stripeChargeId: (payment?.stripe_charge_id as string | null) ?? null,
-      // An ACH debit can bounce after it looks paid; only a settled payment may be sent back.
-      settled: charge.stripePaymentStatus !== "processing" && charge.stripePaymentStatus !== "pending",
-    };
-
-    const decision = decideDepositReturn(ctx, rawAmount as number | undefined);
-    if (!decision.ok) {
-      return NextResponse.json({ error: decision.message, reason: decision.reason }, { status: 422 });
+    if (charge.kind !== "security_deposit" || row.status !== "paid" || ["pending", "processing"].includes(String(charge.stripePaymentStatus))) {
+      return NextResponse.json({ error: "This deposit is not eligible for return." }, { status: 422 });
+    }
+    const amount = body.amountCents;
+    const items = body.itemization;
+    if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount <= 0 || !Array.isArray(items) || items.some((item) =>
+      !item || typeof item !== "object" || typeof item.label !== "string" || !item.label.trim() ||
+      !Number.isSafeInteger(item.amountCents) || item.amountCents <= 0)) {
+      return NextResponse.json({ error: "Enter a valid return amount and itemization." }, { status: 400 });
+    }
+    const withhold = items.reduce((sum, item) => sum + item.amountCents, 0);
+    if (!Number.isSafeInteger(withhold)) return NextResponse.json({ error: "Invalid deductions." }, { status: 400 });
+    const { data: deposit, error: depositError } = await db.from("security_deposit_ledger").select("id,amount_held_cents,property_id")
+      .eq("manager_user_id", user.id).eq("source_charge_id", chargeId).maybeSingle();
+    const { data: payment, error: paymentError } = await db.from("ledger_entries").select("stripe_charge_id,amount_cents,property_id")
+      .eq("source_charge_id", chargeId).eq("entry_type", "payment").maybeSingle();
+    if (depositError || paymentError || !deposit || !payment || !payment.stripe_charge_id ||
+        deposit.property_id !== row.property_id || payment.property_id !== row.property_id) {
+      return NextResponse.json({ error: "Deposit accounting requires review." }, { status: 409 });
+    }
+    // A fresh reservation key makes an ambiguous retry hit the active-attempt guard.
+    const operationId = randomUUID();
+    const { data: attempt, error: reserveError } = await db.rpc("reserve_security_deposit_return", {
+      p_owner: user.id, p_deposit: deposit.id, p_charge: chargeId, p_request_key: operationId,
+      p_expected_held: deposit.amount_held_cents, p_refund: amount, p_withhold: withhold, p_itemization: items,
+    });
+    if (reserveError || !attempt?.id) return NextResponse.json({ error: "Deposit return requires review before retrying." }, { status: 409 });
+    // A replay of the SAME submission that already reached the provider: report what is stored.
+    // Issuing a second provider call on an unknown or in-flight attempt is how one return
+    // becomes two.
+    const reservedStatus = typeof attempt.status === "string" ? attempt.status : "";
+    if (!RESERVATION_STATES.includes(reservedStatus)) {
+      return NextResponse.json({ error: "Deposit return requires review before retrying." }, { status: 409 });
+    }
+    if (attempt.provider_refund_id || reservedStatus !== "reserved") {
+      return NextResponse.json({
+        status: reservedStatus === "succeeded" || reservedStatus === "reconciled" ? "pending" : reservedStatus,
+        refundId: attempt.provider_refund_id ?? null,
+        ...(reservedStatus === "unknown" ? { error: "Return status requires reconciliation before retrying." } : {}),
+      }, { status: 202 });
+    }
+    try {
+      const refund = await refundPaidHouseholdCharge(getStripe(), db, {
+        chargeId, stripeChargeId: payment.stripe_charge_id, amountCents: amount,
+        idempotencyKey: `deposit-return:${attempt.id}`,
+        metadata: { proplane_charge_id: chargeId, kind: "security_deposit_return", deposit_return_attempt: attempt.id },
+      });
+      // The webhook validates provider evidence and performs terminal accounting.
+      // A lost stamp leaves the reservation active for reconciliation.
+      const { error: stampError } = await db.from("security_deposit_return_attempts")
+        .update({ provider_refund_id: refund.refundId || null, status: "unknown", updated_at: new Date().toISOString() })
+        .eq("id", attempt.id).eq("status", "reserved");
+      if (stampError) return NextResponse.json({ status: "unknown", error: "Return status requires reconciliation before retrying." }, { status: 202 });
+      return NextResponse.json({ status: refund.status === "failed" ? "unknown" : "pending", refundId: refund.refundId }, { status: 202 });
+    } catch {
+      return NextResponse.json({ status: "unknown", error: "Return status requires reconciliation before retrying." }, { status: 202 });
     }
 
-    const attempt = Number(charge.depositReturnAttempts ?? 0) + 1;
-    const stripe = getStripe();
-    // One rail decision, made by the payment: a central platform capture is
-    // refunded through its reservation, a legacy destination charge reverses
-    // its transfer. See `household-charge-refund-rail.server.ts`.
-    const refund = await refundPaidHouseholdCharge(stripe, db, {
-      chargeId,
-      stripeChargeId: decision.stripeChargeId,
-      amountCents: decision.amountCents,
-      // Two clicks, or a retry after a timeout that actually succeeded, must not send it twice.
-      idempotencyKey: depositReturnIdempotencyKey({ chargeId, amountCents: decision.amountCents, attempt }),
-      metadata: { proplane_charge_id: chargeId, kind: "security_deposit_return" },
-    });
-
-    const now = new Date().toISOString();
-    await db.from("portal_household_charge_records").upsert(
-      {
-        id: chargeId,
-        manager_user_id: row.manager_user_id,
-        resident_email: String(charge.residentEmail ?? "").trim().toLowerCase(),
-        status: row.status,
-        row_data: {
-          ...charge,
-          depositReturnedCents: ctx.alreadyReturnedCents + decision.amountCents,
-          depositReturnAttempts: attempt,
-          depositLastReturnedAt: now,
-        },
-        updated_at: now,
-      },
-      { onConflict: "id" },
-    );
-
-    return NextResponse.json({
-      ok: true,
-      refundId: refund.refundId,
-      amountCents: decision.amountCents,
-      remainingCents: decision.remainingAfterCents,
-    });
-  } catch (error) {
-    if (error instanceof HouseholdChargeRefundReviewError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
-    }
+  } catch {
     return NextResponse.json({ error: "Could not return the deposit." }, { status: 500 });
   }
 }

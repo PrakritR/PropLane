@@ -39,10 +39,12 @@ type DisposeDraft = {
   dispositionType: SecurityDepositDispositionType;
   withhold: string;
   memo: string;
+  method: "cash" | "check" | "bank_transfer" | "other";
+  reference: string;
 };
 
 function emptyDisposeDraft(): DisposeDraft {
-  return { dispositionType: "full_refund", withhold: "0", memo: "" };
+  return { dispositionType: "full_refund", withhold: "0", memo: "", method: "check", reference: "" };
 }
 
 export function ManagerSecurityDepositsPanel() {
@@ -78,7 +80,7 @@ export function ManagerSecurityDepositsPanel() {
   async function submitDispose() {
     if (!disposeTarget) return;
     const withholdCents = Math.max(0, Math.round(Number.parseFloat(draft.withhold.replace(/[^0-9.]/g, "")) * 100));
-    const split = computeDispositionSplit(disposeTarget.amountHeldCents, withholdCents);
+    const split = computeDispositionSplit(disposeTarget.amountHeldCents, draft.dispositionType === "full_withhold" ? disposeTarget.amountHeldCents : withholdCents);
     const res = await fetch(`/api/security-deposits/${disposeTarget.id}/dispose`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -87,6 +89,7 @@ export function ManagerSecurityDepositsPanel() {
         refundCents: split.refundCents,
         withholdCents: split.withholdCents,
         memo: draft.memo.trim() || undefined,
+        ...(split.refundCents > 0 ? { offlineReturn: { method: draft.method, reference: draft.reference.trim() } } : {}),
       }),
     });
     const data = await res.json();
@@ -212,6 +215,18 @@ export function ManagerSecurityDepositsPanel() {
                   placeholder="0.00"
                 />
               </div>
+            ) : null}
+            {previewSplit && previewSplit.refundCents > 0 ? (
+              <>
+                <label className="block text-xs font-semibold text-muted">Offline return method
+                  <Select value={draft.method} onChange={(e) => setDraft((d) => ({ ...d, method: e.target.value as DisposeDraft["method"] }))}>
+                    <option value="check">Check</option><option value="bank_transfer">Bank transfer</option><option value="cash">Cash</option><option value="other">Other</option>
+                  </Select>
+                </label>
+                <label className="block text-xs font-semibold text-muted">Return reference
+                  <Input value={draft.reference} onChange={(e) => setDraft((d) => ({ ...d, reference: e.target.value }))} />
+                </label>
+              </>
             ) : null}
             <div>
               <label className="text-xs font-semibold text-muted">Memo</label>

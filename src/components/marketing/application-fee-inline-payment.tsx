@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
 import { Button } from "@/components/ui/button";
 import { isElementOnScreen } from "@/lib/dom-visibility";
@@ -77,6 +78,7 @@ export function ApplicationFeeInlinePayment({
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [itemization, setItemization] = useState<ApplicationFeeItemizationView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [identityHref, setIdentityHref] = useState<string | null>(null);
   // A missing server key or an unfinished manager setup cannot be retried away.
   const [canRetry, setCanRetry] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -150,8 +152,15 @@ export function ApplicationFeeInlinePayment({
         totalCents?: number;
         error?: string;
         code?: string;
+        href?: string;
       };
       if (!res.ok || !data.clientSecret) {
+        if (data.code === "IDENTITY_REQUIRED" && (data.href?.startsWith("/auth/resident-setup?") || data.href === "/resident/profile?tab=profile#verification")) {
+          setIdentityHref(data.href);
+          setError("Verify your identity before payment.");
+          setCanRetry(false);
+          return;
+        }
         // `data.error` used to render verbatim, so an applicant at the moment
         // of paying was shown "Stripe is not configured on the server (missing
         // STRIPE_SECRET_KEY)" — an internal fact, next to a Try again button
@@ -211,7 +220,7 @@ export function ApplicationFeeInlinePayment({
     return (
       <div ref={rootRef} className="space-y-3 rounded-2xl border border-border bg-card p-4" data-attr="application-fee-inline-error">
         <p className="text-sm font-medium text-red-600">{error}</p>
-        {canRetry ? (
+        {identityHref ? <Link className="text-sm font-semibold text-primary" href={identityHref}>Verify identity</Link> : canRetry ? (
           <Button type="button" variant="outline" className="px-4 text-[13px]" onClick={() => start()}>
             Try again
           </Button>

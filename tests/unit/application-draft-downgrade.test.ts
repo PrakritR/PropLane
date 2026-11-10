@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
 /**
  * A submitted application must never be reverted to an "In progress" draft.
@@ -61,7 +62,7 @@ function parseOrClause(raw: string): (row: Row) => boolean {
 
 function makeFakeDb() {
   function builder(table: string) {
-    const rows = table === "profiles" ? (state.profile ? [state.profile] : []) : table === "profile_roles" ? (state.profile && state.user ? [{ user_id: state.user.id, role: state.profile.role }] : []) : state.records;
+    const rows = table === "manager_property_records" ? [{ id: "prop-willow", manager_user_id: "mgr-1", property_data: { listingSubmission: createDefaultListingSubmission() } }] : table === "profiles" ? (state.profile ? [state.profile] : []) : table === "profile_roles" ? (state.profile && state.user ? [{ user_id: state.user.id, role: state.profile.role }] : []) : state.records;
     const filters: Array<(row: Row) => boolean> = [];
     let mode: "select" | "delete" | "update" = "select";
     let pending: Row | null = null;

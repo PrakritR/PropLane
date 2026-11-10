@@ -2,6 +2,8 @@ import "server-only";
 
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
+import { resolveBaselineResidentIdentity } from "@/lib/resident-identity/baseline.server";
+import { residentSmsLinkOrigin } from "@/lib/claw-resident-links";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -155,6 +157,10 @@ export async function confirmProspectSmsTourOffer(
     workerId: string;
   } & ProspectTourIdentity,
 ): Promise<{ ok: true; idempotent: boolean; plannedEventId: string; status: string } | { ok: false; reason: string }> {
+  // A prospect's phone or an email supplied in a message is not an authenticated resident ID.
+  const identity = await resolveBaselineResidentIdentity(db, null);
+  if (identity === "required") return { ok: false, reason: `Sign in and verify your identity to request a tour: ${residentSmsLinkOrigin()}/auth/sign-in?intent=resident&next=${encodeURIComponent("/resident/profile?tab=profile#verification")}` };
+  if (identity === "unavailable") return { ok: false, reason: "Identity verification is unavailable." };
   const rpcArgs: Record<string, unknown> = {
     p_manager_user_id: args.managerUserId,
     p_conversation_key: args.conversationKey,

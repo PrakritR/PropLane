@@ -1,47 +1,50 @@
+import { relationshipStorageId } from "@/lib/auth/pro-relationship-storage-id.server";
 import { createJsonRecordRoute } from "@/lib/portal-record-api";
-import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 
 export const runtime = "nodejs";
 
 const route = createJsonRecordRoute({
   table: "portal_pro_relationship_records",
-  // portal_pro_relationship_records actually has manager_user_id (see
-  // 20260428201000_portal_backend_records.sql) — keep selecting it for the
-  // existing-row check and delete targets, matching this table's schema.
   existingRowSelect: "id, manager_user_id, row_data",
   deleteRowSelect: "id, manager_user_id, row_data",
-  scope: (query, user) => {
-    const q = query as { or: (expr: string) => unknown };
-    // Everyone, platform admins included, reads only the links THEY are a party to. An admin's own
-    // manager portal builds its Communication co-manager contacts from this list, so an
-    // all-owners read put every other owner's team in an admin's contact picker. No admin page
-    // reads this route.
-    const scope = orFilterForIdentity([
-      ["manager_user_id", user.id],
-      ["related_user_id", user.id],
-      ["related_email", user.email],
-    ]);
-    // No identity means no rows, never the whole table.
-    return scope ? q.or(scope) : (query as { eq: (c: string, v: string) => unknown }).eq("manager_user_id", "");
+  // This is a per-writer presentation mirror, including for admins. Grants
+  // continue to come from accepted account links, never these client rows.
+  scope: (query, user) => (query as { eq: (column: string, value: string) => unknown }).eq("manager_user_id", user.id),
+  projectRead: async ({ user, records }) => {
+    const byLogicalId = new Map<string, Record<string, unknown>>();
+    for (const record of records) {
+      const data = record.row_data;
+      if (!data || typeof data !== "object") continue;
+      const logicalId = (data as Record<string, unknown>).id ?? record.id;
+      if (typeof logicalId !== "string" || !logicalId) continue;
+      const current = byLogicalId.get(logicalId);
+      if (!current || record.id === relationshipStorageId(user.id, logicalId)) byLogicalId.set(logicalId, record);
+    }
+    return [...byLogicalId.values()];
   },
-  buildUpsert: (row) => ({
-    id: row.id,
-    manager_user_id: row.managerUserId ?? row.manager_user_id ?? null,
-    // related_user_id is intentionally NOT populated from the record's
-    // linkedUserId. This mirror is per-writer: each participant's row carries
-    // THAT writer's perspective (linkDirection, linkedAxisId, perms). Letting the
-    // counterpart read it via related_user_id fed a co-manager's incoming row back
-    // to the primary manager, who then mis-derived themselves as non-primary and
-    // lost the Co-managers nav. Cross-participant reads are unnecessary here — the
-    // relationships page reads the authoritative /api/pro/account-links, and inbox
-    // scope reads account_link_invites — so each user reads only their OWN rows.
-    related_user_id: row.relatedUserId ?? row.related_user_id ?? null,
-    related_email: row.relatedEmail ?? row.related_email ?? null,
-    row_data: row,
-    updated_at: new Date().toISOString(),
-  }),
-  assignOwnership: (record, user) =>
-    user.role === "admin" ? record : { ...record, manager_user_id: user.id },
+  resolveDeleteIds: async ({ db, user, ids }) => {
+    const candidates = [...new Set(ids.flatMap((id) => [id, relationshipStorageId(user.id, id)]))];
+    const { data, error } = await db.from("portal_pro_relationship_records").select("id, row_data").eq("manager_user_id", user.id).in("id", candidates);
+    if (error) throw new Error("Could not verify relationship records.");
+    const requested = new Set(ids);
+    const owned = (data ?? []).flatMap((record) => {
+      const logicalId = record.row_data && typeof record.row_data === "object" ? ((record.row_data as Record<string, unknown>).id ?? record.id) : record.id;
+      return typeof logicalId === "string" && requested.has(logicalId) && (record.id === logicalId || record.id === relationshipStorageId(user.id, logicalId)) ? [{ logicalId, id: String(record.id) }] : [];
+    });
+    return ids.every((id) => owned.some((record) => record.logicalId === id)) ? owned.map((record) => record.id) : [];
+  },
+  buildUpsert: (row, user) => {
+    const safeRow: Record<string, unknown> = { ...row, managerUserId: user.id };
+    for (const key of ["manager_user_id", "relatedUserId", "related_user_id", "relatedEmail", "related_email"]) delete safeRow[key];
+    return {
+      id: typeof row.id === "string" && row.id ? relationshipStorageId(user.id, row.id) : null,
+      manager_user_id: user.id,
+      related_user_id: null,
+      related_email: null,
+      row_data: safeRow,
+      updated_at: new Date().toISOString(),
+    };
+  },
 });
 
 export async function GET(req: Request) {

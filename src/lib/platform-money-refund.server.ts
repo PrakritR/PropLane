@@ -524,7 +524,7 @@ export async function runReservedPlatformMoneyRefund(
   input: { ownerUserId: string; holdId: string; payoutId?: string | null;
     principalCents: number; attemptKey: string;
     components?: Array<{ sourceId: string; principalCents: number }>;
-    reason?: Stripe.RefundCreateParams.Reason },
+    reason?: Stripe.RefundCreateParams.Reason; depositReturnAttemptId?: string },
 ): Promise<{ status: "succeeded" | "pending" | "failed"; refundId: string;
   recipientNetDebitCents: number; vendorFeeShareCents: number }> {
   const gross = input.principalCents;
@@ -579,6 +579,7 @@ export async function runReservedPlatformMoneyRefund(
       amount: attempt.gross_cents, reason: attempt.provider_reason,
       reverse_transfer: false, refund_application_fee: false,
       metadata: { platform_refund_attempt: attempt.id,
+        ...(input.depositReturnAttemptId ? { deposit_return_attempt: input.depositReturnAttemptId } : {}),
         ...(input.payoutId ? { vendor_payout_id: input.payoutId } : { platform_hold_id: input.holdId }) } },
     { idempotencyKey: attempt.attempt_key });
     }

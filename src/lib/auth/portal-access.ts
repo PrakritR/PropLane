@@ -13,7 +13,7 @@ export const ACTIVE_PORTAL_COOKIE = "axis_active_portal";
 export { normalizePortalRoles } from "@/lib/auth/portal-roles";
 
 export type PortalAccessContext = {
-  user: { id: string; email?: string | null } | null;
+  user: { id: string; email?: string | null; email_confirmed_at?: string | null } | null;
   profile: ServerProfile | null;
   roles: AuthRole[];
   effectiveRole: AuthRole | null;

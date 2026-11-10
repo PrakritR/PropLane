@@ -124,6 +124,26 @@ afterEach(() => {
 });
 
 describe("household charges never resurrect a server-side delete", () => {
+  it("publishes a server-confirmed provider receipt without mirroring a metadata-only refresh", async () => {
+    const local = { ...A, status: "pending" as const };
+    const store = await loadStore(new Map([["axis:household-charges:v1", JSON.stringify([local])]]));
+    replies.push({ charges: [{ ...local, status: "paid", stripeCheckoutSessionId: "cs_verified", stripePaymentStatus: "paid", paidAmountCents: 10000 }], rentProfiles: [] });
+    const result = await store.syncHouseholdChargesFromServer(true);
+    await settle();
+    expect(result.charges[0]).toMatchObject({ id: A.id, status: "paid", stripeCheckoutSessionId: "cs_verified", paidAmountCents: 10000 });
+    expect(JSON.parse(session.get("axis:household-charges:v1") ?? "[]")[0]).toMatchObject({ stripeCheckoutSessionId: "cs_verified" });
+    expect(posts).toEqual([]);
+  });
+  it("publishes a confirmed refund without mirroring the old local paid status", async () => {
+    const local = { ...A, status: "paid" as const };
+    const store = await loadStore(new Map([["axis:household-charges:v1", JSON.stringify([local])]]));
+    replies.push({ charges: [{ ...local, status: "refunded", stripeCheckoutSessionId: "cs_verified", stripePaymentStatus: "succeeded", refundedCents: 10000 }], rentProfiles: [] });
+    const result = await store.syncHouseholdChargesFromServer(true);
+    await settle();
+    expect(result.charges[0]).toMatchObject({ id: A.id, status: "refunded", refundedCents: 10000 });
+    expect(JSON.parse(session.get("axis:household-charges:v1") ?? "[]")[0]).toMatchObject({ status: "refunded", refundedCents: 10000 });
+    expect(posts).toEqual([]);
+  });
   it("drops confirmed charges and profiles a full read omits, and posts no replace", async () => {
     const store = await loadStore();
     replies.push({ charges: [A, B], rentProfiles: [P1], syncedAt: iso(T0) });

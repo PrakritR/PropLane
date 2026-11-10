@@ -867,10 +867,11 @@ export function cancelPendingApplicationRowUpsert(id: string): void {
 /** Await server persistence before showing post-submit UI or create-account links. */
 export async function upsertApplicationRowToServerAwait(
   row: DemoApplicantRow,
-  opts?: { existingResidentOnboarding?: { sendWelcomeEmail?: boolean } },
+  opts?: { existingResidentOnboarding?: { sendWelcomeEmail?: boolean }; timeoutMs?: number; publishConfirmedRow?: boolean },
 ): Promise<{
   ok: boolean;
   error?: string;
+  blocked?: string;
   setupHref?: string;
   setupToken?: string;
   welcomeEmailSent?: boolean;
@@ -889,18 +890,23 @@ export async function upsertApplicationRowToServerAwait(
   if (isDemoModeActive()) return { ok: true };
   const generation = applicationWriteGeneration;
   try {
-    const res = await fetch("/api/manager-applications", {
+    const request: RequestInit = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({
         action: "upsert",
         row,
+        ...(getApplicationSetupToken(row.id) ? { setupToken: getApplicationSetupToken(row.id) } : {}),
         ...(opts?.existingResidentOnboarding ? { existingResidentOnboarding: opts.existingResidentOnboarding } : {}),
       }),
-    });
+    };
+    const res = opts?.timeoutMs
+      ? await fetchWithTimeout("/api/manager-applications", request, opts.timeoutMs)
+      : await fetch("/api/manager-applications", request);
     const body = (await res.json().catch(() => null)) as {
       error?: string;
+      blocked?: string;
       fieldErrors?: Record<string, string>;
       step?: number;
       setupHref?: string;
@@ -921,6 +927,7 @@ export async function upsertApplicationRowToServerAwait(
       return {
         ok: false,
         error: body?.error ?? "Could not save application.",
+        blocked: body?.blocked,
         mailtoHref: errBody?.mailtoHref,
         leaseId: errBody?.leaseId,
         ...(body?.fieldErrors && typeof body.fieldErrors === "object" ? { fieldErrors: body.fieldErrors } : {}),
@@ -935,7 +942,7 @@ export async function upsertApplicationRowToServerAwait(
         : undefined;
     const setupToken = typeof body?.setupToken === "string" && body.setupToken ? body.setupToken : undefined;
     if (setupToken) rememberApplicationSetupToken(row.id, setupToken);
-    if (body?.row?.id) {
+    if (body?.row?.id && opts?.publishConfirmedRow !== false) {
       replaceManagerApplicationRowInCache(body.row);
     }
     const onboarding = body?.existingResidentOnboarding;

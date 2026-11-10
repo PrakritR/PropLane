@@ -248,6 +248,34 @@ describe("PRP-470 initial Communication readiness", () => {
     await waitFor(() => expect(screen.getByText("Email resident")).toBeTruthy());
   });
 
+  it("does not carry an intervening store event into another viewer's completed initial load", async () => {
+    const smsA = deferred<Response>(), smsB = deferred<Response>();
+    fetchMock.mockImplementation(() => activeViewerId === "viewer-next" ? smsB.promise : smsA.promise);
+    vi.doMock("@/lib/portal-inbox-storage", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("@/lib/portal-inbox-storage")>()),
+      loadPersistedInbox: () => activeViewerId === "viewer-ui" ? [thread("a-new", "Viewer A new message")] : [],
+      syncPersistedInboxFromServerWithStatus: async () => ({ rows: [], ok: true }),
+      stagePersistedInboxRows: () => {},
+    }));
+    vi.doMock("@/lib/manager-applications-storage", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("@/lib/manager-applications-storage")>()),
+      syncManagerApplicationsFromServerWithStatus: async () => ({ rows: [], ok: true }),
+      readManagerApplicationRows: () => [],
+    }));
+    const storage = await import("@/lib/portal-inbox-storage");
+    const { ManagerUnifiedInbox } = await import("@/components/portal/pro-unified-inbox");
+    const view = render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await act(async () => { window.dispatchEvent(new Event(storage.PORTAL_INBOX_CHANGED_EVENT)); });
+    activeViewerId = "viewer-next";
+    view.rerender(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(1));
+    await act(async () => smsB.resolve(Response.json({ residents: [] })));
+    await act(async () => smsA.resolve(Response.json({ residents: [] })));
+    await waitFor(() => expect(screen.queryByText("Loading conversations…")).toBeNull());
+    expect(screen.queryByText("Viewer A new message")).toBeNull();
+  });
+
   it("does not publish a late SMS response across an A to B to A viewer cycle", async () => {
     const oldA = deferred<Response>();
     const viewerB = deferred<Response>();
