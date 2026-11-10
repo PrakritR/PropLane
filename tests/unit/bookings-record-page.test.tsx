@@ -49,6 +49,14 @@ describe("booking record and actions", () => {
     expect(screen.getByText("Past stays")).toBeTruthy();
     expect(screen.getByText("None yet")).toBeTruthy();
   });
+  it("a Booking.com stay offers Add name; a host block does not", () => {
+    const stay: PropertyBookingEntry = { ...block, source: "booking_com", summary: "CLOSED - Not available", blockId: undefined, residentName: undefined, connectionId: "c1", sourceUid: "u1" };
+    page(stay, "guest");
+    expect(document.querySelector('[data-attr="booking-guest-name-edit"]')).toBeTruthy();
+    cleanup();
+    page({ ...stay, source: "airbnb", summary: "Airbnb (Not available)", sourceUid: "u2" }, "guest");
+    expect(document.querySelector('[data-attr="booking-guest-name-edit"]')).toBeNull();
+  });
   it("Payments shows the rate and nights", () => {
     page({ ...block, rate: 100, rateBasis: "daily" }, "payments");
     expect(screen.getByRole("heading", { name: "Payments" })).toBeTruthy();

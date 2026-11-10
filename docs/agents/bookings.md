@@ -461,6 +461,7 @@ PropLane exports its residents, holds and blocks to Airbnb as unavailable, and A
   `/api/portal-schedule-records` route (400) and the `block_room_dates` / `update_room_block` tools.
   A cancelled block and a delete are never refused; rows saved before the field existed still render.
   A reason of "Airbnb" or "Booking" is the import marker and is never a valid Closed reason.
+- `channelStayName` (`src/lib/channel-calendar/booking-guest-label.ts`) is the one label for a channel stay: typed name > "Airbnb guest · HM…" > "Closed on <Channel>" for a host block > "<Channel> guest" for a privacy-stripped reservation ("CLOSED - Not available", "Reserved", blank).
 - Every booking (channel stay from a sync, or a native one: created, cancelled, deleted) emails the
   workspace owner's login address from the work email, whatever their alert destination says
   (`sendOwnerBookingEmail` in `channel-booking-events.server.ts`). It is idempotent on the bus

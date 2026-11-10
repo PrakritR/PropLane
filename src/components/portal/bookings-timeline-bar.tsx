@@ -48,12 +48,12 @@ function barChannel(entry: PropertyBookingEntry): "airbnb" | "booking_com" | "pa
   return isPadSplitStay(entry) ? "padsplit" : null;
 }
 
-function channelGlyph(entry: PropertyBookingEntry, inline = true) {
+function channelGlyph(entry: PropertyBookingEntry) {
   const channel = barChannel(entry);
-  if (channel === "airbnb") return <BookingsAirbnbIcon aria-label="Airbnb" role="img" className={inline ? "mr-1 inline h-3 w-3 align-[-1px]" : "h-3 w-3 shrink-0"} strokeWidth={1.7} />;
+  if (channel === "airbnb") return <BookingsAirbnbIcon aria-label="Airbnb" role="img" className="h-3.5 w-3.5 shrink-0" strokeWidth={1.7} />;
   if (channel === "booking_com" || channel === "padsplit") {
     const label = channel === "booking_com" ? "Booking.com" : "PadSplit";
-    return <span role="img" aria-label={label} data-attr="bookings-bar-channel-mark" className={`${inline ? "mr-1 inline-flex align-[-1px]" : "inline-flex shrink-0"} h-3 w-3 items-center justify-center rounded-[3px] bg-white text-[9px] font-bold leading-none ${channel === "booking_com" ? "text-[#003b95]" : "text-[#6b3fa0]"}`}>{channel === "booking_com" ? "B" : "P"}</span>;
+    return <span role="img" aria-label={label} data-attr="bookings-bar-channel-mark" className={`inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] bg-white text-[10px] font-bold leading-none ${channel === "booking_com" ? "text-[#003b95]" : "text-[#6b3fa0]"}`}>{channel === "booking_com" ? "B" : "P"}</span>;
   }
   return null;
 }
@@ -61,7 +61,7 @@ function channelGlyph(entry: PropertyBookingEntry, inline = true) {
 /** A paid early check-in / late checkout: a small clock before the guest's name. */
 function addOnGlyph(entry: PropertyBookingEntry) {
   const label = paidAddOnGlyphLabel(entry);
-  return label ? <Clock3 role="img" aria-label={label} data-attr="bookings-bar-addon-glyph" className="mr-1 inline h-3 w-3 shrink-0 align-[-1px]" strokeWidth={2} /> : null;
+  return label ? <Clock3 role="img" aria-label={label} data-attr="bookings-bar-addon-glyph" className="h-3 w-3 shrink-0" strokeWidth={2} /> : null;
 }
 
 /** The popover (desktop) and sheet (phone) share one set of facts. */
@@ -109,11 +109,11 @@ export const BookingBar = memo(function BookingBar({ entry, today, placement, co
   const hatch = closure ? { backgroundImage: CLOSURE_HATCH } : undefined;
   const face = placement?.narrow ? (
     <>
-      <span data-bar-visual="" className={`flex shrink-0 items-center justify-center overflow-clip rounded-lg text-[13px] font-semibold ${visual}`} style={{ width: placement.width, height: BAR_VISUAL_HEIGHT, ...hatch }}>{placement.width >= NARROW_GLYPH_PX ? channelGlyph(entry, false) : null}<span className="sr-only">{name}</span></span>
+      <span data-bar-visual="" className={`flex shrink-0 items-center justify-center overflow-clip rounded-lg text-[13px] font-semibold ${visual}`} style={{ width: placement.width, height: BAR_VISUAL_HEIGHT, ...hatch }}>{placement.width >= NARROW_GLYPH_PX ? channelGlyph(entry) : null}<span className="sr-only">{name}</span></span>
     </>
   ) : (
     <span data-bar-visual="" className={`flex min-w-0 flex-1 flex-col justify-center overflow-clip rounded-lg text-left text-[13px] ${placement ? "" : "min-h-8 py-1"} ${visual}`} style={placement ? { height: BAR_VISUAL_HEIGHT, ...hatch } : hatch}>
-      <span className={placement ? "block truncate px-2 font-semibold leading-8" : "block truncate px-2 font-semibold"} style={placement ? { marginLeft: placement.nameInset, maxWidth: placement.width - placement.nameInset } : undefined}>{closure ? null : channelGlyph(entry)}{addOnGlyph(entry)}<span className={closure ? "rounded bg-[var(--pl-surface-raised)] px-1" : undefined}>{name}</span>{isNoEndBlock(entry) ? <span data-attr="bookings-bar-no-end" className="ml-1.5 rounded bg-white/25 px-1 text-[11px] font-medium">no end</span> : null}</span>
+      <span className={placement ? "flex h-8 items-center gap-1.5 px-2 font-semibold" : "flex items-center gap-1.5 px-2 font-semibold"} style={placement ? { marginLeft: placement.nameInset, maxWidth: placement.width - placement.nameInset } : undefined}>{closure ? null : channelGlyph(entry)}{addOnGlyph(entry)}<span className={closure ? "min-w-0 truncate rounded bg-[var(--pl-surface-raised)] px-1" : "min-w-0 truncate"}>{name}</span>{isNoEndBlock(entry) ? <span data-attr="bookings-bar-no-end" className="shrink-0 rounded bg-white/25 px-1 text-[11px] font-medium">no end</span> : null}</span>
       {detail}
     </span>
   );

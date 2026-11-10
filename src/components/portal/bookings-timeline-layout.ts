@@ -6,7 +6,7 @@ import { DEFAULT_PROPERTY_STAY_TIMES, formatStayTime, halfDayBarSpan, stayEndWal
 import { isAvailabilityBlockRow } from "@/lib/occupancy/snapshot";
 import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
 import { bookingSourceLabel } from "@/lib/channel-calendar/bookings-ui";
-import { bookingEntryNamedLabel } from "@/lib/channel-calendar/booking-guest-label";
+import { channelStayName, isGuestLabelSource } from "@/lib/channel-calendar/booking-guest-label";
 import { isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import type { OccupancyCapacities } from "@/lib/occupancy/snapshot";
 
@@ -274,7 +274,7 @@ export const isNoEndBlock = (entry: Pick<PropertyBookingEntry, "source" | "openE
 
 export const barDisplayName = (entry: PropertyBookingEntry) => {
   if (isLongChannelClosure(entry)) return closureBarLabel(entry);
-  const base = entry.residentName || bookingEntryNamedLabel(entry) || entry.summary;
+  const base = entry.residentName || (isGuestLabelSource(entry.source) ? channelStayName(entry) : entry.summary);
   // An unnamed open-ended block ("Blocked" from Sep 30, no end) says where it starts so it is easy to find and remove.
   return isNoEndBlock(entry) && !entry.residentName ? `${base} · from ${shortDate(entry.start).replace(/, \d{4}$/, "")}` : base;
 };

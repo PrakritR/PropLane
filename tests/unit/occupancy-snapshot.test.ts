@@ -90,9 +90,9 @@ describe("combineOccupancyEntries", () => {
 
 describe("dayStayDisplayName", () => {
   it("names the channel on a channel availability block, never a guest", () => {
-    expect(dayStayDisplayName({ source: "airbnb", summary: "Not available" })).toBe("Airbnb · Not available");
-    expect(dayStayDisplayName({ source: "airbnb", summary: "Airbnb (Not available)" })).toBe("Airbnb · Not available");
-    expect(dayStayDisplayName({ source: "booking_com", summary: "CLOSED - Not available" })).toBe("Booking.com · Not available");
+    expect(dayStayDisplayName({ source: "airbnb", summary: "Not available" })).toBe("Closed on Airbnb");
+    expect(dayStayDisplayName({ source: "airbnb", summary: "Airbnb (Not available)" })).toBe("Closed on Airbnb");
+    expect(dayStayDisplayName({ source: "booking_com", summary: "CLOSED - Not available" })).toBe("Booking.com guest");
   });
 
   it("reads Blocked only for the manager's own block", () => {
@@ -100,7 +100,7 @@ describe("dayStayDisplayName", () => {
   });
 
   it("keeps a real channel reservation as a reservation", () => {
-    expect(dayStayDisplayName({ source: "airbnb", summary: "Reserved" })).toBe("Airbnb · Reserved");
+    expect(dayStayDisplayName({ source: "airbnb", summary: "Reserved" })).toBe("Airbnb guest");
     expect(dayStayDisplayName({ source: "airbnb", summary: "Reserved", residentName: "Dana" })).toBe("Dana");
   });
 });

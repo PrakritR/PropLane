@@ -123,13 +123,13 @@ describe("guest label precedence", () => {
   it("is typed name, then Airbnb guest + code, then the existing label", () => {
     expect(bookingEntryGuestLabel({ ...stay, guestName: "  Maria Lopez " })).toBe("Maria Lopez");
     expect(bookingEntryGuestLabel(stay)).toBe("Airbnb guest · HMABCDEFGH");
-    expect(bookingEntryGuestLabel({ source: "airbnb", summary: "Reserved" })).toBe("Booked (Airbnb)");
-    expect(bookingEntryGuestLabel({ source: "booking_com", summary: "Reserved" })).toBe("Booked (Booking.com)");
+    expect(bookingEntryGuestLabel({ source: "airbnb", summary: "Reserved" })).toBe("Airbnb guest");
+    expect(bookingEntryGuestLabel({ source: "booking_com", summary: "Reserved" })).toBe("Booking.com guest");
   });
 
   it("keeps a real feed name over the code label, and host blocks over everything", () => {
     expect(bookingEntryGuestLabel({ ...stay, summary: "Alex M." })).toBe("Alex M.");
-    expect(bookingEntryGuestLabel({ source: "airbnb", summary: "Airbnb (Not available)", guestName: "Nope", reservationCode: "HMABCDEFGH" })).toBe("Airbnb block");
+    expect(bookingEntryGuestLabel({ source: "airbnb", summary: "Airbnb (Not available)", guestName: "Nope", reservationCode: "HMABCDEFGH" })).toBe("Closed on Airbnb");
     expect(bookingEntryNamedLabel({ source: "airbnb", summary: "Airbnb (Not available)", guestName: "Nope" })).toBeNull();
   });
 

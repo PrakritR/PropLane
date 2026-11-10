@@ -93,7 +93,7 @@ describe("an Other calendar feed, end to end", () => {
     show("status line, no name typed", channelStatusLine({ hasImportUrl: true, lastSyncedAt: null }, new Date("2026-10-14T20:00:00Z"), "ical", ""));
 
     expect(entries).toHaveLength(3);
-    expect(entries.map((entry) => bookingEntryGuestLabel(entry))).toEqual(["Booked (Houfy)", "Houfy block", "Booked (Furnished Finder)"]);
+    expect(entries.map((entry) => bookingEntryGuestLabel(entry))).toEqual(["Houfy guest", "Closed on Houfy", "Furnished Finder guest"]);
     expect(entries.map((entry) => entry.channelLabel)).toEqual(["Houfy", "Houfy", "Furnished Finder"]);
   });
 
