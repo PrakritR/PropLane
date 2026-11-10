@@ -70,6 +70,57 @@ export function recipientReachFromScope(scope: {
 
 export type InboxScopeRecipient = { email: string; userId: string | null };
 
+/** What a send route may ask of the filter beyond the sender's own people. Never derived from a request body. */
+export type InboxScopeOptions = {
+  /**
+   * A manager-side sender with edit rights on the active workspace may email a bare, syntactically valid address that
+   * is not yet a contact (it opens a new conversation in that workspace). Applies ONLY to a recipient with no
+   * account (`userId` null): an id in a body, or an address that already belongs to someone's account, is never
+   * authorization. Ignored for vendor and resident senders.
+   */
+  allowTypedAddresses?: boolean;
+};
+
+/** A bare `name@host.tld` address: no display name, no whitespace or header-injection characters, bounded length. */
+export function isBareEmailAddress(value: string): boolean {
+  const email = value.trim();
+  if (email.length === 0 || email.length > 254 || email !== value) return false;
+  return /^[^\s@<>(),;:"\\[\]]+@[^\s@<>(),;:"\\[\]]+\.[^\s@<>(),;:"\\[\]]+$/.test(email) && !email.includes("..");
+}
+
+/**
+ * May this manager-side sender open a conversation with an address that is not yet a contact? Only with EDIT rights
+ * on the active workspace: its owner, or a teammate whose Communication grant at the scope's `edit` level reaches a
+ * house of that workspace. A Viewer / read-only seat holds no edit grant and an unreadable workspace fails closed.
+ */
+export async function managerMayMessageNewContacts(
+  db: SupabaseClient,
+  scope: {
+    viewerId: string;
+    level: string;
+    workspaceHouseIds: Set<string> | null;
+    grantedHousesByOwner: Map<string, Set<string>>;
+    activeWorkspaceId: string | null;
+    closed?: boolean;
+  },
+): Promise<boolean> {
+  const workspaceId = scope.activeWorkspaceId?.trim();
+  if (!workspaceId || scope.closed || scope.level !== "edit") return false;
+  try {
+    const { data, error } = await db.from("portal_workspaces").select("owner_user_id").eq("id", workspaceId).maybeSingle();
+    if (error || !data) return false;
+    if (String(data.owner_user_id ?? "").trim() === scope.viewerId) return true;
+  } catch {
+    return false;
+  }
+  const houses = scope.workspaceHouseIds;
+  if (!houses) return false;
+  for (const granted of scope.grantedHousesByOwner.values()) {
+    for (const id of granted) if (houses.has(id)) return true;
+  }
+  return false;
+}
+
 function isManagerRole(role: string | null): boolean {
   const r = String(role ?? "").trim().toLowerCase();
   return r === "manager" || r === "owner" || r === "pro";
@@ -473,6 +524,7 @@ export async function filterRecipientsBySenderScope<T extends InboxScopeRecipien
   db: SupabaseClient,
   sender: InboxScopeSender,
   recipients: T[],
+  options?: InboxScopeOptions,
 ): Promise<{ allowed: T[]; blocked: T[] }> {
   if (recipients.length === 0) return { allowed: [], blocked: [] };
   if (sender.isAdmin) return { allowed: recipients, blocked: [] };
@@ -532,7 +584,12 @@ export async function filterRecipientsBySenderScope<T extends InboxScopeRecipien
         ) {
           return true;
         }
-        return managerConnectedToFunnelProspect(db, sender.id, { email, residentUserId: recipient.userId }, reach);
+        if (await managerConnectedToFunnelProspect(db, sender.id, { email, residentUserId: recipient.userId }, reach)) {
+          return true;
+        }
+        // A typed address nobody has on the list yet: allowed only when the route established edit rights, only for
+        // an address with no account, and only when it is a bare valid email.
+        return options?.allowTypedAddresses === true && !recipient.userId && isBareEmailAddress(email);
       }),
     );
     return enforceRecipientNamespace(db, sender.id, partition(recipients, keep));

@@ -131,13 +131,20 @@ type Sweep = {
   kind: ReminderSubjectKind;
   anchor: (row: TenancyRow) => Date | null;
   audience: "resident" | "manager" | "both";
+  /** Where the RESIDENT (or, for a manager-only sweep, the manager) lands. */
   url: string;
+  /**
+   * Where manager-side recipients (the manager and their team) land when the sweep also reaches the
+   * resident. A "both" sweep must set it: the resident's link opens the resident portal, which a
+   * manager's card must never point at.
+   */
+  managerUrl?: (row: TenancyRow) => string;
   category: "leases" | "payments";
   title: (row: TenancyRow) => string;
 };
 
 const SWEEPS: Sweep[] = [
-  { kind: "move_in", anchor: (row) => row.moveIn, audience: "both", url: "/resident/my-home", category: "leases", title: () => "move-in" },
+  { kind: "move_in", anchor: (row) => row.moveIn, audience: "both", url: "/resident/my-home", managerUrl: (row) => `/portal/residents/current/${encodeURIComponent(row.id)}`, category: "leases", title: () => "move-in" },
   { kind: "lease_ending", anchor: (row) => row.leaseEnd, audience: "resident", url: "/resident/lease", category: "leases", title: () => "lease" },
   { kind: "lease_ending_manager", anchor: (row) => row.leaseEnd, audience: "manager", url: "/portal/leases", category: "leases", title: () => "lease" },
   { kind: "move_out", anchor: (row) => row.moveOut, audience: "resident", url: "/resident/lease", category: "leases", title: () => "move-out" },
@@ -210,27 +217,37 @@ export async function sweepTenancyReminders(db: SupabaseClient, now: Date = new 
       if (sweep.audience !== "manager") recipients.push({ email: row.residentEmail, role: "counterparty", name: row.residentName, userId: row.residentUserId });
       if (sweep.audience !== "resident") recipients.push(...(await managerSide(db, row, sweep.kind, settings, managerRecipients)));
       if (recipients.length === 0) continue;
-      queued += await materializeReminders(
-        db,
-        {
-          managerUserId: row.managerUserId,
-          kind: sweep.kind,
-          subjectId: row.id,
-          anchorIso,
-          recipients,
-          payload: {
-            title: sweep.title(row),
-            propertyLabel: row.propertyLabel,
-            counterpartyName: row.residentName,
-            whenLabel: dateLabel(date),
-            dueDateLabel: dateLabel(date),
-            url: `${origin()}${sweep.url}`,
-            notificationCategory: sweep.category,
+      // One link per audience: the resident's opens the resident portal, a manager's must open the
+      // manager portal (a "both" sweep otherwise sends the manager a /resident/ card they cannot open).
+      const managerPath = sweep.managerUrl?.(row) ?? sweep.url;
+      const groups: Array<{ recipients: ReminderRecipient[]; path: string }> = [
+        { recipients: recipients.filter((r) => r.role === "counterparty"), path: sweep.url },
+        { recipients: recipients.filter((r) => r.role !== "counterparty"), path: managerPath },
+      ];
+      for (const group of groups) {
+        if (group.recipients.length === 0) continue;
+        queued += await materializeReminders(
+          db,
+          {
+            managerUserId: row.managerUserId,
+            kind: sweep.kind,
+            subjectId: row.id,
+            anchorIso,
+            recipients: group.recipients,
+            payload: {
+              title: sweep.title(row),
+              propertyLabel: row.propertyLabel,
+              counterpartyName: row.residentName,
+              whenLabel: dateLabel(date),
+              dueDateLabel: dateLabel(date),
+              url: `${origin()}${group.path}`,
+              notificationCategory: sweep.category,
+            },
           },
-        },
-        settings,
-        now,
-      );
+          settings,
+          now,
+        );
+      }
     }
 
     // Deposit accounting: the deadline is move-out + the manager's chosen days.

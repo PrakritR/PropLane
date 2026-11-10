@@ -50,8 +50,6 @@ import {
   isRoomChoiceAvailable,
 } from "@/lib/rental-application/data";
 import { syncPublicApprovedApplicationsFromServer } from "@/lib/manager-applications-storage";
-import { TourApplicationFirstPanel } from "@/components/marketing/tour-application-first-panel";
-import { useTourApplicationGate } from "@/hooks/use-tour-application-gate";
 import { pacificCalendarDateYmd } from "@/lib/pacific-time";
 import {
   REQUESTED_TOUR_KIND,
@@ -319,7 +317,6 @@ export function TourScheduleFlow({
   // to press — instead of showing "Sign in to request a tour." with no way to sign in.
   const [sessionExpired, setSessionExpired] = useState(false);
   const signedInUserId = sessionExpired ? "" : contactAutofill.userId;
-  const applicationGate = useTourApplicationGate(property, { signedIn: Boolean(signedInUserId) });
   const hasResidentRole = contactAutofill.hasResidentRole;
   const [tick, setTick] = useState(0);
   const [pickedRoomKey, setPickedRoomKey] = useState<string | null>(null);
@@ -537,21 +534,6 @@ export function TourScheduleFlow({
     detailsFooter,
     submitted,
   ]);
-
-  if (applicationGate.status === "checking") {
-    return <div className="px-2 py-6 text-sm text-muted">Checking this home…</div>;
-  }
-  if (
-    applicationGate.status === "apply_first" ||
-    applicationGate.status === "pending_approval" ||
-    applicationGate.status === "denied"
-  ) {
-    return (
-      <div className={embedded ? "space-y-6" : pub ? "ps-j-stack" : PUBLIC_PROSPECT_CANVAS_CLASS}>
-        <TourApplicationFirstPanel propertyId={property.id} propertyTitle={property.title} reason={applicationGate.status} />
-      </div>
-    );
-  }
 
   if (submitted) {
     const createAccountHref = submittedContact?.email

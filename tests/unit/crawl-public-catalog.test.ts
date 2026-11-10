@@ -46,17 +46,28 @@ describe("the crawl catalog is read once per hour, not once per URL", () => {
     const page = (await import("@/app/(rent)/rent/listings/[id]/page")).default;
 
     const entries = await sitemap();
-    expect(entries.some((e) => e.url.endsWith("/rent/listings/listing-1"))).toBe(true);
+    expect(entries.some((e) => e.url.endsWith("/rent/listings/4709a-8th-ave-ne"))).toBe(true);
     expect(reads.count).toBe(1);
 
     // The crawler then walks the listing URLs the sitemap just handed it.
     for (let i = 0; i < 3; i += 1) {
-      const tree = (await page({ params: Promise.resolve({ id: "listing-1" }) })) as {
+      const tree = (await page({ params: Promise.resolve({ id: "4709a-8th-ave-ne" }) })) as {
         props: { children: { props?: { dangerouslySetInnerHTML?: { __html: string } } }[] };
       };
       const script = tree.props.children.find((child) => child?.props?.dangerouslySetInnerHTML);
       expect(JSON.parse(script!.props!.dangerouslySetInnerHTML!.__html)["@type"]).toBe("Accommodation");
     }
+    expect(reads.count).toBe(1);
+  });
+
+  it("renders an old id URL in place (its query survives) and declares the readable address URL canonical, on the same read", async () => {
+    const { resetCrawlPublicListingsCache } = await import("@/lib/seo/public-catalog.server");
+    resetCrawlPublicListingsCache();
+    const mod = await import("@/app/(rent)/rent/listings/[id]/page");
+    const tree = await mod.default({ params: Promise.resolve({ id: "listing-1" }) });
+    expect(tree).toBeTruthy();
+    const meta = await mod.generateMetadata({ params: Promise.resolve({ id: "listing-1" }) });
+    expect(String(meta.alternates?.canonical ?? "")).toMatch(/\/rent\/listings\/4709a-8th-ave-ne$/);
     expect(reads.count).toBe(1);
   });
 

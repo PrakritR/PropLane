@@ -246,7 +246,9 @@ export function ManagerPropertyRoomMoveInPanel({
 
   /** Plain text of the row's fact line — also what the search matches against. */
   const moveRowFactTexts = (instructions: string, photos: string[], video: string | null, withHouseAccess = false) => {
-    const t = moveInFactTexts({ instructions, photoCount: photos.length, hasVideo: Boolean(video) });
+    const hasAccessInfo =
+      withHouseAccess && Object.values(houseInfoDraft.access ?? {}).some((v) => typeof v === "string" && v.trim() !== "");
+    const t = moveInFactTexts({ instructions, photoCount: photos.length, hasVideo: Boolean(video), hasAccessInfo });
     const out: { key: string; icon: typeof FileText; text: string }[] = [
       { key: "instructions", icon: FileText, text: t.instructions },
       { key: "photos", icon: ImageIcon, text: t.photos },
@@ -254,7 +256,7 @@ export function ManagerPropertyRoomMoveInPanel({
     ];
     if (withHouseAccess) {
       if (getHouseInfoValue(houseInfoDraft, "access", "doorCode").trim()) out.push({ key: "door", icon: KeyRound, text: "Door code" });
-      if (getHouseInfoValue(houseInfoDraft, "wifi", "wifiNetwork").trim()) out.push({ key: "wifi", icon: Wifi, text: "Wi-Fi" });
+      if ((getHouseInfoValue(houseInfoDraft, "wifi", "network") || getHouseInfoValue(houseInfoDraft, "wifi", "wifiNetwork")).trim()) out.push({ key: "wifi", icon: Wifi, text: "Wi-Fi" });
     }
     return out;
   };

@@ -113,9 +113,15 @@ export function moveInFactTexts(input: {
   instructions: string;
   photoCount: number;
   hasVideo: boolean;
+  /** Saved house access info (door code, gate, key pickup…) counts as instructions. */
+  hasAccessInfo?: boolean;
 }): { instructions: string; photos: string; video: string } {
   return {
-    instructions: input.instructions.trim() ? "Instructions written" : "No instructions yet",
+    instructions: input.instructions.trim()
+      ? "Instructions written"
+      : input.hasAccessInfo
+        ? "Access info"
+        : "No instructions yet",
     photos: countWord(input.photoCount, "photo"),
     video: input.hasVideo ? "Video added" : "No video",
   };

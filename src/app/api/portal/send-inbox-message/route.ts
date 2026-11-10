@@ -9,7 +9,7 @@ import {
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
-import { filterRecipientsBySenderScope, recipientReachFromScope } from "@/lib/inbox-recipient-scope";
+import { filterRecipientsBySenderScope, managerMayMessageNewContacts, recipientReachFromScope } from "@/lib/inbox-recipient-scope";
 import { applyOwnerMessageInboxScope } from "@/lib/property-owner/access.server";
 import { resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
 import { loadThreadConversation, propertyLabelFor, replyRecipientsMatchThread } from "@/lib/communication/conversation-key.server";
@@ -604,6 +604,12 @@ export async function POST(req: Request) {
         db,
         { id: user.id, email: senderEmail, role: senderRole, isAdmin: false, reach },
         recipients,
+        {
+          // A manager or teammate with edit rights may email a typed address that is not yet a contact; it opens a
+          // new conversation in this workspace through the same keyed creation as any other send. Re-derived here
+          // from membership, never from the body, and never for a vendor or resident sender.
+          allowTypedAddresses: managerSendScope ? await managerMayMessageNewContacts(db, managerSendScope) : false,
+        },
       );
       if (allowed.length === 0) {
         return NextResponse.json(

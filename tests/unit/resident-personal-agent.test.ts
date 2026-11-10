@@ -16,7 +16,6 @@ const mocks = vi.hoisted(() => ({
   offered: vi.fn(),
   createTour: vi.fn(),
   deliverChat: vi.fn(),
-  refusal: vi.fn(),
   thread: vi.fn(),
   verified: vi.fn(),
   ledger: { balance: 0, events: new Map<string, { cents: number; state: string }>(), calls: [] as string[] },
@@ -29,7 +28,6 @@ vi.mock("@/lib/agent/pending-action-decision", () => ({ decidePendingAction: moc
 vi.mock("@/lib/tools/pending-actions", async (orig) => ({ ...(await orig<object>()), createPendingActionForUser: mocks.createPending }));
 vi.mock("@/lib/tools/domains/tours", async (orig) => ({ ...(await orig<object>()), loadOfferedSlots: mocks.offered }));
 vi.mock("@/lib/tour-inquiry-create.server", () => ({ createTourInquiry: mocks.createTour }));
-vi.mock("@/lib/application-before-tour.server", () => ({ applicationBeforeTourRefusal: mocks.refusal }));
 vi.mock("@/lib/property-manager-inbox-thread.server", () => ({
   deliverResidentPropertyManagerChatMessage: mocks.deliverChat,
   propertyManagerSendMessageIds: () => ({ resident: "r-id", manager: "m-id" }),
@@ -159,7 +157,6 @@ beforeEach(() => {
   mocks.entitled.mockResolvedValue(true);
   mocks.offered.mockResolvedValue({ slots: [SLOT] });
   mocks.createTour.mockResolvedValue({ ok: true });
-  mocks.refusal.mockResolvedValue(null);
   mocks.deliverChat.mockResolvedValue({ threadId: "t1" });
   mocks.thread.mockResolvedValue({ threadId: "t-inbox", action: "created" });
   mocks.verified.mockResolvedValue({ verified: true, phone: OWNER_PHONE });
@@ -253,14 +250,12 @@ describe("write tools reach the listing's own manager, only after confirmation",
     expect(call.verifiedApplicantEmail).toBe("resi@example.com");
   });
 
-  it("request_tour refuses an unpublished listing, a slot that is not open, and an application-first block", async () => {
+  it("request_tour refuses an unpublished listing, and a slot that is not open", async () => {
     const ctx = await ctxFor();
     const missing = await previewWriteTool(residentPersonalAgentRegistry, ctx, "request_tour", { listingId: "l-draft", slotKey: SLOT.slotKey });
     expect(missing).toMatchObject({ ok: false });
     const taken = await previewWriteTool(residentPersonalAgentRegistry, ctx, "request_tour", { listingId: "l-alder", slotKey: "2026-10-16:20" });
     expect(taken).toMatchObject({ ok: false, error: expect.stringContaining("no longer open") });
-    mocks.refusal.mockResolvedValueOnce("Apply first.");
-    expect(await previewWriteTool(residentPersonalAgentRegistry, ctx, "request_tour", { listingId: "l-alder", slotKey: SLOT.slotKey })).toMatchObject({ ok: false, error: "Apply first." });
     expect(mocks.createTour).not.toHaveBeenCalled();
   });
 

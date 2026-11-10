@@ -144,35 +144,36 @@ export async function GET(req: Request) {
     // / `loadWorkspaceServiceFeePayerForProperty` (this route's own resolver,
     // predating and separate from `scope-resolver.server.ts`'s generic one).
     const scope = resolveSettingsScopeParams(req.url);
-    const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope);
+    const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope, { intent: "read" });
     if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });
-    const { propertyId, workspaceId } = scopeAccess;
-    const settings = await loadManagerManualPaymentSettings(ctx.db, ctx.userId);
+    // PropLane Service staff reading a managed workspace read its OWNER's rows; otherwise this is the caller.
+    const { propertyId, workspaceId, ownerUserId } = scopeAccess;
+    const settings = await loadManagerManualPaymentSettings(ctx.db, ownerUserId);
     const propertyIds = new Set(parsePropertyIdsQuery(req));
     if (propertyId) propertyIds.add(propertyId);
     const propertyServiceFeePayers =
       propertyIds.size > 0
-        ? await loadPropertyServiceFeePayers(ctx.db, ctx.userId, [...propertyIds])
+        ? await loadPropertyServiceFeePayers(ctx.db, ownerUserId, [...propertyIds])
         : undefined;
     let source: "property" | "workspace" | "account" | undefined;
     if (propertyId) {
       source = propertyServiceFeePayers?.[propertyId] != null ? "property" : "workspace";
-      if (source === "workspace" && (await loadWorkspaceServiceFeePayerForProperty(ctx.db, ctx.userId, propertyId)) == null) {
+      if (source === "workspace" && (await loadWorkspaceServiceFeePayerForProperty(ctx.db, ownerUserId, propertyId)) == null) {
         source = "account";
       }
     } else if (workspaceId) {
-      const workspaceSettings = await loadWorkspacePaymentSettings(ctx.db, ctx.userId);
+      const workspaceSettings = await loadWorkspacePaymentSettings(ctx.db, ownerUserId);
       source = workspaceSettings[workspaceId]?.serviceFeePayer != null ? "workspace" : "account";
     }
     const ownPricingPropertyCount =
       workspaceId
-        ? await countWorkspacePropertiesWithOwnPricing(ctx.db, ctx.userId, workspaceId)
+        ? await countWorkspacePropertiesWithOwnPricing(ctx.db, ownerUserId, workspaceId)
         : undefined;
     return NextResponse.json({
       settings: managerManualPaymentSettingsPublic(settings),
       /* Payment setup is answered per workspace; the modal reads this to show
          which workspace it is editing and what that workspace currently says. */
-      workspacePaymentSettings: await workspacePaymentSettingsPublic(ctx.db, ctx.userId),
+      workspacePaymentSettings: await workspacePaymentSettingsPublic(ctx.db, ownerUserId),
       ...(propertyServiceFeePayers ? { propertyServiceFeePayers } : {}),
       ...(source ? { source } : {}),
       ...(ownPricingPropertyCount !== undefined ? { ownPricingPropertyCount } : {}),
@@ -236,6 +237,7 @@ export async function PATCH(req: Request) {
      * authorization, as everywhere else in this route.
      */
     let workspaceSaved = false;
+    let workspaceSavedOwnerUserId = ctx.userId;
     // Whether the caller sent EACH field at all, not just whether it parsed to
     // a real value — `saveWorkspacePaymentSettings` merges onto the existing
     // row, so a field this save never mentioned must never be forced to null.
@@ -251,6 +253,11 @@ export async function PATCH(req: Request) {
       // A workspace id in the body is scope, never a grant: the caller must own it.
       const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, { workspaceId: workspaceId.trim() });
       if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });
+      // The workspace's OWNER, re-derived by the scope check: the caller themselves, or (PropLane Service staff on a
+      // managed workspace) the owner whose rows these are. Never the body.
+      const workspaceOwnerUserId = scopeAccess.ownerUserId;
+      const workspaceOwnerSettings =
+        workspaceOwnerUserId === ctx.userId ? settings : await loadManagerManualPaymentSettings(ctx.db, workspaceOwnerUserId);
       const choice =
         workspaceServiceFeePayer === "resident" ||
         workspaceServiceFeePayer === "manager" ||
@@ -270,13 +277,13 @@ export async function PATCH(req: Request) {
           ? normalizeListingPaymentWaiverCode(workspaceServiceFeeWaiverCode)
           : "";
       const workspaceCodeMatches = choice === "proplane" && listingPaymentWaiverCodeMatchesServer(workspaceCode);
-      if (feePayerProvided && choice === "proplane" && !workspaceCodeMatches && settings.adminServiceFeeOverride !== "proplane") {
+      if (feePayerProvided && choice === "proplane" && !workspaceCodeMatches && workspaceOwnerSettings.adminServiceFeeOverride !== "proplane") {
         return NextResponse.json({ error: LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID }, { status: 400 });
       }
       /* The code is kept with the workspace so checkout can re-validate it —
          the same way a listing keeps its own. A `proplane` the staff override
          backs is stored codeless; the override answers first at checkout. */
-      const result = await saveWorkspacePaymentSettings(ctx.db, ctx.userId, workspaceId.trim(), {
+      const result = await saveWorkspacePaymentSettings(ctx.db, workspaceOwnerUserId, workspaceId.trim(), {
         ...(workspaceDefaultPaymentMethod ? { defaultPaymentMethod: workspaceDefaultPaymentMethod as "balance" | "ach" } : {}),
         ...(feePayerProvided
           ? { serviceFeePayer: choice, ...(workspaceCodeMatches ? { serviceFeeWaiverCode: workspaceCode } : {}) }
@@ -291,10 +298,11 @@ export async function PATCH(req: Request) {
         return NextResponse.json({ error: "That workspace is not available." }, { status: 404 });
       }
       workspaceSaved = true;
+      workspaceSavedOwnerUserId = workspaceOwnerUserId;
       await trackSettingsScopeChanged(ctx.db, ctx.userId, {
         module: ANALYTICS_MODULE,
         rung: "workspace",
-        ownerUserId: ctx.userId,
+        ownerUserId: workspaceOwnerUserId,
         workspaceId: workspaceId.trim(),
       });
     }
@@ -303,6 +311,10 @@ export async function PATCH(req: Request) {
       for (const update of feePayerUpdates) {
         const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, { propertyId: update.propertyId });
         if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });
+        // Listing fee-payer propagation runs on the caller's own account only: staff never reach it through here.
+        if (scopeAccess.ownerUserId !== ctx.userId) {
+          return NextResponse.json({ error: "That property is not in your workspace." }, { status: 403 });
+        }
       }
     }
     const feePayerPropagation =
@@ -326,7 +338,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({
       settings: managerManualPaymentSettingsPublic(settings),
       ...(workspaceSaved
-        ? { workspacePaymentSettings: await workspacePaymentSettingsPublic(ctx.db, ctx.userId) }
+        ? { workspacePaymentSettings: await workspacePaymentSettingsPublic(ctx.db, workspaceSavedOwnerUserId) }
         : {}),
       listingsUpdated: feePayerPropagation.listingsUpdated,
       ...(feePayerUpdates.length > 0

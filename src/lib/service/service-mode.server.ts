@@ -225,6 +225,25 @@ export async function authorizeServiceWorkEmailEditForManagerRoute(
   return { ok: (await authorizeServiceWorkEmailEdit(db, operatorUserId, workspaceId)).ok };
 }
 
+/**
+ * Is this viewer PropLane Service STAFF of `workspaceId` (any seat role: a Viewer reads the status, only
+ * `authorizeServiceWorkEmailEditForManagerRoute` lets them change it)? The one staff decision
+ * (`loadServiceStaffWorkspaces`), re-derived from membership every call; the id is a name, never a grant. A read that
+ * fails answers false - fail closed. Returns the bare boolean, like the rest of this bridge.
+ */
+export async function isServiceStaffOfWorkspaceForManagerRoute(
+  db: SupabaseClient,
+  userId: string,
+  workspaceId: string,
+): Promise<boolean> {
+  try {
+    return (await loadServiceStaffWorkspaces(db, userId)).some((w) => w.id === workspaceId);
+  } catch (error) {
+    console.error("[service-mode] staff workspaces unreadable", error);
+    return false;
+  }
+}
+
 export async function setServiceWorkspaceWorkEmailForManagerRoute(
   db: SupabaseClient,
   operatorUserId: string,

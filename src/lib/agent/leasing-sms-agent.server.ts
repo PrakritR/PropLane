@@ -39,7 +39,7 @@ import {
   persistProspectTourSchedulingContext,
   schedulingContextPrompt,
 } from "@/lib/prospect-tour-scheduling-context.server";
-import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
+import { stripLongDashes, stripSmsMarkdown } from "@/lib/agent/conversation-style-rules";
 import { summarizeLeasingEvidence } from "@/lib/agent/leasing-sms-fallback";
 import { buildProspectLinksTool, proplaneSiteLinks, publicOrigin } from "@/lib/tools/domains/leasing-sms";
 import { isPropLaneServiceLine } from "@/lib/service/service-catalog.server";
@@ -948,7 +948,7 @@ export async function deliverLeasingSmsReply(args: {
   const { redactedInboundReplyOverride } = await import("@/lib/one-number/redact-reply.server");
   const { deliverAgentReply, bubbleDedupeKey } = await import("@/lib/one-number/bubble-delivery.server");
   // Segment guard: a curly quote or emoji would bill this reply as UCS-2.
-  const text = toGsm7((await redactedInboundReplyOverride(args.inboundMessageSid)) ?? args.text);
+  const text = toGsm7(stripSmsMarkdown((await redactedInboundReplyOverride(args.inboundMessageSid)) ?? args.text));
   const baseKey = args.inboundMessageSid?.trim() ? `inbound_reply_${args.inboundMessageSid.trim()}` : null;
   const result = await deliverAgentReply({
     workspaceId: args.workspaceId,

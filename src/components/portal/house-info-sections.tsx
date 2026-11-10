@@ -202,6 +202,7 @@ function FieldControl({
         aria-label={field.label}
         value={value}
         placeholder={field.placeholder}
+        className="placeholder:italic"
         onChange={(e) => onChange(field.key, e.target.value)}
       />
     );
@@ -213,6 +214,7 @@ function FieldControl({
       aria-label={field.label}
       value={value}
       placeholder={field.placeholder}
+      className="placeholder:italic"
       onChange={(e) => onChange(field.key, e.target.value)}
     />
   );

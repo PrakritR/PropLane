@@ -449,16 +449,10 @@ describe("publicListingProjection", () => {
       expect(keys.has("requireLease")).toBe(false);
     });
 
-    it("stamps applicationBeforeTour: true only when the workspace requires it, never the settings row", () => {
-      const required = publicListingProjection(storedListing(), null, {
-        signingOrder: "application_first",
-        leaseSigningFeeCents: 0,
-        applicationBeforeTour: true,
-      });
-      expect(required.applicationBeforeTour).toBe(true);
-      expect(allKeys(required).has("leasingPipeline")).toBe(false);
-      const plain = publicListingProjection(storedListing(), null, { signingOrder: "application_first", leaseSigningFeeCents: 0 });
-      expect(plain).not.toHaveProperty("applicationBeforeTour");
+    it("never stamps an application-before-tour flag, and never the settings row", () => {
+      const projected = publicListingProjection(storedListing(), null, { signingOrder: "application_first", leaseSigningFeeCents: 0 });
+      expect(projected).not.toHaveProperty("applicationBeforeTour");
+      expect(allKeys(projected).has("leasingPipeline")).toBe(false);
     });
 
     it("stamps showProPlaneAttribution: true only when the server resolved it on, and nothing else with it", () => {
@@ -494,7 +488,7 @@ describe("publicListingProjection", () => {
     });
 
     it("is application first whatever the workspace or a per-property override stored, but keeps the override's fee", () => {
-      const base = { requireApplication: true, requireLease: true, defaultApplicationTemplateId: null, defaultLeaseTemplateId: null, sharedRoomLease: "individual" as const, applicationBeforeTour: "not_needed" as const };
+      const base = { requireApplication: true, requireLease: true, defaultApplicationTemplateId: null, defaultLeaseTemplateId: null, sharedRoomLease: "individual" as const };
       const state = {
         portfolio: { ...base, pipelineOrder: "lease_then_application" as const, leaseSigningFeeCents: 5000 },
         byPropertyId: {

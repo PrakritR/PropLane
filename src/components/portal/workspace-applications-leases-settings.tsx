@@ -9,7 +9,7 @@
  * optional settings scope context when one exists).
  *
  * What lives here, and where it is stored:
- * - Application before a tour, Roommates in a shared room sign: the workspace leasing pipeline
+ * - Roommates in a shared room sign: the workspace leasing pipeline
  *   record (`manager_automation_settings.row_data.leasingPipeline`, `leasing-pipeline-preferences.ts`).
  *   One value for every property. There is no signing-order setting: every workspace is
  *   application first, then lease, then the move-in form (captain, Oct 3 2026).
@@ -45,15 +45,9 @@ import {
 import {
   DEFAULT_LEASING_PIPELINE,
   type LeasingPipelinePreferences,
-  type ApplicationBeforeTour,
   type SharedRoomLeaseDefault,
 } from "@/lib/leasing-pipeline-preferences";
 import { cacheLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-cache";
-
-const APPLICATION_BEFORE_TOUR_OPTIONS = [
-  { value: "not_needed", label: "Not needed" },
-  { value: "required", label: "Required" },
-];
 
 const ON_OFF_OPTIONS = [
   { value: "off", label: "Off" },
@@ -204,19 +198,6 @@ export function WorkspaceApplicationsLeasesSettings() {
     <div className="space-y-6" data-attr="workspace-applications-leases-settings">
       <PortalSettingsSection title="Applications">
         <PortalSettingsGroup>
-          <PortalSettingsRow label="Application before a tour">
-            <FieldSingleSelect
-              hideLabel
-              label="Application before a tour"
-              variant="cell"
-              wrapperClassName="w-64"
-              options={APPLICATION_BEFORE_TOUR_OPTIONS}
-              value={pipeline.applicationBeforeTour}
-              disabled={disabled}
-              dataAttr="workspace-application-before-tour"
-              onChange={(next) => savePipeline({ applicationBeforeTour: next as ApplicationBeforeTour })}
-            />
-          </PortalSettingsRow>
           <PortalSettingsRow label="Auto-approve applications">
             <FieldSingleSelect
               hideLabel

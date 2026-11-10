@@ -139,7 +139,7 @@ beforeEach(() => {
   showToast.mockReset();
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => ({ ok: true, json: async () => ({ leasingPipeline: { applicationBeforeTour: "not_needed" } }) })),
+    vi.fn(async () => ({ ok: true, json: async () => ({}) })),
   );
 });
 afterEach(() => {

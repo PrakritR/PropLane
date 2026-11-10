@@ -54,7 +54,7 @@ import { formatSmsAgentTurnError } from "@/lib/agent/assistant-turn-error";
 import { assistantClockBlock } from "@/lib/agent/assistant-turn-context";
 import { captureSmsTestDelivery, currentSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 import { readPortalAssistantSmsSession } from "@/lib/agent/portal-assistant-session.server";
-import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
+import { stripLongDashes, stripSmsMarkdown } from "@/lib/agent/conversation-style-rules";
 import { isSlowWorkTool } from "@/lib/one-number/slow-work";
 import {
   checkSmsConfirmationCode,
@@ -921,5 +921,5 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
   // produce (model, confirmation, proposal preview, precomputed, rate limit, error) leaves
   // stripped, so no surface can forget it.
   const turn = await execute();
-  return turn?.reply ? { ...turn, reply: stripLongDashes(turn.reply) } : turn;
+  return turn?.reply ? { ...turn, reply: stripSmsMarkdown(stripLongDashes(turn.reply)) } : turn;
 }

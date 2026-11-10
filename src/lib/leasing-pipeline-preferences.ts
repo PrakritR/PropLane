@@ -22,9 +22,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  */
 export type PipelineOrder = "application_then_lease" | "lease_then_application";
 
-/** Workspace setting: may a prospect book a tour before they have applied for that property? */
-export type ApplicationBeforeTour = "not_needed" | "required";
-
 /** Workspace default for a shared room's lease when the room itself says "Property default" (C2-CP8). */
 export type SharedRoomLeaseDefault = "individual" | "joint";
 
@@ -33,8 +30,6 @@ export type LeasingPipelinePreferences = {
   pipelineOrder: PipelineOrder;
   /** Workspace-wide: do roommates in a shared room each sign their own lease, or one joint lease? */
   sharedRoomLease: SharedRoomLeaseDefault;
-  /** Workspace-wide: "required" = a prospect applies for the property before they can book a tour of it. */
-  applicationBeforeTour: ApplicationBeforeTour;
   requireApplication: boolean;
   requireLease: boolean;
   /** Cents; `0` = free (no Stripe gate). Null = not configured (treat as 0). */
@@ -48,7 +43,6 @@ export type LeasingPipelinePreferences = {
 export const DEFAULT_LEASING_PIPELINE: LeasingPipelinePreferences = {
   pipelineOrder: "application_then_lease",
   sharedRoomLease: "individual",
-  applicationBeforeTour: "not_needed",
   requireApplication: true,
   requireLease: true,
   leaseSigningFeeCents: null,
@@ -65,10 +59,6 @@ const ROW_DATA_BY_PROPERTY_KEY = "leasingPipelineByPropertyId";
 /** Always application first: a stored `lease_then_application` is ignored (captain, Oct 3 2026). */
 function normalizePipelineOrder(_raw: unknown): PipelineOrder {
   return "application_then_lease";
-}
-
-function normalizeApplicationBeforeTour(raw: unknown): ApplicationBeforeTour {
-  return raw === "required" ? "required" : "not_needed";
 }
 
 function normalizeSharedRoomLease(raw: unknown): SharedRoomLeaseDefault {
@@ -108,7 +98,6 @@ export function normalizeLeasingPipelinePreferences(raw: unknown): LeasingPipeli
   return {
     pipelineOrder: normalizePipelineOrder(row.pipelineOrder),
     sharedRoomLease: normalizeSharedRoomLease(row.sharedRoomLease),
-    applicationBeforeTour: normalizeApplicationBeforeTour(row.applicationBeforeTour),
     requireApplication: row.requireApplication === false ? false : true,
     requireLease: row.requireLease === false ? false : true,
     leaseSigningFeeCents: normalizeLeaseSigningFeeCents(row.leaseSigningFeeCents),
@@ -158,8 +147,8 @@ export function normalizeLeasingPipelineByPropertyId(
 
 /**
  * Property override wins for the per-house fields (fee, default templates, requirements); else
- * the workspace/portfolio default. The signing order, the shared-room lease default and
- * "Application before a tour" are workspace-wide, so they ALWAYS come from the workspace row, whatever an old override stored.
+ * the workspace/portfolio default. The signing order, the shared-room lease default
+ * are workspace-wide, so they ALWAYS come from the workspace row, whatever an old override stored.
  */
 export function resolveLeasingPipelineForProperty(
   state: LeasingPipelineState,
@@ -173,7 +162,6 @@ export function resolveLeasingPipelineForProperty(
     // Application first, always: whatever a hand-built or legacy state carries.
     pipelineOrder: "application_then_lease",
     sharedRoomLease: state.portfolio.sharedRoomLease,
-    applicationBeforeTour: state.portfolio.applicationBeforeTour,
   };
 }
 
@@ -201,8 +189,6 @@ export function signingOrderForPipeline(_prefs: LeasingPipelinePreferences): Sig
 export type PublicSigningContext = {
   signingOrder: SigningOrder;
   leaseSigningFeeCents: number;
-  /** Present (true) only when the workspace requires an application before a tour. */
-  applicationBeforeTour?: true;
 };
 
 /**
@@ -213,7 +199,6 @@ export function signingContextForPipeline(prefs: LeasingPipelinePreferences): Pu
   return {
     signingOrder: signingOrderForPipeline(prefs),
     leaseSigningFeeCents: effectiveLeaseSigningFeeCents(prefs),
-    ...(prefs.applicationBeforeTour === "required" ? { applicationBeforeTour: true as const } : {}),
   };
 }
 

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { actorWorkspaceStanding } from "@/lib/workspaces/membership.server";
 import { managerHasCoManagerPermissionForProperty } from "@/lib/auth/manager-lease-scope";
 import type { CoManagerPermissionId, CoManagerPermissionLevel } from "@/lib/co-manager-permissions";
 import { track } from "@/lib/analytics/posthog";
@@ -51,6 +52,35 @@ export function resolveSettingsScopeParams(requestUrl: string, body?: Record<str
   return { ...fromQuery, ...fromBody };
 }
 
+/**
+ * Is the caller PropLane Service STAFF of this workspace, and may they act with `intent`? Re-derived from the
+ * workspace row and the caller's own membership (`loadServiceStaffWorkspaces`, the one staff decision), never from
+ * the request: a `workspaceId` is a name, not a grant. A read that fails or cannot be answered is "not staff"
+ * (fail closed). A write also needs a seat that can run the workspace (Admin / Full / Property manager rights); a
+ * Viewer, Leasing, Bookkeeper or Maintenance seat is read-only here.
+ */
+async function serviceStaffSettingsAccess(
+  db: ServiceClient,
+  callerUserId: string,
+  workspaceId: string,
+  intent: "read" | "edit",
+): Promise<{ kind: "none" } | { kind: "read_only" } | { kind: "ok"; ownerUserId: string }> {
+  try {
+    const { loadServiceStaffWorkspaces } = await import("@/lib/service/service-mode.server");
+    const staff = await loadServiceStaffWorkspaces(db as never, callerUserId);
+    const match = staff.find((w) => w.id === workspaceId);
+    if (!match || !match.ownerUserId) return { kind: "none" };
+    if (intent === "read") return { kind: "ok", ownerUserId: match.ownerUserId };
+    const standing = await actorWorkspaceStanding(db as never, callerUserId, workspaceId);
+    if (!standing || standing.role === null || standing.ownerUserId !== match.ownerUserId) return { kind: "read_only" };
+    if (!standing.rights.members && !standing.rights.houses) return { kind: "read_only" };
+    return { kind: "ok", ownerUserId: match.ownerUserId };
+  } catch (error) {
+    console.error("[settings-scope] service staff standing unreadable", error);
+    return { kind: "none" };
+  }
+}
+
 export type SettingsScopeAccess =
   | {
       ok: true;
@@ -79,9 +109,12 @@ export async function assertSettingsScopeOwned(
   db: ServiceClient,
   callerUserId: string,
   scope: ParsedSettingsScope,
-  opts?: { module?: CoManagerPermissionId; level?: CoManagerPermissionLevel },
+  opts?: { module?: CoManagerPermissionId; level?: CoManagerPermissionLevel; intent?: "read" | "edit" },
 ): Promise<SettingsScopeAccess> {
   const level = opts?.level ?? "read";
+  // Read vs write for PropLane Service staff. Defaults to a write (fail closed); GET handlers pass "read", and a
+  // caller that already says `level: "read"` for the module check means the same thing.
+  const intent: "read" | "edit" = opts?.intent ?? (opts?.level === "read" ? "read" : "edit");
   const propertyId = scope.propertyId?.trim() || null;
   const workspaceId = scope.workspaceId?.trim() || null;
 
@@ -103,6 +136,15 @@ export async function assertSettingsScopeOwned(
     if (ownerUserId === callerUserId) {
       return { ok: true, ownerUserId, workspaceId: propertyWorkspaceId ?? workspaceId, propertyId };
     }
+    if (propertyWorkspaceId) {
+      const staff = await serviceStaffSettingsAccess(db, callerUserId, propertyWorkspaceId, intent);
+      if (staff.kind === "ok" && staff.ownerUserId === ownerUserId) {
+        return { ok: true, ownerUserId, workspaceId: propertyWorkspaceId, propertyId };
+      }
+      if (staff.kind === "read_only") {
+        return { ok: false, status: 403, error: "Your seat on this workspace is read-only." };
+      }
+    }
     if (!opts?.module) {
       return { ok: false, status: 403, error: "That property is not in your workspace." };
     }
@@ -122,6 +164,14 @@ export async function assertSettingsScopeOwned(
     }
     if (ownerUserId === callerUserId) {
       return { ok: true, ownerUserId, workspaceId, propertyId: null };
+    }
+    // PropLane Service staff working a PropLane-managed workspace act on its owner's rows.
+    const staff = await serviceStaffSettingsAccess(db, callerUserId, workspaceId, intent);
+    if (staff.kind === "ok" && staff.ownerUserId === ownerUserId) {
+      return { ok: true, ownerUserId, workspaceId, propertyId: null };
+    }
+    if (staff.kind === "read_only") {
+      return { ok: false, status: 403, error: "Your seat on this workspace is read-only." };
     }
     if (!opts?.module) {
       return { ok: false, status: 403, error: "That workspace is not yours." };

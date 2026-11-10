@@ -560,6 +560,7 @@ function LeaseTypeAndDates(props: LeaseTypeAndDatesProps) {
               ) : null}
               {longTermChecks.length > 0 ? (
                 <div className={fixedLengthOptions.length > 0 ? "space-y-2 pl-4" : "space-y-2"} data-wizard-field="longTermOptions">
+                  {fixedLengthOptions.length === 0 ? <Label required>Lease length</Label> : null}
                   {longTermChecks.map((check) => (
                     <label key={check.value} className="flex cursor-pointer items-center gap-2.5 text-sm text-foreground">
                       <input
@@ -929,7 +930,15 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
      * from the options would blank their answer without a word, so it stays
      * selectable and validation — not a vanishing option — is what tells them.
      */
+    // Until the applicant has picked dates there is nothing to be "unavailable"
+    // against: judging against today would drop a room that is occupied now but
+    // free at move-in. Every room is listed then; validation judges the dates.
+    const datesPicked = Boolean(form.leaseStart?.trim());
+    // A room the manager left unnamed is still a room on the public listing
+    // ("Room n"), so the picker offers the same rooms.
     const availableRooms = roomSelectOptionsWithNone(form.propertyId, {
+      includeUnnamed: true,
+      includeUnavailable: !datesPicked,
       // Availability is judged against the dates the applicant actually asked
       // for, not against today. `isRoomChoiceAvailable` compares the requested
       // window with the occupancy of the residents already in the house, so a
@@ -942,7 +951,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
       // A room limited to other lease types is not offered for this one.
       leaseTerm: form.leaseTerm,
     }).filter((o) => o.value !== "");
-    const allRooms = roomSelectOptionsWithNone(form.propertyId, { includeUnavailable: true }).filter(
+    const allRooms = roomSelectOptionsWithNone(form.propertyId, { includeUnavailable: true, includeUnnamed: true }).filter(
       (o) => o.value !== "",
     );
     const chosenRoomValues = new Set(
@@ -952,6 +961,8 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
       (o) => availableRooms.some((a) => a.value === o.value) || chosenRoomValues.has(o.value),
     );
     const firstChoiceRooms = firstChoiceRoomOptions(form.propertyId, {
+      includeUnnamed: true,
+      includeUnavailable: !datesPicked,
       leaseStart: form.leaseStart,
       leaseEnd: form.leaseEnd,
       leaseTerm: form.leaseTerm,

@@ -3,6 +3,7 @@ import { RATE_CARD } from "@/lib/billing/rate-card";
 import { parseMonthlyRent } from "@/lib/listings-search";
 import { listingSubmissionStreetLine } from "@/lib/manager-listing-submission";
 import { LLMS_SUMMARY } from "@/lib/seo/llms";
+import { listingPublicPath } from "@/lib/listing-public-path";
 import type { MockProperty } from "@/data/types";
 
 /** Serialize for an inline <script type="application/ld+json">: `<` is escaped so no field can close the tag. */
@@ -59,7 +60,13 @@ export function homeJsonLd(origin: string = PRODUCTION_APP_ORIGIN, appStoreUrl =
 }
 
 /** Public projection fields only: title, street/zip, rent label, availability. No contact, owner or workspace ids. */
-export function listingJsonLd(property: MockProperty, origin: string = PRODUCTION_APP_ORIGIN): Record<string, unknown> {
+export function listingJsonLd(
+  property: MockProperty,
+  origin: string = PRODUCTION_APP_ORIGIN,
+  /** The listing's published address slug (from `buildListingSlugIndex`); without one the url is the id URL. */
+  slug?: string | null,
+): Record<string, unknown> {
+  const listingUrl = `${origin}${listingPublicPath(property.id, slug)}`;
   const rent = parseMonthlyRent(property.rentLabel ?? "");
   const available = (property.available ?? "").trim();
   const availableNow = /^(now|immediately)|^available(\s+now\b|\s*$)/i.test(available);
@@ -79,7 +86,7 @@ export function listingJsonLd(property: MockProperty, origin: string = PRODUCTIO
     "@context": "https://schema.org",
     "@type": "Accommodation",
     name: property.title,
-    url: `${origin}/rent/listings/${encodeURIComponent(property.id)}`,
+    url: listingUrl,
     ...(property.tagline ? { description: property.tagline } : {}),
     ...(typeof property.beds === "number" ? { numberOfBedrooms: property.beds } : {}),
     ...(typeof property.baths === "number" ? { numberOfBathroomsTotal: property.baths } : {}),
@@ -100,7 +107,7 @@ export function listingJsonLd(property: MockProperty, origin: string = PRODUCTIO
             priceCurrency: "USD",
             priceSpecification: { "@type": "UnitPriceSpecification", price: String(rent), priceCurrency: "USD", unitText: "MONTH" },
             availability: availableNow ? "https://schema.org/InStock" : "https://schema.org/PreOrder",
-            url: `${origin}/rent/listings/${encodeURIComponent(property.id)}`,
+            url: listingUrl,
           },
         }
       : {}),

@@ -85,7 +85,7 @@ export async function GET(req: Request) {
     const scope = resolveSettingsScopeParams(req.url);
     const [access, scopeAccess] = await Promise.all([
       assertAutomationSettingsCoManagerAccess(ctx.db, ctx.userId, "read"),
-      assertSettingsScopeOwned(ctx.db, ctx.userId, scope),
+      assertSettingsScopeOwned(ctx.db, ctx.userId, scope, { intent: "read" }),
     ]);
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });

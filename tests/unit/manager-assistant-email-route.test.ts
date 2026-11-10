@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   checkWorkspaceAssistantMailboxLocal: vi.fn(),
   setWorkspaceAssistantMailboxLocal: vi.fn(),
   authorizeServiceWorkEmailEdit: vi.fn(),
+  isServiceStaffOfWorkspace: vi.fn(),
   setServiceWorkspaceWorkEmail: vi.fn(),
   rateLimit: vi.fn(),
   track: vi.fn(),
@@ -34,6 +35,7 @@ const mocks = vi.hoisted(() => ({
 // § never lets a manager route reach the Service layer), so the bridge is what this route test stands in for.
 vi.mock("@/lib/service/service-mode.server", () => ({
   authorizeServiceWorkEmailEditForManagerRoute: mocks.authorizeServiceWorkEmailEdit,
+  isServiceStaffOfWorkspaceForManagerRoute: mocks.isServiceStaffOfWorkspace,
   setServiceWorkspaceWorkEmailForManagerRoute: mocks.setServiceWorkspaceWorkEmail,
 }));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: mocks.rateLimit }));
@@ -165,6 +167,7 @@ beforeEach(() => {
   mocks.resolveWorkspaceWorkEmails.mockResolvedValue({ role: "primary", emails: [] });
   mocks.rateLimit.mockResolvedValue({ ok: true });
   mocks.authorizeServiceWorkEmailEdit.mockResolvedValue({ ok: false, status: 404, error: "Service workspace not found." });
+  mocks.isServiceStaffOfWorkspace.mockResolvedValue(false);
   mocks.checkWorkspaceAssistantMailboxLocal.mockResolvedValue({ ok: true, state: "available" });
   mocks.setWorkspaceAssistantMailboxLocal.mockResolvedValue({ ok: true, address: "frontdesk@proplane.ai" });
   mocks.setServiceWorkspaceWorkEmail.mockResolvedValue({ ok: true, address: "frontdesk@proplane.ai" });
@@ -650,5 +653,38 @@ describe("changing the address: owner, or staff on a service workspace", () => {
     mocks.loadManagerAssistantEmail.mockResolvedValue(null);
     mocks.activeWorkspace = MY_WS;
     expect((await (await GET(new Request("http://localhost"))).json()).canEditAddress).toBe(false);
+  });
+});
+
+/**
+ * "Work email Not set up" on a PropLane-managed workspace: staff read the workspace's own address and status like its
+ * owner (judged by the OWNER's plan), never get a Request button, and a viewer who is not staff still sees the
+ * co-manager card.
+ */
+describe("GET status for PropLane Service staff", () => {
+  const SERVICE_WS = { id: "ws-service", name: "1. Ambika", ownerUserId: "service-owner", owned: false, isDefault: false, propertyIds: [] as string[] };
+
+  beforeEach(() => {
+    vi.stubEnv("RESEND_API_KEY", "test-key");
+    mocks.activeWorkspace = SERVICE_WS;
+    mocks.getEffectiveManagerSmsEntitlement.mockImplementation(async (_db: unknown, userId: string) =>
+      userId === "service-owner" ? { eligible: true, tier: "pro", source: "stripe" } : { eligible: false, reason: "no_plan" },
+    );
+    mocks.loadManagerAssistantEmail.mockResolvedValue({ address: "ambikahomes@proplane.ai", workspaceId: "ws-service" });
+  });
+
+  it("staff see the workspace address, a ready state, no Request button, and the owner's plan decides", async () => {
+    mocks.isServiceStaffOfWorkspace.mockResolvedValue(true);
+    const body = await (await GET(new Request("http://localhost"))).json();
+    expect(mocks.isServiceStaffOfWorkspace).toHaveBeenCalledWith(expect.anything(), MANAGER, "ws-service");
+    expect(mocks.getEffectiveManagerSmsEntitlement).toHaveBeenCalledWith(expect.anything(), "service-owner");
+    expect(body).toMatchObject({ address: "ambikahomes@proplane.ai", canUse: true, state: "ready", canRequest: false, workspaceRole: "primary" });
+    expect(mocks.ensureOwnedWorkspaceAssistantEmails).not.toHaveBeenCalled();
+  });
+
+  it("a non-staff viewer of a shared workspace stays a co-manager: no row, no use, no request", async () => {
+    mocks.isServiceStaffOfWorkspace.mockResolvedValue(false);
+    const body = await (await GET(new Request("http://localhost"))).json();
+    expect(body).toMatchObject({ address: null, canUse: false, canRequest: false, workspaceRole: "co_manager" });
   });
 });

@@ -30,7 +30,6 @@ import {
   managerHasPublishedSlot,
   managerMayHostPropertyTour,
 } from "@/lib/public-tour-booking-guard";
-import { applicationBeforeTourRefusal } from "@/lib/application-before-tour.server";
 import { resolveBaselineResidentIdentity } from "@/lib/resident-identity/baseline.server";
 import { listPropertyTourHostUserIds } from "@/lib/tour-host-enumeration.server";
 import { notifyManagerTourRequest, notifyTenantTourRequestReceived } from "@/lib/tour-notification-delivery.server";
@@ -59,7 +58,7 @@ export type CreateTourInquiryResult =
   | { ok: true; row: Record<string, unknown>; inquiryId: string }
   | {
       ok: false;
-      reason: "invalid_contact" | "missing_host" | "slot_unavailable" | "application_required" | "sign_in_required" | "identity_required" | "identity_unavailable";
+      reason: "invalid_contact" | "missing_host" | "slot_unavailable" | "sign_in_required" | "identity_required" | "identity_unavailable";
       error: string;
     }
   | { ok: false; reason: "duplicate_request" | "rate_limited"; error: string }
@@ -343,9 +342,8 @@ export async function createTourInquiry(
     smsOrigin?: { senderPhoneE164: string } | null;
     /**
      * The applicant's email as VERIFIED by the caller (the signed-in session). It is the only email
-     * "Application before a tour" trusts; `incoming.email` is a request body and proves nothing.
-     * Absent = nobody is verified (an anonymous guest, an SMS prospect), which a workspace that
-     * requires an application before a tour reads as "no application".
+     * trusted as the account's; `incoming.email` is a request body and proves nothing.
+     * Absent = nobody is verified (an anonymous guest, an SMS prospect).
      */
     verifiedApplicantEmail?: string | null;
     /** Server-authenticated resident ID, never supplied in the request body. */
@@ -458,14 +456,6 @@ export async function createTourInquiry(
   }
   const proposedStart = typeof row["proposedStart"] === "string" ? row["proposedStart"] : null;
   const proposedEnd = typeof row["proposedEnd"] === "string" ? row["proposedEnd"] : null;
-
-  if (isTour && propertyId) {
-    const refusal = await applicationBeforeTourRefusal(db, {
-      propertyId,
-      verifiedEmail: args.verifiedApplicantEmail ?? null,
-    });
-    if (refusal) return { ok: false, reason: "application_required", error: refusal };
-  }
 
   if (isTour) {
     const contactErrors = validateTourContactFields({

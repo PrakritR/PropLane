@@ -71,7 +71,7 @@ export async function GET(req: Request) {
     const access = await assertTourSettingsCoManagerAccess(ctx.db, ctx.userId, "read");
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     const scope = resolveSettingsScopeParams(req.url);
-    const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope);
+    const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope, { intent: "read" });
     if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });
     const { ownerUserId, propertyId, workspaceId } = scopeAccess;
     const [{ settings, source }, overriddenPropertyIds] = await Promise.all([

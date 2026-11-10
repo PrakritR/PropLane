@@ -19,7 +19,7 @@ import { z } from "zod";
 import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
 import { loadShortStayHomes, publicOrigin } from "./leasing-sms";
-import { buildManagerListingUrl } from "@/lib/manager-property-links";
+import { buildReadableListingUrl } from "@/lib/seo/listing-slugs.server";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
 import { pacificTodayKey } from "@/lib/room-availability-range";
 import {
@@ -198,7 +198,7 @@ export const quoteShortStaysTool = defineTool<z.infer<typeof quoteInput>, QuoteR
         checkIn: dates.checkIn,
         checkOut: dates.checkOut,
         guests,
-        listingUrl: buildManagerListingUrl(origin, home.id),
+        listingUrl: await buildReadableListingUrl(origin, home.id),
       });
     }
     const arrival = parseArrivalTime(input.arrivalText ?? "");

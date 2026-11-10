@@ -19,7 +19,6 @@ const STATUS_BY_REASON: Record<string, number> = {
   invalid_contact: 400,
   missing_host: 400,
   slot_unavailable: 403,
-  application_required: 403,
   sign_in_required: 401,
   identity_required: 403,
   identity_unavailable: 503,
@@ -84,7 +83,7 @@ export async function POST(req: Request) {
     }
 
     const db = createSupabaseServiceRoleClient();
-    // Only the session's own email counts toward "Application before a tour"; the body's does not.
+    // Only the session's own email is the verified applicant; the body's is not.
     const created = await createTourInquiry(db, {
       incoming,
       verifiedApplicantEmail: linkingEmail,

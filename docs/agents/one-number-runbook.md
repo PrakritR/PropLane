@@ -173,6 +173,7 @@ branch, and `db:push` applies it only once merged):
 | 20261106120000 | `identity_deposit_recovery_guards` | Attaches signature-checked recovery guards to six owned identity and deposit tables |
 | 20261108130000 | `resident_identity_null_provider_guard` | Rejects identity provider events with a missing provider status |
 | 20261108140000 | `household_charge_refund_attempts` | Reserves household refunds and projects verified provider settlement |
+| 20261110120000 | `drop_application_before_tour_key` | Strips the retired `applicationBeforeTour` key from `manager_automation_settings.row_data` (data only, idempotent) |
 
 Check after the push (SQL editor, read-only):
 

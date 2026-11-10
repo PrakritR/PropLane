@@ -53,7 +53,10 @@ export function ManagerMessageChannelsPanel({ onManage }: { onManage?: () => voi
       ]);
       if (controller.signal.aborted) return;
       setNumber({ value: workspaceWorkNumber(numberBody as ManagerMessagingNumberStatus | null), loaded: true });
-      const address = isManagerAssistantEmailStatus(emailBody) && emailBody.canUse ? emailBody.address?.trim() || null : null;
+      const address =
+        isManagerAssistantEmailStatus(emailBody) && emailBody.canUse
+          ? emailBody.address?.trim() || emailBody.workspaceEmail?.address?.trim() || null
+          : null;
       setEmail({ value: address, loaded: true });
     })();
     return () => controller.abort();

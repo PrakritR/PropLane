@@ -23,6 +23,7 @@ import {
 import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
 import { portalMessageSelectionFromDeliverVia } from "@/lib/manager-communication-deliver-via";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { vendorDetailHref } from "@/lib/portal-detail-routes";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { mergeInboxScopedContacts } from "@/lib/manager-inbox-contacts";
@@ -241,6 +242,21 @@ function peopleForCategory(
 const NO_LIVE_CONTACTS: InboxScopedContact[] = [];
 const NO_SMS_RECIPIENTS: ManagerSmsResidentConversation[] = [];
 
+/**
+ * The inline line for a text the server refused because the typed number is not an opted-in conversation
+ * (carrier / TCPA: that rule stays on the server). Names the number and the workspace when the workspace name is
+ * known client-side; otherwise the server's own words are kept. Every other refusal passes through unchanged.
+ */
+export function smsRefusalMessage(serverMessage: string | undefined, phone: string, workspaceName: string | null | undefined): string | null {
+  const text = serverMessage?.trim();
+  if (!text) return null;
+  const name = workspaceName?.trim();
+  if (name && /opted in to PropLane texts/i.test(text)) {
+    return `Not sent. ${phone} hasn't opted in to texts from ${name}.`;
+  }
+  return text;
+}
+
 export function ManagerCommunicationComposeModal({
   open,
   onClose,
@@ -293,6 +309,7 @@ export function ManagerCommunicationComposeModal({
     residentDraft ?? (portal === "vendor" ? (initialDraft as unknown as ResidentComposePrefill | null) : null);
   const caps = useMemo(() => roleComposeCapabilities(portal, smsUiEnabled), [portal, smsUiEnabled]);
   const { showToast } = useAppUi();
+  const activeWorkspaceName = useWorkspaces()?.active?.name ?? null;
   const [directoryContacts, setDirectoryContacts] = useState<InboxScopedContact[]>([]);
   const localContacts = useMemo(() => contactsForPortal(portal, liveContacts), [portal, liveContacts]);
   const contacts = directoryContacts.length > 0 ? directoryContacts : localContacts;
@@ -403,8 +420,25 @@ export function ManagerCommunicationComposeModal({
     };
   }, [open, isManager, localContacts]);
 
+  // The form resets when the modal OPENS, never because something it reads (the deliver-via settings finishing
+  // their load, a re-created draft object, the capabilities) changed while someone is typing: that wiped the
+  // recipient and cleared `sending`, so the first click on Send did nothing.
+  const wasOpenRef = useRef(false);
+  /** The person picked their own Communication type: a late-loading default must not overwrite it. */
+  const sendViaEditedRef = useRef(false);
+  // A draft staged a tick after the modal opens (a vendor's "message the manager", a demo) still lands: the reset
+  // also runs when the draft's CONTENT changes, never for a re-created object with the same content.
+  const appliedDraftKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!open) return;
+    const justOpened = open && !wasOpenRef.current;
+    wasOpenRef.current = open;
+    const draft = isManager ? initialDraft : nonManagerDraft;
+    const draftKey = draft ? JSON.stringify(draft) : null;
+    const draftArrived = open && draftKey !== null && draftKey !== appliedDraftKeyRef.current;
+    if (!open) appliedDraftKeyRef.current = null;
+    if (!justOpened && !draftArrived) return;
+    appliedDraftKeyRef.current = draftKey;
+    sendViaEditedRef.current = false;
     queueMicrotask(() => {
       if (!isManager) {
         if (nonManagerDraft) {
@@ -482,6 +516,17 @@ export function ManagerCommunicationComposeModal({
       smsAttemptRef.current = null;
     });
   }, [open, initialChannel, smsUiEnabled, initialDraft, channelsFor, isManager, nonManagerDraft, caps]);
+
+  // The deliver-via defaults load after the modal can already be open. Apply them to the Communication type only
+  // while the person has not chosen one, and never to a draft that named its own channel.
+  const defaultViaKey = JSON.stringify(
+    isManager && !initialDraft ? portalMessageSelectionFromDeliverVia(channelsFor("inbox_default"), smsUiEnabled) : null,
+  );
+  useEffect(() => {
+    if (!open || !isManager || initialDraft || sendViaEditedRef.current) return;
+    const next = JSON.parse(defaultViaKey) as string[] | null;
+    if (next) setSendVia((previous) => (JSON.stringify(previous) === defaultViaKey ? previous : next));
+  }, [open, isManager, initialDraft, defaultViaKey]);
 
   // A staged resident draft names its manager: pick them once the list is here.
   useEffect(() => {
@@ -920,7 +965,7 @@ export function ManagerCommunicationComposeModal({
         }
         const results = await Promise.all(schedulePayloads.map((payload) => postScheduledInboxMessage(payload)));
         if (results.some((ok) => !ok)) {
-          showToast("Some messages could not be scheduled.");
+          fail("Some messages could not be scheduled.");
           return;
         }
         showToast(
@@ -1051,7 +1096,7 @@ export function ManagerCommunicationComposeModal({
               continue;
             }
             if (!res.ok) {
-              lastError = data.error ?? lastError;
+              lastError = smsRefusalMessage(data.error, target.phone, activeWorkspaceName) ?? lastError;
               if (data.code === "vendor_attestation_required" && target.vendorRecordId) {
                 setVendorTextStatus((previous) => ({
                   ...previous,
@@ -1075,7 +1120,7 @@ export function ManagerCommunicationComposeModal({
 
       if (smsOutcomeUnknown) {
         if (optimisticId) onClearOptimistic?.(optimisticId);
-        showToast(
+        fail(
           viaEmail && emailOk
             ? `Email sent. ${MANUAL_SMS_UNKNOWN_MESSAGE}`
             : MANUAL_SMS_UNKNOWN_MESSAGE,
@@ -1097,7 +1142,7 @@ export function ManagerCommunicationComposeModal({
           onSent?.({ email: false, sms: true, primaryRecipientEmail });
           return;
         }
-        showToast(lastError);
+        fail(lastError);
         return;
       }
 
@@ -1124,7 +1169,8 @@ export function ManagerCommunicationComposeModal({
       onSent?.({ email: viaEmail, sms: viaSms, primaryRecipientEmail });
     } catch {
       if (optimisticId) onClearOptimistic?.(optimisticId);
-      showToast(lastError);
+      fail(lastError);
+      return;
     } finally {
       setSending(false);
     }
@@ -1315,7 +1361,10 @@ export function ManagerCommunicationComposeModal({
             labelClassName={portalMessageFieldLabel()}
             options={communicationTypeOptions}
             selected={sendVia}
-            onChange={setSendVia}
+            onChange={(next) => {
+              sendViaEditedRef.current = true;
+              setSendVia(next);
+            }}
             emptyLabel="Choose a type…"
             dataAttr="communication-compose-type"
           />

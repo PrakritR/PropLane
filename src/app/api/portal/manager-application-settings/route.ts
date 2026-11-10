@@ -260,13 +260,12 @@ export async function PATCH(req: Request) {
         ...existingPipeline,
         ...(body.leasingPipeline as Record<string, unknown>),
       });
-      // C2-CP7: the signing order (always application first), the shared-room lease default and
-      // "Application before a tour" are chosen once per workspace. A property-scoped write can carry neither, so a stale client cannot give one
+      // C2-CP7: the signing order (always application first), the shared-room lease default
+      // are chosen once per workspace. A property-scoped write can carry neither, so a stale client cannot give one
       // house its own order.
       if (propertyId) {
         incoming.pipelineOrder = workspacePipeline.pipelineOrder;
         incoming.sharedRoomLease = workspacePipeline.sharedRoomLease;
-        incoming.applicationBeforeTour = workspacePipeline.applicationBeforeTour;
       }
       const feeCheck = validateLeaseSigningFeeCents(incoming.leaseSigningFeeCents);
       if (!feeCheck.ok) {

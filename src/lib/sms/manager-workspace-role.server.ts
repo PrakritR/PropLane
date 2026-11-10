@@ -175,6 +175,11 @@ export async function resolveWorkNumberForWorkspace(
   return entry;
 }
 
+/** A released number is no longer the workspace's work number: the sender a preview or a thread shows must be a live one. Exported for tests. */
+export function releasedNumberRowsRemoved<T extends { released_at?: unknown }>(rows: readonly T[]): T[] {
+  return rows.filter((row) => !row.released_at);
+}
+
 async function numbersForWorkspaces(
   db: SupabaseClient,
   workspaces: ActiveWorkspace[],
@@ -187,9 +192,9 @@ async function numbersForWorkspaces(
     db.from("profiles").select("id, full_name, email").in("id", ownerIds),
   ]);
   // A workspace may carry a released row beside its live one (the index is over
-  // live rows only); the live one is the workspace's work number.
+  // live rows only); only the live one is the workspace's work number.
   const numberByWorkspace = new Map<string, { phoneNumber: string | null; provisionState: string | null }>();
-  for (const r of [...(numberRows ?? [])].sort((a, b) => Number(Boolean(a.released_at)) - Number(Boolean(b.released_at)))) {
+  for (const r of releasedNumberRowsRemoved(numberRows ?? [])) {
     const key = String(r.workspace_id ?? "").trim();
     if (!key || numberByWorkspace.has(key)) continue;
     numberByWorkspace.set(key, {

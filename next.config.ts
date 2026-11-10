@@ -141,6 +141,9 @@ const nextConfig: NextConfig = {
       { source: "/demo", destination: "/", permanent: false },
       // The one exception is the homepage Software demo's iframe (`/demo/home-embed`, fixture data, no writes).
       { source: "/demo/:path((?!home-embed$).+)", destination: "/", permanent: false },
+      // The assistants once improvised https://proplane.ai/rent/tour (no such route; the page is /rent/tours-contact).
+      // Permanent, so a link already sent still lands. Query params (propertyId, ...) ride along on a redirect.
+      { source: "/rent/tour", destination: "/rent/tours-contact", permanent: true },
       { source: "/browse", destination: "/rent/browse", permanent: false },
       // `/rent/browse` is a single page — there is NO `/rent/browse/[…]` route,
       // so keeping the sub-path here sent every /browse/<anything> link to a

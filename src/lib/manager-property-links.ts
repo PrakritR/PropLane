@@ -1,5 +1,6 @@
 import type { AdminPropertyRow } from "@/lib/demo-admin-property-inventory";
 import type { MockProperty } from "@/data/types";
+import { listingPublicPath } from "@/lib/listing-public-path";
 import { resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import { buildRentalApplyHref } from "@/lib/rental-application/apply-from-listing";
 import { readScopedExtraListings } from "@/lib/demo-property-pipeline";
@@ -104,10 +105,15 @@ export function buildManagerPortfolioTourUrl(origin: string, propertyIds: string
   return `${base}${buildPortfolioTourContactHref(propertyIds)}`;
 }
 
-export function buildManagerListingUrl(origin: string, propertyId: string): string {
+/**
+ * The public listing URL. With the listing's published `slug` it is the readable address URL
+ * (`/rent/listings/4709a-8th-ave-ne`); without one it is the id URL, which still resolves and redirects to the slug.
+ * Server callers get the slug from `buildReadableListingUrl` (`@/lib/seo/listing-slugs.server`), which reads the one
+ * published-catalog index; this sync builder never guesses a slug, because a colliding address needs the whole catalog.
+ */
+export function buildManagerListingUrl(origin: string, propertyId: string, slug?: string | null): string {
   const base = origin.replace(/\/$/, "");
-  const id = propertyId.trim();
-  return `${base}/rent/listings/${encodeURIComponent(id)}`;
+  return `${base}${listingPublicPath(propertyId, slug)}`;
 }
 
 

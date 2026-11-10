@@ -86,7 +86,7 @@ async function resolveScope(
     if (!scopeAccess.ok) return scopeAccess;
     return { ok: true, ownerUserId: owner.ownerUserId, propertyId: scopeAccess.propertyId, workspaceId: scopeAccess.workspaceId };
   }
-  const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope);
+  const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope, { intent: level === "read" ? "read" : "edit" });
   if (!scopeAccess.ok) return scopeAccess;
   const access = await assertAutomationSettingsCoManagerAccess(ctx.db, ctx.userId, level);
   if (!access.ok) return access;

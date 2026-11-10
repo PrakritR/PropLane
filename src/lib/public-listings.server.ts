@@ -18,8 +18,7 @@ import type {
 } from "@/lib/manager-listing-submission";
 import { isEntireHomeListing } from "@/lib/manager-listing-submission";
 import { normalizePropertyStayTimes, type PropertyStayTimes } from "@/lib/bookings/stay-times";
-import { publicPropertyApplicationTemplate, readPropertyApplicationTemplates } from "@/lib/property-application-templates";
-import { applicationBeforeTourRequired } from "@/lib/application-before-tour-policy";
+import { publicPropertyApplicationTemplate } from "@/lib/property-application-templates";
 import {
   houseDefaultsForSubmission,
   type ListingHouseDefaults,
@@ -576,13 +575,6 @@ export function publicListingProjection(
       ? {
           signingOrder: signingContext.signingOrder,
           leaseSigningFeeCents: signingContext.leaseSigningFeeCents,
-          // The workspace setting, then each application form's own before/after-tour answer.
-          ...(applicationBeforeTourRequired(
-            signingContext.applicationBeforeTour ? "required" : "not_needed",
-            resolvedSub && resolvedSub.v === 1 ? readPropertyApplicationTemplates(resolvedSub) : [],
-          )
-            ? { applicationBeforeTour: true as const }
-            : {}),
         }
       : {}),
     ...(showAttribution === true ? { showProPlaneAttribution: true as const } : {}),

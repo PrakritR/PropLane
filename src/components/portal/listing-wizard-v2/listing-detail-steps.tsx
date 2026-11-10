@@ -8,8 +8,7 @@
  * of the form underneath it.
  *
  * - Application -> "Needed" switch, the fee, the lease it leads to, and the questions (the same question
- *   rows the application editor modal draws). "Application before a tour" is a dropdown that saves the
- *   workspace setting through its existing route.
+ *   rows the application editor modal draws).
  * - Lease       -> "Offered" switch, its type, the applications that lead to it, "Allow custom dates" /
  *   "Allow month-to-month", and the document name, start and clauses (the same clause editor the lease
  *   form's Document step draws).
@@ -22,8 +21,7 @@
  * "Upload a PDF", which runs that step's existing upload (a brand-new draft is saved first through `ensureSaved`).
  *
  * Storage is unchanged. All of it patches the wizard's own submission, so it is saved with the draft or
- * the live listing exactly like every other step; the one thing outside the submission is the workspace
- * "Application before a tour" setting, which saves through `/api/portal/manager-application-settings`.
+ * the live listing exactly like every other step.
  * The fee is never a template field: it reads and writes the placement fields the Pricing step and the
  * fee resolver use (`listing-inline-forms.ts`).
  *
@@ -33,7 +31,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { CalendarDays, Moon } from "lucide-react";
 import { PortalRowMenu } from "@/components/portal/portal-row-menu";
 import { STAY_LABEL, countRowsInVisibleSections, listingOfferedStays, visibleStaySections, type StaySectionKey } from "@/lib/listing-stays";
-import { invalidateSharedGets } from "@/lib/shared-get-cache";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import {
@@ -127,7 +124,6 @@ import {
   submissionWithMoveInStarter,
 } from "@/lib/leasing-quick-add";
 import { parseMoneyAmount } from "@/lib/parse-money";
-import { normalizeLeasingPipelinePreferences, type ApplicationBeforeTour } from "@/lib/leasing-pipeline-preferences";
 import {
   entireHomeMonthlyRentAmount,
   isEntireHomeListing,
@@ -545,57 +541,6 @@ export function moveInStaySections(
 
 /* ─────────────────────────── Application ─────────────────────────── */
 
-const BEFORE_TOUR_OPTIONS = [
-  { value: "not_needed", label: "Not needed" },
-  { value: "required", label: "Required" },
-];
-
-/**
- * "Application before a tour" is one value for the whole workspace. It reads as "Not needed" until the
- * stored value arrives (the workspace default), and a pick saves straight to the workspace setting through
- * the route Settings uses. A failed save puts the old value back.
- */
-function useApplicationBeforeTour(showToast: (message: string) => void) {
-  const [value, setValue] = useState<ApplicationBeforeTour>("not_needed");
-  // A pick made before the stored value arrives wins over it.
-  const picked = useRef(false);
-  useEffect(() => {
-    if (typeof fetch !== "function") return;
-    let cancelled = false;
-    void fetch("/api/portal/manager-application-settings", { credentials: "include", cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body: { leasingPipeline?: unknown } | null) => {
-        if (cancelled || !body || picked.current) return;
-        setValue(normalizeLeasingPipelinePreferences(body.leasingPipeline).applicationBeforeTour);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  const save = (next: ApplicationBeforeTour) => {
-    const previous = value;
-    picked.current = true;
-    setValue(next);
-    void fetch("/api/portal/manager-application-settings", {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ leasingPipeline: { applicationBeforeTour: next } }),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("save failed");
-        // Other readers share a 30 s cache of the settings; drop it so they see this save.
-        invalidateSharedGets("/api/portal/manager-application-settings");
-      })
-      .catch(() => {
-        setValue(previous);
-        showToast("Could not save.");
-      });
-  };
-  return { value, save };
-}
-
 /**
  * Publishes what the inline question editor left in draft, so applicants see it. One new version per
  * editing pause (and when a card closes or the step leaves), never one per keystroke.
@@ -685,7 +630,6 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
   );
   const catalog = { applications: templates, leases };
   const publisher = useDraftPublisher(sub, onChange);
-  const beforeTour = useApplicationBeforeTour(doors.showToast);
   const { open, setOpen, toggle } = useOneOpen();
   const names = useCardNames();
   const [startFrom, setStartFrom] = useState<Record<string, string>>({});
@@ -1045,18 +989,6 @@ export function StepApplication({ sub, onChange, doors }: StepProps) {
         dataAttr="listing-v2-application-quick-add"
         onAdd={(key) => onChange(submissionWithApplicationDefault(synced, key as never))}
       />
-
-      <div className="mt-6 overflow-hidden rounded-2xl border border-border bg-card" data-attr="listing-v2-application-before-tour">
-        <FactRow first label="Application before a tour">
-          <RowSelectCell
-            ariaLabel="Application before a tour"
-            value={beforeTour.value}
-            options={BEFORE_TOUR_OPTIONS}
-            dataAttr="listing-v2-application-before-tour-select"
-            onChange={(next) => beforeTour.save(next as ApplicationBeforeTour)}
-          />
-        </FactRow>
-      </div>
     </StepColumn>
   );
 }

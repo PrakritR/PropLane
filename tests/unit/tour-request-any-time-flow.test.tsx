@@ -14,7 +14,6 @@ const session = vi.hoisted(() => ({
 vi.mock("@/hooks/use-prospect-contact-autofill", () => ({ useProspectContactAutofill: () => session.state }));
 vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ showToast: () => {} }) }));
 vi.mock("@/lib/tour-resident-link.client", () => ({ linkBookedToursToSignedInResident: async () => true }));
-vi.mock("@/hooks/use-tour-application-gate", () => ({ useTourApplicationGate: () => ({ status: "ok" }) }));
 
 import { TourScheduleFlow } from "@/components/marketing/tour-schedule-flow";
 import { requestedTourDates } from "@/lib/tour-request-time";

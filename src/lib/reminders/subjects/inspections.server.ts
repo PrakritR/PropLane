@@ -95,14 +95,20 @@ export async function sweepInspectionReminders(db: SupabaseClient, now = new Dat
         const subjectId = `${row.id}:${kind}:${createHash("sha256").update(`${anchorIso}:${canonicalAssignment(row, rooms)}`).digest("hex").slice(0, 20)}`;
         // The resident is asked until their own first photo lands.
         if (!forKind.some(report => photosBy(report, "resident") > 0)) {
-          queued += await materializeReminders(db, { managerUserId: row.manager_user_id, kind: "inspection", subjectId, anchorIso,
-            // Both sides. The rule's audience decides who actually receives it, but the
-            // manager has to be OFFERED here or "remind me too" is unreachable from Settings.
-            recipients: [{ email: row.resident_email, role: "counterparty" },
-              ...(manager ? [{ email: manager.email, userId: row.manager_user_id, role: "manager" as const }] : [])],
-            payload: { applicationId: row.id, inspectionKind: kind, roomAssignment: assignment(row), required: required.includes(kind),
-              title: `${kind === "move-in" ? "Move-in" : "Move-out"} room photos`, url: `${origin}/resident/move-in/inspections` },
-          }, config, now);
+          // Both sides. The rule's audience decides who actually receives it, but the
+          // manager has to be OFFERED here or "remind me too" is unreachable from Settings.
+          // Each side gets its own portal's link: a manager's card never opens /resident/.
+          const sides = [
+            { recipients: [{ email: row.resident_email, role: "counterparty" as const }], url: `${origin}/resident/move-in/inspections` },
+            ...(manager ? [{ recipients: [{ email: manager.email, userId: row.manager_user_id, role: "manager" as const }], url: `${origin}/portal/move-in/inspections/${kind}` }] : []),
+          ];
+          for (const side of sides) {
+            queued += await materializeReminders(db, { managerUserId: row.manager_user_id, kind: "inspection", subjectId, anchorIso,
+              recipients: side.recipients,
+              payload: { applicationId: row.id, inspectionKind: kind, roomAssignment: assignment(row), required: required.includes(kind),
+                title: `${kind === "move-in" ? "Move-in" : "Move-out"} room photos`, url: side.url },
+            }, config, now);
+          }
         }
         // The manager hears about it only when NOBODY has photographed the room.
         if (manager && !forKind.some(report => photosBy(report) > 0)) {

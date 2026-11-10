@@ -1,9 +1,8 @@
 // @vitest-environment jsdom
 //
 // C1-R1 / C1-R2: the resident Application page's Sent | Approved | Denied sections and the Tour
-// page's Scheduled | Approved | Past sections (tabs + counts), and the Schedule tour gate in the
-// picker: a home that needs an approved application (or whose application was denied) cannot be
-// scheduled, and the reason is the button's tooltip/accessible name - no subtext line.
+// page's Scheduled | Approved | Past sections (tabs + counts), and the Schedule tour picker (no
+// application gate: anyone signed in can book a tour).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -20,7 +19,6 @@ import {
   defaultResidentTourSection,
   residentTourSectionForView,
 } from "@/lib/resident-tour-list";
-import { TOUR_BLOCK_LABELS, TOUR_BLOCK_MESSAGES } from "@/lib/application-before-tour-policy";
 
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => vi.fn() }));
 vi.mock("@/components/providers/app-ui-provider", () => ({
@@ -177,44 +175,17 @@ describe("ResidentTourPanel tabs", () => {
   });
 });
 
-describe("Schedule tour gate in the picker (setting x application)", () => {
+describe("Schedule tour picker", () => {
   beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
 
-  const gateBody = (required: boolean, status: "none" | "submitted" | "approved" | "denied") => {
-    const reason =
-      required && status === "denied" ? "denied" : !required || status === "approved" ? null : status === "submitted" ? "pending_approval" : "apply_first";
-    return { required, applicationStatus: status, allowed: reason === null, reason, signedIn: true };
-  };
-
-  const cases: Array<[boolean, "none" | "submitted" | "approved" | "denied", keyof typeof TOUR_BLOCK_MESSAGES | null]> = [
-    [true, "none", "apply_first"],
-    [true, "submitted", "pending_approval"],
-    [true, "approved", null],
-    [true, "denied", "denied"],
-    [false, "none", null],
-    [false, "submitted", null],
-    [false, "approved", null],
-    [false, "denied", null],
-  ];
-
-  it.each(cases)("setting required=%s, application %s -> blocked reason %s", async (required, status, reason) => {
-    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => gateBody(required, status) } as never);
+  it("Continue is enabled as soon as a home is picked, whatever the resident's application says (no application gate)", async () => {
     render(<ResidentScheduleTourModal open onClose={() => {}} />);
-    fireEvent.click(screen.getByTestId("pick-home"));
     const continueButton = () => screen.getByRole("button", { name: /^Continue/ }) as HTMLButtonElement;
-    if (reason) {
-      await waitFor(() => expect(continueButton().disabled).toBe(true));
-      await waitFor(() => expect(continueButton().title).toBe(TOUR_BLOCK_MESSAGES[reason]));
-      expect(continueButton().getAttribute("aria-label")).toContain(TOUR_BLOCK_MESSAGES[reason]);
-      // The picker shows one heading-style blocked line (no explanatory sentence), with Apply only
-      // when an application is what is missing.
-      expect(screen.getByText(TOUR_BLOCK_LABELS[reason])).toBeTruthy();
-      expect(screen.queryByText(TOUR_BLOCK_MESSAGES[reason])).toBeNull();
-      expect(Boolean(screen.queryByRole("link", { name: "Apply" }))).toBe(reason === "apply_first");
-    } else {
-      await waitFor(() => expect(continueButton().disabled).toBe(false));
-      expect(continueButton().title).toBe("");
-      expect(document.querySelector('[data-attr="tour-blocked-notice"]')).toBeNull();
-    }
+    expect(continueButton().disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("pick-home"));
+    await waitFor(() => expect(continueButton().disabled).toBe(false));
+    expect(continueButton().title).toBe("");
+    expect(document.querySelector('[data-attr="tour-blocked-notice"]')).toBeNull();
+    expect(fetch).not.toHaveBeenCalledWith(expect.stringContaining("tour-application-gate"), expect.anything());
   });
 });

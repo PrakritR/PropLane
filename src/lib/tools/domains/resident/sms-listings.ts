@@ -1,6 +1,6 @@
 /** Public listing reads for a verified resident texting a manager's work line. */
 import { z } from "zod";
-import { buildManagerListingUrl } from "@/lib/manager-property-links";
+import { buildReadableListingUrl } from "@/lib/seo/listing-slugs.server";
 import type { AgentContext } from "../../context";
 import type { ResidentAgentContext } from "../../resident-context";
 import { defineTool } from "../../registry";
@@ -75,7 +75,7 @@ export const residentSmsGetListingLinkTool = defineTool<
   handler: async (ctx, input) => {
     const listing = await resolveLiveListingForSms(managerListingContext(ctx), input.propertyId);
     if (!listing) return { ok: false, error: "listing_not_found" };
-    return { ok: true, listingUrl: buildManagerListingUrl(publicOrigin(), listing) };
+    return { ok: true, listingUrl: await buildReadableListingUrl(publicOrigin(), listing) };
   },
 });
 
