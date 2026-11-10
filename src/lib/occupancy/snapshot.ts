@@ -472,12 +472,14 @@ export function groupStaysByRoom<T extends { roomId: string; roomLabel: string }
 
 /**
  * A day row that is only dates taken off the calendar, with no guest behind it: the manager's own
- * block, or a channel's "Not available". A channel "Reserved" is a real guest stay, so it is not one.
+ * block, or a channel's host block ("Airbnb (Not available)", "Blocked").
+ *
+ * On a channel the line is `isPersonOccupant`'s, never the wider `isIcalAvailabilityBlock`: a
+ * "Reserved" and a privacy-stripped "CLOSED - Not available" are real reservations, so a row drawn
+ * as a locked closure can never disagree with the guest name `channelStayName` gives it.
  */
 export function isAvailabilityBlockRow(entry: Pick<PropertyBookingEntry, "source" | "summary" | "residentName">): boolean {
-  if (isChannelBookingSource(entry.source)) {
-    return isIcalAvailabilityBlock(entry.summary) && entry.summary?.trim().toLowerCase() !== "reserved";
-  }
+  if (isChannelBookingSource(entry.source)) return !isPersonOccupant(entry);
   return occupancyStayKind(entry) === "block";
 }
 

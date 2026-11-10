@@ -17,7 +17,7 @@ import {
 import { calendarStatus, calendarStatusClass } from "@/lib/channel-calendar/bookings-calendar-view";
 import { bookingVisualSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { occupancyForDay, withoutChannelStaysCoveredByResidents } from "@/lib/occupancy/snapshot";
-import { bookingEntryNamedLabel } from "@/lib/channel-calendar/booking-guest-label";
+import { channelStayName } from "@/lib/channel-calendar/booking-guest-label";
 
 const P = "prop-1";
 
@@ -140,7 +140,7 @@ describe("a linked stay covers its channel copy", () => {
     // The copy stays in `entries` (record page, payouts) but names the guest; the calendar list loses it.
     const shownCopy = entries.find((entry) => entry.sourceUid === "u1")!;
     expect(shownCopy.guestName).toBe("Kumaran");
-    expect(bookingEntryNamedLabel(shownCopy)).toBe("Kumaran");
+    expect(channelStayName(shownCopy)).toBe("Kumaran");
     const calendar = withoutChannelStaysCoveredByResidents(entries);
     expect(calendar.map((entry) => entry.sourceUid ?? entry.blockId).sort()).toEqual(["b1", "u2"]);
   });

@@ -66,8 +66,9 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   const tab = parseBookingDetailTab(tabProp);
   const channel = isChannelBookingSource(entry.source);
   const name = bookingEntryGuestLabel(entry);
-  // An Airbnb stay carries its own reservation code and feed id; the manager can name the guest and open it in Airbnb.
+  // An imported reservation on any channel (never a host block) carries a feed id; the manager can name its guest.
   const channelReservation = isGuestLabelSource(entry.source) && !isHostBlockSummary(entry.summary) && Boolean(entry.connectionId && entry.sourceUid);
+  // An Airbnb stay also carries its own reservation code, so it alone shows the code and opens in Airbnb.
   const airbnbStay = entry.source === "airbnb" && !isHostBlockSummary(entry.summary) && Boolean(entry.connectionId && entry.sourceUid);
   // The record's one "Open in Airbnb" is the header icon, on the same stay the Guest card trusts:
   // a real imported reservation (never a host block), with a code the sync could parse.
@@ -165,7 +166,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
         {entry.stayNotes ? <RecordFactRow label="Notes" value={<span className="whitespace-pre-line">{entry.stayNotes}</span>} /> : null}
         {entry.reason ? <RecordFactRow label="Notes" value={entry.reason} /> : null}
         {stayDetailRows.map(([key, value]) => <RecordFactRow key={key} label={({ linen: "Linen", baggage: "Baggage" } as Record<string, string>)[key] ?? key} value={value} />)}
-        {conflicts.map((conflict) => <RecordFactRow key={bookingEntryKey(conflict)} label="Conflict" value={<Link className="text-danger" href={bookingRecordHref(basePath, bookingEntryKey(conflict))}>{conflict.summary} · {formatBookingStayRange(conflict.start, conflict.end, conflict.openEnded)}</Link>} />)}
+        {conflicts.map((conflict) => <RecordFactRow key={bookingEntryKey(conflict)} label="Conflict" value={<Link className="text-danger" href={bookingRecordHref(basePath, bookingEntryKey(conflict))}>{bookingEntryGuestLabel(conflict)} · {formatBookingStayRange(conflict.start, conflict.end, conflict.openEnded)}</Link>} />)}
       </RecordFactCard>
     );
   }

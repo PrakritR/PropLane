@@ -41,13 +41,19 @@ type GuestLabelEntry = {
   residentName?: string | null;
 };
 
-/** A feed summary that names nobody: blank, "Reserved", "CLOSED - Not available", a bare channel name, "Booked (…". */
+/**
+ * A feed summary that names nobody: blank, "Reserved", the privacy-stripped "CLOSED - Not available"
+ * Booking.com and Vrbo write, a bare channel name, "Booked (…".
+ *
+ * Matched on the WHOLE title, never a prefix: an Other calendar's real event ("Closed for renovation",
+ * "Owner stay - not available") keeps its own words rather than being announced as a guest.
+ */
 function isGenericChannelSummary(raw: string): boolean {
   if (!raw) return true;
   return (
     /^reserved$/i.test(raw) ||
-    /not available/i.test(raw) ||
-    /^closed\b/i.test(raw) ||
+    /^not available$/i.test(raw) ||
+    /^closed(?:\s*[-–—:]\s*not available)?$/i.test(raw) ||
     /^(airbnb|booking(\.com)?|vrbo)$/i.test(raw) ||
     /^booked \(/i.test(raw)
   );
@@ -77,29 +83,9 @@ export function channelStayName(entry: GuestLabelEntry): string {
 }
 
 /**
- * The identifying label a channel stay earns beyond its feed summary: the name the manager typed,
- * else "Airbnb guest · HMABCDEFGH" when the feed carried a reservation code but only a generic
- * "Reserved". Null when there is nothing better than the existing label (host blocks, other sources).
- */
-export function bookingEntryNamedLabel(entry: GuestLabelEntry): string | null {
-  if (!isGuestLabelSource(entry.source)) return null;
-  const raw = entry.summary?.trim() ?? "";
-  if (raw && isHostBlockSummary(raw)) return null;
-  const typed = entry.guestName?.trim();
-  if (typed) return typed;
-  const code = entry.reservationCode?.trim();
-  if (code && entry.source === "airbnb" && (!raw || raw.toLowerCase() === "reserved")) return `Airbnb guest · ${code}`;
-  return null;
-}
-
-/**
- * What a booking is called wherever a guest label is drawn (list row, record title, day card).
- * Channel stay precedence: manager-typed name > "Airbnb guest · code" > the existing label.
- * Host blocks and every non-channel source keep their own label.
+ * What a booking is called wherever a guest label is drawn (list row, record title, day card,
+ * conflict line). One rule, {@link channelStayName}; every non-channel source keeps its own label.
  */
 export function bookingEntryGuestLabel(entry: GuestLabelEntry): string {
-  if (!isGuestLabelSource(entry.source)) {
-    return entry.summary ?? "";
-  }
   return channelStayName(entry);
 }

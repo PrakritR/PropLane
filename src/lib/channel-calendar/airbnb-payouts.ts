@@ -50,9 +50,12 @@ export function airbnbPayoutDueKey(row: Pick<AirbnbPayoutRow, "end">): string {
   return addDaysToDateKey(row.end, 2);
 }
 
-/** "Airbnb · Juan" - the guest's name, or the reservation code when no name was typed. */
+/**
+ * "Airbnb · Juan" - the guest's name, or the reservation code when no name was typed. A bare
+ * "Airbnb guest" (nothing known but the channel) is no name at all, so it reads "Airbnb · Guest".
+ */
 export function airbnbPayoutTitle(row: Pick<AirbnbPayoutRow, "guestLabel">): string {
-  const label = row.guestLabel.replace(/^Airbnb guest · /, "").trim();
+  const label = row.guestLabel.replace(/^Airbnb guest(?: · )?/, "").trim();
   return `Airbnb · ${label || "Guest"}`;
 }
 

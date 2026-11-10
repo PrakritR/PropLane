@@ -89,10 +89,15 @@ describe("describeBookingConflict names a channel stay, never the feed's generic
     expect(describeBookingConflict({ ...channel, reservationCode: "HMABC12345" }, "Room 2")).toContain("by Airbnb guest · HMABC12345");
   });
 
-  it("falls back to the channel's name, never 'Reserved'", () => {
-    expect(describeBookingConflict(channel, "Room 2")).toBe("Room 2 is booked Nov 12, 2026 – Nov 15, 2026 by Airbnb");
-    expect(describeBookingConflict({ ...channel, source: "booking_com" }, "Room 2")).toContain("by Booking.com");
-    expect(describeBookingConflict({ ...channel, source: "ical", channelLabel: "Furnished Finder" }, "Room 2")).toContain("by Furnished Finder");
+  it("falls back to '<Channel> guest', never 'Reserved' or the privacy-stripped title", () => {
+    expect(describeBookingConflict(channel, "Room 2")).toBe("Room 2 is booked Nov 12, 2026 – Nov 15, 2026 by Airbnb guest");
+    expect(describeBookingConflict({ ...channel, source: "booking_com" }, "Room 2")).toContain("by Booking.com guest");
+    expect(describeBookingConflict({ ...channel, source: "booking_com", summary: "CLOSED - Not available" }, "Room 2")).toContain("by Booking.com guest");
+    expect(describeBookingConflict({ ...channel, source: "ical", channelLabel: "Furnished Finder" }, "Room 2")).toContain("by Furnished Finder guest");
+  });
+
+  it("names the channel itself on a host block, which holds no guest", () => {
+    expect(describeBookingConflict({ ...channel, summary: "Airbnb (Not available)" }, "Room 2")).toContain("by Airbnb");
   });
 });
 

@@ -10,7 +10,7 @@ import {
 } from "@/lib/channel-calendar/reservation-details";
 import { icalEventsToImportedRanges } from "@/lib/channel-calendar/sync.server";
 import { parseConnectionRow } from "@/lib/channel-calendar/connections.server";
-import { bookingEntryGuestLabel, bookingEntryNamedLabel } from "@/lib/channel-calendar/booking-guest-label";
+import { bookingEntryGuestLabel, channelStayName } from "@/lib/channel-calendar/booking-guest-label";
 
 const FEED = [
   "BEGIN:VCALENDAR",
@@ -130,7 +130,7 @@ describe("guest label precedence", () => {
   it("keeps a real feed name over the code label, and host blocks over everything", () => {
     expect(bookingEntryGuestLabel({ ...stay, summary: "Alex M." })).toBe("Alex M.");
     expect(bookingEntryGuestLabel({ source: "airbnb", summary: "Airbnb (Not available)", guestName: "Nope", reservationCode: "HMABCDEFGH" })).toBe("Closed on Airbnb");
-    expect(bookingEntryNamedLabel({ source: "airbnb", summary: "Airbnb (Not available)", guestName: "Nope" })).toBeNull();
+    expect(channelStayName({ source: "airbnb", summary: "Airbnb (Not available)", guestName: "Nope" })).toBe("Closed on Airbnb");
   });
 
   it("leaves PropLane stays alone", () => {
