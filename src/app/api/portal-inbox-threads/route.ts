@@ -5,6 +5,7 @@ import { visibleManagerSmsProjectionIds } from "@/lib/sms/sms-projection-inbox.s
 import type { SmsProjectionSummary } from "@/lib/sms/sms-projection.server";
 import { portalInboxReadObservation, type PortalInboxReadRecord } from "@/lib/portal-inbox-read-state.server";
 import { NextResponse } from "next/server";
+import { createPhaseTimer } from "@/lib/server-timing";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   filterVisibleInboxThreadRecords,
@@ -241,10 +242,11 @@ async function settleCollapsedSiblingsRead(
 }
 
 export async function GET(request: Request) {
+  const timer = createPhaseTimer();
   try {
     const url = new URL(request.url);
     const scopeParam = url.searchParams.get("scope") ?? "";
-    const ctx = await resolveInboxScopeUser(scopeParam);
+    const ctx = await timer.timed("auth", () => resolveInboxScopeUser(scopeParam));
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     if (ctx.user.role !== "admin" && scopeParam === MANAGER_INBOX_SCOPE) {
       const ownerRefusal = await refuseOwnerOnly(ctx.db, ctx.user.id);
@@ -290,6 +292,7 @@ export async function GET(request: Request) {
     // A View-as session is read-only: this GET heals (inserts) the notice and Team chat threads, so it
     // must not run for an operator looking at someone else's account.
     if (scopeParam === MANAGER_INBOX_SCOPE && ctx.user.id && !viewAsOpen) {
+      const healStartedAt = performance.now();
       try {
         const { resolveActiveWorkspaceFromRequest } = await import("@/lib/workspaces/active.server");
         const active = await resolveActiveWorkspaceFromRequest(ctx.db, ctx.user.id);
@@ -309,6 +312,8 @@ export async function GET(request: Request) {
         await ensureWorkspaceTeamThread(ctx.db, { ownerManagerUserId: active.ownerUserId, workspaceId: active.id });
       } catch (e) {
         console.error("ensureManagerAgentNoticeThread failed", e);
+      } finally {
+        timer.phases.heal = Math.round((performance.now() - healStartedAt) * 10) / 10;
       }
     }
 
@@ -325,7 +330,7 @@ export async function GET(request: Request) {
       query = query.eq("scope", ADMIN_INBOX_SCOPE) as typeof query;
     } else {
       if (scopeParam === MANAGER_INBOX_SCOPE) {
-        communicationScope = await resolveCommunicationScope(ctx.db, ctx.user.id, "read");
+        communicationScope = await timer.timed("scope", () => resolveCommunicationScope(ctx.db, ctx.user.id, "read"));
       }
       query = applyPortalInboxThreadScope(query, ctx.user, communicationScope ? inboxStoreOwnerIds(communicationScope) : [], {
         participantOnlyWhenUnowned: scopeParam === MANAGER_INBOX_SCOPE,
@@ -337,7 +342,7 @@ export async function GET(request: Request) {
       }
     }
 
-    const { data, error } = await query;
+    const { data, error } = await timer.timed("rows", async () => await query);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     // House chats are one shared row read by many people: they are listed below, per viewer, by their own
@@ -346,7 +351,7 @@ export async function GET(request: Request) {
       (record) => !isHouseInboxThread({ id: String(record.id ?? ""), thread_type: record.thread_type }),
     );
     const records: (PortalInboxReadRecord & { houses?: { propertyId: string; label: string }[] })[] = communicationScope
-      ? await filterVisibleInboxThreadRecords(ctx.db, communicationScope, fetched)
+      ? await timer.timed("visible", () => filterVisibleInboxThreadRecords(ctx.db, communicationScope, fetched))
       : fetched;
     // A notice can hold several originals from different lines/roles. Hide
     // only individual messages whose exact source, bytes and timestamp are
@@ -529,7 +534,7 @@ export async function GET(request: Request) {
         ...(scopeParam === MANAGER_INBOX_SCOPE ? collapseAssistantInboxThreads(collapsed) : collapsed),
         ...houseRows,
       ],
-    });
+    }, { headers: { "Server-Timing": timer.header() } });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load records.";
     return NextResponse.json({ error: message }, { status: 500 });

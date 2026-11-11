@@ -30,7 +30,7 @@ import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
 import { traceAgentTurn } from "@/lib/observability/langfuse";
 import { buildLeasingSmsAgentContext } from "@/lib/tools/context";
 import { leasingSmsAgentRegistry, LEASING_SMS_INLINE_WRITE_TOOLS } from "@/lib/tools";
-import { buildProspectLinksTool, escalateLeasingToManagerTool, getSiteLinksTool, suppressRedundantLeasingReplyTool } from "@/lib/tools/domains/leasing-sms";
+import { buildProspectLinksTool, escalateLeasingToManagerTool, getSiteLinksTool, startProspectSignupTool, suppressRedundantLeasingReplyTool } from "@/lib/tools/domains/leasing-sms";
 import { listOpenTourSlotsTool, leasingRequestTourTool } from "@/lib/tools/domains/tours";
 import { buildRegistry, type ToolRegistry } from "@/lib/tools/registry";
 import type { AgentContext } from "@/lib/tools/context";
@@ -86,7 +86,7 @@ export type LeasingEmailChannel = {
  * (the post-check still holds anything that slips through); a channel guest is never "suppressed" as an acknowledgment.
  */
 export function channelLeasingRegistry(site: ChannelSite): ToolRegistry<AgentContext> {
-  const drop = new Set<string>([suppressRedundantLeasingReplyTool.name]);
+  const drop = new Set<string>([suppressRedundantLeasingReplyTool.name, startProspectSignupTool.name]);
   if (!channelAllowsContactDetails(site)) {
     for (const tool of [buildProspectLinksTool, getSiteLinksTool, listOpenTourSlotsTool, leasingRequestTourTool]) drop.add(tool.name);
   }

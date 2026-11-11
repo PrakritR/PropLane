@@ -234,3 +234,17 @@ export function pickNativeBottomNavItems<T extends { section: string }>(
 ): T[] {
   return orderNativeBottomNavItems(items, kind);
 }
+
+/**
+ * Resident phone bar with the Ask tab. The bar is four slots plus More; Ask takes the CENTER slot (index 2) and so the
+ * stage tables keep their four primary sections untouched: the bar shows the first three, and the fourth (Messages, last in
+ * every stage's list) moves into More, where it keeps its to-do badge (More sums every section not on the bar). Ask is the
+ * assistant, not a section, so it is never in `RESIDENT_BOTTOM_NAV_PRIMARY` or `STAGE_UNLOCKED_SECTIONS`.
+ */
+export const RESIDENT_ASK_BAR_SLOT = 2;
+export const RESIDENT_BAR_SECTION_SLOTS = 3;
+
+export function residentBarWithAsk<T>(primary: T[]): { bar: T[]; displaced: T[]; askIndex: number } {
+  const bar = primary.slice(0, RESIDENT_BAR_SECTION_SLOTS);
+  return { bar, displaced: primary.slice(RESIDENT_BAR_SECTION_SLOTS), askIndex: Math.min(RESIDENT_ASK_BAR_SLOT, bar.length) };
+}

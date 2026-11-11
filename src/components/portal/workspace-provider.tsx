@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import type { PortalWorkspace, WorkspacePayload, WorkspacePlan } from "@/lib/workspaces/types";
 import { setWorkspaceSelection } from "@/lib/workspaces/selection";
+import { readWorkspacePayloadCache, writeWorkspacePayloadCache } from "@/lib/workspaces/payload-cache";
 import { PROPERTY_PIPELINE_EVENT } from "@/lib/demo-property-pipeline";
 import { managerPropertyRowsForStage } from "@/lib/demo-admin-property-inventory";
 import { DEMO_MANAGER_USER_ID, isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
@@ -65,6 +66,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [payload, setPayload] = useState<WorkspacePayload>({ workspaces: [], activeWorkspaceId: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // True once the server has answered in this page load: a warm-start copy from `sessionStorage` never overwrites it.
+  const freshRef = useRef(false);
   const refresh = useCallback(async () => {
     setError(null);
     try {
@@ -85,6 +88,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         setWorkspaceSelection(DEMO_WORKSPACE_FALLBACK);
         return;
       }
+      freshRef.current = true;
       setPayload(data);
       setWorkspaceSelection(data);
     } catch (e) {
@@ -119,6 +123,24 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const refreshedForRef = useRef(new Set<string>());
   const { userId } = useManagerUserId();
   const scopeUserId = resolveManagerScopeUserId(userId);
+  /*
+   * A full page load starts with no workspace list, so the switcher read "Loading…" until the request answered,
+   * on every hard navigation. The last list this tab (and this account) received is drawn at once and the request
+   * confirms it. Display only: the data-scoping selection (`setWorkspaceSelection`) is still set from the server's
+   * answer alone, so nothing is scoped by a stale copy. Client navigations never reach this: the provider lives in
+   * the portal layout and is not remounted by a route change.
+   */
+  useEffect(() => {
+    if (isDemoModeActive() || freshRef.current || !userId) return;
+    const warm = readWorkspacePayloadCache(userId);
+    if (!warm) return;
+    setPayload(warm);
+    setLoading(false);
+  }, [userId]);
+  useEffect(() => {
+    if (isDemoModeActive() || !freshRef.current || !userId) return;
+    writeWorkspacePayloadCache(userId, payload);
+  }, [payload, userId]);
   useEffect(() => {
     if (typeof window === "undefined" || !scopeUserId) return;
     let inFlight = false;

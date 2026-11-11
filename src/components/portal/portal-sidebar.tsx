@@ -12,6 +12,10 @@ import {
 import { useCoManagerNavSections } from "@/hooks/use-co-manager-nav-sections";
 import { useIsSmallPortalViewport, useNativeChrome } from "@/hooks/use-is-native-app";
 import { usePortalNavCounts } from "@/hooks/use-portal-nav-counts";
+import { useResidentAssistantUnread } from "@/hooks/use-resident-assistant-unread";
+import { useHasAxisAssistant } from "@/components/portal/axis-assistant";
+import { useAssistantLauncher } from "@/components/portal/use-assistant-launcher";
+import { PortalNativeAskNavButton } from "@/components/portal/portal-native-ask-nav-button";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { portalBottomBarShowsSection, portalNavLockNavigable, portalNavSectionLocked } from "@/lib/portals/nav-locks";
 import {
@@ -24,6 +28,7 @@ import {
   nativeBottomBarEnabledForKind,
   nativeBottomNavShowMoreTab,
   orderNativeBottomNavItems,
+  residentBarWithAsk,
   splitNativeBottomNavItems,
 } from "@/lib/native/portal-bottom-nav";
 import { adjacentPrimarySection, resolveSwipePageDirection } from "@/lib/native/portal-swipe-page";
@@ -75,7 +80,7 @@ import { cn } from "@/lib/utils";
 import { ChevronDown, ChevronRight, SquarePen } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { useIsClient } from "@/hooks/use-is-client";
 
@@ -147,6 +152,11 @@ export function PortalSidebar({
     session.userId,
   );
   const rawNavCounts = usePortalNavCounts(definition.kind, smsUiEnabled);
+  // Resident phones get an "Ask" tab in the center of the bar: the assistant, not a section (see `residentBarWithAsk`).
+  const hasAssistant = useHasAxisAssistant();
+  const assistantLauncher = useAssistantLauncher();
+  const showAskTab = definition.kind === "resident" && hasAssistant;
+  const askUnread = useResidentAssistantUnread(showAskTab);
   // Admin folds Accounts / Money / Support into one row each; the row carries its tabs' counts.
   const navCounts = useMemo(
     () => (definition.kind === "admin" ? mergeAdminGroupCounts(rawNavCounts) : rawNavCounts),
@@ -296,7 +306,7 @@ export function PortalSidebar({
     // Resident lifecycle tabs stay visible while stage-locked so the bar can show
     // Lease / Payments before approval and Services after signing; a section the
     // manager's plan locks never takes a slot (`portalBottomBarShowsSection`).
-    return primary.filter((item) =>
+    const shown = primary.filter((item) =>
       portalBottomBarShowsSection({
         kind: definition.kind,
         section: item.section,
@@ -305,7 +315,10 @@ export function PortalSidebar({
         coManagerRestricted: restrictedSections.has(item.section),
       }),
     );
-  }, [definition.kind, nativeBottomNavSplit, subscriptionTier, residentNavStage, restrictedSections]);
+    // The Ask tab takes the center slot; the section it displaces moves into More (which sums its badge).
+    return showAskTab ? residentBarWithAsk(shown).bar : shown;
+  }, [definition.kind, nativeBottomNavSplit, subscriptionTier, residentNavStage, restrictedSections, showAskTab]);
+  const askBarIndex = showAskTab ? residentBarWithAsk(nativeBottomNavItems).askIndex : -1;
   const showMoreTab = showMobileNav && nativeBottomNavShowMoreTab(definition.kind, navItems);
   // A record page no longer has a bottom bar of its own (PLAN-0921-1029) —
   // this bar is never hidden on its account any more.
@@ -941,11 +954,21 @@ export function PortalSidebar({
                 ref={bottomNavScrollRef}
                 className="portal-native-bottom-nav-scroll relative z-0 grid w-full min-w-0 pt-1"
                 style={{
-                  gridTemplateColumns: `repeat(${nativeBottomNavItems.length + (showMoreTab ? 1 : 0)}, minmax(0, 1fr))`,
+                  gridTemplateColumns: `repeat(${nativeBottomNavItems.length + (showAskTab ? 1 : 0) + (showMoreTab ? 1 : 0)}, minmax(0, 1fr))`,
                 }}
                 aria-label="Portal sections"
               >
-                {nativeBottomNavItems.map((s) => renderMobileNavLink(s, "bottom"))}
+                {nativeBottomNavItems.map((s, index) => (
+                  <Fragment key={`${s.section}-${s.sectionTabId ?? "default"}`}>
+                    {index === askBarIndex ? (
+                      <PortalNativeAskNavButton open={assistantLauncher.assistantOpen} unread={askUnread} onClick={assistantLauncher.toggle} />
+                    ) : null}
+                    {renderMobileNavLink(s, "bottom")}
+                  </Fragment>
+                ))}
+                {showAskTab && askBarIndex >= nativeBottomNavItems.length ? (
+                  <PortalNativeAskNavButton open={assistantLauncher.assistantOpen} unread={askUnread} onClick={assistantLauncher.toggle} />
+                ) : null}
                 {showMoreTab ? (
                   <PortalNativeMoreNavButton
                     active={moreTabActive}

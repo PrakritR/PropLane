@@ -34,6 +34,7 @@ import { TestAccountUnavailable } from "@/components/portal/test-account-unavail
 import { isTestWorkspaceFeatureEnabled, resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
 import { ViewAsBanner } from "@/components/portal/view-as-banner";
 import { getViewAsBannerState } from "@/lib/auth/view-as-banner.server";
+import { createPhaseTimer } from "@/lib/server-timing";
 
 function isResidentApplicationsApplyPath(pathname: string): boolean {
   return pathname === "/resident/applications/apply";
@@ -44,37 +45,51 @@ function isResidentTourPath(pathname: string): boolean {
 }
 
 export default async function ResidentLayout({ children }: { children: React.ReactNode }) {
+  // Phase durations are logged in development only; production output is unchanged.
+  const timer = createPhaseTimer();
   const pathname = (await headers()).get("x-pathname") ?? "";
   await assertPortalLayoutRole("resident", "resident", {
     allowSignedInApplyGate: isResidentApplicationsApplyPath(pathname),
     allowResidentTourAccess: isResidentTourPath(pathname),
   });
 
-  const residentCatalog = await getResidentPortalDefinition();
-  const { profile, user } = await getEffectiveSessionForPortal("resident");
-  const managerSubscriptionTier = profile?.manager_id?.trim()
-    ? await getManagerSubscriptionTierByManagerId(profile.manager_id.trim())
-    : null;
-  const access = await loadResidentPortalAccessState({
-    userId: user?.id ?? null,
-    role: profile?.role,
-    email: profile?.email ?? user?.email ?? null,
-    managerSubscriptionTier,
-  });
-  const residentPortal = residentCatalog;
-  const [sidebarCollapsed, assistantDockCollapsed] = await Promise.all([
+  // The catalog, the session and the two cookie reads are independent of each other, so they resolve together.
+  // `assertPortalLayoutRole` above still gates everything that follows.
+  const [residentCatalog, { profile, user }, sidebarCollapsed, assistantDockCollapsed] = await Promise.all([
+    timer.timed("catalog", () => getResidentPortalDefinition()),
+    timer.timed("session", () => getEffectiveSessionForPortal("resident")),
     getSidebarCollapsed(),
     getAssistantDockCollapsed(),
   ]);
-
-  const residentNavStage = resolveResidentPortalNavStage(access);
-  const testWorkspace = user ? await resolveTestWorkspaceClassification(user.id) : { kind: "normal" as const };
+  // The access state (needs the manager's tier, which needs the profile), the test-workspace classification and the
+  // "View as" banner state each need only the session, so they resolve together. A test-workspace refusal below
+  // still returns before any of the others is rendered.
+  const accessRead = timer.timed("access", async () => {
+    const managerSubscriptionTier = profile?.manager_id?.trim()
+      ? await getManagerSubscriptionTierByManagerId(profile.manager_id.trim())
+      : null;
+    const access = await loadResidentPortalAccessState({
+      userId: user?.id ?? null,
+      role: profile?.role,
+      email: profile?.email ?? user?.email ?? null,
+      managerSubscriptionTier,
+    });
+    return { managerSubscriptionTier, access };
+  });
+  // Never leave the read unhandled if the refusal below returns before it is awaited (the await rethrows it).
+  accessRead.catch(() => undefined);
+  const [testWorkspace, viewAs] = await Promise.all([
+    user ? timer.timed("testWorkspace", () => resolveTestWorkspaceClassification(user.id)) : Promise.resolve({ kind: "normal" as const }),
+    getViewAsBannerState(),
+  ]);
   if (testWorkspace.kind === "classified" && (testWorkspace.state !== "active" || !isTestWorkspaceFeatureEnabled())) {
+    timer.logInDevelopment("resident/layout (test workspace unavailable)");
     return <TestAccountUnavailable state={testWorkspace.state} />;
   }
-
-  // A "View as" support session: banner on top, assistant off.
-  const viewAs = await getViewAsBannerState();
+  const { managerSubscriptionTier, access } = await accessRead;
+  const residentPortal = residentCatalog;
+  const residentNavStage = resolveResidentPortalNavStage(access);
+  timer.logInDevelopment("resident/layout");
 
   return (
     // The resident assistant must carry its own role-scoped endpoint: the default manager endpoint

@@ -85,8 +85,7 @@ export async function POST(req: Request) {
           next = destination.redirectTo;
         }
       } catch {
-        // A resident sign-up that could not resolve its portal falls back to the role chooser, never to a guess.
-        next = result.created ? newNumberPath(intendedPathFrom(body.next)) : undefined;
+        next = undefined;
         destination = null;
       }
     }

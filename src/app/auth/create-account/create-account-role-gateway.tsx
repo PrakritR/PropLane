@@ -65,7 +65,7 @@ function CreateAccountHubShell({
  * lands on ManagerTrialSignupForm + `/api/auth/manager-register`, not the hub
  * signup route that deferred role and trial state to get-started.
  */
-export function CreateAccountRoleGateway() {
+export function CreateAccountRoleGateway({ phoneSignup = false }: { phoneSignup?: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const role = searchParams.get("role")?.trim().toLowerCase() ?? "";
@@ -119,7 +119,7 @@ export function CreateAccountRoleGateway() {
   }
 
   if (role === "generic" || isCreateRoleParam(role)) {
-    return <PortalAuthForm />;
+    return <PortalAuthForm phoneSignup={phoneSignup} />;
   }
 
   const selectRole = (nextRole: string) => {
