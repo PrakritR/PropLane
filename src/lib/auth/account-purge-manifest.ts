@@ -1423,6 +1423,7 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   resident_charge_payment_slots: "Identity-free child of a charge, checkout attempt, or autopay run; those account-owned parents delete it by cascade.",
   platform_source_refund_evidence: "Opaque Stripe refund/charge evidence can arrive before an owned allocation; retain it to prevent a later payment replay from minting refunded funds, then reconcile by exact provider source.",
   portal_inbox_thread_aliases: "Child of portal_inbox_thread_records; the old ids a folded conversation answers to are deleted by cascade with it.",
+  inbox_message_provider_refs: "Child of portal_inbox_thread_records; a provider message id (Twilio SID / Resend id) mapped to its inbox message for delivery status, deleted by cascade with the conversation.",
   sms_projection_cutover: "Global SMS migration readiness only; contains no account data.",
   vendor_work_identity_runtime: "Global sponsored-identity runtime limits; it contains no account data.",
   vendor_work_identity_operations: "Child of vendor_work_identities; removed by identity cascade after release is queued.",

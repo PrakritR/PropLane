@@ -161,6 +161,8 @@ import {
   ALSO_CREATE_IDS,
   MANAGER_APPLICATION_TEXT_KEYS,
   emptyAddPersonForm,
+  reachByDetails,
+  reachByFormFields,
   type AddPersonForm,
 } from "@/components/portal/resident-wizard/state";
 import {
@@ -2449,6 +2451,7 @@ export function ManagerResidents({
       moveInFee: savedFee || app?.managerMoveInFeeOverride?.trim() || "",
       securityDeposit: savedDeposit || app?.managerSecurityDepositOverride?.trim() || "",
       notes: row.manualResidentDetails?.notes || "",
+      ...reachByFormFields(row.manualResidentDetails),
       alsoCreate: [...ALSO_CREATE_IDS],
       application: app ? ({ ...app } as AddPersonForm["application"]) : {},
     };
@@ -2666,6 +2669,7 @@ export function ManagerResidents({
         roomNumber: selectedRoomLabel || undefined,
         leaseTerm: leaseTerm.trim() || undefined,
         notes: notes.trim() || undefined,
+        ...(from ? { reachBy: undefined, noPhone: undefined, ...reachByDetails(from) } : {}),
       },
       application: baseApplication
         ? {

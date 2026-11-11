@@ -201,6 +201,8 @@ export function diffResidentEdit(
     email: string;
     phone: string;
     preferredContact: "email" | "sms";
+    reachBy?: readonly string[];
+    noPhone?: boolean;
     propertyId: string;
     roomId: string;
     bundleId: string;

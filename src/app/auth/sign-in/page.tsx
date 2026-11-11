@@ -1,18 +1,18 @@
 import { NativeAuthHub } from "@/components/auth/native-auth-hub";
-import { loadSharedLineConfig } from "@/lib/one-number/config.server";
+import { phoneSignInEnabled } from "@/lib/auth/phone-auth.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
-// The shared-line rollout is a runtime switch, never a build-time snapshot.
+// Phone sign-in works in every line mode; whether it is on is a runtime read, never a build-time snapshot.
 export const dynamic = "force-dynamic";
 
 async function readPhoneFirstPreference(): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const config = await Promise.race([
-      loadSharedLineConfig(createSupabaseServiceRoleClient()),
+    const enabled = await Promise.race([
+      phoneSignInEnabled(createSupabaseServiceRoleClient()),
       new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), 1500); }),
     ]);
-    return config?.mode === "shared";
+    return enabled === true;
   } catch {
     return false;
   } finally {

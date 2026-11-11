@@ -4,7 +4,7 @@
 -- credential, but nothing in a browser has any reason to read this table. Additive only.
 create table if not exists public.inbox_message_provider_refs (
   provider_id text primary key,
-  thread_record_id text not null,
+  thread_record_id text not null references public.portal_inbox_thread_records(id) on delete cascade,
   message_id text not null,
   channel text not null check (channel in ('sms','email')),
   created_at timestamptz not null default now()
