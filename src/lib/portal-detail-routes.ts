@@ -378,9 +378,9 @@ export function residentMoveInFormsHref(basePath: string, residentId: string, re
   return residentFormsHref(basePath, residentsTab, residentId);
 }
 
-/** The resident's record with Edit resident opened (the Send lease screen's ✎). */
-export function residentEditHref(basePath: string, residentId: string): string {
-  return `${residentDetailHref(basePath, "potential", residentId, "overview")}?edit=1`;
+/** The resident's record with Edit resident opened (the Send lease screen's ✎). `focus: "email"` lands on the Email field. */
+export function residentEditHref(basePath: string, residentId: string, focus?: "email"): string {
+  return `${residentDetailHref(basePath, "potential", residentId, "overview")}?edit=1${focus ? `&focus=${focus}` : ""}`;
 }
 
 export function residentListHref(basePath: string, tab: ResidentsTabId): string {

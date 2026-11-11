@@ -556,6 +556,18 @@ Plan `channels-sync-1027` (captain, Oct 27). No migration; one production row wa
   "Check-in tomorrow", "Check-out today") carries `rollKey` (`bookingNoticeRollKey` of the booking record key) on its
   message, and `groupNoticesByBooking` returns one reservation's notices together. Existing messages stay as history.
 
+## Residents counts long-term people by default (captain, 2026-11-10)
+
+The Residents list (`pro-residents.tsx`) has a Stay filter in its Filter popover: Long-term (default) / Short stays /
+All (`resident-list-filters.ts`). A row is a short stay when `bookingResidency`, a `rentalType` other than
+`standard` (absent reads as standard), an iCal source id, or a derived channel stay; channel guests are short stays by
+definition. The Current tab's count and rows follow the filter, so the default Current number is long-term people and
+agrees with the Dashboard's rooms-occupied figure; guests stay one choice away and always in Bookings. The Contact
+filter "Missing phone" lists people with no phone on record and offers "Ask these N for their phone" (one per-person
+inbox send each, re-authorized by the existing route; the link is the resident's Settings, Profile). The homepage
+"N of M rooms occupied" is computed from the public occupancy snapshot, cached hourly
+(`marketing/track-record-live.server.ts`), and falls back to the last stated 26 of 28.
+
 ## Daily check-in / check-out text
 
 `src/lib/one-number/checkin-digest.ts` (pure) reads the same `PropertyBookingEntry` rows Bookings draws (`occupancyEntriesForManager`, the entries half of `occupancySnapshotForManager`): a check-in is `start === today`, a check-out is the day after `end` (the last night; an open-ended stay never checks out), and a closure, cancellation, unpaid hold or channel "Not available" is never a stay. `checkin-digest.server.ts` sends one line per house to the owner's alert phones at 7 AM Pacific; guests are first names only.

@@ -30,6 +30,8 @@ export type ManagerAttentionInput = {
   draftPropertyCount: number;
   draftsHref: string;
   unreadConversationCount: number;
+  /** Conversations whose latest outbound message failed on every channel (`latestOutboundDeliveryFailed`). */
+  undeliveredConversationCount?: number;
 };
 
 export const MANAGER_ATTENTION_MAX_ROWS = 6;
@@ -47,8 +49,18 @@ export function buildManagerAttentionRows(input: ManagerAttentionInput): Manager
     draftPropertyCount,
     draftsHref,
     unreadConversationCount,
+    undeliveredConversationCount = 0,
   } = input;
   const rows: ManagerAttentionRow[] = [];
+  if (undeliveredConversationCount > 0) {
+    rows.push({
+      id: "undelivered",
+      title: `${undeliveredConversationCount} ${undeliveredConversationCount === 1 ? "message" : "messages"} didn't deliver`,
+      actionLabel: "Review",
+      href: `${BASE}/communication/active?filter=not-delivered`,
+      tone: "danger",
+    });
+  }
   if (overdueChargeCount > 0) {
     rows.push({
       id: "overdue",

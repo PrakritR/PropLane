@@ -13,6 +13,8 @@ import {
   type NotificationPreferences,
 } from "@/lib/notification-preferences";
 import { isPhoneOptedOut } from "@/lib/sms-consent";
+import { REACH_CHANNELS, normalizeReachBy, type ReachChannel } from "@/lib/recipient-channels";
+import { loadReachByForEmails, saveReachByForResidentEmail } from "@/lib/recipient-channels.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -44,6 +46,8 @@ type AuthedContext = {
   db: ServiceRoleClient;
   userId: string;
   phone: string;
+  /** The signed-in person's own address: the only key Reach by is ever read or written under. */
+  email: string;
 };
 
 /**
@@ -75,7 +79,7 @@ async function authorize(): Promise<
     return { ok: false, response: NextResponse.json({ error: "Residents only." }, { status: 403 }) };
   }
 
-  return { ok: true, ctx: { db, userId: user.id, phone: String(profile?.phone ?? "").trim() } };
+  return { ok: true, ctx: { db, userId: user.id, phone: String(profile?.phone ?? "").trim(), email: String(user.email ?? "").trim().toLowerCase() } };
 }
 
 /**
@@ -90,6 +94,12 @@ async function resolveSmsAvailability(ctx: AuthedContext): Promise<SmsAvailabili
   const optedOut = await isPhoneOptedOut(ctx.db, ctx.phone, { userId: ctx.userId });
   if (optedOut) return { available: false, reason: "opted_out", message: SMS_STOP_MESSAGE };
   return { available: true };
+}
+
+/** The caller's own Reach by (every channel until they choose). Never keyed on anything from the request. */
+async function loadOwnReachBy(ctx: AuthedContext): Promise<ReachChannel[]> {
+  const found = await loadReachByForEmails(ctx.db, [ctx.email]);
+  return found.get(ctx.email) ?? [...REACH_CHANNELS];
 }
 
 export async function GET() {
@@ -115,7 +125,7 @@ export async function GET() {
     const text = normalizeResidentTextSettings((row?.row_data as Record<string, unknown> | null)?.resident);
     const sms = await resolveSmsAvailability(auth.ctx);
 
-    return NextResponse.json({ categories: NOTIFICATION_CATEGORIES, preferences, text, sms });
+    return NextResponse.json({ categories: NOTIFICATION_CATEGORIES, preferences, text, sms, reachBy: await loadOwnReachBy(auth.ctx) });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not load notification preferences.";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -123,7 +133,7 @@ export async function GET() {
 }
 
 type ChannelPatch = { email?: unknown; sms?: unknown };
-type PatchBody = { preferences?: unknown; text?: unknown };
+type PatchBody = { preferences?: unknown; text?: unknown; reachBy?: unknown };
 
 /**
  * Merges an incoming per-category channel patch ONTO the caller's current
@@ -163,6 +173,19 @@ export async function PATCH(req: Request) {
       body = (await req.json()) as PatchBody;
     } catch {
       return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    }
+    // Reach by: written onto the caller's own resident record(s) under their session email. The app is always on.
+    if (Array.isArray(body.reachBy)) {
+      const reachBy = normalizeReachBy(body.reachBy) ?? [...REACH_CHANNELS];
+      const saved = await saveReachByForResidentEmail(db, auth.ctx.email, reachBy);
+      if (saved === 0) {
+        return NextResponse.json({ error: "There is no resident record to save this on yet." }, { status: 409 });
+      }
+      if (!body.preferences && !body.text) {
+        const sms = await resolveSmsAvailability(auth.ctx);
+        const [preferences, text] = await Promise.all([loadNotificationPreferences(db, userId), loadResidentTextSettings(db, userId)]);
+        return NextResponse.json({ categories: NOTIFICATION_CATEGORIES, preferences, text, sms, reachBy });
+      }
     }
     // The resident's own text settings (quiet hours) ride the same route.
     if (body.text && typeof body.text === "object") {

@@ -2,7 +2,7 @@ import { HOME_DESCRIPTION } from "@/lib/marketing/home-copy";
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 import { RATE_CARD, annualDiscountPercent, formatRateCardUsd } from "@/lib/billing/rate-card";
 import { MANAGED_SERVICE_HREF, MANAGED_SERVICE_NAME } from "@/lib/marketing/managed-service";
-import { TRACK_RECORD } from "@/lib/marketing/track-record";
+import { STATED_ROOM_OCCUPANCY, TRACK_RECORD, type RoomOccupancy } from "@/lib/marketing/track-record";
 import { BLOG_POSTS, formatBlogDate, type BlogPost } from "@/lib/blog/posts";
 import { MANAGER_SUBSCRIPTION_TRIAL_DAYS } from "@/lib/stripe/subscription-checkout-session";
 
@@ -54,11 +54,12 @@ const DOCS: Entry[] = [
   { title: "MCP server and API", path: "/docs/mcp", note: "Connect an AI agent to PropLane with browser-authorized MCP or a scoped REST API key." },
 ];
 
-const PRODUCT: Entry[] = [
+function productEntries(occupancy: RoomOccupancy): Entry[] {
+  return [
   { title: "Home", path: "/", note: "What PropLane does, from first tour to fixed faucet." },
   { title: "How it works", path: "/#how", note: "One PropLane number for prospects, residents, vendors and accepted workspace members." },
   { title: "Why PropLane", path: "/#service", note: "PropLane's founders manage Airbnb and room-rental homes in Seattle themselves, which produced six-figure profit; PropLane is the system they built to run them." },
-  { title: "Our track record", path: "/#service", note: `The ${TRACK_RECORD.homes} Seattle homes PropLane runs itself: ${TRACK_RECORD.roomsOccupied} of ${TRACK_RECORD.roomsTotal} rooms occupied, and an operation that produced six-figure profit.` },
+  { title: "Our track record", path: "/#service", note: `The ${TRACK_RECORD.homes} Seattle homes PropLane runs itself: ${occupancy.roomsOccupied} of ${occupancy.roomsTotal} rooms occupied, and an operation that produced six-figure profit.` },
   { title: "How we manage", path: "/#service", note: "How PropLane Managed runs a home: leasing, rent, maintenance, short-term and room rentals, a 24/7 texting line and owner reporting." },
   { title: "The software", path: "/#dashboard", note: "The AI assistant does the relaying between residents, vendors and owners; you approve what matters." },
   { title: "For managers and landlords", path: "/partner", note: "List, screen, lease and collect from one queue on web and iPhone." },
@@ -66,7 +67,8 @@ const PRODUCT: Entry[] = [
   { title: "PropLane for iPhone", path: "/app", note: "The approval queue on your phone." },
   { title: "Browse homes", path: "/rent/browse", note: "Public rental listings on PropLane." },
   { title: "Security", path: "/security", note: "How resident, applicant and property data is protected." },
-];
+  ];
+}
 
 const PRICING: Entry[] = [
   { title: MANAGED_SERVICE_NAME, path: MANAGED_SERVICE_HREF, note: "We manage your home on PropLane: leasing and tenant placement, rent collection, maintenance with vendors, short-term and room rentals, a 24/7 texting line and owner reporting. Custom, quoted per home." },
@@ -89,7 +91,11 @@ function header(): string {
   return `# PropLane\n\n> ${LLMS_SUMMARY}\n`;
 }
 
-export function buildLlmsTxt(origin: string = llmsOrigin(), posts: readonly BlogPost[] = BLOG_POSTS): string {
+export function buildLlmsTxt(
+  origin: string = llmsOrigin(),
+  posts: readonly BlogPost[] = BLOG_POSTS,
+  occupancy: RoomOccupancy = STATED_ROOM_OCCUPANCY,
+): string {
   const blog: Entry[] = [
     { title: "Blog", path: "/blog", note: "Research-backed notes on running rentals; every figure cites its source." },
     ...posts.map((p) => ({ title: p.title, path: `/blog/${p.slug}`, note: p.description })),
@@ -97,7 +103,7 @@ export function buildLlmsTxt(origin: string = llmsOrigin(), posts: readonly Blog
   return [
     header(),
     section(origin, "Docs", DOCS),
-    section(origin, "Product", PRODUCT),
+    section(origin, "Product", productEntries(occupancy)),
     section(origin, "Pricing", PRICING),
     section(origin, "Blog", blog),
     section(origin, "Optional", OPTIONAL),
@@ -140,8 +146,12 @@ function blogPostText(origin: string, post: BlogPost): string {
   return out.join("\n");
 }
 
-export function buildLlmsFullTxt(origin: string = llmsOrigin(), posts: readonly BlogPost[] = BLOG_POSTS): string {
-  const pages = [...DOCS, ...PRODUCT, ...PRICING, ...OPTIONAL]
+export function buildLlmsFullTxt(
+  origin: string = llmsOrigin(),
+  posts: readonly BlogPost[] = BLOG_POSTS,
+  occupancy: RoomOccupancy = STATED_ROOM_OCCUPANCY,
+): string {
+  const pages = [...DOCS, ...productEntries(occupancy), ...PRICING, ...OPTIONAL]
     .map((e) => `### ${e.title}\n${origin}${e.path}\n\n${e.note}\n`)
     .join("\n");
   const plans =

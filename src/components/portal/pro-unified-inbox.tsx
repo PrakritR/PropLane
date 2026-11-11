@@ -133,6 +133,7 @@ import {
 } from "@/lib/manager-sms-archive.client";
 import { loadManagerSmsOpenedIds, markManagerSmsOpenedIds } from "@/lib/manager-sms-opened.client";
 import { loadSmsHiddenIds } from "@/lib/manager-sms-hidden.client";
+import { latestOutboundDeliveryFailed } from "@/lib/inbox-delivery-status";
 import { startObservedInboxReadOperation } from "@/lib/portal-inbox-read-operation.client";
 import { applySmsProjectionListMutation } from "@/lib/sms-projection-list-reconciliation";
 
@@ -869,6 +870,7 @@ export function ManagerUnifiedInbox({
         previewPrefix: lastOutbound ? "You: " : undefined,
         time: formatInboxListNarrowTime(lastMsg?.at ?? t.time),
         unread: t.folder === "inbox" && t.unread,
+        notDelivered: latestOutboundDeliveryFailed(t) || undefined,
         // The house the server resolved the thread to be about — the same set
         // that decided the row is visible at all. The contact directory (joined
         // by email) is the fallback for rows the server could not place.
@@ -1205,6 +1207,7 @@ export function ManagerUnifiedInbox({
     ? mergedRows.filter((row) => {
         if (statusFilter === "read") return !row.unread;
         if (statusFilter === "unread") return row.unread;
+        if (statusFilter === "notDelivered") return row.notDelivered === true;
         return true;
       })
     : [];
@@ -1620,6 +1623,7 @@ export function ManagerUnifiedInbox({
               previewPrefix={row.previewPrefix}
               time={row.time}
               unread={row.unread}
+              notDelivered={row.notDelivered}
               selected={selectedKey === row.key}
               onOpen={() => {
                 explicitlyOpened.current = { key: row.key, context: selectionContext };

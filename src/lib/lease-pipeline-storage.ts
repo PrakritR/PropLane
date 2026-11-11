@@ -1,4 +1,5 @@
 import { shortStayPricingBlocker, type ShortStayPricingSubmission } from "@/lib/short-stay-pricing-gate";
+import { leaseRecipientEmailBlocker } from "@/lib/lease-send-recipient";
 /**
  * Unified manager / admin / resident lease workflow backed by Supabase records.
  * Buckets match UI tabs: manager → admin → resident → signed.
@@ -504,13 +505,13 @@ export function leaseApplicationApprovalBlocker(row: LeasePipelineRow): string |
  * checked by the callers, which know it without consulting anything else.
  */
 export const LEASE_LANDLORD_NAME_REQUIRED_MESSAGE =
-  "This lease still names \u201c[LANDLORD ENTITY NAME]\u201d as the landlord. Add your full name in Settings \u2192 Profile, then regenerate the lease before sending it.";
+  "This lease still names \u201c[LANDLORD ENTITY NAME]\u201d as the landlord. Add the landlord in Settings \u2192 Workspace \u2192 Leases, then regenerate the lease before sending it.";
 
 export const LEASE_LANDLORD_NAME_NOT_CONFIGURED_MESSAGE =
-  "Add your full name in Settings \u2192 Profile before sending this lease.";
+  "Add the landlord in Settings \u2192 Workspace \u2192 Leases before sending this lease.";
 
 export const LEASE_LANDLORD_NAME_MISMATCH_MESSAGE =
-  "This lease names a different landlord than your profile name. Regenerate the lease so the parties section matches.";
+  "This lease names a different landlord than your Landlord on leases setting. Regenerate the lease so the parties section matches.";
 export const LEASE_CONVERTED_IMPORT_REVIEW_REQUIRED_MESSAGE =
   "Compare the converted lease with the original PDF and confirm the exact version before sending it.";
 
@@ -572,6 +573,9 @@ export function leaseSendGateBlockerAmong(row: LeasePipelineRow, apps: DemoAppli
   if (!leasePipelineRowHasDocument(row)) {
     return "Generate or upload a lease document first.";
   }
+  // A placeholder (import) address is not a mailbox: refuse before the lease flips to "sent" for nobody.
+  const recipientBlocker = leaseRecipientEmailBlocker(row);
+  if (recipientBlocker) return recipientBlocker;
   const requireApproved = leaseSendRequiresApprovedApplication(readCachedLeasingPipelinePreferences());
   const approval = leaseApplicationApprovalBlockerAmong(row, apps, {
     requireApprovedApplication: requireApproved,

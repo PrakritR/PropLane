@@ -10,6 +10,11 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { MARKETING_REDIRECTS } from "@/lib/seo/marketing-routes";
+
+// The crawl route reads the live occupancy (public snapshot, cached hourly); the test reads the stated figure.
+vi.mock("@/lib/marketing/track-record-live.server", () => ({
+  liveRoomOccupancy: async () => ({ roomsOccupied: 26, roomsTotal: 28 }),
+}));
 import { GET as getLlms } from "@/app/llms.txt/route";
 import sitemap from "@/app/sitemap";
 import {
@@ -198,7 +203,7 @@ function existsRoute(rel: string): boolean {
 
 describe("crawl surfaces include the managed service", () => {
   it("llms.txt links the service page and the track record", async () => {
-    const body = await getLlms().text();
+    const body = await (await getLlms()).text();
     expect(body).toContain("/#service");
     expect(body).toContain(
       `${TRACK_RECORD.roomsOccupied} of ${TRACK_RECORD.roomsTotal}`,

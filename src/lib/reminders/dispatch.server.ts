@@ -183,6 +183,7 @@ export async function dispatchReminderRow(
     return "failed";
   }
   if (!(await reminderIsCurrent(db, row))) {
+    console.info("[reminders] dropped stale reminder", { id: row.id, kind: row.kind, subjectId: row.subjectId, leadMinutes: row.leadMinutes });
     await resolveReminder(db, row.id, workerId, "failed", "subject changed or is no longer active");
     return "failed";
   }
@@ -361,6 +362,9 @@ export async function dispatchReminderRow(
         deliverToPortalInbox: channels.inbox,
         deliverViaEmail: channels.email,
         deliverViaSms: channels.sms && moveInRendered?.smsAllowed !== false,
+        // The rule's own email switch narrows what the person's preferences allow (the text side is left to
+        // their preferences, Reach by and STOP, as before).
+        eventChannels: { email: channels.email },
         eventCategory: CATEGORY_BY_KIND[row.kind],
         automated: true,
         senderRole: "manager",

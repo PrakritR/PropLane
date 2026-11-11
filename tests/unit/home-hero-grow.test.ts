@@ -40,8 +40,10 @@ describe("single-page homepage composition", () => {
     );
   });
   it("derives every operating figure from the captain's track-record source", () => {
-    for (const field of ["homes", "roomsOccupied", "roomsTotal", "profit"])
-      expect(home).toContain(`TRACK_RECORD.${field}`);
+    for (const field of ["homes", "profit"]) expect(home).toContain(`TRACK_RECORD.${field}`);
+    // Rooms occupied is computed live (captain, 2026-11-10), never typed into the page.
+    expect(home).toContain("liveRoomOccupancy()");
+    for (const field of ["roomsOccupied", "roomsTotal"]) expect(home).toContain(`occupancy.${field}`);
     expect(home).not.toMatch(/TRACK_RECORD_HOMES|5257|5259|4709/);
   });
   it("restores the production page atmosphere with static motion on phones", () => {

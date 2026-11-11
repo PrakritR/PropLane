@@ -8,7 +8,7 @@ export type CommunicationFilterRole = "resident" | "management" | "admin" | "ven
 
 export type CommunicationThreadFilters = {
   /** `scheduled` is a phone-only list view of upcoming sends (the Schedule panel), not a thread filter. */
-  status?: "active" | "all" | "read" | "unread" | "archived" | "scheduled";
+  status?: "active" | "all" | "read" | "unread" | "notDelivered" | "archived" | "scheduled";
   propertyIds: string[];
   roles: CommunicationFilterRole[];
   contactIds: string[];

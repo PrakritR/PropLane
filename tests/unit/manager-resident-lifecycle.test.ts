@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildResidentLifecycle, formatResidentShortDate } from "@/lib/manager-resident-lifecycle";
+import { buildResidentLifecycle, formatResidentShortDate, resolveStage, leaseTurnOf } from "@/lib/manager-resident-lifecycle";
 
 const hrefs = {
   application: "/portal/residents/potential/a/application",
@@ -111,5 +111,57 @@ describe("manager-resident-lifecycle", () => {
     const text = JSON.stringify(snap);
     expect(text).toContain("$525");
     expect(text).not.toContain("$5.25");
+  });
+
+  // One reading of the lease, the way the Leases tabs read it, so the stage, the next step and
+  // the to-do can never disagree (the Nov 9 review: "Lease sent" + "waiting for your signature").
+  describe("resolveStage lease matrix", () => {
+    const lease = (over: Record<string, unknown>) => ({
+      id: "l1", residentName: "Casey", residentEmail: "c@example.com", unit: "R1", stageLabel: "x",
+      updated: "", pdfVersion: 1, notes: "", updatedAtIso: "", thread: [], ...over,
+    });
+    const stageOf = (l: Record<string, unknown>) => resolveStage(input({ leaseRows: [lease(l)] }) as never);
+    const snapOf = (l: Record<string, unknown>) => buildResidentLifecycle(input({ leaseRows: [lease(l)] }) as never, hrefs);
+
+    it("maps each lease state to one stage", () => {
+      expect(stageOf({ bucket: "manager", status: "Draft" })).toBe("lease_drafted");
+      expect(stageOf({ bucket: "manager" })).toBe("lease_drafted");
+      expect(stageOf({ bucket: "manager", status: "Manager Review" })).toBe("awaiting_your_signature");
+      expect(stageOf({ bucket: "manager", status: "Admin Review" })).toBe("awaiting_your_signature");
+      expect(stageOf({ bucket: "resident", status: "Resident Signature Pending" })).toBe("lease_sent");
+      expect(stageOf({ bucket: "signed", status: "Manager Signature Pending" })).toBe("awaiting_your_signature");
+      expect(stageOf({ bucket: "signed", status: "Fully Signed", managerSignature: { name: "M" } })).not.toBe("awaiting_your_signature");
+    });
+
+    it("labels follow the stage", () => {
+      expect(snapOf({ bucket: "manager", status: "Draft" }).stageLabel).toBe("Lease drafted");
+      expect(snapOf({ bucket: "resident", status: "Resident Signature Pending" }).stageLabel).toBe("Lease sent");
+      expect(snapOf({ bucket: "signed", status: "Manager Signature Pending" }).stageLabel).toBe("Your signature");
+    });
+
+    it("a draft never says waiting for your signature and offers Send lease", () => {
+      const snap = snapOf({ bucket: "manager", status: "Draft" });
+      expect(snap.next).toMatchObject({ label: "Send lease", actionId: "send-lease" });
+      expect(snap.todo.map((t) => t.title).join("|")).not.toMatch(/waiting for your signature/);
+      expect(snap.todo.map((t) => t.title)).toContain("Lease not sent");
+    });
+
+    it("a sent lease waits on the resident, with no signature ask of the manager", () => {
+      const snap = snapOf({ bucket: "resident", status: "Resident Signature Pending", sentToResidentAt: "2026-01-02" });
+      expect(snap.next).toMatchObject({ label: "Remind to sign" });
+      expect(snap.todo.map((t) => t.title).join("|")).toMatch(/resident to sign/);
+      expect(snap.todo.map((t) => t.title).join("|")).not.toMatch(/your signature/);
+    });
+
+    it("a resident-signed lease asks for the manager's signature", () => {
+      const snap = snapOf({ bucket: "signed", status: "Manager Signature Pending" });
+      expect(snap.next).toMatchObject({ label: "Sign lease", actionId: "sign-lease" });
+      expect(snap.todo.map((t) => t.title)).toContain("Lease waiting for your signature");
+    });
+
+    it("leaseTurnOf is the shared reading", () => {
+      expect(leaseTurnOf(null)).toBeNull();
+      expect(leaseTurnOf({ bucket: "signed", status: "Fully Signed" } as never)).toBe("signed");
+    });
   });
 });

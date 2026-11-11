@@ -3,6 +3,8 @@ import twilio from "twilio";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { shouldApplyTwilioStatus, twilioStatusRank } from "@/lib/sms/delivery-status";
 import { twilioWebhookAuthToken } from "@/lib/twilio-client.server";
+import { mapTwilioStatus } from "@/lib/inbox-delivery-status";
+import { applyProviderDeliveryStatus } from "@/lib/inbox-delivery-status.server";
 
 export const runtime = "nodejs";
 
@@ -79,6 +81,18 @@ export async function POST(req: Request) {
     if (applyError) {
       return NextResponse.json({ error: "Delivery status persistence unavailable." }, { status: 503 });
     }
+  }
+
+  // Mirror the status onto the inbox message this SID was recorded against (best-effort: a callback must
+  // always ack Twilio, and an SID nobody recorded — an automation text, a reply — is simply ignored).
+  const mapped = mapTwilioStatus(status, errorCode);
+  if (messageSid && mapped) {
+    await applyProviderDeliveryStatus(db, {
+      providerId: messageSid,
+      channel: "sms",
+      status: mapped.status,
+      error: mapped.error,
+    }).catch(() => undefined);
   }
 
   // Idempotent write keyed on message_sid: update the existing row in place, or

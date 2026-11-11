@@ -1,14 +1,14 @@
 /**
- * The landlord's legal name on generated leases — derived from the manager's account
- * profile (`profiles.full_name` in Settings → Profile).
+ * The landlord's legal name on generated leases. Order (captain, 2026-11-10):
+ *   1. the workspace setting "Landlord on leases" (Settings -> Workspace -> Leases), stored in
+ *      the workspace OWNER's `manager_automation_settings.row_data.landlordProfile`;
+ *   2. the workspace OWNER's `profiles.full_name`. On a PropLane-managed workspace the owner is
+ *      the client, never the staff member who is signed in;
+ *   3. the placeholder, which `leaseLandlordNameBlocker` refuses to send.
  *
  * Every generated lease has a Parties section and a signature block. The template falls
  * back to `[LANDLORD ENTITY NAME]` when no name is available, and `leaseLandlordNameBlocker`
  * refuses to send that document.
- *
- * A separate lease-settings field used to exist; it is gone. Account full name is the only
- * manager-facing source. `row_data.landlordProfile` may still hold legacy values from older
- * rows but is no longer written from the portal.
  */
 import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -85,6 +85,36 @@ export async function loadManagerLandlordLegalNameFromProfile(
     .maybeSingle();
   if (error) throw error;
   return landlordLegalNameFromAccountFullName(data?.full_name);
+}
+
+export type LandlordNameSource = "setting" | "owner" | "none";
+
+/**
+ * The one decision: the workspace setting wins, then the workspace owner's account name, else
+ * nothing. Both inputs are the OWNER's, so a signed-in staff member's own name never reaches it.
+ */
+export function pickLandlordLegalName(input: {
+  setting?: string | null;
+  ownerFullName?: string | null;
+}): { landlordLegalName: string; source: LandlordNameSource } {
+  const setting = normalizeManagerLandlordProfile({ landlordLegalName: input.setting }).landlordLegalName;
+  if (setting) return { landlordLegalName: setting, source: "setting" };
+  const owner = landlordLegalNameFromAccountFullName(input.ownerFullName);
+  if (owner) return { landlordLegalName: owner, source: "owner" };
+  return { landlordLegalName: "", source: "none" };
+}
+
+/** The landlord name for a workspace, read as its owner: setting, then owner's full name. */
+export async function resolveWorkspaceLandlordLegalName(
+  db: SupabaseClient,
+  ownerUserId: string,
+): Promise<{ landlordLegalName: string; source: LandlordNameSource; setting: string; ownerFullName: string }> {
+  const [profile, ownerFullName] = await Promise.all([
+    loadManagerLandlordProfile(db, ownerUserId),
+    loadManagerLandlordLegalNameFromProfile(db, ownerUserId),
+  ]);
+  const picked = pickLandlordLegalName({ setting: profile.landlordLegalName, ownerFullName });
+  return { ...picked, setting: profile.landlordLegalName, ownerFullName };
 }
 
 export async function loadManagerLandlordProfile(
@@ -191,14 +221,20 @@ export function cachedLandlordLegalName(): string {
   return memoryLandlordLegalName;
 }
 
-/** Load the account full name from the server and refresh the generator cache. */
-export async function fetchAndCacheLandlordLegalName(): Promise<string> {
+/**
+ * Load the workspace's landlord name from the server and refresh the generator cache. Read as the
+ * workspace OWNER (setting, then the owner's full name), never the signed-in user's own name.
+ */
+export async function fetchAndCacheLandlordLegalName(workspaceId?: string | null): Promise<string> {
   if (typeof window === "undefined") return "";
   try {
-    const res = await fetch("/api/profile", { credentials: "include", cache: "no-store" });
+    const params = new URLSearchParams();
+    if (workspaceId) params.set("workspaceId", workspaceId);
+    const query = params.toString() ? `?${params.toString()}` : "";
+    const res = await fetch(`/api/portal/manager-application-settings${query}`, { credentials: "include", cache: "no-store" });
     if (!res.ok) return cachedLandlordLegalName();
-    const data = (await res.json().catch(() => ({}))) as { fullName?: string | null };
-    const saved = landlordLegalNameFromAccountFullName(data.fullName);
+    const data = (await res.json().catch(() => ({}))) as { landlord?: { landlordLegalName?: string | null } };
+    const saved = normalizeManagerLandlordProfile({ landlordLegalName: data.landlord?.landlordLegalName }).landlordLegalName;
     cacheLandlordLegalName(saved);
     return saved;
   } catch {

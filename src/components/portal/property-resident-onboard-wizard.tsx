@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PHONE_REQUIRED_MESSAGE } from "@/lib/recipient-channels";
 import { FileUp } from "lucide-react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { WizardField, PreviewPanel } from "@/components/portal/add-workspace/parts";
@@ -107,6 +108,9 @@ export function PropertyResidentOnboardWizard({
   const [selectedRoomId, setSelectedRoomId] = useState("");
   const [sendAccountSetup, setSendAccountSetup] = useState(true);
   const [leaseFullyExecuted, setLeaseFullyExecuted] = useState(false);
+  // A blank Phone is a choice: either a number, or the explicit "No phone".
+  const [noPhone, setNoPhone] = useState(false);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
 
   const reset = useCallback(() => {
     setBusy(false);
@@ -280,6 +284,10 @@ export function PropertyResidentOnboardWizard({
       showToast("Resident name and email are required.");
       return;
     }
+    if (!fields.tenantPhone?.trim() && !noPhone) {
+      setPhoneError(PHONE_REQUIRED_MESSAGE);
+      return;
+    }
     if (!selectedPropertyId) {
       showToast("Select a property.");
       return;
@@ -434,13 +442,17 @@ export function PropertyResidentOnboardWizard({
               data-attr="property-onboard-tenantEmail"
             />
           </WizardField>
-          <WizardField label="Phone">
+          <WizardField label="Phone" required={!noPhone}>
             <Input
               type="tel"
               value={fields.tenantPhone ?? ""}
-              onChange={(e) => setField("tenantPhone", e.target.value)}
+              onChange={(e) => {
+                setField("tenantPhone", e.target.value);
+                if (e.target.value.trim()) { setNoPhone(false); setPhoneError(null); }
+              }}
               data-attr="property-onboard-tenantPhone"
             />
+            {phoneError ? <span role="alert" className="mt-1 block text-xs font-semibold text-destructive" data-attr="property-onboard-phone-error">{phoneError}</span> : null}
           </WizardField>
           <div data-wizard-picker="">
             <PickerLabel label="Property" />
@@ -502,6 +514,15 @@ export function PropertyResidentOnboardWizard({
           {money("monthlyUtilities", "Monthly utilities", "120.00")}
         </div>
         <PortalSettingsGroup>
+          <PortalSettingsRow label="No phone">
+            <PortalSettingsToggle
+              checked={noPhone && !fields.tenantPhone?.trim()}
+              onChange={(next) => { setNoPhone(next); if (next) setPhoneError(null); }}
+              disabled={Boolean(fields.tenantPhone?.trim())}
+              label="No phone"
+              dataAttr="property-onboard-no-phone"
+            />
+          </PortalSettingsRow>
           {leaseFile ? (
             <PortalSettingsRow label="Lease signed off-platform">
               <PortalSettingsToggle

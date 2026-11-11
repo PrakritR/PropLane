@@ -223,12 +223,31 @@ describe("POST /api/portal-lease-pipeline/mark-signed", () => {
     expect(stored().status).toBe("Manager Review");
   });
 
-  it("withdraws an unsigned request out for resident signature", async () => {
+  it("withdraws an unsigned request out for resident signature, with the signed PDF attached", async () => {
     seed(reviewRow({ bucket: "resident", status: "Resident Signature Pending", sentToResidentAt: "2026-09-13T01:00:00.000Z" }));
-    const res = await post({ leaseId: "lease_mark_1" });
+    const res = await post({ leaseId: "lease_mark_1", pdf: { dataUrl: SIGNED_PDF, fileName: "Luna-signed.pdf" } });
     expect(res.status).toBe(200);
     expect(stored().status).toBe("Fully Signed");
     expect(stored().sentToResidentAt).toBe("2026-09-13T01:00:00.000Z");
+    expect((stored().managerUploadedPdf as Row).originalDataUrl).toBe(SIGNED_PDF);
+  });
+
+  // Captain, 2026-11-10: Mark as signed stays, but needs the signed PDF. A sent lease's stored PDF is the
+  // unsigned copy that went out, so filing it as the executed document is refused.
+  it("refuses to file the unsigned sent copy as the signed lease", async () => {
+    seed(reviewRow({ bucket: "resident", status: "Resident Signature Pending", sentToResidentAt: "2026-09-13T01:00:00.000Z" }));
+    const none = await post({ leaseId: "lease_mark_1" });
+    expect(none.status).toBe(400);
+    const sameBytes = await post({ leaseId: "lease_mark_1", pdf: { dataUrl: STORED_PDF, fileName: "Luna-lease.pdf" } });
+    expect(sameBytes.status).toBe(400);
+    expect(stored().status).toBe("Resident Signature Pending");
+  });
+
+  it("refuses to mark a lease with no stored document and no PDF supplied", async () => {
+    seed(reviewRow({ managerUploadedPdf: null, generatedHtml: null }));
+    const res = await post({ leaseId: "lease_mark_1" });
+    expect(res.status).toBe(400);
+    expect(stored().status).toBe("Manager Review");
   });
 
   it("refuses once the resident has e-signed: countersign instead", async () => {

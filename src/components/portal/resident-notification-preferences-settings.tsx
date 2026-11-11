@@ -1,6 +1,6 @@
 "use client";
 
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Inbox } from "lucide-react";
 
@@ -14,6 +14,7 @@ import {
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { ChannelPreference, NotificationCategory, NotificationPreferences } from "@/lib/notification-preferences";
+import { REACH_CHANNELS, REACH_CHANNEL_LABELS, normalizeReachBy, type ReachChannel } from "@/lib/recipient-channels";
 import { DEFAULT_RESIDENT_TEXT_SETTINGS, normalizeResidentTextSettings, type ResidentTextSettings } from "@/lib/resident-text-settings";
 
 type SmsAvailability =
@@ -26,6 +27,7 @@ type ApiResponse = {
   preferences?: NotificationPreferences;
   sms?: SmsAvailability;
   text?: unknown;
+  reachBy?: unknown;
   error?: string;
 };
 
@@ -105,6 +107,7 @@ export function ResidentNotificationPreferencesSettings() {
   );
   const [sms, setSms] = useState<SmsAvailability | null>(demo ? { available: true } : null);
   const [text, setText] = useState<ResidentTextSettings>(DEFAULT_RESIDENT_TEXT_SETTINGS);
+  const [reachBy, setReachBy] = useState<ReachChannel[]>([...REACH_CHANNELS]);
   const [rowStatus, setRowStatus] = useState<Record<string, RowStatus>>({});
   const savedTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -124,6 +127,7 @@ export function ResidentNotificationPreferencesSettings() {
       setPreferences(body.preferences);
       setSms(body.sms ?? null);
       setText(normalizeResidentTextSettings(body.text));
+      setReachBy(normalizeReachBy(body.reachBy) ?? [...REACH_CHANNELS]);
       setLoadState("ready");
     } catch {
       setLoadState("error");
@@ -224,6 +228,27 @@ export function ResidentNotificationPreferencesSettings() {
     }
   };
 
+  const saveReachBy = async (next: string[]) => {
+    const previous = reachBy;
+    const chosen = normalizeReachBy(next) ?? [...REACH_CHANNELS];
+    setReachBy(chosen);
+    if (demo) return;
+    try {
+      const res = await fetch("/api/portal/resident-notification-preferences", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reachBy: chosen }),
+      });
+      const body = (await res.json().catch(() => ({}))) as ApiResponse;
+      if (!res.ok) throw new Error(body.error ?? "Could not save how to reach you.");
+      setReachBy(normalizeReachBy(body.reachBy) ?? chosen);
+    } catch (e) {
+      setReachBy(previous);
+      showToast(e instanceof Error ? e.message : "Could not save how to reach you.");
+    }
+  };
+
   const smsDisabled = !sms || sms.available === false;
   const smsReason =
     sms && sms.available === false
@@ -276,6 +301,21 @@ export function ResidentNotificationPreferencesSettings() {
               }
               reason="Always on — the durable record of every notification. It cannot be turned off."
             />
+          </PortalSettingsGroup>
+
+          <PortalSettingsGroup>
+            <PortalSettingsRow label="Reach by" className="flex-wrap gap-y-2.5">
+              <CheckboxMultiSelect
+                label="Reach by"
+                hideLabel
+                variant="cell"
+                className="w-44"
+                options={REACH_CHANNELS.map((channel) => ({ value: channel, label: REACH_CHANNEL_LABELS[channel], disabled: channel === "app" || (channel === "sms" && smsDisabled) }))}
+                selected={reachBy.filter((channel) => channel !== "sms" || !smsDisabled)}
+                onChange={(next) => void saveReachBy(next)}
+                dataAttr="resident-reach-by"
+              />
+            </PortalSettingsRow>
           </PortalSettingsGroup>
 
           {smsDisabled && smsReason ? (

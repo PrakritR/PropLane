@@ -132,7 +132,7 @@ describe("the send route delivers a reply under the thread owner's workspace", (
     expect(route).toContain("replyDeliveryContext(replyTarget");
     expect(route).toContain("hostReply?.managerUserId");
     expect(route).toContain("hostReply?.workspaceId");
-    expect(route).toMatch(/if \(!coHostReply\) await deliverPortalMessageThreadSide/);
+    expect(route).toMatch(/coHostReply \? null : await deliverPortalMessageThreadSide/);
     expect(route).toContain("senderDisplayName: coHostDisplayName(fromName)");
   });
 });

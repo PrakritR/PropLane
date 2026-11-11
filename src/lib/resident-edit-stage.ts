@@ -26,6 +26,9 @@ export type ResidentEditBaseline = {
   email: string;
   phone: string;
   preferredContact: "email" | "sms";
+  /** "app,email,sms" — the channels the person can be reached by. */
+  reachBy: string;
+  noPhone: string;
   propertyId: string;
   roomId: string;
   bundleId: string;
@@ -52,7 +55,7 @@ export type ResidentEditDiff = {
   any: boolean;
 };
 
-const CONTACT_KEYS = ["name", "phone", "preferredContact"] as const;
+const CONTACT_KEYS = ["name", "phone", "preferredContact", "reachBy", "noPhone"] as const;
 const HOME_KEYS = ["propertyId", "roomId", "bundleId"] as const;
 const LEASE_KEYS = [
   "leaseTerm",
@@ -67,6 +70,12 @@ const LEASE_KEYS = [
   "otherFeeAmount",
   "billingStart",
 ] as const;
+
+/** A stable string for a Reach by list: the app is always on, so an absent list and "every channel" read the same. */
+function reachByKey(raw: readonly string[] | undefined): string {
+  const picked = new Set(["app", ...(raw ?? ["email", "sms"])]);
+  return ["app", "email", "sms"].filter((channel) => picked.has(channel)).join(",");
+}
 
 function norm(value: unknown): string {
   return String(value ?? "").trim();
@@ -142,6 +151,8 @@ export function snapshotResidentEditBaseline(form: {
   email: string;
   phone: string;
   preferredContact: "email" | "sms";
+  reachBy?: readonly string[];
+  noPhone?: boolean;
   propertyId: string;
   roomId: string;
   bundleId: string;
@@ -163,6 +174,8 @@ export function snapshotResidentEditBaseline(form: {
     email: form.email,
     phone: form.phone,
     preferredContact: form.preferredContact,
+    reachBy: reachByKey(form.reachBy),
+    noPhone: form.noPhone ? "yes" : "",
     propertyId: form.propertyId,
     roomId: form.roomId,
     bundleId: form.bundleId,
@@ -205,7 +218,8 @@ export function diffResidentEdit(
     application: Record<string, unknown>;
   },
 ): ResidentEditDiff {
-  const differs = (key: keyof ResidentEditBaseline) => norm(baseline[key]) !== norm(form[key as keyof typeof form]);
+  const formKeyed: Record<string, unknown> = { ...form, reachBy: reachByKey(form.reachBy), noPhone: form.noPhone ? "yes" : "" };
+  const differs = (key: keyof ResidentEditBaseline) => norm(baseline[key]) !== norm(formKeyed[key]);
 
   const contact: string[] = [];
   for (const k of CONTACT_KEYS) {
@@ -261,6 +275,8 @@ const REVIEW_LABELS: Record<string, string> = {
   email: "Email",
   phone: "Phone",
   preferredContact: "Contact preference",
+  reachBy: "Reach by",
+  noPhone: "No phone",
   propertyId: "Property",
   roomId: "Room",
   bundleId: "Bundle",
@@ -287,6 +303,8 @@ export function residentEditReviewLines(
     "email",
     "phone",
     "preferredContact",
+    "reachBy",
+    "noPhone",
     "propertyId",
     "roomId",
     "bundleId",

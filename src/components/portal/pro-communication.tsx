@@ -116,9 +116,11 @@ export function ManagerCommunication({
   const isPhone = useIsPhoneViewport();
   const inboxRef = useRef<ManagerInboxHandle>(null);
   const smsRef = useRef<ManagerSmsPanelHandle>(null);
+  // The dashboard's "N messages didn't deliver" item lands here with ?filter=not-delivered.
+  const wantsNotDelivered = useSearchParams()?.get("filter") === "not-delivered";
   const [filters, setFilters] = useState<CommunicationThreadFilters>({
     ...EMPTY_COMMUNICATION_THREAD_FILTERS,
-    status: listSegmentProp === "unread" ? "unread" : "active",
+    status: listSegmentProp === "unread" ? "unread" : wantsNotDelivered ? "notDelivered" : "active",
   });
   useEffect(() => {
     setFilters((current) => {
@@ -289,7 +291,14 @@ export function ManagerCommunication({
     if (filters.status && filters.status !== "active" && filters.status !== "archived") {
       chips.push({
         id: "status",
-        label: filters.status === "read" ? "Read" : filters.status === "scheduled" ? "Scheduled" : "Unread",
+        label:
+          filters.status === "read"
+            ? "Read"
+            : filters.status === "scheduled"
+              ? "Scheduled"
+              : filters.status === "notDelivered"
+                ? "Not delivered"
+                : "Unread",
         onRemove: () => setFilters((f) => ({ ...f, status: "active" })),
       });
     }

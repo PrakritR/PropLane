@@ -1075,6 +1075,15 @@ to leak "On … wrote:" into the bubble. Coverage:
 `tests/unit/inbound-email-reply.test.ts`, `tests/unit/assistant-email-mirror-stamps.test.ts`,
 `tests/unit/manager-inbox-reply-channels.test.ts`, `tests/unit/inbox-bubble-alignment.test.tsx`.
 
+## Delivery status (Nov 10)
+
+- Every outbound text or email an inbox message goes out on records `deliveries: {channel, providerId, status, error, at}[]` on that message (`InboxThreadMessage.deliveries`; the root turn, which lives in `body`, uses `rootDeliveries`). Additive: a turn without it renders the plain Sent tick as before. Types and rules: `src/lib/inbox-delivery-status.ts`; writers: `inbox-delivery-status.server.ts`.
+- Status is provider truth, never inferred: the send path stamps `sent` (Twilio SID / Resend id) or `failed` with a reason; the signed `/api/twilio/status` callback and the Svix-signed `/api/webhooks/email/resend-events` (`RESEND_WEBHOOK_SECRET`, fail closed: 503 unset, 401 bad signature) advance it. A callback only advances (terminal `delivered`/`failed` never changes) and a replay is a no-op.
+- A provider id finds its message through `inbox_message_provider_refs` (service-role only, RLS on, no client grants). The send path writes the ref before the status; an id with no ref is ignored. A thread merged or deleted since the send simply has nothing to update.
+- A placeholder address (`@import.proplane.local`, sheet junk, a PropLane-minted stand-in; `isPlaceholderMailbox`) is recorded `failed` "Not a real mailbox" at send time and Resend is never handed it. Sandbox accounts skip mail on purpose and record nothing.
+- A message counts as not delivered only when EVERY channel it went on failed (a text that landed beside a bounced email is delivered). `latestOutboundDeliveryFailed` is the one decision for the red "Not delivered" glyph fact on the list row (never a pill), the Communication Filter's "Not delivered" option (a filter, not a tab) and the dashboard's "N messages didn't deliver" item (`?filter=not-delivered`).
+- A failed bubble shows one red strip: the plain reason, plus Retry and Send by text/email when the surface owns a composer (`InboxDeliveryActionsContext`; the manager inbox puts the message back in the composer on that channel, so the send stays the composer's own one path). Error wording lives in `twilioErrorMessage` / `mapResendEvent`, never in the bubble.
+
 ## Inbox attachments
 
 `src/lib/inbox-attachments.ts` (client) + `.server.ts` +
