@@ -1298,7 +1298,7 @@ export function ManagerCommunicationComposeModal({
       title="New message"
       previewLabel="Message preview"
       contextPanel={<PopupRecordPreview rows={[{ label: "Recipients", value: recipientSummary || "Not selected" }]} />}
-      preview={<PopupMessagePreview subject={subject} body={body} recipient={recipientSummary} channel={sendLabel} sendAt={scheduleLater ? sendAt : undefined} />}
+      preview={<PopupMessagePreview subject={isManager && viaSms && !viaPortalDelivery ? undefined : subject} body={body} recipient={recipientSummary} channel={sendLabel} sendAt={scheduleLater ? sendAt : undefined} />}
       secondaryAction={null}
       onClose={() => {
         sendOperationRef.current = null;
@@ -1369,7 +1369,10 @@ export function ManagerCommunicationComposeModal({
             dataAttr="communication-compose-type"
           />
         ) : null}
-        <PortalMessageSubjectField value={subject} onChange={setSubject} dataAttr="communication-compose-subject" />
+        {/* A text has no subject: a text-only send hides the field (and it never enters the checklist or preview). */}
+        {isManager && viaSms && !viaPortalDelivery ? null : (
+          <PortalMessageSubjectField value={subject} onChange={setSubject} dataAttr="communication-compose-subject" />
+        )}
 
         <PortalMessageBodyField
           value={body}

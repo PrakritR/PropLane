@@ -102,7 +102,10 @@ export async function POST(req: Request) {
       !Number.isSafeInteger(item.amountCents) || item.amountCents <= 0)) {
       return NextResponse.json({ error: "Enter a valid return amount and itemization." }, { status: 400 });
     }
-    const withhold = items.reduce((sum, item) => sum + item.amountCents, 0);
+    // Only the two fields the settlement reads reach the RPC: any other key a caller attached (evidence, notes,
+    // ids) is dropped here, never stored in the itemization.
+    const itemization = items.map((item) => ({ label: String(item.label).trim(), amountCents: item.amountCents as number }));
+    const withhold = itemization.reduce((sum, item) => sum + item.amountCents, 0);
     if (!Number.isSafeInteger(withhold)) return NextResponse.json({ error: "Invalid deductions." }, { status: 400 });
     const { data: deposit, error: depositError } = await db.from("security_deposit_ledger").select("id,amount_held_cents,property_id")
       .eq("manager_user_id", user.id).eq("source_charge_id", chargeId).maybeSingle();
@@ -116,7 +119,7 @@ export async function POST(req: Request) {
     const operationId = randomUUID();
     const { data: attempt, error: reserveError } = await db.rpc("reserve_security_deposit_return", {
       p_owner: user.id, p_deposit: deposit.id, p_charge: chargeId, p_request_key: operationId,
-      p_expected_held: deposit.amount_held_cents, p_refund: amount, p_withhold: withhold, p_itemization: items,
+      p_expected_held: deposit.amount_held_cents, p_refund: amount, p_withhold: withhold, p_itemization: itemization,
     });
     if (reserveError || !attempt?.id) return NextResponse.json({ error: "Deposit return requires review before retrying." }, { status: 409 });
     // A replay of the SAME submission that already reached the provider: report what is stored.

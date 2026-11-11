@@ -33,6 +33,8 @@ if (!url || !serviceKey) {
 
 import {
   DELETE_ORDER,
+  DETACH_ONLY_TABLES,
+  detachSteps,
   EMAIL_COLUMNS,
   ID_COLUMNS,
   IDENTITY_TABLES,
@@ -115,6 +117,15 @@ async function main() {
   for (const table of DELETE_ORDER) {
     const columns = await scopingColumnsFor(table);
     if (columns === null) continue; // table not in this schema
+    if (table in DETACH_ONLY_TABLES) {
+      // Retained evidence: detach this account's id instead of deleting the row.
+      for (const { column, filter } of detachSteps(table, columns, { userId })) {
+        const counted = await rest(`${table}?select=*&${filter}`, { headers: { Prefer: "count=exact", Range: "0-0" } });
+        const total = Number(counted.contentRange?.split("/")?.[1] ?? 0);
+        if (total > 0) plan.push({ table, filter, total, columns: [column], detach: column });
+      }
+      continue;
+    }
     const filter = ownershipFilter(columns, { userId, email });
     if (!filter) continue;
     const counted = await rest(`${table}?select=*&${filter}`, { headers: { Prefer: "count=exact", Range: "0-0" } });
@@ -126,9 +137,9 @@ async function main() {
     console.log("Nothing to delete — no rows reference this account by any scoping column.");
   }
   for (const step of plan) {
-    console.log(`  ${String(step.total).padStart(6)}  ${step.table}  (${step.columns.join(", ")})`);
+    console.log(`  ${String(step.total).padStart(6)}  ${step.table}  (${step.columns.join(", ")})${step.detach ? "  detach only" : ""}`);
   }
-  console.log(`\n  ${plan.reduce((n, s) => n + s.total, 0)} rows across ${plan.length} tables`);
+  console.log(`\n  ${plan.reduce((n, s) => n + s.total, 0)} rows across ${plan.length} steps`);
 
   if (!apply) {
     console.log("\nRe-run with --yes to delete. Nothing was written.");
@@ -136,13 +147,19 @@ async function main() {
   }
 
   for (const step of plan) {
-    const res = await rest(`${step.table}?${step.filter}`, { method: "DELETE" });
+    const res = step.detach
+      ? await rest(`${step.table}?${step.filter}`, {
+          method: "PATCH",
+          headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ [step.detach]: null }),
+        })
+      : await rest(`${step.table}?${step.filter}`, { method: "DELETE" });
     if (!res.ok) {
       console.error(`FAILED on ${step.table}: ${res.status} ${JSON.stringify(res.body)}`);
       console.error("Stopped here on purpose — a partial delete in a known order is recoverable; continuing past a foreign-key refusal is not.");
       return 1;
     }
-    console.log(`  deleted  ${step.table}`);
+    console.log(`  ${step.detach ? "detached" : "deleted"}  ${step.table}`);
   }
 
   if (!keepLogin && userId) {

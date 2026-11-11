@@ -79,6 +79,13 @@ export type InboxScopeOptions = {
    * authorization. Ignored for vendor and resident senders.
    */
   allowTypedAddresses?: boolean;
+  /**
+   * Lower-cased typed addresses the route POSITIVELY confirmed have no account (a successful profile read that
+   * returned no row for them, matched case-insensitively). The typed-address allowance applies to an address in this
+   * set and no other: a missing set, a failed read or a case mismatch can never let an existing account through as an
+   * account-less address.
+   */
+  confirmedAccountlessEmails?: ReadonlySet<string>;
 };
 
 /** A bare `name@host.tld` address: no display name, no whitespace or header-injection characters, bounded length. */
@@ -525,7 +532,7 @@ export async function filterRecipientsBySenderScope<T extends InboxScopeRecipien
   sender: InboxScopeSender,
   recipients: T[],
   options?: InboxScopeOptions,
-): Promise<{ allowed: T[]; blocked: T[] }> {
+): Promise<{ allowed: T[]; blocked: T[]; typedNewContacts?: string[] }> {
   if (recipients.length === 0) return { allowed: [], blocked: [] };
   if (sender.isAdmin) return { allowed: recipients, blocked: [] };
 
@@ -554,6 +561,8 @@ export async function filterRecipientsBySenderScope<T extends InboxScopeRecipien
         if (email) coManagers.add(email);
       }
     }
+    // Addresses that passed ONLY as a typed new contact (no other rule reached them), for the route's caps.
+    const typedNewContacts = new Set<string>();
     const keep = await Promise.all(
       recipients.map(async (recipient) => {
         if (recipient.userId && coManagerIds.has(recipient.userId)) return true;
@@ -589,10 +598,25 @@ export async function filterRecipientsBySenderScope<T extends InboxScopeRecipien
         }
         // A typed address nobody has on the list yet: allowed only when the route established edit rights, only for
         // an address with no account, and only when it is a bare valid email.
-        return options?.allowTypedAddresses === true && !recipient.userId && isBareEmailAddress(email);
+        if (
+          options?.allowTypedAddresses === true &&
+          !recipient.userId &&
+          options.confirmedAccountlessEmails?.has(email) === true &&
+          isBareEmailAddress(email)
+        ) {
+          typedNewContacts.add(email);
+          return true;
+        }
+        return false;
       }),
     );
-    return enforceRecipientNamespace(db, sender.id, partition(recipients, keep));
+    const scoped = await enforceRecipientNamespace(db, sender.id, partition(recipients, keep));
+    return {
+      ...scoped,
+      typedNewContacts: scoped.allowed
+        .map((r) => r.email.trim().toLowerCase())
+        .filter((email) => typedNewContacts.has(email)),
+    };
   }
 
   // Vendor sender → may message the manager(s) who invited/own them plus their co-managers.

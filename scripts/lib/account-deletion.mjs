@@ -353,6 +353,29 @@ export const DELETE_ORDER = [
   "portal_workspaces",
 ];
 
+/**
+ * Tables whose rows are provider reconciliation evidence of money that actually moved. They stay in
+ * DELETE_ORDER (the purge-manifest coverage test needs every table named once) but the script never
+ * deletes their rows: it nulls the deleted account's id columns instead, exactly as the in-app purge
+ * manifest (`detachIds`) does, so the refund evidence survives the account.
+ */
+export const DETACH_ONLY_TABLES = {
+  security_deposit_return_attempts: ["manager_user_id"],
+  household_charge_refund_attempts: ["manager_user_id"],
+};
+
+/**
+ * One `{ column, filter }` per id column to null for a detach-only table: only the manifest's columns, only
+ * when the table has them and the account has an id. Never an email column, never an unfiltered write.
+ */
+export function detachSteps(table, columns, { userId }) {
+  const detach = DETACH_ONLY_TABLES[table];
+  if (!detach || !userId) return [];
+  return detach
+    .filter((col) => columns.includes(col) && ID_COLUMNS.includes(col))
+    .map((column) => ({ column, filter: `${column}=eq.${userId}` }));
+}
+
 /** Tables holding the login itself, removed only when the caller is not keeping it. */
 export const IDENTITY_TABLES = ["profile_roles", "profiles"];
 
