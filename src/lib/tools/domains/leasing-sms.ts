@@ -1122,8 +1122,8 @@ export const getListingDetailsTool = defineTool({
             currentAvailabilityVerified: spans !== undefined,
           };
         }),
-        allRoomCount: rooms.length,
-        // The listing page's own count (countRoomsAvailableNow): quote "availableNowCount of roomCount", never tally rooms yourself. Null = occupancy unverified.
+        // The listing page's own counts (countRoomsAvailableNow): quote "availableNowCount of roomCount", never tally
+        // rooms yourself. ONE name for the home's room total, the one the prompt quotes. Null = occupancy unverified.
         roomCount: availabilityCounts.roomCount,
         availableNowCount: availabilityCounts.availableNowCount,
         maximumResidents,

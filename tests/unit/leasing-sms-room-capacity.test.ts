@@ -118,7 +118,7 @@ describe("leasing SMS room capacity facts", () => {
       roomQuery: "Shared",
     });
 
-    expect(details.listing).toMatchObject({ allRoomCount: 2, maximumResidents: 3 });
+    expect(details.listing).toMatchObject({ roomCount: 2, maximumResidents: 3 });
     expect(details.listing?.rooms).toEqual([
       expect.objectContaining({ name: "Shared Room", residentCapacity: 2 }),
     ]);
@@ -133,7 +133,7 @@ describe("leasing SMS room capacity facts", () => {
 
     const details = await getListingDetailsTool.handler(context(), { propertyId: PROPERTY_ID });
 
-    expect(details.listing).toMatchObject({ allRoomCount: 1, maximumResidents: null });
+    expect(details.listing).toMatchObject({ roomCount: 1, maximumResidents: null });
     expect(details.listing?.rooms).toEqual([
       expect.objectContaining({ name: "Shared Room", residentCapacity: 2 }),
     ]);

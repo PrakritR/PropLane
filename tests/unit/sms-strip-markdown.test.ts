@@ -13,8 +13,17 @@ describe("stripSmsMarkdown", () => {
     expect(stripSmsMarkdown("## Plan\nline # two")).toBe("Plan\nline # two");
   });
 
+  it("flattens a markdown link so the URL is textable", () => {
+    expect(stripSmsMarkdown("See [the listing](https://proplane.ai/rent/listings/4709a-8th-ave-ne) for photos.")).toBe(
+      "See the listing: https://proplane.ai/rent/listings/4709a-8th-ave-ne for photos.",
+    );
+    expect(stripSmsMarkdown("[https://proplane.ai/rent](https://proplane.ai/rent)")).toBe("https://proplane.ai/rent");
+    expect(stripSmsMarkdown("[](https://proplane.ai/rent)")).toBe("https://proplane.ai/rent");
+  });
+
   it("leaves lone asterisks, underscores and addresses alone", () => {
     expect(stripSmsMarkdown("Unit 4* at 5th_Ave, 2 * 3")).toBe("Unit 4* at 5th_Ave, 2 * 3");
+    expect(stripSmsMarkdown("Room [A] costs $900 (really)")).toBe("Room [A] costs $900 (really)");
     expect(stripSmsMarkdown(null)).toBeNull();
   });
 });

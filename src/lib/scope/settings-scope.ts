@@ -143,23 +143,33 @@ export async function assertSettingsScopeOwned(
     if (ownerUserId === callerUserId) {
       return { ok: true, ownerUserId, workspaceId: propertyWorkspaceId ?? workspaceId, propertyId };
     }
+    // A staff seat that cannot run the workspace is never a grant of its own, but it never REMOVES access either:
+    // a module-gated route still falls through to the same per-house co-manager check every other member passes,
+    // and only a caller that fails that too is refused.
+    let staffReadOnly = false;
     if (propertyWorkspaceId) {
       const staff = await serviceStaffSettingsAccess(db, callerUserId, propertyWorkspaceId, intent);
-      // A module-gated route also needs the module: a seat that is not Admin / Full falls through to the same
-      // per-house co-manager check every other member passes.
       if (staff.kind === "ok" && staff.ownerUserId === ownerUserId && (!opts?.module || staff.fullGrant)) {
         return { ok: true, ownerUserId, workspaceId: propertyWorkspaceId, propertyId };
       }
-      if (staff.kind === "read_only") {
-        return { ok: false, status: 403, error: "Your seat on this workspace is read-only." };
-      }
+      staffReadOnly = staff.kind === "read_only";
     }
     if (!opts?.module) {
-      return { ok: false, status: 403, error: "That property is not in your workspace." };
+      return {
+        ok: false,
+        status: 403,
+        error: staffReadOnly ? "Your seat on this workspace is read-only." : "That property is not in your workspace.",
+      };
     }
     const allowed = await managerHasCoManagerPermissionForProperty(db, callerUserId, propertyId, opts.module, level);
     if (!allowed) {
-      return { ok: false, status: 403, error: "You do not have access to this section for this property." };
+      return {
+        ok: false,
+        status: 403,
+        error: staffReadOnly
+          ? "Your seat on this workspace is read-only."
+          : "You do not have access to this section for this property.",
+      };
     }
     return { ok: true, ownerUserId, workspaceId: propertyWorkspaceId ?? workspaceId, propertyId };
   }
@@ -174,16 +184,20 @@ export async function assertSettingsScopeOwned(
     if (ownerUserId === callerUserId) {
       return { ok: true, ownerUserId, workspaceId, propertyId: null };
     }
-    // PropLane Service staff working a PropLane-managed workspace act on its owner's rows.
+    // PropLane Service staff working a PropLane-managed workspace act on its owner's rows. A seat that cannot run
+    // the workspace still falls through to the per-house co-manager check below, exactly as it did before staff
+    // were admitted here.
     const staff = await serviceStaffSettingsAccess(db, callerUserId, workspaceId, intent);
     if (staff.kind === "ok" && staff.ownerUserId === ownerUserId && (!opts?.module || staff.fullGrant)) {
       return { ok: true, ownerUserId, workspaceId, propertyId: null };
     }
-    if (staff.kind === "read_only") {
-      return { ok: false, status: 403, error: "Your seat on this workspace is read-only." };
-    }
+    const workspaceStaffReadOnly = staff.kind === "read_only";
     if (!opts?.module) {
-      return { ok: false, status: 403, error: "That workspace is not yours." };
+      return {
+        ok: false,
+        status: 403,
+        error: workspaceStaffReadOnly ? "Your seat on this workspace is read-only." : "That workspace is not yours.",
+      };
     }
     const { data: properties, error: propertiesError } = await db
       .from("manager_property_records")
@@ -196,7 +210,13 @@ export async function assertSettingsScopeOwned(
         return { ok: true, ownerUserId, workspaceId, propertyId: null };
       }
     }
-    return { ok: false, status: 403, error: "You do not have access to this workspace's settings." };
+    return {
+      ok: false,
+      status: 403,
+      error: workspaceStaffReadOnly
+        ? "Your seat on this workspace is read-only."
+        : "You do not have access to this workspace's settings.",
+    };
   }
 
   return { ok: true, ownerUserId: callerUserId, workspaceId: null, propertyId: null };

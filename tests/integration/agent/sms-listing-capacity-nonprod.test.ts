@@ -89,7 +89,7 @@ describe.runIf(enabled)("real dev/test SMS listing capacity", () => {
       listingId: candidate.row.id,
       prospectTool: getListingDetailsTool.name,
       residentTool: residentSmsGetListingDetailsTool.name,
-      roomCount: prospect.listing.allRoomCount,
+      roomCount: prospect.listing.roomCount,
       maximumResidents: prospect.listing.maximumResidents,
       capacities: prospect.listing.rooms.map((room) => room.residentCapacity),
     });

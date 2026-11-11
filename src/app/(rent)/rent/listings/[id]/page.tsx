@@ -24,9 +24,9 @@ async function listingStructuredData(id: string, slug: string | null): Promise<s
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id: param } = await params;
   const resolution = resolveListingParam(await getListingSlugIndex(), param);
-  if (resolution.kind === "id") return {};
-  // A slug page is its own canonical (the layout's root canonical must not leak onto it); an id page points at its slug.
-  const slug = resolution.kind === "redirect" ? resolution.slug : param.trim();
+  // Every listing page names its own canonical: the layout's root canonical ("/") must never leak onto it, not even
+  // when the slug index is empty (a failed or slow catalog read) or the listing has no address to build a slug from.
+  const slug = resolution.kind === "redirect" ? resolution.slug : resolution.kind === "slug" ? param.trim() : null;
   return { alternates: { canonical: `${llmsOrigin()}${listingPublicPath(param, slug)}` } };
 }
 

@@ -198,6 +198,27 @@ describe("assertSettingsScopeOwned - PropLane Service staff", () => {
     expect(managerHasCoManagerPermissionForProperty).toHaveBeenCalledWith(expect.anything(), STAFF, "house-1", "leases", "edit");
   });
 
+  it("a leasing seat that cannot run the workspace still writes a module it holds per house", async () => {
+    loadServiceStaffWorkspaces.mockResolvedValue(staffRow);
+    actorWorkspaceStanding.mockResolvedValue(seat("leasing", { members: false, houses: false }));
+    managerHasCoManagerPermissionForProperty.mockResolvedValue(true);
+    const house = await assertSettingsScopeOwned(db(), STAFF, { propertyId: "house-1" }, { module: "applications", level: "edit", intent: "edit" });
+    expect(house).toEqual({ ok: true, ownerUserId: OWNER, workspaceId: WS_SERVICE, propertyId: "house-1" });
+    const ws = await assertSettingsScopeOwned(db(), STAFF, { workspaceId: WS_SERVICE }, { module: "applications", level: "edit", intent: "edit" });
+    expect(ws).toEqual({ ok: true, ownerUserId: OWNER, workspaceId: WS_SERVICE, propertyId: null });
+  });
+
+  it("a leasing seat with no per-house grant is refused as read-only", async () => {
+    loadServiceStaffWorkspaces.mockResolvedValue(staffRow);
+    actorWorkspaceStanding.mockResolvedValue(seat("leasing", { members: false, houses: false }));
+    const result = await assertSettingsScopeOwned(db(), STAFF, { propertyId: "house-1" }, { module: "applications", level: "edit", intent: "edit" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(403);
+      expect(result.error).toBe("Your seat on this workspace is read-only.");
+    }
+  });
+
   it("a custom seat with only teams and leases:none cannot write the leases module", async () => {
     loadServiceStaffWorkspaces.mockResolvedValue(staffRow);
     actorWorkspaceStanding.mockResolvedValue(seat("custom", { members: true, houses: false }));

@@ -91,6 +91,9 @@ const MAX_TYPED_NEW_CONTACTS_PER_SEND = 5;
 /** Per workspace per rolling 24 hours. */
 const MAX_TYPED_NEW_CONTACTS_PER_DAY = 25;
 
+/** How many addresses one recipient-account lookup asks about; a pasted list is read in several queries. */
+const RECIPIENT_LOOKUP_CHUNK = 50;
+
 /** `ilike` reads `\`, `%` and `_` as pattern syntax; an address must match literally. */
 function escapeIlikeLiteral(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
@@ -545,17 +548,23 @@ export async function POST(req: Request) {
     if (toEmailsNormalized.length > 0) {
       // Case-insensitive on purpose (`profiles.email` is stored as the user typed it) and fail closed: a read that
       // errors must never read as "no account", or an existing account would pass as an account-less typed address.
-      const { data: emailProfiles, error: emailProfilesError } = await db
-        .from("profiles")
-        .select("id, email, role")
-        .or(toEmailsNormalized.map((e) => `email.ilike.${postgrestFilterValue(escapeIlikeLiteral(e))}`).join(","));
-      if (emailProfilesError) {
-        console.error("[send-inbox-message] recipient account lookup failed", emailProfilesError.message);
-        return NextResponse.json({ ok: false, error: "Could not check recipients. Try again." }, { status: 503 });
+      // One `or=` term per address is long, so a pasted list is read in chunks: a single query over a hundred
+      // addresses outgrows the PostgREST URL limit and the whole send would be refused for a list that used to work.
+      const profileByEmail = new Map<string, { id: string; email: string | null; role: string | null }>();
+      for (let i = 0; i < toEmailsNormalized.length; i += RECIPIENT_LOOKUP_CHUNK) {
+        const chunk = toEmailsNormalized.slice(i, i + RECIPIENT_LOOKUP_CHUNK);
+        const { data: emailProfiles, error: emailProfilesError } = await db
+          .from("profiles")
+          .select("id, email, role")
+          .or(chunk.map((e) => `email.ilike.${postgrestFilterValue(escapeIlikeLiteral(e))}`).join(","));
+        if (emailProfilesError) {
+          console.error("[send-inbox-message] recipient account lookup failed", emailProfilesError.message);
+          return NextResponse.json({ ok: false, error: "Could not check recipients. Try again." }, { status: 503 });
+        }
+        for (const p of emailProfiles ?? []) {
+          profileByEmail.set(String(p.email ?? "").trim().toLowerCase(), p as { id: string; email: string | null; role: string | null });
+        }
       }
-      const profileByEmail = new Map(
-        (emailProfiles ?? []).map((p) => [String(p.email ?? "").trim().toLowerCase(), p]),
-      );
       for (const email of toEmailsNormalized) {
         if (recipientsByEmail.has(email)) continue;
         if (!profileByEmail.has(email)) confirmedAccountlessEmails.add(email);
@@ -640,28 +649,35 @@ export async function POST(req: Request) {
           { status: 400 },
         );
       }
-      if (newContactCount > 0) {
-        const typedWorkspaceId = managerSendScope?.activeWorkspaceId?.trim();
-        if (!typedWorkspaceId) {
-          return NextResponse.json({ ok: false, error: "You can only message people connected to your account." }, { status: 403 });
-        }
-        for (let i = 0; i < newContactCount; i += 1) {
-          const budget = await rateLimit(`typed-contacts:${typedWorkspaceId}`, MAX_TYPED_NEW_CONTACTS_PER_DAY, 86_400_000);
-          if (!budget.ok) {
-            return NextResponse.json(
-              budget.unavailable
-                ? { ok: false, error: "Could not check recipients. Try again." }
-                : { ok: false, error: "This workspace has reached its daily limit of new addresses. Try again tomorrow." },
-              { status: budget.unavailable ? 503 : 429 },
-            );
-          }
-        }
-      }
+      // Nothing to send to is refused BEFORE the budget is touched: a refusal must not eat a day's new-address
+      // tokens for a message that was never going to go out.
       if (allowed.length === 0) {
         return NextResponse.json(
           { ok: false, error: "You can only message people connected to your account." },
           { status: 403 },
         );
+      }
+      if (newContactCount > 0) {
+        const typedWorkspaceId = managerSendScope?.activeWorkspaceId?.trim();
+        if (!typedWorkspaceId) {
+          return NextResponse.json({ ok: false, error: "You can only message people connected to your account." }, { status: 403 });
+        }
+        // One token per new address, asked for together: the limiter has no cost argument, and a serial round trip
+        // per address put the whole send behind up to five store calls.
+        const budgets = await Promise.all(
+          Array.from({ length: newContactCount }, () =>
+            rateLimit(`typed-contacts:${typedWorkspaceId}`, MAX_TYPED_NEW_CONTACTS_PER_DAY, 86_400_000),
+          ),
+        );
+        const refused = budgets.find((budget) => !budget.ok);
+        if (refused) {
+          return NextResponse.json(
+            refused.unavailable
+              ? { ok: false, error: "Could not check recipients. Try again." }
+              : { ok: false, error: "This workspace has reached its daily limit of new addresses. Try again tomorrow." },
+            { status: refused.unavailable ? 503 : 429 },
+          );
+        }
       }
       recipients = allowed;
     }
