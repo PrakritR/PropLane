@@ -60,6 +60,9 @@ describe("portal sidebar native hydration", () => {
   it("no longer hosts the assistant as an inline bottom-bar slot", () => {
     expect(PORTAL_SIDEBAR_SOURCE).not.toContain("AxisAssistantNavButton");
     expect(PORTAL_SIDEBAR_SOURCE).not.toContain("useHasAxisAssistant");
+    // The resident phone bar's Ask tab (captain-approved plan, Nov 10) is the one exception, and it comes in through a hook
+    // so the sidebar itself still hosts no assistant logic.
+    expect(PORTAL_SIDEBAR_SOURCE).toContain("useResidentAskTab(definition.kind)");
   });
 
   it("pages between primary tabs on a native swipe gesture", () => {

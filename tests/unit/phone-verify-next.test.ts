@@ -133,4 +133,44 @@ describe("phone verify returns where to go (straight to the portal)", () => {
     await verify(request({ purpose: undefined }));
     expect(mocks.verify).toHaveBeenCalledWith(expect.objectContaining({ signIn: false }));
   });
+
+  describe("create-account resident path (intent: resident_signup)", () => {
+    it("a new number goes straight to its portal through the resolver, not the role chooser", async () => {
+      mocks.verify.mockResolvedValue({ ok: true, session, user, created: true, phone: "+15103098345" });
+      mocks.resolve.mockResolvedValue({ redirectTo: "/resident/applications/stay", openedRole: "resident", landedRole: "resident" });
+      const response = await verify(request({ intent: "resident_signup" }));
+      expect(await response.json()).toEqual({ ok: true, next: "/resident/applications/stay" });
+      expect(mocks.resolve).toHaveBeenCalled();
+    });
+
+    it("refuses without a valid code: no session is installed and nothing is resolved", async () => {
+      mocks.verify.mockRejectedValue(new PhoneAuthError("wrong_code", "x"));
+      const response = await verify(request({ intent: "resident_signup", code: "111111" }));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ kind: "wrong_code" });
+      expect(mocks.setSession).not.toHaveBeenCalled();
+      expect(mocks.resolve).not.toHaveBeenCalled();
+    });
+
+    it("a missing proof cookie is an expired code, never a session", async () => {
+      mocks.values.delete("proplane_phone_browser");
+      const response = await verify(request({ intent: "resident_signup" }));
+      expect(await response.json()).toMatchObject({ kind: "expired" });
+      expect(mocks.verify).not.toHaveBeenCalled();
+    });
+
+    it("the intent is ignored off the sign-in door (a Settings purpose still gets nothing new)", async () => {
+      mocks.verify.mockResolvedValue({ ok: true, session, user, created: true, phone: "+15103098345" });
+      const response = await verify(request({ intent: "resident_signup", purpose: undefined }));
+      expect(mocks.resolve).not.toHaveBeenCalled();
+      expect((await response.json()).next).toBe("/auth/get-started?phone_new=1");
+    });
+
+    it("any other intent value keeps the role chooser for a new number", async () => {
+      mocks.verify.mockResolvedValue({ ok: true, session, user, created: true, phone: "+15103098345" });
+      const response = await verify(request({ intent: "manager_signup" }));
+      expect((await response.json()).next).toBe("/auth/get-started?phone_new=1");
+      expect(mocks.resolve).not.toHaveBeenCalled();
+    });
+  });
 });

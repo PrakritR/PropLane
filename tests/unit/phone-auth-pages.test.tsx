@@ -19,12 +19,25 @@ beforeEach(() => {
   loadConfig.mockReset().mockResolvedValue({ mode: "per_workspace" });
   getUser.mockReset().mockResolvedValue({ data: { user: { id: "signed-in" } } });
   redirect.mockClear();
+  vi.stubEnv("TWILIO_DEFAULT_FROM", "");
+  vi.stubEnv("PHONE_SIGN_IN_DISABLED", "");
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
 
 describe("phone auth page mode and identity gates", () => {
-  it.each(["per_workspace", "shadow"])("keeps phone sign-in off in %s", async (mode) => {
+  it.each(["per_workspace", "shadow"])("keeps phone sign-in off in %s without a platform sender", async (mode) => {
     loadConfig.mockResolvedValue({ mode });
+    vi.stubEnv("TWILIO_DEFAULT_FROM", "");
+    expect((await SignInPage()).props.phoneFirst).toBe(false);
+  });
+  it.each(["per_workspace", "shadow"])("shows phone sign-in in %s when a platform sender exists", async (mode) => {
+    loadConfig.mockResolvedValue({ mode });
+    vi.stubEnv("TWILIO_DEFAULT_FROM", "+12065550999");
+    expect((await SignInPage()).props.phoneFirst).toBe(true);
+  });
+  it("the kill switch hides phone sign-in even in shared mode", async () => {
+    loadConfig.mockResolvedValue({ mode: "shared" });
+    vi.stubEnv("PHONE_SIGN_IN_DISABLED", "1");
     expect((await SignInPage()).props.phoneFirst).toBe(false);
   });
   it("shows phone sign-in first in shared mode", async () => {

@@ -157,6 +157,7 @@ import { fetchAccountLinksCached, readCachedAccountLinkInvites } from "@/lib/por
 import { hasIncomingAcceptedTeamLink } from "@/lib/workspace-co-manager-permissions";
 import { propertyListHref } from "@/lib/portal-detail-routes";
 import { latestOutboundDeliveryFailed } from "@/lib/inbox-delivery-status";
+import { countResidentHandoffs } from "@/lib/resident-handoff";
 import { MANAGER_ATTENTION_MAX_ROWS, buildManagerAttentionRows } from "@/lib/manager-attention-queue";
 import {
   WORKSPACE_SELECTION_EVENT,
@@ -1122,6 +1123,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     draftsHref: propertyListHref(BASE, "drafts"),
     unreadConversationCount: inboxCount,
     undeliveredConversationCount: undeliveredCount,
+    residentHandoffCount: countResidentHandoffs(inboxThreads),
   });
   const attentionShown = attentionRows.slice(0, MANAGER_ATTENTION_MAX_ROWS);
 

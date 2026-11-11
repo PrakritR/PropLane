@@ -17,7 +17,7 @@ vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.f
 
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 import {
-  ADMIN_PHONE_CODE_SIGN_IN_AUDIT_ACTION, PHONE_AUTH_ERROR, mintPhoneSession, needsPhoneVerification, phoneBrowserHash,
+  ADMIN_PHONE_CODE_SIGN_IN_AUDIT_ACTION, PHONE_AUTH_ERROR, mintPhoneSession, needsPhoneVerification, phoneAuthEnabled, phoneBrowserHash, phoneSignInEnabled,
   phoneCodeHash, phoneResendAllowed, readPhoneIdentity, startPhoneChallenge, verifyPhoneChallenge,
 } from "@/lib/auth/phone-auth.server";
 import { phoneAuthKindOf } from "@/lib/auth/phone-auth-errors";
@@ -71,6 +71,8 @@ beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://test.supabase.co");
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "test-anon");
   vi.stubEnv("SUPABASE_PHONE_AUTH_HOOK_ENABLED", "false");
+  vi.stubEnv("TWILIO_DEFAULT_FROM", "");
+  vi.stubEnv("PHONE_SIGN_IN_DISABLED", "");
   mocks.config.mockResolvedValue({ mode: "shared" });
   mocks.required.mockResolvedValue(false);
   mocks.admin.mockResolvedValue(false);
@@ -460,11 +462,14 @@ describe("phone_required gate (any line mode)", () => {
     expect(mocks.send).toHaveBeenCalledTimes(1);
   });
 
-  it("phone SIGN-IN still needs the shared line even when phone_required is on", async () => {
+  it("phone SIGN-IN no longer needs the shared line, but still needs a platform sender off it (phone_required is irrelevant)", async () => {
     const { db } = database();
     mocks.config.mockResolvedValue({ mode: "per_workspace" });
     mocks.required.mockResolvedValue(true);
+    // No TWILIO_DEFAULT_FROM: the code could not be sent, so sign-in is off rather than a dead form.
+    vi.stubEnv("TWILIO_DEFAULT_FROM", "");
     await expect(startPhoneChallenge({ db, userId: null, browser: BROWSER, phone: PHONE, purpose: "sign_in" })).rejects.toThrow(PHONE_AUTH_ERROR);
+    expect(mocks.send).not.toHaveBeenCalled();
   });
 
   it("verification off entirely (neither switch): starting is refused", async () => {
@@ -701,5 +706,64 @@ describe("phoneResendAllowed", () => {
     expect(await phoneResendAllowed(db, ID, BROWSER)).toBe(false);
     expect(budgetReads).toBe(0);
     expect(await phoneResendAllowed(db, ID, "another-browser")).toBe(true);
+  });
+});
+
+describe("phone sign-in works in every line mode", () => {
+  it.each(["per_workspace", "shadow"])("%s: on when a platform sender exists, texting from it", async (mode) => {
+    const { db } = database();
+    mocks.config.mockResolvedValue({ mode });
+    vi.stubEnv("TWILIO_DEFAULT_FROM", "+12065550999");
+    expect(await phoneSignInEnabled(db)).toBe(true);
+    await expect(startPhoneChallenge({ db, userId: null, browser: BROWSER, phone: PHONE, purpose: "sign_in" })).resolves.toHaveProperty("challengeId");
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("per_workspace without a platform sender is off (fails closed, never a form that cannot send)", async () => {
+    const { db } = database();
+    mocks.config.mockResolvedValue({ mode: "per_workspace" });
+    vi.stubEnv("TWILIO_DEFAULT_FROM", "");
+    expect(await phoneSignInEnabled(db)).toBe(false);
+  });
+
+  it("an unreadable line config reads as per_workspace: on only with a platform sender", async () => {
+    const { db } = database();
+    mocks.config.mockRejectedValue(new Error("unavailable"));
+    vi.stubEnv("TWILIO_DEFAULT_FROM", "");
+    expect(await phoneSignInEnabled(db)).toBe(false);
+    vi.stubEnv("TWILIO_DEFAULT_FROM", "+12065550999");
+    expect(await phoneSignInEnabled(db)).toBe(true);
+  });
+
+  it("the kill switch turns it off in every mode, at start and at verify", async () => {
+    const { db, state } = database();
+    vi.stubEnv("TWILIO_DEFAULT_FROM", "+12065550999");
+    vi.stubEnv("PHONE_SIGN_IN_DISABLED", "1");
+    for (const mode of ["shared", "per_workspace"]) {
+      mocks.config.mockResolvedValue({ mode });
+      expect(await phoneSignInEnabled(db)).toBe(false);
+      await expect(startPhoneChallenge({ db, userId: null, browser: BROWSER, phone: PHONE, purpose: "sign_in" })).rejects.toThrow(PHONE_AUTH_ERROR);
+      state.challenge = { auth_user_id: null, browser_hash: phoneBrowserHash(BROWSER) };
+      await expect(verifyPhoneChallenge({ db, userId: null, browser: BROWSER, challengeId: ID, code: "000007", signIn: true })).rejects.toThrow(PHONE_AUTH_ERROR);
+    }
+  });
+
+  it("turning sign-in on does not turn the verify-a-phone gate on: per_workspace accounts are never sent to verify", async () => {
+    const { db, rpc, from } = database();
+    mocks.config.mockResolvedValue({ mode: "per_workspace" });
+    vi.stubEnv("TWILIO_DEFAULT_FROM", "+12065550999");
+    expect(await phoneAuthEnabled(db)).toBe(false);
+    expect(await needsPhoneVerification(user.id, db)).toBe(false);
+    expect(from).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("a per_workspace code sign-in still opens an account only after the proven code, and still refuses an unreadable account", async () => {
+    const { db, state } = database();
+    mocks.config.mockResolvedValue({ mode: "per_workspace" });
+    vi.stubEnv("TWILIO_DEFAULT_FROM", "+12065550999");
+    state.challenge = { auth_user_id: null, browser_hash: phoneBrowserHash(BROWSER) };
+    state.rolesError = true;
+    await expect(verifyPhoneChallenge({ db, userId: null, browser: BROWSER, challengeId: ID, code: "000007", signIn: true })).rejects.toThrow(PHONE_AUTH_ERROR);
   });
 });

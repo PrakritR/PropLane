@@ -3,6 +3,7 @@
 import { managerUnreadConversationCount, subscribeManagerUnreadConversationCount } from "@/lib/manager-unread-conversation-count";
 import { useEffect, useMemo, useState } from "react";
 import { latestOutboundDeliveryFailed } from "@/lib/inbox-delivery-status";
+import { countResidentHandoffs } from "@/lib/resident-handoff";
 
 import { readPortfolioSnapshot } from "@/components/portal/pro-dashboard-portfolio";
 import { useManagerMessagingNumberStatus } from "@/hooks/use-manager-messaging-number-status";
@@ -162,6 +163,7 @@ export function useManagerAttentionQueue(basePath = "/portal"): {
           ).length,
         0,
       ),
+      residentHandoffCount: safe(() => countResidentHandoffs(loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, [])), 0),
       unreadConversationCount: safe(
         () =>
           managerUnreadConversationCount(

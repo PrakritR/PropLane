@@ -12,9 +12,7 @@ import {
 import { useCoManagerNavSections } from "@/hooks/use-co-manager-nav-sections";
 import { useIsSmallPortalViewport, useNativeChrome } from "@/hooks/use-is-native-app";
 import { usePortalNavCounts } from "@/hooks/use-portal-nav-counts";
-import { useResidentAssistantUnread } from "@/hooks/use-resident-assistant-unread";
-import { useHasAxisAssistant } from "@/components/portal/axis-assistant";
-import { useAssistantLauncher } from "@/components/portal/use-assistant-launcher";
+import { useResidentAskTab } from "@/hooks/use-resident-ask-tab";
 import { PortalNativeAskNavButton } from "@/components/portal/portal-native-ask-nav-button";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { portalBottomBarShowsSection, portalNavLockNavigable, portalNavSectionLocked } from "@/lib/portals/nav-locks";
@@ -153,10 +151,8 @@ export function PortalSidebar({
   );
   const rawNavCounts = usePortalNavCounts(definition.kind, smsUiEnabled);
   // Resident phones get an "Ask" tab in the center of the bar: the assistant, not a section (see `residentBarWithAsk`).
-  const hasAssistant = useHasAxisAssistant();
-  const assistantLauncher = useAssistantLauncher();
-  const showAskTab = definition.kind === "resident" && hasAssistant;
-  const askUnread = useResidentAssistantUnread(showAskTab);
+  const askTab = useResidentAskTab(definition.kind);
+  const showAskTab = askTab.show;
   // Admin folds Accounts / Money / Support into one row each; the row carries its tabs' counts.
   const navCounts = useMemo(
     () => (definition.kind === "admin" ? mergeAdminGroupCounts(rawNavCounts) : rawNavCounts),
@@ -961,13 +957,13 @@ export function PortalSidebar({
                 {nativeBottomNavItems.map((s, index) => (
                   <Fragment key={`${s.section}-${s.sectionTabId ?? "default"}`}>
                     {index === askBarIndex ? (
-                      <PortalNativeAskNavButton open={assistantLauncher.assistantOpen} unread={askUnread} onClick={assistantLauncher.toggle} />
+                      <PortalNativeAskNavButton open={askTab.open} unread={askTab.unread} onClick={askTab.toggle} />
                     ) : null}
                     {renderMobileNavLink(s, "bottom")}
                   </Fragment>
                 ))}
                 {showAskTab && askBarIndex >= nativeBottomNavItems.length ? (
-                  <PortalNativeAskNavButton open={assistantLauncher.assistantOpen} unread={askUnread} onClick={assistantLauncher.toggle} />
+                  <PortalNativeAskNavButton open={askTab.open} unread={askTab.unread} onClick={askTab.toggle} />
                 ) : null}
                 {showMoreTab ? (
                   <PortalNativeMoreNavButton

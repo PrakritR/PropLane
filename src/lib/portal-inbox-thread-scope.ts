@@ -95,8 +95,14 @@ export async function resolveInboxScopeUser(scope: string): Promise<{
 
   const db = createSupabaseServiceRoleClient();
   if ((await resolveAuthenticatedBusinessAccess(authUser.id, db)).kind === "denied") return null;
-  const { data: profile } = await db.from("profiles").select("email, role, full_name").eq("id", authUser.id).maybeSingle();
-  const admin = await isAdminUser(authUser.id);
+  // Three reads that key only on the authenticated user run together, AFTER the access check above has passed.
+  // Every decision below still reads them in the same order (the manager-surface check still follows `admin`,
+  // and a failed role read still refuses).
+  const [{ data: profile }, admin, { data: storedRoles, error: storedRoleError }] = await Promise.all([
+    db.from("profiles").select("email, role, full_name").eq("id", authUser.id).maybeSingle(),
+    isAdminUser(authUser.id),
+    db.from("profile_roles").select("role").eq("user_id", authUser.id),
+  ]);
 
   if (!admin && scope === MANAGER_INBOX_SCOPE && (await withholdManagerSurface(db, authUser.id))) return null;
 
@@ -105,7 +111,6 @@ export async function resolveInboxScopeUser(scope: string): Promise<{
   const profileEmail = profile?.email?.trim().toLowerCase() ?? "";
   let actorEmail = authUser.email_confirmed_at && authEmail && (!profileEmail || profileEmail === authEmail) ? authEmail : null;
   let actorName = String(profile?.full_name ?? "").trim() || null;
-  const { data: storedRoles, error: storedRoleError } = await db.from("profile_roles").select("role").eq("user_id", authUser.id);
   if (storedRoleError) return null;
   const scopeRole = portalForScope(scope);
   const roles = normalizePortalRoles(storedRoles, null);
