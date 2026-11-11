@@ -37,7 +37,7 @@ import {
   recordSmsAttempt,
   type InboxMessageTarget,
 } from "@/lib/inbox-delivery-status.server";
-import { isPlaceholderMailbox } from "@/lib/inbox-delivery-status";
+import { isPlaceholderMailbox, type InboxMessageDelivery } from "@/lib/inbox-delivery-status";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -1089,7 +1089,8 @@ export async function POST(req: Request) {
       }
     }
 
-    await recordPlaceholderEmailFailures(
+    // What each channel did, returned to the caller (a house send shows it per person).
+    const responseDeliveries: InboxMessageDelivery[] = await recordPlaceholderEmailFailures(
       db,
       sentTargets,
       recipients.filter((recipient) => emailWanted(recipient.email)).map((recipient) => recipient.email),
@@ -1115,6 +1116,7 @@ export async function POST(req: Request) {
         ok: true,
         skipped: true,
         reason: "No eligible real recipients — portal inbox updated.",
+        deliveries: responseDeliveries,
         ...(propertyThreadId ? { propertyThreadId } : {}),
       });
     }
@@ -1149,7 +1151,10 @@ export async function POST(req: Request) {
           emailResendId = emailResendId ?? result.resendId;
         }
       }
-      for (const email of emailToSend) await recordEmailAttempt(db, sentTargets.get(email), email, emailResults.get(email));
+      for (const email of emailToSend) {
+        const recorded = await recordEmailAttempt(db, sentTargets.get(email), email, emailResults.get(email));
+        if (recorded) responseDeliveries.push(recorded);
+      }
     }
 
     const sentAt = new Date().toISOString();
@@ -1323,7 +1328,7 @@ export async function POST(req: Request) {
             openThread,
             mirrorToManager: Boolean(eventCategory),
           });
-          await recordSmsAttempt(db, sentTargets.get(recipient.email), result);
+          responseDeliveries.push(await recordSmsAttempt(db, sentTargets.get(recipient.email), result));
           if (result.sent) {
             const logId = `outbound_sms_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
             await db.from("portal_outbound_mail_records").upsert(
@@ -1355,6 +1360,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       id: emailResendId,
+      deliveries: responseDeliveries,
       ...(propertyThreadId ? { propertyThreadId } : {}),
     });
   } catch (err) {

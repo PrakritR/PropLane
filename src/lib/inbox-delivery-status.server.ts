@@ -90,9 +90,9 @@ export async function recordInboxMessageDelivery(
   db: SupabaseClient,
   target: InboxMessageTarget | null | undefined,
   entry: Omit<InboxMessageDelivery, "at"> & { at?: string },
-): Promise<void> {
-  if (!target?.threadId || !target.messageId) return;
+): Promise<InboxMessageDelivery> {
   const full: InboxMessageDelivery = { ...entry, at: entry.at ?? new Date().toISOString() };
+  if (!target?.threadId || !target.messageId) return full;
   try {
     if (full.providerId) {
       await rememberProviderRef(db, { ...target, providerId: full.providerId, channel: full.channel });
@@ -101,6 +101,7 @@ export async function recordInboxMessageDelivery(
   } catch (error) {
     console.error("inbox delivery status not recorded", error instanceof Error ? error.message : error);
   }
+  return full;
 }
 
 /**
@@ -146,21 +147,20 @@ export async function recordEmailAttempt(
   target: InboxMessageTarget | null | undefined,
   email: string,
   result: { sent: boolean; resendId: string | null } | undefined,
-): Promise<void> {
+): Promise<InboxMessageDelivery | null> {
   // Sandbox accounts skip mail on purpose; that is not a failed delivery.
-  if (isSandboxEmail(email)) return;
+  if (isSandboxEmail(email)) return null;
   if (isPlaceholderMailbox(email)) {
-    await recordInboxMessageDelivery(db, target, placeholderEmailDelivery(new Date().toISOString()));
-    return;
+    return recordInboxMessageDelivery(db, target, placeholderEmailDelivery(new Date().toISOString()));
   }
   if (result?.sent) {
-    await recordInboxMessageDelivery(db, target, {
+    return recordInboxMessageDelivery(db, target, {
       channel: "email",
       status: "sent",
       ...(result.resendId ? { providerId: result.resendId } : {}),
     });
   } else {
-    await recordInboxMessageDelivery(db, target, {
+    return recordInboxMessageDelivery(db, target, {
       channel: "email",
       status: "failed",
       error: "Email couldn't be sent",
@@ -173,11 +173,13 @@ export async function recordPlaceholderEmailFailures(
   db: SupabaseClient,
   targets: ReadonlyMap<string, InboxMessageTarget>,
   emails: readonly string[],
-): Promise<void> {
+): Promise<InboxMessageDelivery[]> {
+  const recorded: InboxMessageDelivery[] = [];
   for (const email of emails) {
     if (isSandboxEmail(email) || !isPlaceholderMailbox(email)) continue;
-    await recordInboxMessageDelivery(db, targets.get(email), placeholderEmailDelivery(new Date().toISOString()));
+    recorded.push(await recordInboxMessageDelivery(db, targets.get(email), placeholderEmailDelivery(new Date().toISOString())));
   }
+  return recorded;
 }
 
 /** Outcome of one text attempt, as `sendResidentOutboundSms` reports it. */
@@ -185,17 +187,17 @@ export async function recordSmsAttempt(
   db: SupabaseClient,
   target: InboxMessageTarget | null | undefined,
   result: { sent: boolean; accepted?: boolean; sid?: string | null; error?: string | null } | null,
-): Promise<void> {
+): Promise<InboxMessageDelivery> {
   if (result?.sent) {
-    await recordInboxMessageDelivery(db, target, {
+    return recordInboxMessageDelivery(db, target, {
       channel: "sms",
       status: "sent",
       ...(result.sid ? { providerId: result.sid } : {}),
     });
   } else if (result?.accepted) {
-    await recordInboxMessageDelivery(db, target, { channel: "sms", status: "sending" });
+    return recordInboxMessageDelivery(db, target, { channel: "sms", status: "sending" });
   } else {
-    await recordInboxMessageDelivery(db, target, {
+    return recordInboxMessageDelivery(db, target, {
       channel: "sms",
       status: "failed",
       error: smsSendErrorText(result?.error),

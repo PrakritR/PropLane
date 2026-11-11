@@ -35,18 +35,6 @@ export const getPortalAccessContext = cache(async (): Promise<PortalAccessContex
   // Every portal and OAuth continuation shares this server-side access path.
   // The verification screen uses direct session auth to avoid a redirect loop.
   // View-as is a read-only operator session, not a new login for the target.
-  // The viewer's own role rows do not depend on the phone gate, so the read starts now and overlaps it. The gate
-  // still decides first: when it redirects, the roles are never used (and the read never rejects).
-  const userId = base.user.id;
-  const rolesRead: Promise<AuthRole[]> = base.viewAs ? Promise.resolve([]) : (async () => {
-    try {
-      const supabase = await createSupabaseServerClient();
-      const { data: roleRows, error: roleErr } = await supabase.from("profile_roles").select("role").eq("user_id", userId);
-      return roleErr ? [] : normalizePortalRoles(roleRows, null);
-    } catch {
-      return [];
-    }
-  })();
   if (!base.viewAs && await needsPhoneVerification(base.user.id)) {
     // Carry the page the person was heading to (Request to book, Apply, Book a tour), so verifying lands there.
     let requested: string | null = null;
@@ -71,7 +59,14 @@ export const getPortalAccessContext = cache(async (): Promise<PortalAccessContex
     };
   }
 
-  const roles = await rolesRead;
+  let roles: AuthRole[];
+  try {
+    const supabase = await createSupabaseServerClient();
+    const { data: roleRows, error: roleErr } = await supabase.from("profile_roles").select("role").eq("user_id", base.user.id);
+    roles = roleErr ? [] : normalizePortalRoles(roleRows, null);
+  } catch {
+    roles = [];
+  }
 
   let cookieRole: AuthRole | null = null;
   try {

@@ -51,7 +51,7 @@ beforeEach(() => {
   state.roleReads = 0;
 });
 
-describe("getPortalAccessContext: roles overlap the phone gate, the gate still wins", () => {
+describe("getPortalAccessContext: the phone gate decides before roles are used", () => {
   it("an unverified phone redirects and returns no context, even though the role read started", async () => {
     state.needsPhone = true;
     await expect(getPortalAccessContext()).rejects.toThrow(/NEXT_REDIRECT/);
