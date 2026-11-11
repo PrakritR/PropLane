@@ -9,7 +9,7 @@ const h = vi.hoisted(() => ({
   profileResult: { data: [] as Record<string, unknown>[], error: null as null | { message: string } },
   orFilters: [] as string[],
   scopeOptions: [] as Record<string, unknown>[],
-  rateLimitCalls: [] as string[],
+  rateLimitCalls: [] as Array<{ key: string; cost: number }>,
   rateLimitResult: { ok: true } as { ok: boolean; unavailable?: true },
 }));
 
@@ -44,10 +44,10 @@ vi.mock("@/lib/supabase/service", () => ({
   }),
 }));
 vi.mock("@/lib/rate-limit", () => ({
-  rateLimit: async (key: string) => {
+  rateLimit: async (key: string, _limit: number, _windowMs: number, cost = 1) => {
     // The route's own per-sender limiters are not under test.
     if (!key.startsWith("typed-contacts:")) return { ok: true };
-    h.rateLimitCalls.push(key);
+    h.rateLimitCalls.push({ key, cost });
     return h.rateLimitResult;
   },
   clientIpFrom: () => "127.0.0.1",
@@ -152,10 +152,18 @@ describe("send-inbox-message typed new contacts", () => {
     expect(h.rateLimitCalls).toEqual([]);
   });
 
-  it("counts only addresses that passed as new contacts, once each, against the workspace", async () => {
+  it("counts only addresses that passed as new contacts, once each, in ONE all-or-nothing reservation", async () => {
     h.profileResult = { data: [{ id: "u-1", email: "known@example.com", role: "resident" }], error: null };
     await post(["known@example.com", "new1@example.com", "new2@example.com"]);
-    expect(h.rateLimitCalls).toEqual(["typed-contacts:ws-1", "typed-contacts:ws-1"]);
+    // One call carrying the whole cost: separate calls let a refused send keep the tokens it was granted.
+    expect(h.rateLimitCalls).toEqual([{ key: "typed-contacts:ws-1", cost: 2 }]);
+  });
+
+  it("a refused budget spends nothing, so the next single-address send is still served", async () => {
+    h.rateLimitResult = { ok: false };
+    const refused = await post(["new1@example.com", "new2@example.com", "new3@example.com"]);
+    expect(refused.status).toBe(429);
+    expect(h.rateLimitCalls).toEqual([{ key: "typed-contacts:ws-1", cost: 3 }]);
   });
 
   it("an exhausted daily budget is a 429, and an unavailable limiter fails closed with 503", async () => {

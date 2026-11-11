@@ -114,12 +114,16 @@ export type ListingParamResolution =
   /** Anything else (an id with no slug, an unpublished id, an unknown word): render as before; a miss is the existing not-found state. */
   | { kind: "id"; id: string };
 
-/** What a `/rent/listings/<param>` request is. An id wins over a slug of the same spelling. */
+/**
+ * What a `/rent/listings/<param>` request is. An id wins over a slug of the same spelling: the id lookup
+ * is first, and `buildListingSlugIndex` never publishes a slug that spells a property id, so the one
+ * precedence rule is enforced in one place.
+ */
 export function resolveListingParam(index: ListingSlugIndex, param: string): ListingParamResolution {
   const value = param.trim();
   const slugOfId = index.idToSlug.get(value);
   if (slugOfId) return { kind: "redirect", slug: slugOfId };
   const idOfSlug = index.slugToId.get(value);
-  if (idOfSlug && !index.idToSlug.has(value)) return { kind: "slug", id: idOfSlug };
+  if (idOfSlug) return { kind: "slug", id: idOfSlug };
   return { kind: "id", id: value };
 }

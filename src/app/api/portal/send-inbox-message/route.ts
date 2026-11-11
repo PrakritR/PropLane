@@ -662,20 +662,21 @@ export async function POST(req: Request) {
         if (!typedWorkspaceId) {
           return NextResponse.json({ ok: false, error: "You can only message people connected to your account." }, { status: 403 });
         }
-        // One token per new address, asked for together: the limiter has no cost argument, and a serial round trip
-        // per address put the whole send behind up to five store calls.
-        const budgets = await Promise.all(
-          Array.from({ length: newContactCount }, () =>
-            rateLimit(`typed-contacts:${typedWorkspaceId}`, MAX_TYPED_NEW_CONTACTS_PER_DAY, 86_400_000),
-          ),
+        // One token per new address, spent in ONE all-or-nothing reservation: asking for them a call at
+        // a time (or in parallel) let a send that is then refused keep the tokens it was already
+        // granted, so a workspace could reach 0 remaining with nothing delivered.
+        const budget = await rateLimit(
+          `typed-contacts:${typedWorkspaceId}`,
+          MAX_TYPED_NEW_CONTACTS_PER_DAY,
+          86_400_000,
+          newContactCount,
         );
-        const refused = budgets.find((budget) => !budget.ok);
-        if (refused) {
+        if (!budget.ok) {
           return NextResponse.json(
-            refused.unavailable
+            budget.unavailable
               ? { ok: false, error: "Could not check recipients. Try again." }
               : { ok: false, error: "This workspace has reached its daily limit of new addresses. Try again tomorrow." },
-            { status: refused.unavailable ? 503 : 429 },
+            { status: budget.unavailable ? 503 : 429 },
           );
         }
       }

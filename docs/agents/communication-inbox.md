@@ -16,6 +16,16 @@ skip the message and answer `communicationBlocked`. The owner's plan decides. In
 transactional / auth mail are never gated. See
 [`plan-entitlements.md`](plan-entitlements.md) § Communication on a trial.
 
+**A typed address that is not yet a contact is a real send, capped.** A manager-side sender with
+Communication at `edit` on the active workspace (its owner, or a teammate whose grant reaches one of
+its houses) may email a bare `name@host.tld` nobody has an account for, which opens a conversation in
+that workspace through the same keyed creation as any other send. Every part of it is re-derived
+server-side: edit rights from the membership (`managerMayMessageNewContacts`), account-less status
+from a successful case-insensitive profile read only (`confirmedAccountlessEmails` — a failed read or
+an existing account is never a typed address), and never for a vendor or resident sender. The caps
+are 5 new addresses per message and 25 per workspace per rolling day, reserved as ONE all-or-nothing
+`rateLimit` cost so a refused send spends nothing. `src/lib/inbox-recipient-scope.ts`.
+
 ## `recordRef` — a thread can be labeled with the record it is about
 
 A thread's `row_data` may carry `recordRef: { kind, id, label }` (kinds:

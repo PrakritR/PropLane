@@ -182,10 +182,11 @@ async function buildStatus(
     address: row?.address ?? null,
     canEditAddress,
     state,
-    // One address per workspace, exactly like the number: a pure co-manager
-    // sends from the owner's address and never sees a Request button.
+    // One address per workspace, exactly like the number: only the OWNER's own reader asks for it.
+    // A pure co-manager and a PropLane Service staff reader both send from the owner's address and
+    // never see a Request button, which `workspace.owned` alone already settles.
     canRequest:
-      workspace.owned && !pureCoManager && storageReady && canRequestBilling && provisioningEnvEnabled && !row,
+      workspace.owned && storageReady && canRequestBilling && provisioningEnvEnabled && !row,
     canUse,
     requestedAtSignup: automationSettings?.workEmailRequestedAtSignup === true,
   };

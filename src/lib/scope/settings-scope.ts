@@ -58,8 +58,13 @@ export function resolveSettingsScopeParams(requestUrl: string, body?: Record<str
  * the request: a `workspaceId` is a name, not a grant. A read that fails or cannot be answered is "not staff"
  * (fail closed). A write also needs a seat that can run the workspace (Admin / Full / Property manager rights); a
  * Viewer, Leasing, Bookkeeper or Maintenance seat is read-only here.
+ *
+ * Exported for the house-rung settings resolvers in
+ * `@/lib/auth/manager-settings-module-access.server`, which authorize a `propertyId` through the STRICT
+ * co-manager gate and so cannot route through `assertSettingsScopeOwned`: they consult this same staff
+ * decision rather than a second one. A module-gated caller may only accept `fullGrant`.
  */
-async function serviceStaffSettingsAccess(
+export async function serviceStaffSettingsAccess(
   db: ServiceClient,
   callerUserId: string,
   workspaceId: string,

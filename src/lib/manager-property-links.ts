@@ -107,7 +107,8 @@ export function buildManagerPortfolioTourUrl(origin: string, propertyIds: string
 
 /**
  * The public listing URL. With the listing's published `slug` it is the readable address URL
- * (`/rent/listings/4709a-8th-ave-ne`); without one it is the id URL, which still resolves and redirects to the slug.
+ * (`/rent/listings/4709a-8th-ave-ne`); without one it is the id URL, which renders the same page in place and
+ * self-canonicalises to the slug (an id is never redirected - `src/app/(rent)/rent/listings/[id]/page.tsx`).
  * Server callers get the slug from `buildReadableListingUrl` (`@/lib/seo/listing-slugs.server`), which reads the one
  * published-catalog index; this sync builder never guesses a slug, because a colliding address needs the whole catalog.
  */
