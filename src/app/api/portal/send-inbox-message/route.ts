@@ -93,6 +93,16 @@ import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { isHouseThreadId } from "@/lib/house-thread-id";
 import { handleHouseChatPost, houseReplyMessageId } from "@/lib/house-chat/post.server";
 
+/** At most this many typed addresses that are not yet contacts per send. */
+const MAX_TYPED_NEW_CONTACTS_PER_SEND = 5;
+/** Per workspace per rolling 24 hours. */
+const MAX_TYPED_NEW_CONTACTS_PER_DAY = 25;
+
+/** `ilike` reads `\`, `%` and `_` as pattern syntax; an address must match literally. */
+function escapeIlikeLiteral(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
+
 export const runtime = "nodejs";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
@@ -534,21 +544,30 @@ export async function POST(req: Request) {
       { email: string; userId: string | null; role: string | null; scope: string }
     >();
 
+    // Typed addresses a successful, case-insensitive profile read found NO account for.
+    const confirmedAccountlessEmails = new Set<string>();
     const toEmailsNormalized = normalizeEmails(body.toEmails)
       .filter((e) => e.includes("@"))
       .map((e) => e.trim().toLowerCase())
       .filter((e) => e !== senderEmail && !recipientsByEmail.has(e));
 
     if (toEmailsNormalized.length > 0) {
-      const { data: emailProfiles } = await db
+      // Case-insensitive on purpose (`profiles.email` is stored as the user typed it) and fail closed: a read that
+      // errors must never read as "no account", or an existing account would pass as an account-less typed address.
+      const { data: emailProfiles, error: emailProfilesError } = await db
         .from("profiles")
         .select("id, email, role")
-        .in("email", toEmailsNormalized);
+        .or(toEmailsNormalized.map((e) => `email.ilike.${postgrestFilterValue(escapeIlikeLiteral(e))}`).join(","));
+      if (emailProfilesError) {
+        console.error("[send-inbox-message] recipient account lookup failed", emailProfilesError.message);
+        return NextResponse.json({ ok: false, error: "Could not check recipients. Try again." }, { status: 503 });
+      }
       const profileByEmail = new Map(
         (emailProfiles ?? []).map((p) => [String(p.email ?? "").trim().toLowerCase(), p]),
       );
       for (const email of toEmailsNormalized) {
         if (recipientsByEmail.has(email)) continue;
+        if (!profileByEmail.has(email)) confirmedAccountlessEmails.add(email);
         // No matching profile (e.g. not yet signed up) — best-effort resident
         // scope so the row still shows up if/when they sign in by that email.
         const profile = profileByEmail.get(email);
@@ -609,7 +628,7 @@ export async function POST(req: Request) {
         managerSendScope = await resolveCommunicationScope(db, user.id, "edit");
       }
       const reach = managerSendScope ? recipientReachFromScope(managerSendScope) : undefined;
-      const { allowed } = await filterRecipientsBySenderScope(
+      const { allowed, typedNewContacts } = await filterRecipientsBySenderScope(
         db,
         { id: user.id, email: senderEmail, role: senderRole, isAdmin: false, reach },
         recipients,
@@ -618,8 +637,35 @@ export async function POST(req: Request) {
           // new conversation in this workspace through the same keyed creation as any other send. Re-derived here
           // from membership, never from the body, and never for a vendor or resident sender.
           allowTypedAddresses: managerSendScope ? await managerMayMessageNewContacts(db, managerSendScope) : false,
+          confirmedAccountlessEmails,
         },
       );
+      // Typed new contacts are capped: a handful per send, and a rolling daily budget per workspace (the shared
+      // limiter in a deployed runtime, in-memory in dev/test).
+      const newContactCount = typedNewContacts?.length ?? 0;
+      if (newContactCount > MAX_TYPED_NEW_CONTACTS_PER_SEND) {
+        return NextResponse.json(
+          { ok: false, error: `You can add up to ${MAX_TYPED_NEW_CONTACTS_PER_SEND} new addresses per message.` },
+          { status: 400 },
+        );
+      }
+      if (newContactCount > 0) {
+        const typedWorkspaceId = managerSendScope?.activeWorkspaceId?.trim();
+        if (!typedWorkspaceId) {
+          return NextResponse.json({ ok: false, error: "You can only message people connected to your account." }, { status: 403 });
+        }
+        for (let i = 0; i < newContactCount; i += 1) {
+          const budget = await rateLimit(`typed-contacts:${typedWorkspaceId}`, MAX_TYPED_NEW_CONTACTS_PER_DAY, 86_400_000);
+          if (!budget.ok) {
+            return NextResponse.json(
+              budget.unavailable
+                ? { ok: false, error: "Could not check recipients. Try again." }
+                : { ok: false, error: "This workspace has reached its daily limit of new addresses. Try again tomorrow." },
+              { status: budget.unavailable ? 503 : 429 },
+            );
+          }
+        }
+      }
       if (allowed.length === 0) {
         return NextResponse.json(
           { ok: false, error: "You can only message people connected to your account." },

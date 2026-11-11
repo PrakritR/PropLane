@@ -3,6 +3,7 @@ import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { createPersonaInquiry, personaEnabled, resumePersonaInquiry } from "@/lib/resident-identity/persona.server";
+import { residentIdentityThrottle } from "@/lib/resident-identity/throttle.server";
 import { residentIdentityActor } from "@/lib/resident-identity/auth.server";
 
 export const runtime = "nodejs";
@@ -24,6 +25,8 @@ export async function POST() {
   const auth = await createSupabaseServerClient();
   const { data: { user } } = await auth.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  const throttled = await residentIdentityThrottle(user.id);
+  if (throttled) return throttled;
   const db = createSupabaseServiceRoleClient();
   const { data: profile, error: profileError } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
   if (profileError || !(await authorizeResidentRole(db, { userId: user.id, legacyRole: profile?.role }))) {

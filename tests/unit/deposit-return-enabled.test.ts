@@ -28,6 +28,20 @@ describe("reserved deposit return", () => {
     expect(rpc.mock.invocationCallOrder[0]).toBeLessThan(refund.mock.invocationCallOrder[0]!);
     expect(refund).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ idempotencyKey: "deposit-return:attempt", metadata: expect.objectContaining({ deposit_return_attempt: "attempt" }) }));
   });
+  it("passes only label and amountCents of each itemization line to the reservation RPC", async () => {
+    refund.mockResolvedValue({ refundId: "re_1", status: "succeeded" });
+    const res = await POST(new Request("http://localhost/api/portal/deposit-return", {
+      method: "POST",
+      body: JSON.stringify({
+        chargeId: "charge",
+        amountCents: 5000,
+        itemization: [{ label: "  Cleaning ", amountCents: 1000, evidence: "photo.jpg", note: "x", id: "i-1" }],
+      }),
+    }));
+    expect(res.status).toBe(202);
+    expect(rpc.mock.calls[0]![1].p_itemization).toEqual([{ label: "Cleaning", amountCents: 1000 }]);
+    expect(rpc.mock.calls[0]![1].p_withhold).toBe(1000);
+  });
   it("keeps an uncertain provider outcome reserved", async () => {
     refund.mockRejectedValue(new Error("timeout"));
     const res = await post();

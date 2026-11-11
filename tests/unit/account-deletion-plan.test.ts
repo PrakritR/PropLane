@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { ACCOUNT_PURGE_TABLES } from "@/lib/auth/account-purge-manifest";
 import {
   DELETE_ORDER,
+  DETACH_ONLY_TABLES,
+  detachSteps,
   EMAIL_COLUMNS,
   ID_COLUMNS,
   ownershipFilter,
@@ -142,6 +144,35 @@ describe("delete order", () => {
       (table) => !DELETE_ORDER.includes(table),
     );
     expect(missing, "add these to DELETE_ORDER").toEqual([]);
+  });
+});
+
+describe("retained reconciliation evidence is detached, never deleted", () => {
+  it("detach-only tables match the purge manifest's detachIds and keep no deletable filter", () => {
+    for (const [table, columns] of Object.entries(DETACH_ONLY_TABLES as Record<string, string[]>)) {
+      const rule = ACCOUNT_PURGE_TABLES.find((r) => r.table === table);
+      expect(rule, table).toBeDefined();
+      expect(rule!.manager?.detachIds, table).toEqual(columns);
+      expect(rule!.manager?.ids ?? [], table).toEqual([]);
+      expect(DELETE_ORDER).toContain(table);
+    }
+    expect(Object.keys(DETACH_ONLY_TABLES).sort()).toEqual(["household_charge_refund_attempts", "security_deposit_return_attempts"]);
+  });
+
+  it("plans one column-scoped null per id column, and nothing without a user id", () => {
+    const columns = ["manager_user_id", "resident_user_id", "resident_email"];
+    expect(detachSteps("security_deposit_return_attempts", columns, { userId: "u-1" })).toEqual([
+      { column: "manager_user_id", filter: "manager_user_id=eq.u-1" },
+    ]);
+    expect(detachSteps("security_deposit_return_attempts", columns, { userId: null })).toEqual([]);
+    expect(detachSteps("security_deposit_return_attempts", ["resident_email"], { userId: "u-1" })).toEqual([]);
+    expect(detachSteps("portal_household_charge_records", columns, { userId: "u-1" })).toEqual([]);
+  });
+
+  it("the script PATCHes a detach step instead of deleting it", () => {
+    const source = readFileSync("scripts/delete-account.mjs", "utf8");
+    expect(source).toContain("DETACH_ONLY_TABLES");
+    expect(source).toContain('method: "PATCH"');
   });
 });
 

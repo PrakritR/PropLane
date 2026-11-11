@@ -50,8 +50,21 @@ describe("typed address to a non-contact", () => {
   it("a manager with edit rights may email a bare typed address that is not yet a contact", async () => {
     const result = await filterRecipientsBySenderScope(empty(), manager, [{ email: "new.person@example.com", userId: null }], {
       allowTypedAddresses: true,
+      confirmedAccountlessEmails: new Set(["new.person@example.com"]),
     });
     expect(result.allowed.map((r) => r.email)).toEqual(["new.person@example.com"]);
+    expect(result.typedNewContacts).toEqual(["new.person@example.com"]);
+  });
+
+  it("an address the route did NOT confirm account-less (no set, empty set, other address) is refused", async () => {
+    for (const confirmedAccountlessEmails of [undefined, new Set<string>(), new Set(["someone.else@example.com"])]) {
+      const result = await filterRecipientsBySenderScope(empty(), manager, [{ email: "new.person@example.com", userId: null }], {
+        allowTypedAddresses: true,
+        confirmedAccountlessEmails,
+      });
+      expect(result.allowed).toEqual([]);
+      expect(result.blocked).toHaveLength(1);
+    }
   });
 
   it("without the route's edit-rights decision the same address is still refused", async () => {
@@ -80,6 +93,7 @@ describe("typed address to a non-contact", () => {
   it("a recipient userId outside the manager's scope is never authorized by the typed-address allowance", async () => {
     const result = await filterRecipientsBySenderScope(empty(), manager, [{ email: "stranger@example.com", userId: "user_9" }], {
       allowTypedAddresses: true,
+      confirmedAccountlessEmails: new Set(["stranger@example.com"]),
     });
     expect(result.allowed).toEqual([]);
     expect(result.blocked).toHaveLength(1);
@@ -88,7 +102,10 @@ describe("typed address to a non-contact", () => {
   it("only bare, syntactically valid addresses pass", async () => {
     for (const bad of ["Name <a@example.com>", "a@example", "a b@example.com", "a@@example.com", "a@example.com\nbcc:x@y.com", ""]) {
       expect(isBareEmailAddress(bad), bad).toBe(false);
-      const result = await filterRecipientsBySenderScope(empty(), manager, [{ email: bad, userId: null }], { allowTypedAddresses: true });
+      const result = await filterRecipientsBySenderScope(empty(), manager, [{ email: bad, userId: null }], {
+        allowTypedAddresses: true,
+        confirmedAccountlessEmails: new Set([bad.trim().toLowerCase()]),
+      });
       expect(result.allowed, bad).toEqual([]);
     }
     expect(isBareEmailAddress("first.last+tag@sub.example.com")).toBe(true);

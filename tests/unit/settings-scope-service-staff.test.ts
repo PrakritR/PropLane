@@ -11,6 +11,11 @@ vi.mock("@/lib/workspaces/membership.server", () => ({
   actorWorkspaceStanding: (...args: unknown[]) => actorWorkspaceStanding(...args),
 }));
 
+const managerHasCoManagerPermissionForProperty = vi.fn();
+vi.mock("@/lib/auth/manager-lease-scope", () => ({
+  managerHasCoManagerPermissionForProperty: (...args: unknown[]) => managerHasCoManagerPermissionForProperty(...args),
+}));
+
 import { assertSettingsScopeOwned } from "@/lib/scope/settings-scope";
 
 type Row = Record<string, unknown>;
@@ -56,6 +61,8 @@ function db() {
 beforeEach(() => {
   loadServiceStaffWorkspaces.mockReset();
   actorWorkspaceStanding.mockReset();
+  managerHasCoManagerPermissionForProperty.mockReset();
+  managerHasCoManagerPermissionForProperty.mockResolvedValue(false);
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -123,6 +130,14 @@ describe("assertSettingsScopeOwned - PropLane Service staff", () => {
 
   it("a staff seat reaches a house of a service workspace through its workspace, never a foreign one", async () => {
     loadServiceStaffWorkspaces.mockResolvedValue([{ id: WS_SERVICE, name: "W", city: null, ownerUserId: OWNER }]);
+    actorWorkspaceStanding.mockResolvedValue({
+      workspaceId: WS_SERVICE,
+      workspaceName: "W",
+      ownerUserId: OWNER,
+      role: "admin",
+      rights: { members: true, houses: true },
+      linkId: "l1",
+    });
     const ok = await assertSettingsScopeOwned(db(), STAFF, { propertyId: "house-1" }, { intent: "read" });
     expect(ok).toEqual({ ok: true, ownerUserId: OWNER, workspaceId: WS_SERVICE, propertyId: "house-1" });
     const foreign = makeDb({
@@ -131,5 +146,63 @@ describe("assertSettingsScopeOwned - PropLane Service staff", () => {
     });
     const refused = await assertSettingsScopeOwned(foreign, STAFF, { propertyId: "house-x" }, { intent: "read" });
     expect(refused.ok).toBe(false);
+  });
+
+  const staffRow = [{ id: WS_SERVICE, name: "W", city: null, ownerUserId: OWNER }];
+  const seat = (role: string | null, rights: { members: boolean; houses: boolean }) => ({
+    workspaceId: WS_SERVICE,
+    workspaceName: "W",
+    ownerUserId: OWNER,
+    role,
+    rights,
+    linkId: role ? "l" : null,
+  });
+
+  it("a staff match with no seat on the workspace is refused, even to read", async () => {
+    loadServiceStaffWorkspaces.mockResolvedValue(staffRow);
+    actorWorkspaceStanding.mockResolvedValue(seat(null, { members: false, houses: false }));
+    const read = await assertSettingsScopeOwned(db(), STAFF, { workspaceId: WS_SERVICE }, { intent: "read" });
+    expect(read.ok).toBe(false);
+    actorWorkspaceStanding.mockResolvedValue(null);
+    const unread = await assertSettingsScopeOwned(db(), STAFF, { workspaceId: WS_SERVICE }, { intent: "read" });
+    expect(unread.ok).toBe(false);
+  });
+
+  it("a bookkeeper seat with leases:none cannot read the leases module (workspace and house)", async () => {
+    loadServiceStaffWorkspaces.mockResolvedValue(staffRow);
+    actorWorkspaceStanding.mockResolvedValue(seat("bookkeeper", { members: false, houses: false }));
+    const ws = await assertSettingsScopeOwned(db(), STAFF, { workspaceId: WS_SERVICE }, { module: "leases", level: "read", intent: "read" });
+    expect(ws.ok).toBe(false);
+    if (!ws.ok) expect(ws.status).toBe(403);
+    const house = await assertSettingsScopeOwned(db(), STAFF, { propertyId: "house-1" }, { module: "leases", level: "read", intent: "read" });
+    expect(house.ok).toBe(false);
+    if (!house.ok) expect(house.status).toBe(403);
+  });
+
+  it("an admin staff seat passes a module-gated check without a per-house grant", async () => {
+    loadServiceStaffWorkspaces.mockResolvedValue(staffRow);
+    actorWorkspaceStanding.mockResolvedValue(seat("admin", { members: true, houses: true }));
+    for (const intent of ["read", "edit"] as const) {
+      const result = await assertSettingsScopeOwned(db(), STAFF, { workspaceId: WS_SERVICE }, { module: "leases", level: intent === "read" ? "read" : "edit", intent });
+      expect(result).toEqual({ ok: true, ownerUserId: OWNER, workspaceId: WS_SERVICE, propertyId: null });
+    }
+    expect(managerHasCoManagerPermissionForProperty).not.toHaveBeenCalled();
+  });
+
+  it("a property-manager seat with leases:edit writes the leases module", async () => {
+    loadServiceStaffWorkspaces.mockResolvedValue(staffRow);
+    actorWorkspaceStanding.mockResolvedValue(seat("property_manager", { members: false, houses: true }));
+    managerHasCoManagerPermissionForProperty.mockResolvedValue(true);
+    const result = await assertSettingsScopeOwned(db(), STAFF, { workspaceId: WS_SERVICE }, { module: "leases", level: "edit", intent: "edit" });
+    expect(result).toEqual({ ok: true, ownerUserId: OWNER, workspaceId: WS_SERVICE, propertyId: null });
+    expect(managerHasCoManagerPermissionForProperty).toHaveBeenCalledWith(expect.anything(), STAFF, "house-1", "leases", "edit");
+  });
+
+  it("a custom seat with only teams and leases:none cannot write the leases module", async () => {
+    loadServiceStaffWorkspaces.mockResolvedValue(staffRow);
+    actorWorkspaceStanding.mockResolvedValue(seat("custom", { members: true, houses: false }));
+    const result = await assertSettingsScopeOwned(db(), STAFF, { workspaceId: WS_SERVICE }, { module: "leases", level: "edit", intent: "edit" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(403);
   });
 });

@@ -64,17 +64,24 @@ async function serviceStaffSettingsAccess(
   callerUserId: string,
   workspaceId: string,
   intent: "read" | "edit",
-): Promise<{ kind: "none" } | { kind: "read_only" } | { kind: "ok"; ownerUserId: string }> {
+): Promise<{ kind: "none" } | { kind: "read_only" } | { kind: "ok"; ownerUserId: string; fullGrant: boolean }> {
   try {
     const { loadServiceStaffWorkspaces } = await import("@/lib/service/service-mode.server");
     const staff = await loadServiceStaffWorkspaces(db as never, callerUserId);
     const match = staff.find((w) => w.id === workspaceId);
     if (!match || !match.ownerUserId) return { kind: "none" };
-    if (intent === "read") return { kind: "ok", ownerUserId: match.ownerUserId };
+    // A staff match alone is never the grant: the caller needs a real seat on THIS workspace from its owner, for a
+    // read as much as a write, and a module-gated route still checks the module (`fullGrant` is Admin / Full only).
     const standing = await actorWorkspaceStanding(db as never, callerUserId, workspaceId);
-    if (!standing || standing.role === null || standing.ownerUserId !== match.ownerUserId) return { kind: "read_only" };
-    if (!standing.rights.members && !standing.rights.houses) return { kind: "read_only" };
-    return { kind: "ok", ownerUserId: match.ownerUserId };
+    if (!standing || standing.role === null || standing.ownerUserId !== match.ownerUserId) {
+      return intent === "read" ? { kind: "none" } : { kind: "read_only" };
+    }
+    if (intent === "edit" && !standing.rights.members && !standing.rights.houses) return { kind: "read_only" };
+    return {
+      kind: "ok",
+      ownerUserId: match.ownerUserId,
+      fullGrant: standing.role === "owner" || standing.role === "admin" || standing.role === "full",
+    };
   } catch (error) {
     console.error("[settings-scope] service staff standing unreadable", error);
     return { kind: "none" };
@@ -138,7 +145,9 @@ export async function assertSettingsScopeOwned(
     }
     if (propertyWorkspaceId) {
       const staff = await serviceStaffSettingsAccess(db, callerUserId, propertyWorkspaceId, intent);
-      if (staff.kind === "ok" && staff.ownerUserId === ownerUserId) {
+      // A module-gated route also needs the module: a seat that is not Admin / Full falls through to the same
+      // per-house co-manager check every other member passes.
+      if (staff.kind === "ok" && staff.ownerUserId === ownerUserId && (!opts?.module || staff.fullGrant)) {
         return { ok: true, ownerUserId, workspaceId: propertyWorkspaceId, propertyId };
       }
       if (staff.kind === "read_only") {
@@ -167,7 +176,7 @@ export async function assertSettingsScopeOwned(
     }
     // PropLane Service staff working a PropLane-managed workspace act on its owner's rows.
     const staff = await serviceStaffSettingsAccess(db, callerUserId, workspaceId, intent);
-    if (staff.kind === "ok" && staff.ownerUserId === ownerUserId) {
+    if (staff.kind === "ok" && staff.ownerUserId === ownerUserId && (!opts?.module || staff.fullGrant)) {
       return { ok: true, ownerUserId, workspaceId, propertyId: null };
     }
     if (staff.kind === "read_only") {
