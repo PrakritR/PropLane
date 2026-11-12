@@ -637,6 +637,25 @@ export function stablePersonThreadId(prefix: string, ...parts: (string | null | 
   return `${prefix}_${digest}`;
 }
 
+/**
+ * Deterministic ids for the two turns ONE per-person send writes (the sender's sent copy and the
+ * recipient's inbox copy), derived from the composer's `sendId` and the recipient it was authorized for.
+ * Pressing Send again after a partial failure re-sends with the same `sendId`, and `messageId` dedupe then
+ * makes the retry append nothing a second time — a browser operation id only identifies a retry once the
+ * server has bound it to the destination, so the recipient rides in the digest.
+ */
+export function inboxSendMessageIds(
+  senderUserId: string,
+  sendId: string,
+  recipientEmail: string,
+): { sent: string; inbox: string } {
+  const operation = createHash("sha256")
+    .update([senderUserId.trim(), sendId.trim().toLowerCase(), recipientEmail.trim().toLowerCase()].join("\0"))
+    .digest("hex")
+    .slice(0, 32);
+  return { sent: `send:${operation}:sent`, inbox: `send:${operation}:inbox` };
+}
+
 function advanceAfter(previous: string | null, nowIso: string): string {
   const prev = Date.parse(previous ?? "");
   if (!Number.isFinite(prev) || Date.parse(nowIso) > prev) return nowIso;

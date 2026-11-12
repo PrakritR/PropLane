@@ -108,7 +108,16 @@ export type OperationsNamespace =
    * per-property picker on this settings page, so there is no
    * property-override rung for it.
    */
-  | "leaseClauseTemplate";
+  | "leaseClauseTemplate"
+  /**
+   * The workspace's "Landlord on leases" name (`ManagerLandlordProfile`,
+   * `manager-landlord-profile.ts`). Workspace-rung only: the name is chosen
+   * once per workspace and printed on every lease generated in it, so an
+   * owner who runs two workspaces names each one separately. The account row
+   * (`manager_automation_settings.row_data.landlordProfile`) is the fallback
+   * every workspace without its own row still resolves to.
+   */
+  | "landlordProfile";
 
 /** A `propertyId` that is not in this manager's workspace. Routes map it to 403. */
 export class ForeignPropertyError extends Error {

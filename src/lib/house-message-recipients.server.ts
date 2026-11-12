@@ -15,10 +15,14 @@ import {
  * Who a manager reaches with "everyone living there": the current residents of ONE house, read from the
  * occupancy snapshot (the one reader Bookings uses). The caller has already proved the house belongs to the
  * workspace and that the viewer holds Communication on it; this only derives people and what each can receive.
+ *
+ * EVERYONE is returned, each flagged `guest` or not, because the two answers differ only by that flag and the
+ * snapshot behind them is five reads at a 12s cap: the "Include short-stay guests" checkbox filters the one
+ * answer client-side instead of re-running the snapshot every time it is toggled.
  */
 export async function loadHouseMessageRecipients(
   db: SupabaseClient,
-  input: { ownerUserId: string; propertyId: string; today: string; includeGuests: boolean },
+  input: { ownerUserId: string; propertyId: string; today: string },
 ): Promise<{ people: HouseRecipient[]; excludedGuests: number; unaddressable: number }> {
   const { occupancySnapshotForManager } = await import("@/lib/occupancy/snapshot.server");
   const snapshot = await occupancySnapshotForManager(db, input.ownerUserId, {
@@ -46,21 +50,30 @@ export async function loadHouseMessageRecipients(
     }
   }
   const reachByEmail = await loadReachByForEmails(db, emails);
-  const optedOutEmails = new Set<string>();
-  for (const email of emails) {
-    const profile = profilesByEmail.get(email);
-    const stay = stays.find((s) => String(s.resident?.residentEmail ?? "").trim().toLowerCase() === email);
-    const e164 = normalizeE164(profile?.phone ?? stay?.resident?.residentPhone ?? "");
-    if (!e164) continue;
-    if (await isPhoneOptedOut(db, e164, { userId: profile?.id ?? null }).catch(() => false)) optedOutEmails.add(email);
-  }
-  return houseResidentsFromStays(stays, {
+  // One read per person, all at once: the compose sheet blocks on this.
+  const optedOutChecks = await Promise.all(
+    emails.map(async (email) => {
+      const profile = profilesByEmail.get(email);
+      const stay = stays.find((s) => String(s.resident?.residentEmail ?? "").trim().toLowerCase() === email);
+      const e164 = normalizeE164(profile?.phone ?? stay?.resident?.residentPhone ?? "");
+      if (!e164) return null;
+      const optedOut = await isPhoneOptedOut(db, e164, { userId: profile?.id ?? null }).catch(() => false);
+      return optedOut ? email : null;
+    }),
+  );
+  const optedOutEmails = new Set<string>(optedOutChecks.filter((email): email is string => email !== null));
+  const everyone = houseResidentsFromStays(stays, {
     propertyId: input.propertyId,
     today: input.today,
-    includeGuests: input.includeGuests,
+    includeGuests: true,
     profilesByEmail,
     optedOutEmails,
     reachByEmail,
     normalizePhone: (raw) => normalizeE164(raw ?? "") || null,
   });
+  return {
+    ...everyone,
+    // How many the checkbox hides when it is off: exactly the people whose stay here is a short one.
+    excludedGuests: everyone.people.filter((person) => person.guest).length,
+  };
 }

@@ -5,7 +5,7 @@
  * from the picker), the per-channel tally shown before Send, and the summary sheet after. Sending itself is the
  * modal's: one copy per person through `/api/portal/send-inbox-message` (see `fanOutHouseSend`).
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Users } from "lucide-react";
 import { ConfirmRows, PortalDialog } from "@/components/portal/portal-dialog";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
@@ -24,23 +24,27 @@ export type HouseRecipientsState =
   | { status: "error"; message: string }
   | { status: "ready"; people: HouseRecipient[]; excludedGuests: number };
 
-/** Loads the current residents of the picked houses. Re-reads when the guest checkbox changes. */
+/**
+ * Loads the current residents of the picked houses, ONCE per pick. The route answers with everyone living
+ * there and flags the short-stay guests, so the guest checkbox filters the answer in place rather than
+ * re-running each house's occupancy snapshot every time it is toggled.
+ */
 export function useHouseRecipients(propertyIds: readonly string[], includeGuests: boolean, enabled: boolean): HouseRecipientsState {
-  const [state, setState] = useState<HouseRecipientsState>({ status: "idle" });
+  const [loaded, setLoaded] = useState<HouseRecipientsState>({ status: "idle" });
   const key = propertyIds.join(",");
   useEffect(() => {
     if (!enabled || propertyIds.length === 0) {
-      setState({ status: "idle" });
+      setLoaded({ status: "idle" });
       return;
     }
     let active = true;
-    setState({ status: "loading" });
+    setLoaded({ status: "loading" });
     void Promise.all(
       propertyIds.map(async (propertyId) => {
-        const res = await fetch(
-          `/api/portal/house-recipients?propertyId=${encodeURIComponent(propertyId)}${includeGuests ? "&includeGuests=1" : ""}`,
-          { credentials: "include", cache: "no-store" },
-        );
+        const res = await fetch(`/api/portal/house-recipients?propertyId=${encodeURIComponent(propertyId)}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
         const data = (await res.json().catch(() => ({}))) as { people?: HouseRecipient[]; excludedGuests?: number; error?: string };
         if (!res.ok) throw new Error(data.error || "Could not load who lives there.");
         return data;
@@ -57,18 +61,22 @@ export function useHouseRecipients(propertyIds: readonly string[], includeGuests
             people.push(person);
           }
         }
-        setState({ status: "ready", people, excludedGuests: all.reduce((sum, data) => sum + (data.excludedGuests ?? 0), 0) });
+        setLoaded({ status: "ready", people, excludedGuests: people.filter((person) => person.guest).length });
       })
       .catch((error: unknown) => {
-        if (active) setState({ status: "error", message: error instanceof Error ? error.message : "Could not load who lives there." });
+        if (active) setLoaded({ status: "error", message: error instanceof Error ? error.message : "Could not load who lives there." });
       });
     return () => {
       active = false;
     };
     // `key` is the stable identity of propertyIds.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, key, includeGuests]);
-  return state;
+  }, [enabled, key]);
+  return useMemo(() => {
+    if (loaded.status !== "ready" || includeGuests) return loaded;
+    const people = loaded.people.filter((person) => !person.guest);
+    return { status: "ready", people, excludedGuests: loaded.people.length - people.length };
+  }, [loaded, includeGuests]);
 }
 
 /** Text 2 of 5 / Email 4 of 5 / App 5 of 5, one amber line for who lacks a phone or real email, and the guest checkbox. */

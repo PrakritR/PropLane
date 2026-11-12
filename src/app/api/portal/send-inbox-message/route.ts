@@ -21,6 +21,7 @@ import {
   coHostDisplayName,
   commitInboxThreadReply,
   deliverPortalMessageThreadSide,
+  inboxSendMessageIds,
   replyDeliveryContext,
   resolveInboxThreadReplyTarget,
 } from "@/lib/portal-inbox-delivery";
@@ -32,6 +33,7 @@ import {
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 import { sendPortalConversationEmails } from "@/lib/portal-email-send.server";
 import {
+  readMessageDeliveries,
   recordEmailAttempt,
   recordPlaceholderEmailFailures,
   recordSmsAttempt,
@@ -100,11 +102,6 @@ const MAX_TYPED_NEW_CONTACTS_PER_DAY = 25;
 
 /** How many addresses one recipient-account lookup asks about; a pasted list is read in several queries. */
 const RECIPIENT_LOOKUP_CHUNK = 50;
-
-/** `ilike` reads `\`, `%` and `_` as pattern syntax; an address must match literally. */
-function escapeIlikeLiteral(value: string): string {
-  return value.replace(/[\\%_]/g, "\\$&");
-}
 
 export const runtime = "nodejs";
 
@@ -557,15 +554,17 @@ export async function POST(req: Request) {
     if (toEmailsNormalized.length > 0) {
       // Case-insensitive on purpose (`profiles.email` is stored as the user typed it) and fail closed: a read that
       // errors must never read as "no account", or an existing account would pass as an account-less typed address.
-      // One `or=` term per address is long, so a pasted list is read in chunks: a single query over a hundred
-      // addresses outgrows the PostgREST URL limit and the whole send would be refused for a list that used to work.
+      // `email_lower` is the stored generated column (migration `20261111130000_profiles_email_lower`), so this is
+      // one index lookup per address rather than a pattern match over every profile row. A pasted list is still read
+      // in chunks: a single query over a hundred addresses outgrows the PostgREST URL limit and the whole send would
+      // be refused for a list that used to work.
       const profileByEmail = new Map<string, { id: string; email: string | null; role: string | null }>();
       for (let i = 0; i < toEmailsNormalized.length; i += RECIPIENT_LOOKUP_CHUNK) {
         const chunk = toEmailsNormalized.slice(i, i + RECIPIENT_LOOKUP_CHUNK);
         const { data: emailProfiles, error: emailProfilesError } = await db
           .from("profiles")
           .select("id, email, role")
-          .or(chunk.map((e) => `email.ilike.${postgrestFilterValue(escapeIlikeLiteral(e))}`).join(","));
+          .in("email_lower", chunk);
         if (emailProfilesError) {
           console.error("[send-inbox-message] recipient account lookup failed", emailProfilesError.message);
           return NextResponse.json({ ok: false, error: "Could not check recipients. Try again." }, { status: 503 });
@@ -904,6 +903,10 @@ export async function POST(req: Request) {
 
     // Where each recipient's copy of this message lives, so the provider's delivery status can be stamped on it.
     const sentTargets = new Map<string, InboxMessageTarget>();
+    // A retry of this very send (same `sendId`, so the same deterministic message ids) that already reported an
+    // attempt on a channel for this person: that channel is not sent, billed or stamped a second time.
+    const alreadyDelivered = { email: new Set<string>(), sms: new Set<string>() };
+    const priorDeliveries: InboxMessageDelivery[] = [];
     // Deliver to portal inbox for all recipients (including @axis.local demo emails)
     let propertyThreadId: string | null = null;
     const propertyTitleInput = String(body.propertyTitle ?? "").trim();
@@ -1042,7 +1045,11 @@ export async function POST(req: Request) {
         // Sender's Sent record (owner-only, scoped to the sender's portal).
         // Repeated sends to the same person append to the ONE sent thread.
         // A co-host has none: their reply is a turn of the owner's thread, which is the one conversation.
-        const sentMessageId = `sent_${ts}_${rand}`;
+        // With a composer `sendId` both turn ids are derived from it and this recipient, so pressing Send
+        // again after a partial failure (a house fan-out that hit the per-minute cap, a dropped response)
+        // appends nothing twice — the retry is the same message, not a second one.
+        const sendOnceIds = sendId && !replyTarget ? inboxSendMessageIds(user.id, sendId, recipientLower) : null;
+        const sentMessageId = sendOnceIds?.sent ?? `sent_${ts}_${rand}`;
         const sentSide = coHostReply ? null : await deliverPortalMessageThreadSide(db, {
           scope: senderScope,
           folder: "sent",
@@ -1072,6 +1079,14 @@ export async function POST(req: Request) {
         });
         if (replyTarget) sentTargets.set(recipientLower, { threadId: replyTarget.threadId, messageId: replyCommitId });
         else if (sentSide) sentTargets.set(recipientLower, { threadId: sentSide.threadId, messageId: sentMessageId });
+        if (sendOnceIds && sentSide?.action === "skipped") {
+          for (const delivery of await readMessageDeliveries(db, sentTargets.get(recipientLower))) {
+            const channel = delivery.channel === "sms" ? "sms" : delivery.channel === "email" ? "email" : null;
+            if (!channel) continue;
+            alreadyDelivered[channel].add(recipientLower);
+            priorDeliveries.push(delivery);
+          }
+        }
 
         if (recipientLower === senderEmail) continue;
 
@@ -1083,6 +1098,7 @@ export async function POST(req: Request) {
           ownerUserId: recipient.userId,
           participantEmail: recipientLower,
           otherPartyEmail: senderEmail,
+          ...(sendOnceIds ? { messageId: sendOnceIds.inbox } : {}),
           conversation: {
             propertyId: propertyId || hostReply?.propertyId || null,
             otherPartyUserId: user.id,
@@ -1152,12 +1168,18 @@ export async function POST(req: Request) {
       }
     }
 
-    // What each channel did, returned to the caller (a house send shows it per person).
+    // What each channel did, returned to the caller (a house send shows it per person). A retry reports what
+    // the first attempt already recorded, so a person whose copy went out reads as sent rather than unsent.
     const responseDeliveries: InboxMessageDelivery[] = await recordPlaceholderEmailFailures(
       db,
       sentTargets,
-      recipients.filter((recipient) => emailWanted(recipient.email)).map((recipient) => recipient.email),
+      recipients
+        .filter((recipient) => emailWanted(recipient.email) && !alreadyDelivered.email.has(recipient.email))
+        .map((recipient) => recipient.email),
     );
+    responseDeliveries.push(...priorDeliveries);
+    // Resend is never handed a copy this send already delivered.
+    const emailToSendNow = emailToSend.filter((email) => !alreadyDelivered.email.has(email));
 
     // If no eligible real email recipients and SMS not requested, short-circuit
     if (toEmails.length === 0 && !anySmsWanted) {
@@ -1188,13 +1210,13 @@ export async function POST(req: Request) {
     let emailSent = false;
     let emailResults = new Map<string, { sent: boolean; resendId: string | null }>();
 
-    if (emailToSend.length > 0) {
+    if (emailToSendNow.length > 0) {
       const html = `<p style="white-space:pre-wrap;font-family:sans-serif;font-size:15px;line-height:1.6;color:#1e293b">${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p><hr style="margin:24px 0;border:none;border-top:1px solid #e2e8f0"><p style="font-family:sans-serif;font-size:12px;color:#94a3b8">Sent via PropLane portal by ${String(fromName).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")}</p>`; // the sender name is display text from the request — never HTML
       // Per-recipient sends carrying the signed Reply-To + threading anchor.
       // Inbox already written — email stays best-effort, soft-failing per recipient.
       emailResults = await sendPortalConversationEmails({
         senderUserId: user.id,
-        toEmails: emailToSend,
+        toEmails: emailToSendNow,
         subject,
         text,
         html,
@@ -1207,14 +1229,14 @@ export async function POST(req: Request) {
         fromAddress:
           senderRole === "manager" ? await resolveManagerOutboundFrom(db, user.id) : null,
       });
-      for (const email of emailToSend) {
+      for (const email of emailToSendNow) {
         const result = emailResults.get(email);
         if (result?.sent) {
           emailSent = true;
           emailResendId = emailResendId ?? result.resendId;
         }
       }
-      for (const email of emailToSend) {
+      for (const email of emailToSendNow) {
         const recorded = await recordEmailAttempt(db, sentTargets.get(email), email, emailResults.get(email));
         if (recorded) responseDeliveries.push(recorded);
       }
@@ -1223,7 +1245,7 @@ export async function POST(req: Request) {
     const sentAt = new Date().toISOString();
 
     // Log email sends
-    if (emailToSend.length > 0) {
+    if (emailToSendNow.length > 0) {
       for (const recipient of recipients) {
         const logId = `outbound_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         await db.from("portal_outbound_mail_records").upsert(
@@ -1333,6 +1355,8 @@ export async function POST(req: Request) {
         await Promise.all(
           recipients.map(async (recipient) => {
           if (eventCategory && channelByEmail.get(recipient.email)?.sms !== true) return;
+          // This send already texted this person (a retry of the same `sendId`): never a second text.
+          if (alreadyDelivered.sms.has(recipient.email)) return;
           const recipientPhone = phoneByEmail.get(recipient.email) ?? "";
           if (!recipientPhone) return;
           let smsText = `(${subject})\n${text}`;

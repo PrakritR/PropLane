@@ -142,8 +142,10 @@ const nextConfig: NextConfig = {
       // The one exception is the homepage Software demo's iframe (`/demo/home-embed`, fixture data, no writes).
       { source: "/demo/:path((?!home-embed$).+)", destination: "/", permanent: false },
       // The assistants once improvised https://proplane.ai/rent/tour (no such route; the page is /rent/tours-contact).
-      // Permanent, so a link already sent still lands. Query params (propertyId, ...) ride along on a redirect.
-      { source: "/rent/tour", destination: "/rent/tours-contact", permanent: true },
+      // A link already sent still lands; temporary like every other rule here, so the day /rent/tour becomes a
+      // real page no browser or crawler is still holding a cached 308 to the other one. Query params
+      // (propertyId, ...) ride along on a redirect.
+      { source: "/rent/tour", destination: "/rent/tours-contact", permanent: false },
       { source: "/browse", destination: "/rent/browse", permanent: false },
       // `/rent/browse` is a single page — there is NO `/rent/browse/[…]` route,
       // so keeping the sub-path here sent every /browse/<anything> link to a

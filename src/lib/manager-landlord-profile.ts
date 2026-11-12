@@ -1,7 +1,10 @@
 /**
  * The landlord's legal name on generated leases. Order (captain, 2026-11-10):
- *   1. the workspace setting "Landlord on leases" (Settings -> Workspace -> Leases), stored in
- *      the workspace OWNER's `manager_automation_settings.row_data.landlordProfile`;
+ *   1. the workspace setting "Landlord on leases" (Settings -> Workspace -> Leases), stored under the
+ *      workspace OWNER on the workspace rung and resolved by
+ *      `manager-landlord-profile.server.ts` (its account row,
+ *      `manager_automation_settings.row_data.landlordProfile`, is the fallback for a workspace that
+ *      has none of its own);
  *   2. the workspace OWNER's `profiles.full_name`. On a PropLane-managed workspace the owner is
  *      the client, never the staff member who is signed in;
  *   3. the placeholder, which `leaseLandlordNameBlocker` refuses to send.
@@ -104,7 +107,11 @@ export function pickLandlordLegalName(input: {
   return { landlordLegalName: "", source: "none" };
 }
 
-/** The landlord name for a workspace, read as its owner: setting, then owner's full name. */
+/**
+ * The landlord name from the ACCOUNT rung, read as its owner: account setting, then owner's full name.
+ * A workspace-aware caller uses `resolveLandlordLegalNameForScope` instead, which puts that workspace's
+ * own setting ahead of this.
+ */
 export async function resolveWorkspaceLandlordLegalName(
   db: SupabaseClient,
   ownerUserId: string,

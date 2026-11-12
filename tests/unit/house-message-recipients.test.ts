@@ -7,6 +7,7 @@ import {
   houseSendCounts,
   houseSendPayload,
   personResultFromResponse,
+  sendHousePersonWithRetry,
   tallyHouseChannels,
   type HousePersonResult,
   type HouseRecipient,
@@ -196,5 +197,41 @@ describe("per-person send", () => {
   it("reads Sent for a wanted channel with no deliveries, and Skipped for one they cannot receive", () => {
     const result = personResultFromResponse(person("b", { sms: false }), { app: true, email: true, sms: true }, { ok: true, data: { ok: true } });
     expect(result).toMatchObject({ email: "sent", sms: "skipped" });
+  });
+});
+
+describe("sendHousePersonWithRetry", () => {
+  const waited: number[] = [];
+  const wait = async (ms: number) => {
+    waited.push(ms);
+  };
+
+  it("re-tries a rate-limited person until the send is taken", async () => {
+    waited.length = 0;
+    const attempt = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 429, ok: false, data: { error: "Too many messages. Please slow down." } })
+      .mockResolvedValueOnce({ status: 200, ok: true, data: { ok: true } });
+    const result = await sendHousePersonWithRetry(attempt, { delaysMs: [1, 2, 3], wait });
+    expect(result).toEqual({ ok: true, data: { ok: true } });
+    expect(attempt).toHaveBeenCalledTimes(2);
+    expect(waited).toEqual([1]);
+  });
+
+  it("stops after the last delay and reports the refusal", async () => {
+    waited.length = 0;
+    const attempt = vi.fn().mockResolvedValue({ status: 429, ok: false, data: { error: "Too many messages. Please slow down." } });
+    const result = await sendHousePersonWithRetry(attempt, { delaysMs: [1, 2], wait });
+    expect(result.ok).toBe(false);
+    expect(attempt).toHaveBeenCalledTimes(3);
+    expect(waited).toEqual([1, 2]);
+  });
+
+  it("never re-tries any other failure", async () => {
+    waited.length = 0;
+    const attempt = vi.fn().mockResolvedValue({ status: 403, ok: false, data: { error: "You can only message people connected to your account." } });
+    await sendHousePersonWithRetry(attempt, { delaysMs: [1, 2], wait });
+    expect(attempt).toHaveBeenCalledTimes(1);
+    expect(waited).toEqual([]);
   });
 });

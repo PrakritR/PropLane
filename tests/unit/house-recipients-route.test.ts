@@ -55,11 +55,21 @@ describe("GET /api/portal/house-recipients", () => {
     expect((await call("propertyId=p1")).status).toBe(403);
   });
 
-  it("asks for no guests by default and for guests only with includeGuests=1", async () => {
-    await call("propertyId=p1");
-    expect(loadRecipients).toHaveBeenLastCalledWith(ctx.db, expect.objectContaining({ propertyId: "p1", includeGuests: false, ownerUserId: "owner" }));
-    await call("propertyId=p1&includeGuests=1");
-    expect(loadRecipients).toHaveBeenLastCalledWith(ctx.db, expect.objectContaining({ includeGuests: true }));
+  it("reads the house once and answers with the guests flagged, whatever the query asks", async () => {
+    loadRecipients.mockResolvedValue({
+      people: [
+        { id: "a", guest: false },
+        { id: "b", guest: true },
+      ],
+      excludedGuests: 1,
+      unaddressable: 0,
+    });
+    const body = await (await call("propertyId=p1&includeGuests=1")).json();
+    expect(loadRecipients).toHaveBeenCalledTimes(1);
+    expect(loadRecipients).toHaveBeenLastCalledWith(ctx.db, expect.objectContaining({ propertyId: "p1", ownerUserId: "owner" }));
+    expect(loadRecipients.mock.calls[0]![1]).not.toHaveProperty("includeGuests");
+    expect(body.people.map((person: { id: string }) => person.id)).toEqual(["a", "b"]);
+    expect(body.excludedGuests).toBe(1);
   });
 
   it("derives the owner from the workspace, never from the query", async () => {

@@ -137,11 +137,16 @@ and the vendor record header open this modal on that vendor by text (a staged
 
 A house recipient in New message ("⌂ <address> · everyone living there (N)") is ONE copy per person, never a
 group text: the sheet reads the people from `GET /api/portal/house-recipients` (the occupancy snapshot, the house
-re-checked against the workspace and the viewer's Communication grant, channel short-stay guests left out unless
-"Include short-stay guests") and sends each person through the existing `/api/portal/send-inbox-message`, three at
+re-checked against the workspace and the viewer's Communication grant) ONCE per pick - that answer is everyone
+living there with the short-stay guests flagged, and "Include short-stay guests" filters it in place rather than
+re-running the snapshot - and sends each person through the existing `/api/portal/send-inbox-message`, three at
 a time, so every copy lands in that person's own conversation under the same authorization and a reply stays
-one-to-one. The tally (Text / Email / App "n of N", one amber line for who lacks a phone or real email) and the
-summary sheet come from `house-message-recipients.ts`; the in-app House chat is unchanged and stays in-app only.
+one-to-one. Each person's send carries its own `sendId`, kept per content fingerprint: the send route derives
+that turn's message ids from it, so a fan-out refused part-way (the per-minute send cap) is re-tried - by the
+fan-out itself for a 429, or by the manager pressing Send again - without a second copy, email or text for
+anyone it already reached. The tally (Text / Email / App "n of N", one amber line for who lacks a phone or real
+email) and the summary sheet come from `house-message-recipients.ts`; the in-app House chat is unchanged and
+stays in-app only.
 
 ## Tests
 

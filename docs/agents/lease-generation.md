@@ -796,7 +796,9 @@ Signed off until it is attached.
 # Landlord on leases, and who a lease can be sent to (captain, 2026-11-10)
 
 - **Landlord order, one decision (`pickLandlordLegalName`)**: the workspace setting "Landlord on leases" (Settings,
-  Workspace, Leases; `manager_automation_settings.row_data.landlordProfile` of the workspace OWNER), else the workspace
+  Workspace, Leases; the `landlordProfile` namespace on THAT workspace's row under the OWNER, with the owner's
+  `manager_automation_settings.row_data.landlordProfile` as the account-wide fallback - `resolveLandlordLegalNameForScope`
+  is the one read, so an owner running two workspaces names each separately), else the workspace
   OWNER's `profiles.full_name`, else the placeholder that `leaseLandlordNameBlocker` refuses. On a PropLane-managed
   workspace the owner is the client, never the signed-in staff member: `GET /api/portal/manager-application-settings`
   reads it as the owner and the client cache (`fetchAndCacheLandlordLegalName(workspaceId)`) follows the active

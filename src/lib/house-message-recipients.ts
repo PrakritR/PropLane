@@ -13,6 +13,13 @@ import { resolveRecipientChannels, type ReachChannel, type RecipientChannels } f
 export const HOUSE_LONG_TERM_MIN_DAYS = 30;
 /** How many per-person sends run at once. */
 export const HOUSE_SEND_CONCURRENCY = 3;
+/**
+ * A fan-out spends one token of the send route's per-minute budget per person, so a big house (or a second
+ * house in the same minute) can be refused with 429 part-way through. Each person is re-tried with the SAME
+ * `sendId`, which the route treats as the same message, so a retry can only deliver what has not gone out —
+ * never a second copy. The delays cover the limiter's one-minute window.
+ */
+export const HOUSE_SEND_RETRY_DELAYS_MS: readonly number[] = [5_000, 20_000, 35_000];
 
 export type HouseRecipient = {
   /** The profile id when the person has an account, else their lowercased email. Stable per person. */
@@ -250,6 +257,26 @@ export function personResultFromResponse(
     ...(email.error ? { emailError: email.error } : {}),
     ...(sms.error ? { smsError: sms.error } : {}),
   };
+}
+
+/**
+ * One person's send, re-tried while the route refuses it for rate limiting (429). `attempt` must post the
+ * same `sendId` every time: the send route is idempotent on it, so a retry never duplicates a copy that
+ * already went out. Any other failure is returned as-is for the summary to report.
+ */
+export async function sendHousePersonWithRetry(
+  attempt: () => Promise<{ status: number; ok: boolean; data: unknown }>,
+  options: { delaysMs?: readonly number[]; wait?: (ms: number) => Promise<void> } = {},
+): Promise<{ ok: boolean; data: unknown }> {
+  const delays = options.delaysMs ?? HOUSE_SEND_RETRY_DELAYS_MS;
+  const wait = options.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  let result = await attempt();
+  for (const delay of delays) {
+    if (result.status !== 429) break;
+    await wait(delay);
+    result = await attempt();
+  }
+  return { ok: result.ok, data: result.data };
 }
 
 /**

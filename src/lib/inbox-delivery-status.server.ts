@@ -68,6 +68,39 @@ async function updateMessageDeliveries(
   return false;
 }
 
+/**
+ * What a message already recorded, per channel. Used by a retry of the SAME send (one `sendId`, so one
+ * `messageId`): a channel that already reported an attempt must not be charged and delivered twice, while a
+ * channel with nothing recorded — a first attempt that died before its provider call — still goes out.
+ * A thread or message that is gone reads as nothing recorded.
+ */
+export async function readMessageDeliveries(
+  db: SupabaseClient,
+  target: InboxMessageTarget | null | undefined,
+): Promise<InboxMessageDelivery[]> {
+  if (!target?.threadId || !target.messageId) return [];
+  try {
+    const { data, error } = await db
+      .from("portal_inbox_thread_records")
+      .select("id, row_data")
+      .eq("id", target.threadId)
+      .maybeSingle();
+    const row = data as Pick<ThreadRow, "id" | "row_data"> | null;
+    if (error || !row?.row_data) return [];
+    const rowData = row.row_data;
+    const messages = Array.isArray(rowData.messages) ? (rowData.messages as Record<string, unknown>[]) : [];
+    const message = messages.find((m) => m?.id === target.messageId);
+    const recorded = message
+      ? message.deliveries
+      : rowData.rootMessageId === target.messageId || target.messageId === `${row.id}-root`
+        ? rowData.rootDeliveries
+        : null;
+    return Array.isArray(recorded) ? (recorded as InboxMessageDelivery[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 async function rememberProviderRef(
   db: SupabaseClient,
   ref: { providerId: string; channel: InboxDeliveryChannel } & InboxMessageTarget,

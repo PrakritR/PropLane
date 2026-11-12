@@ -18,6 +18,7 @@ import {
   houseSendCounts,
   houseSendPayload,
   personResultFromResponse,
+  sendHousePersonWithRetry,
   type HousePersonResult,
 } from "@/lib/house-message-recipients";
 import { CheckboxMultiSelect, type CheckboxMultiSelectGroup, type CheckboxMultiSelectOption } from "@/components/ui/checkbox-multi-select";
@@ -893,17 +894,20 @@ export function ManagerCommunicationComposeModal({
           sendId = crypto.randomUUID();
           sendIds.set(person.id, sendId);
         }
-        const res = await fetch("/api/portal/send-inbox-message", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            ...houseSendPayload(person, { subject: s, text, via, senderName, sendId }),
-            ...(attachmentUrls.length ? { attachmentUrls } : {}),
-          }),
+        const sent = await sendHousePersonWithRetry(async () => {
+          const res = await fetch("/api/portal/send-inbox-message", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              ...houseSendPayload(person, { subject: s, text, via, senderName, sendId }),
+              ...(attachmentUrls.length ? { attachmentUrls } : {}),
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          return { status: res.status, ok: res.ok, data };
         });
-        const data = await res.json().catch(() => ({}));
-        return personResultFromResponse(person, via, { ok: res.ok, data });
+        return personResultFromResponse(person, via, sent);
       });
       track("house_message_sent", { houses: houseKeys.length, ...houseSendCounts(results) });
       invalidatePersistedInboxCache(MANAGER_INBOX_STORAGE_KEY);

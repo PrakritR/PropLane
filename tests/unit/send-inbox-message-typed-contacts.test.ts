@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   profileResult: { data: [] as Record<string, unknown>[], error: null as null | { message: string } },
-  orFilters: [] as string[],
+  emailLookups: [] as Array<{ column: string; values: readonly string[] }>,
   scopeOptions: [] as Record<string, unknown>[],
   rateLimitCalls: [] as Array<{ key: string; cost: number }>,
   rateLimitResult: { ok: true } as { ok: boolean; unavailable?: true },
@@ -23,10 +23,16 @@ vi.mock("@/lib/supabase/service", () => ({
     from(table: string) {
       let isOr = false;
       const chain: Record<string, unknown> = {};
-      for (const m of ["select", "eq", "ilike", "order", "limit", "neq", "is", "gte", "lte", "in"]) chain[m] = () => chain;
-      chain.or = (filter: string) => {
-        if (table === "profiles") h.orFilters.push(filter);
-        isOr = true;
+      for (const m of ["select", "eq", "ilike", "order", "limit", "neq", "is", "gte", "lte"]) chain[m] = () => chain;
+      chain.in = (column: string, values: readonly string[]) => {
+        if (table === "profiles") {
+          if (column === "email_lower") h.emailLookups.push({ column, values });
+          isOr = true;
+        }
+        return chain;
+      };
+      chain.or = () => {
+        if (table === "profiles") isOr = true;
         return chain;
       };
       for (const m of ["insert", "upsert", "update", "delete"]) chain[m] = () => chain;
@@ -115,7 +121,7 @@ const post = (toEmails: string[]) =>
 
 beforeEach(() => {
   h.profileResult = { data: [], error: null };
-  h.orFilters.length = 0;
+  h.emailLookups.length = 0;
   h.scopeOptions.length = 0;
   h.rateLimitCalls.length = 0;
   h.rateLimitResult = { ok: true };
@@ -131,10 +137,9 @@ describe("send-inbox-message typed new contacts", () => {
     expect(h.scopeOptions).toEqual([]);
   });
 
-  it("matches accounts case-insensitively and escapes ilike wildcards", async () => {
-    await post(["a_b%c@example.com"]);
-    expect(h.orFilters).toHaveLength(1);
-    expect(h.orFilters[0]).toBe('email.ilike."a\\\\_b\\\\%c@example.com"');
+  it("matches accounts case-insensitively on the indexed lowercase column, wildcards and all", async () => {
+    await post(["A_b%C@Example.com"]);
+    expect(h.emailLookups).toEqual([{ column: "email_lower", values: ["a_b%c@example.com"] }]);
   });
 
   it("an address whose account is stored in a different case is NOT confirmed account-less", async () => {

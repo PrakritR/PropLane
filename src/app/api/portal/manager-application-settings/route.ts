@@ -41,11 +41,11 @@ import {
   saveTaskAutomation,
   type TaskAutomationPreferences,
 } from "@/lib/task-automation-preferences";
+import { validateLandlordLegalName } from "@/lib/manager-landlord-profile";
 import {
-  resolveWorkspaceLandlordLegalName,
-  saveManagerLandlordProfile,
-  validateLandlordLegalName,
-} from "@/lib/manager-landlord-profile";
+  resolveLandlordLegalNameForScope,
+  saveLandlordProfileForScope,
+} from "@/lib/manager-landlord-profile.server";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { resolveWaiverCodeScope } from "@/lib/application-fee-waiver-scope.server";
 import {
@@ -55,9 +55,11 @@ import {
   savePropertyOverride,
 } from "@/lib/settings/property-overrides.server";
 import {
+  createSettingsScopeCache,
   resolveSettingsScope,
   saveWorkspaceNamespaceSettings,
   type SettingsResolutionSource,
+  type SettingsScopeCache,
 } from "@/lib/settings/scope-resolver.server";
 import {
   assertSettingsScopeOwned,
@@ -88,12 +90,14 @@ async function loadCurrentAutomation(
   managerUserId: string,
   propertyId: string | null,
   workspaceId: string | null,
+  cache?: SettingsScopeCache,
 ): Promise<{ automation: ApplicationAutomationPreferences; source: SettingsResolutionSource }> {
   const { value, source } = await resolveSettingsScope(
     db,
     { managerUserId, propertyId, workspaceId },
     NAMESPACE,
     { normalize: normalizeApplicationAutomation, loadAccount: (d, m) => loadApplicationAutomation(d, m) },
+    cache,
   );
   return { automation: value, source };
 }
@@ -117,14 +121,16 @@ export async function GET(req: Request) {
     const automationState = await loadApplicationAutomationState(ctx.db, ownerUserId);
     const leasingState = await loadLeasingPipelineState(ctx.db, ownerUserId);
     const leasingPipeline = resolveLeasingPipelineForProperty(leasingState, propertyId);
+    // One cache for every namespace this request resolves, so the workspace row is read once.
+    const scopeCache = createSettingsScopeCache();
     const [{ automation, source }, overriddenPropertyIds] = await Promise.all([
-      loadCurrentAutomation(ctx.db, ownerUserId, propertyId, workspaceId),
+      loadCurrentAutomation(ctx.db, ownerUserId, propertyId, workspaceId, scopeCache),
       listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE),
     ]);
     const taskAutomation = await loadTaskAutomation(ctx.db, ownerUserId);
-    // Read as the workspace OWNER: the setting, then the owner's full name (on a managed workspace the
-    // owner is the client, never the staff member signed in).
-    const landlord = await resolveWorkspaceLandlordLegalName(ctx.db, ownerUserId);
+    // Read as the workspace OWNER: this workspace's setting, then the owner's full name (on a managed
+    // workspace the owner is the client, never the staff member signed in).
+    const landlord = await resolveLandlordLegalNameForScope(ctx.db, ownerUserId, workspaceId, scopeCache);
     // Non-persisted suggestion the modal pre-fills so the manager confirms an
     // explicit value the first time (never a silent bulk change to what their
     // existing listings charge).
@@ -249,12 +255,12 @@ export async function PATCH(req: Request) {
       });
     }
 
-    // "Landlord on leases": one name per workspace, written to the owner's row. Validated like any
-    // legal-name write; clearing it falls back to the owner's full name.
-    let landlord: Awaited<ReturnType<typeof resolveWorkspaceLandlordLegalName>> | undefined;
+    // "Landlord on leases": one name per workspace, written to that workspace's row under the owner.
+    // Validated like any legal-name write; clearing it falls back to the owner's full name.
+    let landlord: Awaited<ReturnType<typeof resolveLandlordLegalNameForScope>> | undefined;
     if ("landlordLegalName" in body) {
       if (propertyId) return NextResponse.json({ error: "The landlord is set once for the workspace." }, { status: 400 });
-      // The name is the OWNER's, written to the owner's row and printed on every lease in the workspace: an
+      // The name is the OWNER's, written under the owner and printed on every lease in THIS workspace: an
       // `applications` grant on one house is not a grant over it. Only the owner, or PropLane Service staff
       // holding an Admin / Full seat on this very workspace, may change it. Fail closed on any other caller.
       if (ownerUserId !== ctx.userId) {
@@ -267,8 +273,12 @@ export async function PATCH(req: Request) {
       }
       const checked = validateLandlordLegalName(body.landlordLegalName);
       if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
-      await saveManagerLandlordProfile(ctx.db, ownerUserId, { landlordLegalName: checked.landlordLegalName });
-      landlord = await resolveWorkspaceLandlordLegalName(ctx.db, ownerUserId);
+      await saveLandlordProfileForScope(ctx.db, {
+        ownerUserId,
+        workspaceId,
+        landlordLegalName: checked.landlordLegalName,
+      });
+      landlord = await resolveLandlordLegalNameForScope(ctx.db, ownerUserId, workspaceId);
     }
 
     let taskAutomation: TaskAutomationPreferences | undefined;

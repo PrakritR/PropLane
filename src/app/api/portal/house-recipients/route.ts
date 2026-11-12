@@ -9,9 +9,11 @@ export const runtime = "nodejs";
 /**
  * The people a "everyone living there" message reaches, for the New message sheet's tally.
  * The workspace comes from the signed-in manager and the house is re-checked against it plus the viewer's
- * Communication grant: a property id in the query is a name, never authorization. Channel short-stay guests
- * are left out unless `includeGuests=1`. Sending is NOT here: each person is sent to through
- * `/api/portal/send-inbox-message`, which authorizes every recipient again.
+ * Communication grant: a property id in the query is a name, never authorization. Everyone living there is
+ * returned with short-stay guests flagged (`guest`) and counted (`excludedGuests`); the sheet's checkbox
+ * filters them without a second read, because the answer behind both is one occupancy snapshot. Sending is
+ * NOT here: each person is sent to through `/api/portal/send-inbox-message`, which authorizes every
+ * recipient again.
  */
 export async function GET(request: Request) {
   const ctx = await resolveListingChannelContext(request).catch(() => null);
@@ -19,7 +21,6 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const propertyId = url.searchParams.get("propertyId")?.trim() ?? "";
-  const includeGuests = url.searchParams.get("includeGuests") === "1";
 
   const access = await resolveCommunicationGrant(ctx.db, ctx.userId, ctx.workspace, "edit");
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
@@ -35,10 +36,9 @@ export async function GET(request: Request) {
       ownerUserId: ctx.workspace.ownerUserId,
       propertyId,
       today: pacificDayKey(new Date()),
-      includeGuests,
     });
     return NextResponse.json(
-      { propertyId, includeGuests, ...result },
+      { propertyId, ...result },
       { headers: { "Cache-Control": "private, no-store" } },
     );
   } catch {

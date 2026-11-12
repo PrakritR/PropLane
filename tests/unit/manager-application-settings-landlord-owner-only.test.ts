@@ -1,5 +1,6 @@
 /**
- * The landlord name is the workspace OWNER's: it is written to the owner's row and printed on every lease.
+ * The landlord name is the workspace OWNER's: it is written under the owner, scoped to the workspace it was
+ * set in, and printed on every lease generated there.
  * A co-manager holding `applications` edit on one house passes the settings-scope gate (it resolves to the
  * owner's id) but must not rewrite it. The owner, and PropLane Service staff on an Admin / Full seat, may.
  */
@@ -11,7 +12,7 @@ const STAFF = "staff-1";
 const WORKSPACE = "ws-1";
 
 const requireManagerRouteUser = vi.fn();
-const saveManagerLandlordProfile = vi.fn();
+const saveLandlordProfileForScope = vi.fn();
 const serviceStaffSettingsAccess = vi.fn();
 
 vi.mock("@/lib/manager-route-guard.server", () => ({
@@ -33,14 +34,16 @@ vi.mock("@/lib/scope/settings-scope", () => ({
   writeRungFromSource: () => "account",
 }));
 vi.mock("@/lib/manager-landlord-profile", () => ({
-  resolveWorkspaceLandlordLegalName: async () => ({
+  validateLandlordLegalName: (raw: unknown) => ({ ok: true, landlordLegalName: String(raw ?? "") }),
+}));
+vi.mock("@/lib/manager-landlord-profile.server", () => ({
+  resolveLandlordLegalNameForScope: async () => ({
     landlordLegalName: "Doe Holdings LLC",
     source: "setting",
     setting: "Doe Holdings LLC",
     ownerFullName: "Doe",
   }),
-  saveManagerLandlordProfile: (...a: unknown[]) => saveManagerLandlordProfile(...a),
-  validateLandlordLegalName: (raw: unknown) => ({ ok: true, landlordLegalName: String(raw ?? "") }),
+  saveLandlordProfileForScope: (...a: unknown[]) => saveLandlordProfileForScope(...a),
 }));
 
 const route = await import("@/app/api/portal/manager-application-settings/route");
@@ -54,7 +57,7 @@ function patch(body: unknown): Request {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  saveManagerLandlordProfile.mockResolvedValue({});
+  saveLandlordProfileForScope.mockResolvedValue({});
   serviceStaffSettingsAccess.mockResolvedValue({ kind: "none" });
 });
 
@@ -64,7 +67,7 @@ describe("PATCH landlordLegalName", () => {
     const res = await route.PATCH(patch({ workspaceId: WORKSPACE, landlordLegalName: "Takeover LLC" }));
     expect(res.status).toBe(403);
     expect((await res.json()).error).toBe("Only the workspace owner can change the landlord name.");
-    expect(saveManagerLandlordProfile).not.toHaveBeenCalled();
+    expect(saveLandlordProfileForScope).not.toHaveBeenCalled();
   });
 
   it("refuses a read-only or non-full staff seat", async () => {
@@ -72,17 +75,28 @@ describe("PATCH landlordLegalName", () => {
     serviceStaffSettingsAccess.mockResolvedValue({ kind: "ok", ownerUserId: OWNER, fullGrant: false });
     const res = await route.PATCH(patch({ workspaceId: WORKSPACE, landlordLegalName: "Takeover LLC" }));
     expect(res.status).toBe(403);
-    expect(saveManagerLandlordProfile).not.toHaveBeenCalled();
+    expect(saveLandlordProfileForScope).not.toHaveBeenCalled();
   });
 
-  it("lets the owner change it", async () => {
+  it("lets the owner change it, scoped to the workspace they are in", async () => {
     requireManagerRouteUser.mockResolvedValue({ db: {}, userId: OWNER });
-    const res = await route.PATCH(patch({ landlordLegalName: "Doe Holdings LLC" }));
+    const res = await route.PATCH(patch({ workspaceId: WORKSPACE, landlordLegalName: "Doe Holdings LLC" }));
     expect(res.status).toBe(200);
-    expect(saveManagerLandlordProfile).toHaveBeenCalledWith(expect.anything(), OWNER, {
+    expect(saveLandlordProfileForScope).toHaveBeenCalledWith(expect.anything(), {
+      ownerUserId: OWNER,
+      workspaceId: WORKSPACE,
       landlordLegalName: "Doe Holdings LLC",
     });
     expect(serviceStaffSettingsAccess).not.toHaveBeenCalled();
+  });
+
+  it("never carries one workspace's name onto another: the write names the workspace", async () => {
+    requireManagerRouteUser.mockResolvedValue({ db: {}, userId: OWNER });
+    await route.PATCH(patch({ workspaceId: "ws-2", landlordLegalName: "Cascade Holdings LLC" }));
+    expect(saveLandlordProfileForScope).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ workspaceId: "ws-2", landlordLegalName: "Cascade Holdings LLC" }),
+    );
   });
 
   it("lets PropLane Service staff on an Admin / Full seat change it", async () => {
@@ -90,7 +104,9 @@ describe("PATCH landlordLegalName", () => {
     serviceStaffSettingsAccess.mockResolvedValue({ kind: "ok", ownerUserId: OWNER, fullGrant: true });
     const res = await route.PATCH(patch({ workspaceId: WORKSPACE, landlordLegalName: "Doe Holdings LLC" }));
     expect(res.status).toBe(200);
-    expect(saveManagerLandlordProfile).toHaveBeenCalledWith(expect.anything(), OWNER, {
+    expect(saveLandlordProfileForScope).toHaveBeenCalledWith(expect.anything(), {
+      ownerUserId: OWNER,
+      workspaceId: WORKSPACE,
       landlordLegalName: "Doe Holdings LLC",
     });
   });
