@@ -144,7 +144,8 @@ async function continueFlow(
       if (/^\s*(?:no|n|nope)\b/i.test(body)) await endFlow(db, staffKey);
       return null;
     }
-    if (flow.step === "confirm") await endFlow(db, staffKey);
+    // Photos texted right after the draft belong to it: the flow is what tells the filer which house.
+    if (flow.step === "confirm" && input.mediaCount === 0) await endFlow(db, staffKey);
     return null;
   }
   if (intentKind === "start_listing") return startFlow(db, input, [flow.workspaceId], body, true);

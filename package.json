@@ -41,6 +41,7 @@
     "pretest:seed": "node scripts/check-env-files.mjs .env.test",
     "test:seed": "node --env-file=.env.test tests/helpers/seed-test-db.mjs",
     "preseed:dev": "node scripts/check-env-files.mjs .env.local",
+    "test:manager-sms-commands:dev": "node --env-file=.env.local --require ./scripts/dev-preload-server-only.cjs --import tsx scripts/manager-sms-commands-acceptance.ts",
     "seed:dev": "node --env-file=.env.local tests/helpers/seed-test-db.mjs",
     "test:seed:tours": "node --env-file=.env.local scripts/seed-manager-tours.mjs",
     "test:seed:reclaim-properties": "node --env-file=.env.test tests/helpers/reclaim-canonical-property-owners.mjs",

@@ -778,3 +778,7 @@ resident system prompt allows the assistant to say the manager was notified only
 The resident phone bar has an **Ask** tab in the center slot (`residentBarWithAsk`; the fourth stage tab, Messages, moves into More, which sums its badge)
 and the dashboard has a desktop Ask PropLane card. Ask is the assistant, not a section, so it is in neither `RESIDENT_BOTTOM_NAV_PRIMARY` nor
 `STAGE_UNLOCKED_SECTIONS`; an unread dot reads the resident's own assistant thread. Tests: `resident-ask-nav.test.tsx`.
+
+## Listings by text (manager SMS)
+
+The manager SMS agent and the deterministic command layer (`src/lib/manager-sms-commands/`, `docs/agents/sms-system.md` § Manager commands by text) share the same typed tools: `create_listing_draft_by_text` (a DRAFT from address, rooms and rent; never public), `update_room_rent` / `update_property` (rent), `update_listing_details` (a room's or the listing's availability date and description detail) and `apply_listing_photos` (MMS photos filed into a room or the house gallery). Each write is a preview plus the confirmation (the 4-digit code on the PropLane line); none is destructive, so `buildManagerSmsRegistry` carries them. Publishing a listing and approving an application are still portal-only.

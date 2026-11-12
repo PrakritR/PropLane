@@ -104,7 +104,7 @@ export async function notifyProspectPropertyMessageHandoff(input: {
     if (!scoped.ok) return;
     await sendResidentOutboundSms({
       to: phone,
-      text: `PropLane: we received your message about ${input.propertyTitle}. Create your free account to read replies: ${createAccountUrl} Reply STOP to opt out, HELP for help.`,
+      text: `We received your message about ${input.propertyTitle}. Create your free account to read replies: ${createAccountUrl}`,
       openThread: {
         managerUserId: input.managerUserId,
         residentEmail: email,

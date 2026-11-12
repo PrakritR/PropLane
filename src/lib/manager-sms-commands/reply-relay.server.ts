@@ -23,7 +23,6 @@ export const REPLY_HANDLE_TTL_MS = 12 * 60 * 60 * 1000;
 export const REPLY_HANDLE_WRONG_PER_HOUR = 5;
 export const REPLY_NUDGE_WINDOW_MS = 30 * 60 * 1000;
 
-const HANDLES = "reply_handles";
 const LETTERS = "ABCDEFGHJKMNPQRTUVWXY";
 const DIGITS = "23456789";
 

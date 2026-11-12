@@ -245,6 +245,18 @@ describe("guided create-a-listing", () => {
     expect(flow()).toBeUndefined();
   });
 
+  it("photos texted at the confirm step keep the flow, so they can be filed into the new draft", async () => {
+    await cmd("new listing");
+    await cmd("812 Pine St");
+    await cmd("2");
+    await cmd("900");
+    await cmd("skip");
+    mocks.filePhotos.mockResolvedValueOnce({ handled: true, reply: "Added 1 photo to 812 Pine St." });
+    expect(await cmd("", { mediaCount: 1 })).toEqual({ handled: true, reply: "Added 1 photo to 812 Pine St." });
+    expect(flow()).toMatchObject({ step: "confirm" });
+    expect(mocks.filePhotos).toHaveBeenCalledTimes(1);
+  });
+
   it("a failed proposal ends the flow instead of leaving it stuck", async () => {
     mocks.proposeToolWrite.mockResolvedValue({ ok: false, reply: "I could not set that up just now." });
     await cmd("new listing");
