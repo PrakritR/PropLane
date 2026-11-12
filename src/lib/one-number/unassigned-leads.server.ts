@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MockProperty } from "@/data/types";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { buildManagerListingUrl } from "@/lib/manager-property-links";
 import { isMissingSchemaError, loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import type { SharedLineConfig, SharedLineInbound } from "@/lib/one-number/contracts";
 import { extractLeadFieldsWithModel } from "@/lib/one-number/lead-extract.server";
@@ -34,7 +35,6 @@ import {
   questionFor,
   toGsm7,
   touchesProtectedTopic,
-  WELCOME,
   withoutProtectedClauses,
   type LeadOffer,
   type LeadProfile,
@@ -43,6 +43,7 @@ import { redactSensitiveNumbers } from "@/lib/one-number/redact";
 import { findWorkspaceProspectCandidate, propertyLabel } from "@/lib/one-number/router-lookups.server";
 import {
   HOLD_REPLY,
+  holdReplyFor,
   lookingForLine,
   offerLabel,
   PAID_NUMBER_UNAVAILABLE_REPLY,
@@ -152,7 +153,7 @@ export async function findOrCreateOpenLead(db: SupabaseClient, phoneKey: string,
  */
 export function firstTextFallbackReply(): string {
   const question = nextQuestion({});
-  return toGsm7(`${WELCOME}${question ? ` ${question.text}` : ""}`);
+  return toGsm7(question ? question.text : "Which house are you asking about?");
 }
 
 export async function storedReplyFor(db: SupabaseClient, leadId: string, messageSid: string): Promise<string | null> {
@@ -252,7 +253,7 @@ async function overviewTurn(
     return null;
   }
   const { picks, narrowed, filtered } = matchOverviewHomes(listings, profile, pacificToday(deps.now()));
-  const lead = (text: string) => toGsm7(first ? `${WELCOME} ${text}` : text);
+  const lead = (text: string) => toGsm7(text);
   if (picks.length === 0) {
     return { profile: { ...profile, stage: "no_match", asked: null, offers: [], overviewSent: true }, reply: lead(OVERVIEW_NONE_TEXT), mediaUrls: [] };
   }
@@ -262,7 +263,6 @@ async function overviewTurn(
   const question = missingSteps(profile).find((step) => step === "budget" || step === "move_in");
   const bubbles = buildOverviewBubbles(offers, rows, deps.origin(), { question: question ? questionFor(question, profile) : null });
   if (narrowed && !filtered) bubbles.unshift({ body: toGsm7(OVERVIEW_UNFILTERED_LEAD) });
-  if (first && bubbles[0]) bubbles[0] = { ...bubbles[0], body: toGsm7(`${WELCOME} ${bubbles[0].body}`) };
   return {
     profile: { ...profile, stage: "offered", asked: "pick", offers, overviewSent: true },
     reply: bubbles.map((b) => b.body).join("\n"),
@@ -385,13 +385,11 @@ async function runFlow(
   if (!question) {
     const offered = await matchAndOffer(next, deps);
     if (!first) return offered;
-    // The very first reply carries the business name and the STOP notice, in front of the first room.
-    const bubbles = offered.bubbles?.map((b, i) => (i === 0 ? { ...b, body: toGsm7(`${WELCOME} ${b.body}`) } : b));
-    return { ...offered, reply: `${WELCOME} ${offered.reply}`, ...(bubbles ? { bubbles } : {}) };
+    // A reply to someone who texted us reads like a person texting back: no business-name preamble and no STOP footer.
+    return offered;
   }
   next.asked = question.step;
   const parts: string[] = [];
-  if (first) parts.push(WELCOME);
   if (read.neutral) parts.push(NEUTRAL_REPLY);
   else if (!first && !read.changed) parts.push("Sorry, I did not get that.");
   parts.push(question.text);
@@ -481,7 +479,7 @@ export async function handleUnassignedLeadInbound(
     // One specific home that PropLane does not manage: point to its team's own number (or its public page).
     const houseRedirect = await deps.houseRedirect(inbound.body);
     if (houseRedirect) {
-      const reply = toGsm7(first ? `${WELCOME} ${houseRedirect}` : houseRedirect);
+      const reply = toGsm7(houseRedirect);
       await recordReply(db, lead.id, inbound.messageSid, reply, []);
       return { leadId: lead.id, reply, assignedWorkspaceId: null };
     }
@@ -607,7 +605,7 @@ export async function paidInterestTurn(
   const at = deps.now().toISOString();
   // Claim the lead, then lock the phone to the home, as one ordered conditional unit (`claimLeadAndLock`). Only after BOTH
   // applied is the success reply recorded: a replay of this text can never be handed a success for a failed attempt.
-  const welcomed = (text: string) => (ctx.first ? toGsm7(`${WELCOME} ${text}`) : text);
+  const welcomed = (text: string) => text;
   const moved = await claimLeadAndLock(db, {
     lead,
     target: { workspaceId: home.workspaceId, propertyId: home.propertyId },
@@ -644,10 +642,24 @@ export async function paidInterestTurn(
  * Admin > Unassigned (an open lead in the `hold` stage), never in any workspace's Communication. Their next text is
  * checked again: a home named locks them to it, anything else goes on as before.
  */
-export async function handleHoldInbound(db: SupabaseClient, inbound: SharedLineInbound, depsIn: Pick<LeadDeps, "now"> = {}): Promise<UnassignedLeadTurn> {
+async function holdReplyText(db: SupabaseClient, depsIn: Pick<LeadDeps, "listings" | "origin">): Promise<string> {
+  try {
+    const catalog = await (depsIn.listings ?? (() => getLineOfferListings(db)))();
+    const origin = (depsIn.origin ?? resolveEmailLinkBaseUrl)();
+    // A paid manager's home is offered but never described by the line: no page of it is handed out here.
+    const homes = catalog
+      .filter((listing) => lineTierOf(listing) !== "paid")
+      .map((listing) => ({ title: streetLine(listing.address) || listing.title, url: buildManagerListingUrl(origin, listing.id) }));
+    return toGsm7(holdReplyFor(homes));
+  } catch {
+    return toGsm7(HOLD_REPLY);
+  }
+}
+
+export async function handleHoldInbound(db: SupabaseClient, inbound: SharedLineInbound, depsIn: Pick<LeadDeps, "now" | "listings" | "origin"> = {}): Promise<UnassignedLeadTurn> {
   const nowIso = (depsIn.now?.() ?? new Date()).toISOString();
   const found = await findOrCreateOpenLead(db, inbound.phoneKey, nowIso);
-  if (found.kind !== "lead") return { leadId: null, reply: toGsm7(HOLD_REPLY), assignedWorkspaceId: null };
+  if (found.kind !== "lead") return { leadId: null, reply: await holdReplyText(db, depsIn), assignedWorkspaceId: null };
   const lead = found.lead;
   const inboundTurn = await db
     .from("sms_unassigned_lead_turns")
@@ -656,9 +668,9 @@ export async function handleHoldInbound(db: SupabaseClient, inbound: SharedLineI
     .maybeSingle();
   if (inboundTurn.error?.code === "23505") {
     const stored = await storedReplyFor(db, lead.id, inbound.messageSid);
-    return { leadId: lead.id, reply: stored ?? toGsm7(HOLD_REPLY), assignedWorkspaceId: null };
+    return { leadId: lead.id, reply: stored ?? (await holdReplyText(db, depsIn)), assignedWorkspaceId: null };
   }
-  const reply = toGsm7(HOLD_REPLY);
+  const reply = await holdReplyText(db, depsIn);
   await saveProfile(db, lead, { ...lead.profile, stage: "hold", asked: null });
   await db.from("sms_unassigned_leads").update({ last_inbound_at: nowIso, updated_at: nowIso }).eq("id", lead.id);
   await recordReply(db, lead.id, inbound.messageSid, reply, []);

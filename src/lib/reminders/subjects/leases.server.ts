@@ -14,6 +14,7 @@ import {
   teamReminderRecipients,
 } from "@/lib/reminders/manager-recipients.server";
 import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
+import { noticePlaceName } from "@/lib/notice-place-label";
 import { materializeReminders } from "@/lib/reminders/queue.server";
 import type { ReminderRecipient } from "@/lib/reminders/queue.server";
 import { loadReminderSettingsResolver } from "@/lib/reminders/settings.server";
@@ -129,7 +130,9 @@ export async function sweepLeaseReminders(db: SupabaseClient, now: Date = new Da
     );
     const leaseUrl = `${origin}/resident/lease`;
     const managerPortalUrl = `${origin}/portal/leases`;
-    const propertyLabel = entry.lease.unit?.trim() || null;
+    const leaseUnit = entry.lease.unit?.trim();
+    // The house as a person names it, never a stored id the lease row may carry.
+    const propertyLabel = leaseUnit ? noticePlaceName(leaseUnit) : null;
     const payload = {
       title: propertyLabel ? `Lease for ${propertyLabel}` : "Lease signature",
       propertyLabel,

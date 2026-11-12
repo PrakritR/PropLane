@@ -68,6 +68,33 @@ split remains:
   the checkout builder refuses a non-reconciling quote before provider work and
   adds the resident fee line item only when the resident pays.
 
+### Rent's processing fee is the resident's, always (captain, 2026-11-12)
+
+`resolveHouseholdChargeFeePayer` (`stripe-household-charge-checkout.server.ts`, the one resolver the pay page, the
+`/l/<token>` pay link, autopay, the agent and manager-assisted card all call) answers `resident` for any cart that holds a
+rent-class line (`cartForcesResidentFee` / `isResidentPaysFeeChargeKind` in `payment-policy.ts`: rent, first/prorated/last-month
+rent, utilities, nightly stay totals) before it reads the plan, the workspace, the listing, a coverage code or the staff
+override. Deposits, move-in lines and application fees still follow `resolveServiceFeePayerFor`. A resident-paid fee on these
+paths is grossed up (`residentServiceFeeBreakdown(..., { coverFeeOnFee: true })`): Stripe prices the whole charge, fee line
+included, so a fee on the subtotal alone left PropLane about $1.31 short on $1,500 of card rent. The pay sheet shows the exact fee
+and total before anything is reserved (same function as the quote). The payments panel opens a charge's own pay sheet from
+`?pay=<chargeId>&start=1` (the Pay button on a payment request card, the agent's link); `?pay=<id>` alone still only opens the record.
+
+**Autopay consent and failure.** A saved method never authorizes a debit by itself: enabling autopay, or moving it to another
+method, needs the resident's explicit consent (`consent: true` on `PUT /api/resident/autopay`, the dialog in
+`ResidentAutopayCard`, the confirmed `set_autopay` preview), recorded as `consent_at` / `consent_payment_method_id` /
+`consent_version`; the daily run and the retry sweep charge only a row whose consent covers its current method
+(`autopayConsentCoversMethod`). A declined off-session PaymentIntent (the synchronous `StripeCardError`, or
+`payment_intent.payment_failed` on a marked autopay PI) goes through `recordAutopayDecline`: bind the PI, fail the run, release
+the charge's payment slot (so the one retry can reserve it) and notify the resident. Before this the marked webhook only
+attested and the run stayed `claimed` forever.
+
+**Notice channel and pay links.** `deliverPaymentReminder` and `sendResidentRentText` honour `chargeNoticeChannel` /
+`residentNoticeChannel`: a portal-channel resident is reminded by email + inbox with a /resident link, never a text or a /l/
+link. The SMS leg of a `charge_created` / `payment_failed` / `late_fee_applied` / `partial_received` action event carries a
+phone-bound link that opens that charge (`chargeEventSmsWithPayLink`). Rent charged to a PropLane-managed workspace cannot be
+marked paid by hand except by staff (`offline-receipt-guard.server.ts`).
+
 ### Resident claim and in-app bank payment boundary (October 2026)
 
 `20261004230000_resident_checkout_attempt_claims.sql` reserves every selected
@@ -941,6 +968,12 @@ A resident pays rent from a text: tap a `/l/<token>` link, a six-digit code is t
 - **Lease and move-in links** open the portal after the code without a second sign-in: `mintResidentPortalSessionForLink` (`link-portal-session.server.ts`, `mintPhoneSession`, any line mode) for a resident whose verified profile phone is the link's and who is the only account holding it; never for rent or payouts (those keep the 30-minute link session and a real sign-in); any doubt falls back to the ordinary sign-in redirect.
 - **Code budget.** `requestPhoneOtp` allows 3 sends per phone PER PURPOSE per hour with a ceiling of 8 across purposes, so sign-in or apply codes cannot lock a phone out of its rent link.
 - Tests: `rent-reminder-sms`, `sms-link-format`, `paysms-rent-send`, `paysms-rent-link-lifecycle`, `rent-due-day-links`, `payment-reminder-delivery`, `weekly-rent-reminder`, `one-number-link-destinations`, `one-number-phone-otp`. Dev proof: `node --conditions react-server --import tsx scripts/one-number/paysms-proof.ts` (takes the e2e lock).
+
+## Add charge: several residents, one notice each (captain, 2026-11-12)
+
+The manager's Add charge flow (`pro-add-payment-modal.tsx`) takes one or several residents of ONE house (a `CheckboxMultiSelect` with "Everyone in this house"), each with the same amount, kind and due date. It loops over the one creator (`createManagerCharge`, through `createChargesForResidents` in `src/lib/manager-charge-batch.ts`): one id per resident (a retried submit reuses them), then `POST /api/portal-household-charges` -> `persistHouseholdChargeRows` -> `syncLedgerChargeEntry` + `charge_created`. That event is the ONE notice a charge produces (card, SMS carrying that charge's own pay link from `charge-event-pay-link.server.ts`, email), through the resident's own channel rules. **The modal sends no notice of its own** (it used to send a second one with a generic Payments link); a source guard in `tests/unit/manager-charge-batch.test.ts` fails it if it does. One toast with the count.
+
+A text about a house leaves from THAT house's workspace line: `deliverPortalInboxMessage` resolves the pin from the stored house (`resolvePropertySendPin`, `src/lib/sms/property-send-pin.server.ts`, over `resolveWorkspaceSendLine`, so a PropLane-managed workspace answers with the PropLane line) and hands house, workspace, actor and line to `sendResidentOutboundSms`. An unreadable line is a failed outcome that retries, never a fallback to another line. `tests/unit/charge-sms-line-pin.test.ts`.
 
 ## Application fee: waive on send, and short stays (Oct 28)
 

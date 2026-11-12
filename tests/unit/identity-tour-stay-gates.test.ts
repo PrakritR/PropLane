@@ -5,7 +5,7 @@ import { bookGuestStays } from "@/lib/short-stay/guest-stays.server";
 import { confirmProspectSmsTourOffer } from "@/lib/tour-schedule-persistence.server";
 const env = { ...process.env };
 afterEach(() => { process.env = { ...env }; });
-function enable() { process.env.RESIDENT_IDENTITY_ENABLED = "true"; process.env.PERSONA_API_KEY = "key"; process.env.PERSONA_TEMPLATE_ID = "template"; process.env.PERSONA_WEBHOOK_SECRET = "secret"; }
+function enable() { process.env.RESIDENT_IDENTITY_ENABLED = "true"; process.env.RESIDENT_IDENTITY_PROVIDER = "persona"; process.env.PERSONA_API_KEY = "key"; process.env.PERSONA_TEMPLATE_ID = "template"; process.env.PERSONA_WEBHOOK_SECRET = "secret"; }
 describe("identity-protected new actions", () => {
   it("does not accept an anonymous tour even with a claimed email or user ID in the body", async () => {
     enable();

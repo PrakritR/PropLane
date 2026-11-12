@@ -64,7 +64,8 @@ async function readError(response: Response, fallback: string): Promise<string> 
   return detail ? `Checkr: ${detail}` : `${fallback} (${response.status}).`;
 }
 
-function normalizeOrderStatus(value: unknown): CheckrReportStatus {
+/** Checkr order status string -> PropLane lifecycle. Anything not clearly complete/canceled stays pending, never "complete". */
+export function normalizeOrderStatus(value: unknown): CheckrReportStatus {
   const s = typeof value === "string" ? value.trim().toLowerCase() : "";
   if (s === "complete" || s === "completed") return "complete";
   if (s === "canceled" || s === "cancelled") return "canceled";

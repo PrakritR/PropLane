@@ -649,7 +649,7 @@ export function ResidentDashboard({
     const serviceItems = servicePreviewItems(serviceRequests, workOrders);
 
     // The Active list's own rows (same builder the Communication page and the sidebar badge use),
-    // so the tile, this section and the badge always agree: no assistant, no SMS notices.
+    // so the tile, this section and the badge always agree: no SMS notices (the PropLane agent row is pinned, never unread here).
     const inboxThreads = buildActiveCommunicationThreads(
       loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK),
       { portal: "resident", viewerId: residentUserId, smsUiEnabled: false },

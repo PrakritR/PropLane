@@ -1409,3 +1409,23 @@ the two disagree (read-only GETs, no credentials; exit 1 = mismatches). Tests: `
 - On the shared line an unassigned prospect whose text asks what is open, what it costs or what it looks like (`isInfoRequest`: "Is there availability", "do you have openings early next year", "share more details of accommodation along with photos") gets the PropLane-MANAGED (`is_service`, tier `managed`) homes that have an open room first: up to four, cheapest first, one room per home, each as its own text with that room's real photo, "from $X/mo", the date, the listing page (`/rent/listings/<id>`) and the tour page (`/rent/tours-contact?propertyId=<id>`), then one closing text (how to pick or apply and at most ONE short question: budget, then move-in). The STOP notice rides the first reply only; the overview goes out once per lead (`profile.overviewSent`). Everything comes from `publicListingProjection` rows (`matchOverviewHomes` / `buildOverviewBubbles` in `lead-match.ts`); nothing open is "none listed", never a made-up room. A text that touches a fair-housing topic keeps the neutral line and is not an availability ask.
 - Budgets read as people type them: `900$`, `900 dollars`, `Below 1k`, `$1,000`; `$1,000+` / `1k+` is a floor, so it answers the budget step with no cap. "early next year" is January 1. Tests: `tests/unit/one-number-lead-qualifying.test.ts`, `tests/unit/one-number-unassigned-leads.test.ts`.
 - A managed workspace's notices on the 206 pay from its wallet like any send (above). What blocked them was `sendSms` comparing the hold to the owner of the 206's own `manager_sms_numbers` row; the payer is now the hold's owner, checked against the workspace the send is for ([`sms-system.md`](sms-system.md) § Nov 3 owns the rule).
+
+
+## Nov 12 2026: prospect auto-replies are direct, link the right house, and carry no robot footer (`prospect-replies`)
+
+- **One registry, `src/lib/prospect-replies/`.** `PROSPECT_INTENTS` (intents.ts) is the table of common prospect questions: tour, apply, application fee, availability,
+  price, lease length, deposit, utilities, pets, couples, furnished, parking, short stay, location, photos, house rules, check-in, cancellation, browse, human.
+  One row feeds the classifier, the deterministic composer (`composeProspectReply`, `composeFirstReply`), the link guard (`finalizeProspectReply`) and the paragraph
+  appended to the leasing agent's system prompt (`prospectIntentPlaybook`): to add a canned intent, add one row.
+- **Facts and links come from this turn's tool results, keyed by property id** (`prospectContextFromEvidence`, `homesFromListEvidence`): never by a house's name or its position in a
+  list (the production slugs of 4709A / 5257 / 5259 are legacy copy-names and look swapped). `finalizeProspectReply` runs on every SMS leasing reply: plain text (no
+  markdown), no person's sign-off (a reply is PropLane, never the owner), no "This is PropLane" opener or STOP footer, a "no tour slots" claim becomes the live tour page,
+  the retired `/rent/tour` becomes `/rent/tours-contact`, a tour/apply/message link naming another property id is replaced by the matched home's, and the link the prospect asked for
+  is appended when the model forgot it. An unknown fact is "I'll confirm <topic> with the manager" plus the listing page, never a number or a yes/no.
+- **First text.** `identifyHome` names the house from the message (a street number such as 5259 / 4709, or the street's own words), else the listing the prospect came from, else
+  asks ONE question with every candidate's own page; two houses on one street (Brooklyn) are a question, never a guess. "What's available?" is answered as the captain does: one
+  text per house ("4709A 8th Ave NE (from $1,000/mo): Rooms 6 and 9 now, Room 4 Nov 28.", checked rooms only) with that house's listing and tour page, then one question.
+- **Tone and STOP.** `WELCOME` is empty and `withOptOut` is the identity: a reply to someone who texted us has no "Hi, this is PropLane" preamble and no "Reply STOP to opt out"
+  (A2P/CTIA needs it only on the first business-initiated text). STOP / START / HELP handling is unchanged. The unclear-first-text reply is "Which house are you asking about,
+  <houses read from the live catalog>?" with each home's page (`holdReplyFor`). The 24h / 72h "still looking?" nudges are OFF unless `LEAD_FOLLOWUP_NUDGES_ENABLED` is set.
+- Tests: `prospect-reply-fixtures.test.ts` (real messages, rotation, markdown, sign-off, no-slots), `resident-sms-fixtures.test.ts`.

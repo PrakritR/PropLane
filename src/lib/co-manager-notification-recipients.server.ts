@@ -1,3 +1,4 @@
+import { isManagedWorkspaceId } from "@/lib/service/service-alert-targets.server";
 import "server-only";
 
 import { asStringArray, INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
@@ -398,8 +399,51 @@ export async function notifyPropertyScopedManagersFromAgent(
   )
     .map((recipient) => recipient.userId)
     .filter((id) => !excluded.has(id));
+  // PropLane-MANAGED workspace (`is_service`): its owner is a client, not the team. A ROUTINE event is heard by PropLane's people
+  // (the Team chat line, the listed alert phones and the staff seats) and not texted / emailed to the client as well; the client
+  // gets financials (payments and financials modules), anything urgent, and the monthly statement. A payment-reminder
+  // confirmation is bookkeeping: it is counted in the daily digest ("Payment reminders sent: 9 residents") and posts no per-resident
+  // line anywhere. A self-serve workspace is untouched.
+  const managedWorkspace = noticeWorkspace?.workspaceId
+    ? await isManagedWorkspaceId(db, noticeWorkspace.workspaceId).catch(() => false)
+    : false;
+  if (managedWorkspace && !urgent && input.category === "payment_reminders") return;
+  const ownerHearsIt = !managedWorkspace || urgent || input.module === "payments" || input.module === "financials";
+  if (managedWorkspace && !ownerHearsIt) {
+    // The service manager's verified phone (when set) still hears it, exactly as it did through the owner's notice.
+    const { alertServiceManagerFromNotice } = await import("@/lib/service/service-manager-alerts.server");
+    await alertServiceManagerFromNotice(db, {
+      workspaceId: noticeWorkspace?.workspaceId,
+      subject: input.subject,
+      text: input.text,
+      externalText: input.externalText,
+      category: input.category,
+      threadType: input.threadType,
+      idempotencyKey: input.idempotencyKey,
+    }).catch(() => "skipped");
+  }
+  if (managedWorkspace && !urgent && input.idempotencyKey && noticeWorkspace?.workspaceId) {
+    // A seat holder's EMAIL for a routine event (their text is the Team chat line). Same grants as the Team chat, own key.
+    try {
+      const { notifyServiceAlertTargets } = await import("@/lib/service/service-alert-targets.server");
+      await notifyServiceAlertTargets(db, {
+        workspaceId: noticeWorkspace.workspaceId,
+        module: input.module,
+        propertyId: input.propertyId ?? null,
+        scope: "seat_emails",
+        smsText: "",
+        emailSubject: input.subject,
+        emailText: input.externalText ?? input.text,
+        url: input.url,
+        idempotencyKey: `seat-mail:${input.idempotencyKey.replace(/:(manager|team)$/, "")}`,
+      });
+    } catch {
+      /* the Team chat line and the owner's path are unaffected */
+    }
+  }
   for (const userId of recipientIds) {
     const isOwner = userId === ownerId;
+    if (isOwner && !ownerHearsIt) continue;
     const deliver = () =>
       notifyManagerFromAgent(db, {
         landlordId: userId,

@@ -112,11 +112,12 @@ async function toOffers(fake: LeadFakeDb) {
 }
 
 describe("a prospect with no code", () => {
-  it("is welcomed once, asked one question at a time, offered rooms from every team, and every reply is one GSM-7 text", async () => {
+  it("is asked one question at a time, with no preamble and no STOP footer, offered rooms from every team, and every reply is one GSM-7 text", async () => {
     const fake = world();
     const replies = await toOffers(fake);
-    expect(replies[0]).toBe("Hi! This is PropLane. Which home are you texting about? (street or house name)");
-    expect(replies[1]).toMatch(/Reply STOP to opt out\./);
+    expect(replies[0]).toMatch(/^Which house are you asking about/);
+    expect(replies[0]).not.toMatch(/This is PropLane|Reply STOP/);
+    expect(replies.join("\n")).not.toMatch(/Reply STOP to opt out|Hi, this is PropLane/);
     expect(replies[1]).toMatch(/monthly budget/);
     expect(replies[2]).toMatch(/move in/i);
     const offers = replies.at(-1)!;

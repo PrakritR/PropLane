@@ -39,7 +39,7 @@ import {
   recordSmsAttempt,
   type InboxMessageTarget,
 } from "@/lib/inbox-delivery-status.server";
-import { deliveryBlocksResend, isPlaceholderMailbox, type InboxMessageDelivery } from "@/lib/inbox-delivery-status";
+import { deliveryBlocksResend, isPlaceholderMailbox, isSandboxEmail, type InboxMessageDelivery } from "@/lib/inbox-delivery-status";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -94,6 +94,9 @@ import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { isHouseThreadId } from "@/lib/house-thread-id";
 import { handleHouseChatPost, houseReplyMessageId } from "@/lib/house-chat/post.server";
+import { resolveHouseSendTarget, resolveHouseSmsLine, type HouseSendTarget } from "@/lib/house-message-send.server";
+import type { HouseChannelSkip } from "@/lib/house-message-recipients";
+import { isPhoneOptedOut } from "@/lib/sms-consent";
 
 /** At most this many typed addresses that are not yet contacts per send. */
 const MAX_TYPED_NEW_CONTACTS_PER_SEND = 5;
@@ -247,6 +250,11 @@ export async function POST(req: Request) {
       deliverViaEmail?: boolean;
       deliverViaSms?: boolean;
       propertyId?: string;
+      /**
+       * "Message a whole house": the house this per-person copy is ABOUT. A name, never authorization: the workspace,
+       * its owner and its work number are re-derived from the sender's own access to that house.
+       */
+      houseSendPropertyId?: string;
       propertyTitle?: string;
       managerUserId?: string;
       sendId?: unknown;
@@ -629,11 +637,27 @@ export async function POST(req: Request) {
     let recipients = [...recipientsByEmail.values()];
     // The workspace a manager send leaves from; also names whose plan the send is held to.
     let managerSendScope: Awaited<ReturnType<typeof resolveCommunicationScope>> | null = null;
+    // A house text is about ONE workspace (the house's): its line, wallet and plan, whoever is signed in.
+    const houseSendPropertyId = String(body.houseSendPropertyId ?? "").trim();
+    let houseTarget: HouseSendTarget | null = null;
+    if (houseSendPropertyId && senderActsAsAdmin) {
+      return NextResponse.json({ ok: false, error: "Property not found." }, { status: 404 });
+    }
     if (!senderActsAsAdmin) {
       // A manager send is checked against the active workspace and the houses
       // they are granted - "All residents" in workspace A reaches only A.
       if (["manager", "owner", "pro"].includes(String(senderRole ?? "").trim().toLowerCase())) {
         managerSendScope = await resolveCommunicationScope(db, user.id, "edit");
+      }
+      if (houseSendPropertyId) {
+        if (!managerSendScope) {
+          return NextResponse.json({ ok: false, error: "Property not found." }, { status: 404 });
+        }
+        const resolved = await resolveHouseSendTarget(db, { request: req, userId: user.id, propertyId: houseSendPropertyId });
+        if (!resolved.ok) {
+          return NextResponse.json({ ok: false, error: resolved.error }, { status: resolved.status });
+        }
+        houseTarget = resolved.target;
       }
       const reach = managerSendScope ? recipientReachFromScope(managerSendScope) : undefined;
       const { allowed, typedNewContacts } = await filterRecipientsBySenderScope(
@@ -706,7 +730,8 @@ export async function POST(req: Request) {
       const access = await assertManagerCommunicationAllowedForWorkspace(
         db,
         user.id,
-        managerSendScope.activeWorkspaceId,
+        // A house text answers to the HOUSE's workspace (and its owner's plan), not the one the switcher shows.
+        houseTarget?.workspaceId ?? managerSendScope.activeWorkspaceId,
       );
       if (!access.allowed) {
         return NextResponse.json(
@@ -833,20 +858,20 @@ export async function POST(req: Request) {
     // email/SMS follow each recipient's saved prefs; account-less (no userId)
     // recipients get the category-default email and never SMS.
     const channelByEmail = new Map<string, { inbox: boolean; email: boolean; sms: boolean }>();
+    const phoneById = new Map<
+      string,
+      {
+        phone: string | null;
+        phone_verified_at: string | null;
+        role: string | null;
+        sms_from_number: string | null;
+        sms_forward_inbound: boolean | null;
+      }
+    >();
     if (eventCategory) {
       const recipientUserIds = recipients
         .map((r) => r.userId)
         .filter((id): id is string => Boolean(id));
-      const phoneById = new Map<
-        string,
-        {
-          phone: string | null;
-          phone_verified_at: string | null;
-          role: string | null;
-          sms_from_number: string | null;
-          sms_forward_inbound: boolean | null;
-        }
-      >();
       if (recipientUserIds.length) {
         const { data: recProfiles } = await db
           .from("profiles")
@@ -885,6 +910,26 @@ export async function POST(req: Request) {
     const anySmsWanted =
       deliverViaSms &&
       (eventCategory ? recipients.some((r) => channelByEmail.get(r.email)?.sms === true) : true);
+
+    // A channel the sender asked for that this send did NOT attempt, with why: a caller (the house summary) must never
+    // read "nothing recorded" as "sent". An attempt that went wrong is a recorded FAILED delivery instead.
+    const channelSkips: HouseChannelSkip[] = [];
+    const skipChannel = (email: string, channel: HouseChannelSkip["channel"], reason: string) => {
+      if (!channelSkips.some((skip) => skip.email === email && skip.channel === channel)) {
+        channelSkips.push({ email, channel, reason });
+      }
+    };
+    for (const r of recipients) {
+      if (isPrimaryAdminRecipientEmail(r.email)) continue;
+      if (deliverViaEmail && !emailWanted(r.email)) skipChannel(r.email, "email", "email_off");
+      if (deliverViaEmail && isSandboxEmail(r.email)) skipChannel(r.email, "email", "test_account");
+      if (deliverViaSms && eventCategory && channelByEmail.get(r.email)?.sms !== true) {
+        const phone = r.userId ? String(phoneById.get(r.userId)?.phone ?? "").trim() : "";
+        const optedOut = phone ? await isPhoneOptedOut(db, phone, { userId: r.userId }).catch(() => false) : false;
+        skipChannel(r.email, "sms", !r.userId ? "no_account" : !phone ? "no_phone" : optedOut ? "opted_out" : "texts_off");
+      }
+    }
+    const skippedField = () => (channelSkips.length > 0 ? { skipped: channelSkips } : {});
 
     // Every recipient Resend may actually be handed: sandbox accounts skip it, and so do the
     // addresses PropLane mints for a channel with no mailbox (a Facebook lead's thread key) —
@@ -1147,7 +1192,7 @@ export async function POST(req: Request) {
           const { data: resolvedProfiles } = await db
             .from("profiles")
             .select("id, email")
-            .in("email", missingIdEmails);
+            .in("email_lower", missingIdEmails);
           for (const p of resolvedProfiles ?? []) {
             const email = String(p.email ?? "").trim().toLowerCase();
             if (email) resolvedIds.set(email, p.id as string);
@@ -1206,6 +1251,7 @@ export async function POST(req: Request) {
         skipped: true,
         reason: "No eligible real recipients — portal inbox updated.",
         deliveries: responseDeliveries,
+        ...skippedField(),
         ...(propertyThreadId ? { propertyThreadId } : {}),
       });
     }
@@ -1296,7 +1342,7 @@ export async function POST(req: Request) {
             const { data: mgr } = await db
               .from("profiles")
               .select("id, phone, phone_verified_at")
-              .eq("email", recipient.email)
+              .eq("email_lower", recipient.email)
               .maybeSingle();
             const mgrId = String(mgr?.id ?? recipient.userId ?? "").trim();
             if (!mgrId) return;
@@ -1335,20 +1381,27 @@ export async function POST(req: Request) {
       } else {
       const { data: senderProfile } = await db.from("profiles").select("sms_from_number").eq("id", user.id).maybeSingle();
       const smsFromNumber = String(senderProfile?.sms_from_number ?? "").trim();
+      // A text about a HOUSE leaves from that house's workspace line, resolved by the workspace and not by anything
+      // the signed-in person holds (the sender's legacy `sms_from_number` has no say, and a teammate has none).
+      // An unresolvable line refuses the text below; it never falls back to another workspace's number.
+      const houseLine = houseTarget ? await resolveHouseSmsLine(db, houseTarget) : null;
 
-      if (canSendResidentOutboundSms(smsFromNumber)) {
-        // Fetch phone numbers for all recipients
+      if (houseLine || canSendResidentOutboundSms(smsFromNumber)) {
+        // Fetch phone numbers for all recipients. `email_lower` is the stored lowercase of `profiles.email`
+        // (migration 20261111130000), and `recipients` are keyed lowercase: a mixed-case account still matches.
         const recipientEmails = recipients.map((r) => r.email);
         const { data: phones } = await db
           .from("profiles")
           .select("email, phone")
-          .in("email", recipientEmails);
+          .in("email_lower", recipientEmails);
         const phoneByEmail = new Map((phones ?? []).map((p) => [String(p.email).toLowerCase(), String(p.phone ?? "").trim()]));
 
         const senderIsManager = ["manager", "pro", "admin"].includes(String(senderRole ?? "").toLowerCase());
         // A human message from the inbox on the shared line is signed
         // "<house or workspace name> team"; null (and no change) per-workspace.
-        const sharedLineHumanSend = senderIsManager && !eventCategory
+        const sharedLineHumanSend = houseLine
+          ? { signOff: houseLine.ok ? houseLine.signOff : null }
+          : senderIsManager && !eventCategory
           ? await resolveSharedLineHumanSend(db, {
               ownerUserId: user.id,
               selectedWorkLineId: managerSendScope?.activeWorkspaceId ?? null,
@@ -1362,7 +1415,16 @@ export async function POST(req: Request) {
           // This send already texted this person (a retry of the same `sendId`): never a second text.
           if (alreadyDelivered.sms.has(recipient.email)) return;
           const recipientPhone = phoneByEmail.get(recipient.email) ?? "";
-          if (!recipientPhone) return;
+          if (!recipientPhone) {
+            skipChannel(recipient.email, "sms", "no_phone");
+            return;
+          }
+          // The house's workspace has no sendable line (or it cannot be read): refuse THIS text, say why, and send
+          // nothing from any other number.
+          if (houseLine && !houseLine.ok) {
+            responseDeliveries.push(await recordSmsAttempt(db, sentTargets.get(recipient.email), { sent: false, error: houseLine.error }));
+            return;
+          }
           let smsText = `(${subject})\n${text}`;
           const linkKind: ResidentSmsLinkKind | null =
             eventCategory === "leases"
@@ -1384,8 +1446,16 @@ export async function POST(req: Request) {
           // A manager's own compose (no event category) still opens the relay
           // thread — future resident replies route back to their phone — but is
           // NOT mirrored back to them: they just wrote it.
-          const openThread =
-            eventCategory === "payments" ||
+          // The relay thread belongs to the workspace OWNER, whose work number the text leaves from, so a resident's
+          // reply routes back to that workspace and never to the signed-in teammate.
+          const openThread = houseTarget
+            ? {
+                managerUserId: houseTarget.ownerUserId,
+                residentUserId: recipient.userId,
+                residentEmail: recipient.email,
+                topic: "general" as const,
+              }
+            : eventCategory === "payments" ||
             eventCategory === "leases" ||
             eventCategory === "maintenance" ||
             eventCategory === "applications"
@@ -1413,11 +1483,21 @@ export async function POST(req: Request) {
           const result = await sendResidentOutboundSms({
             to: recipientPhone,
             text: smsText,
-            fromNumber: smsFromNumber,
+            fromNumber: houseLine?.ok ? houseLine.fromNumber : smsFromNumber,
             linkKind: null,
             sendClass: eventCategory ? "automated" : "transactional",
             openThread,
-            mirrorToManager: Boolean(eventCategory),
+            // A house fan-out never carbon-copies each text to the manager's own phone (one extra text per resident).
+            mirrorToManager: Boolean(eventCategory) && !houseTarget,
+            ...(houseTarget && houseLine?.ok
+              ? {
+                  propertyId: houseTarget.propertyId,
+                  workspaceId: houseTarget.workspaceId,
+                  actorUserId: user.id,
+                  selectedWorkLineId: houseLine.selectedWorkLineId,
+                  recipientUserId: recipient.userId,
+                }
+              : {}),
           });
           responseDeliveries.push(await recordSmsAttempt(db, sentTargets.get(recipient.email), result));
           if (result.sent) {
@@ -1452,6 +1532,7 @@ export async function POST(req: Request) {
       ok: true,
       id: emailResendId,
       deliveries: responseDeliveries,
+      ...skippedField(),
       ...(propertyThreadId ? { propertyThreadId } : {}),
     });
   } catch (err) {

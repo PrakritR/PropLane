@@ -37,7 +37,10 @@ export async function loadHouseMessageRecipients(
   ];
   const profilesByEmail = new Map<string, HouseProfileLike>();
   if (emails.length > 0) {
-    const { data } = await db.from("profiles").select("id, email, phone, full_name").in("email", emails);
+    // `email_lower` is the stored generated column (migration `20261111130000_profiles_email_lower`) and `emails` are
+    // already lowercased: `profiles.email` is stored as typed, so matching it directly missed any mixed-case account
+    // (that person then read as having no phone, no account and no preferences).
+    const { data } = await db.from("profiles").select("id, email, phone, full_name").in("email_lower", emails);
     for (const row of (data ?? []) as Record<string, unknown>[]) {
       const email = String(row.email ?? "").trim().toLowerCase();
       if (!email) continue;

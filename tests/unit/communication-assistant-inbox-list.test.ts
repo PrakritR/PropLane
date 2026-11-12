@@ -159,11 +159,25 @@ describe("communication assistant inbox list", () => {
     expect(propLaneAssistantListSubtitle(thread)).toBe("PropLane");
   });
 
-  it("builds no assistant row for the resident list or badge, and drops a leftover one (captain 2026-10-03)", () => {
+  it("pins the PropLane agent first on the resident Active list and badge, and never on Archived or Unread (captain, Nov 12)", () => {
     const leftover = buildResidentAssistantPlaceholderThread(RESIDENT);
     const person = { ...leftover, id: "res-thr-1", from: "Test Manager", email: "m@example.com", threadType: undefined };
-    for (const listSegment of ["active", "unread", "archived"] as const) {
-      const rows = buildActiveCommunicationThreads([leftover, person], {
+    const active = buildActiveCommunicationThreads([person], {
+      portal: "resident",
+      viewerId: RESIDENT,
+      smsUiEnabled: false,
+      listSegment: "active",
+    });
+    expect(active.map((row) => row.id)).toEqual([`resident-agent-${RESIDENT}`, "res-thr-1"]);
+    // A leftover stored copy is the same row, not a second one.
+    const withStored = buildActiveCommunicationThreads([leftover, person], {
+      portal: "resident",
+      viewerId: RESIDENT,
+      smsUiEnabled: false,
+    });
+    expect(withStored.filter((row) => row.id === `resident-agent-${RESIDENT}`)).toHaveLength(1);
+    for (const listSegment of ["unread", "archived"] as const) {
+      const rows = buildActiveCommunicationThreads([person], {
         portal: "resident",
         viewerId: RESIDENT,
         smsUiEnabled: false,
@@ -171,8 +185,5 @@ describe("communication assistant inbox list", () => {
       });
       expect(rows.map((row) => row.id)).toEqual(["res-thr-1"]);
     }
-    expect(
-      buildActiveCommunicationThreads([], { portal: "resident", viewerId: RESIDENT, smsUiEnabled: false }),
-    ).toEqual([]);
   });
 });

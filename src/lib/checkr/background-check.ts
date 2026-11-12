@@ -13,7 +13,13 @@ import { backgroundCheckStatusFromCheckr } from "@/lib/application-background-ch
 import { createBackgroundCheck, fetchBackgroundCheckReport } from "@/lib/checkr/client";
 import { backgroundCheckConfigured, checkrSimulate, checkrSkipsManagerCardCharge } from "@/lib/checkr/config";
 import type { CheckrPackage } from "@/lib/checkr/config";
-import { checkrOrderCostCents, isCheckrAddOn, isCheckrPackage, type CheckrAddOnSlug } from "@/lib/checkr/packages";
+import {
+  checkrOrderCostCents,
+  checkrUpgradeCostCents,
+  isCheckrAddOn,
+  isCheckrPackage,
+  type CheckrAddOnSlug,
+} from "@/lib/checkr/packages";
 import type {
   ApplicationBackgroundCheck,
   CheckrApplicantInput,
@@ -70,7 +76,7 @@ function propertyInputFromAddress(name: string, address: string, zip: string): C
   return { name, street, city, state, zipcode: zip.trim() || "98101" };
 }
 
-async function loadCheckrProperty(
+export async function loadCheckrProperty(
   db: SupabaseClient,
   propertyId: string | undefined,
 ): Promise<CheckrPropertyInput> {
@@ -224,6 +230,9 @@ export async function precheckBackgroundCheckOrder(opts: {
   db: SupabaseClient;
   applicationId: string;
   managerUserId: string;
+  /** Who is paying. An applicant-paid order skips the manager plan gate and needs the applicant's FCRA authorization. */
+  payer?: "manager" | "applicant";
+  authorization?: ApplicationBackgroundCheck["authorization"];
 }): Promise<{ ok: true; row: DemoApplicantRow } | Extract<BackgroundCheckResult, { ok: false }>> {
   if (!backgroundCheckConfigured()) {
     return {
@@ -234,14 +243,17 @@ export async function precheckBackgroundCheckOrder(opts: {
     };
   }
 
-  const tier = await getManagerSubscriptionTier(opts.managerUserId);
-  if (!managerScreeningAllowedForTier(tier) && !checkrSimulate()) {
-    return {
-      ok: false,
-      status: 403,
-      error: "Applicant screening requires Pro or Business. Upgrade your plan to run background checks.",
-      code: "upgrade_required",
-    };
+  // The plan gate is for a manager who pays. An applicant paying for their own check is not a plan feature.
+  if (opts.payer !== "applicant") {
+    const tier = await getManagerSubscriptionTier(opts.managerUserId);
+    if (!managerScreeningAllowedForTier(tier) && !checkrSimulate()) {
+      return {
+        ok: false,
+        status: 403,
+        error: "Applicant screening requires Pro or Business. Upgrade your plan to run background checks.",
+        code: "upgrade_required",
+      };
+    }
   }
 
   const row = await loadApplicationRow(opts.db, opts.applicationId, opts.managerUserId);
@@ -252,7 +264,13 @@ export async function precheckBackgroundCheckOrder(opts: {
   if (!row.application) {
     return { ok: false, status: 400, error: "This record has no rental application to check." };
   }
-  if (!row.application.consentCredit) {
+  const applicantAuthorized = opts.payer === "applicant" && Boolean(opts.authorization?.authorizedAt);
+  if (opts.payer === "applicant" && !applicantAuthorized) {
+    return { ok: false, status: 400, error: "The applicant has not authorized this check.", code: "authorization_required" };
+  }
+  // The applicant's own FCRA authorization on an earlier paid check also covers a manager's upgrade of it.
+  const priorAuthorization = Boolean(row.backgroundCheck?.authorization?.authorizedAt);
+  if (!row.application.consentCredit && !applicantAuthorized && !priorAuthorization) {
     return { ok: false, status: 400, error: "Applicant did not authorize a background check." };
   }
   if (row.backgroundCheck && row.backgroundCheck.status === "pending") {
@@ -281,6 +299,12 @@ export async function runBackgroundCheck(opts: {
   packageSlug?: string;
   addOnProducts?: string[];
   prepaid?: { checkoutSessionId: string; paymentIntentId?: string };
+  /** Default "manager". "applicant" = the applicant paid through Checkout (see `applicant-screening.ts`). */
+  payer?: "manager" | "applicant";
+  /** The applicant's FCRA authorization, read from the paid Checkout session's metadata. */
+  authorization?: ApplicationBackgroundCheck["authorization"];
+  /** An upgrade of the check the applicant already paid for: the customer is charged only the package difference. */
+  upgradeFrom?: CheckrPackage;
 }): Promise<BackgroundCheckResult> {
   // Webhook retries and duplicate deliveries re-send the same Checkout
   // session — if we already placed this order, return it instead of
@@ -319,9 +343,50 @@ export async function runBackgroundCheck(opts: {
   }
 
   const rawPackageSlug = opts.packageSlug ?? "";
-  const packageSlug: CheckrPackage = isCheckrPackage(rawPackageSlug) ? rawPackageSlug : "essential";
-  const addOnProducts = (opts.addOnProducts ?? []).filter(isCheckrAddOn) as CheckrAddOnSlug[];
-  const costCents = checkrOrderCostCents(packageSlug, addOnProducts);
+  // The applicant-paid default is Starter; the manager-paid default stays Essential.
+  const packageSlug: CheckrPackage = isCheckrPackage(rawPackageSlug)
+    ? rawPackageSlug
+    : opts.payer === "applicant"
+      ? "starter"
+      : "essential";
+  let addOnProducts = (opts.addOnProducts ?? []).filter(isCheckrAddOn) as CheckrAddOnSlug[];
+
+  // An applicant pays for ONE check. A second paid session for an application that already has one is refused
+  // (the caller refunds it), never ordered twice. Only a deliberate upgrade replaces an existing check.
+  if (opts.payer === "applicant" && row.backgroundCheck && !opts.upgradeFrom) {
+    return {
+      ok: false,
+      status: 409,
+      error: "This application already has a background check.",
+      code: "already_screened",
+    };
+  }
+
+  // An upgrade must replace exactly the completed check the applicant paid for, never another one.
+  const previous = row.backgroundCheck;
+  let upgradedFrom: ApplicationBackgroundCheck["upgradedFrom"];
+  let carriedIdentity: ApplicationBackgroundCheck["carriedIdentity"];
+  if (opts.upgradeFrom) {
+    if (!previous || previous.status !== "complete" || previous.packageSlug !== opts.upgradeFrom) {
+      return {
+        ok: false,
+        status: 409,
+        error: "This applicant's current check does not match the upgrade.",
+        code: "upgrade_mismatch",
+      };
+    }
+    upgradedFrom = { packageSlug: previous.packageSlug, reportId: previous.reportId, costCents: previous.costCents };
+    // The ID check is not bought twice: its verified result moves to the new record, and the add-on is not re-ordered.
+    const previousIdentity = previous.reportSnapshot?.identity_verification?.status;
+    const previousOrdered = previous.addOnProducts?.includes("identity_verification") === true;
+    if ((previousOrdered && previousIdentity) || previous.carriedIdentity) {
+      carriedIdentity = previous.carriedIdentity ?? { status: String(previousIdentity), orderId: previous.reportId };
+    }
+    addOnProducts = addOnProducts.filter((slug) => slug !== "identity_verification");
+  }
+  const costCents = opts.upgradeFrom
+    ? checkrUpgradeCostCents(opts.upgradeFrom, packageSlug)
+    : checkrOrderCostCents(packageSlug, addOnProducts);
 
   let stripePaymentIntentId: string | undefined;
   if (opts.prepaid) {
@@ -387,11 +452,18 @@ export async function runBackgroundCheck(opts: {
     costCents,
     stripePaymentIntentId,
     stripeCheckoutSessionId: opts.prepaid?.checkoutSessionId,
+    ...(opts.payer === "applicant" ? { payer: "applicant" as const } : {}),
+    ...(opts.authorization ? { authorization: opts.authorization } : {}),
+    ...(upgradedFrom ? { upgradedFrom } : {}),
+    ...(carriedIdentity ? { carriedIdentity } : {}),
   };
 
   const nextRow = applyBackgroundCheck(row, bc);
   await persistApplicationRow(opts.db, nextRow);
   await upsertBackgroundCheckOrder(opts.db, nextRow, bc);
+
+  // The applicant paid for their own check: there is no manager expense to book.
+  if (opts.payer === "applicant") return { ok: true, row: nextRow, backgroundCheck: bc };
 
   try {
     await recordAutoExpense(opts.db, opts.managerUserId, {
@@ -506,13 +578,20 @@ export async function applyBackgroundCheckReport(
   const row = await loadApplicationRow(db, applicationId);
   if (!row?.backgroundCheck) return null;
 
+  // Checkr redelivers events. A completed check never goes back, and the same completion twice changes nothing.
+  const current = row.backgroundCheck;
+  if (current.status === "complete" && report.status !== "complete") return row;
+  if (current.status === "complete" && report.status === "complete" && current.result === report.result && current.completedAt) {
+    return row;
+  }
+
   const bc: ApplicationBackgroundCheck = {
-    ...row.backgroundCheck,
+    ...current,
     status: report.status,
     result: report.result,
-    reportSnapshot: report.reportSnapshot ?? row.backgroundCheck.reportSnapshot,
-    reportResourceId: report.reportResourceId ?? row.backgroundCheck.reportResourceId,
-    completedAt: report.status === "complete" ? new Date().toISOString() : row.backgroundCheck.completedAt,
+    reportSnapshot: report.reportSnapshot ?? current.reportSnapshot,
+    reportResourceId: report.reportResourceId ?? current.reportResourceId,
+    completedAt: report.status === "complete" ? (current.completedAt ?? new Date().toISOString()) : current.completedAt,
   };
   const nextRow = applyBackgroundCheck(row, bc);
   await persistApplicationRow(db, nextRow);

@@ -152,6 +152,8 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
   9s budget (`withBudget`); a source that misses it is `null` and its card is left out, so one hung read cannot hold the
   page on Loading. The browser still gives up at 20s with a "took too long" error and Try again.
 
+- **The client owner is not a conversation.** In a service workspace's Communication list the owner's one-on-one thread exists only once the owner texts or writes in: a routine system notice ("You approved ...") never writes one (`deliverProjection`), an urgent one texts without opening a thread, and any thread that holds only system notices (or an SMS conversation with no inbound turn) is hidden on read (`managed-owner-thread.ts`, nothing deleted). The owner's text to the work number is a normal conversation from them by name that staff reply to on the work number (a clear owner question - statement, balance, a repair yes/no - is still answered from the ledger); it never reaches the manager agent or an Assistant thread. The owner hears financials (the monthly statement text and email), urgent items and nothing routine; staff and seat holders hear the rest through the Team chat line, the alert phones and the 7 AM digest ([`automated-communication.md`](automated-communication.md)).
+
 ## Admin team (Oct 27: Overall admins and workspace admins)
 
 Who can open PropLane admin, and as what. **Overall admin** = the `admin` row in `profile_roles` (`auth/admin-role.ts`): every
@@ -161,7 +163,13 @@ houses and per-module levels. A workspace admin signs in and lands in the servic
 workspaces, no PropLane logo, no `+`); `/admin` pages redirect them there and the PropLane sidebar rows are
 `adminNavRowsForViewer` (none for them). Code: `src/lib/admin-team/*`, routes `src/app/api/admin/team/*`, Settings > Admin team.
 
-- **Who may grant what.** Only an Overall admin invites or promotes to Overall admin (decision 1). A workspace admin invites only
+- **Who may grant what.** Only the PRIMARY admin invites or promotes to Overall admin (captain, Nov 12, tightening decision 1).
+  Primary = holds the Overall role AND signs in with the confirmed primary-admin email (`userIsPrimaryAdmin`, the Auth user's
+  email, never `profiles.email`, which is not unique; the primary admin's mobile `+15103098345` is where PropLane texts them,
+  not an identity proof, because profiles can share a number). It is derived into `AdminTeamActor.primary` on the server and
+  re-derived for the inviter at redeem, so an inviter who stopped being primary grants nothing (403, no audit row, the use handed
+  back); the sheet offers the Overall admin role only when `viewer.primary`, and the verb refuses it anyway. Any Overall admin still
+  seats a WORKSPACE role in any service workspace. A workspace admin invites only
   into workspaces where their own seat carries member rights, never above their own role, and only houses of that workspace
   (`adminTeamGrantVerdict` + `checkAdminTeamSeatGrant`, the same `resolveServiceSeatGrant` the Team invite runs). An Overall admin
   stands as the owner of every service workspace for these verbs (`OperatorOpts.overall`, derived from the role, never a body).
@@ -182,6 +190,25 @@ workspaces, no PropLane logo, no `+`); `/admin` pages redirect them there and th
   identity whose own verified email IS the bound address (`identities[].identity_data.email`, `email_verified`; the providers
   list alone proves nothing). An account that pre-dates the invite signs in as itself, but its email must be confirmed.
   Residual: an attacker who pre-registered AND confirmed the invitee's address before any invite existed still holds that login.
+- **A staff seat is the whole point of the pane.** Redeem writes one PropLane-issued membership per workspace
+  (`account_link_invites`: `inviter_user_id` = the workspace's owner, `status = accepted`, `is_service_seat`, role, houses, module
+  levels). `resolveServiceAlertTargets` reads exactly those rows (accepted only), through the same role/house matrix as the Team
+  chat, so a person is alerted for what they were added for and nothing else; revoking (`removeAdminTeamMember`,
+  `removeServiceTeamMember`) sets the row `cancelled`, which is the moment the alerts stop. The invitee gets a manager role
+  (their own Property portal) and NOTHING is written to their plan: their own account stays Free, and the workspace they serve is the
+  paid side exactly like a free co-manager of a paid owner (the service shell reads "paid" for staff, quotas follow the houses'
+  owner through `resolveEffectiveManagerSkuTier`, never the invitee's account). Coverage: `tests/unit/admin-team-staff-seats.test.ts`.
+- **One email and at most one text per event** (`admin-team-notices.ts` is the copy, rendered without sending by
+  `scripts/practice-notices.mts`). Invite: the email (`buildAdminInviteBody`) plus ONE text when a mobile was typed
+  (`sendServiceInviteText`, from the PropLane line, paid by PropLane, purpose `service_alert_phone_notice`): the dispatcher's consent
+  rules decide, so a number typed beside a brand-new invite with no consent evidence gets no text and the email is the one channel;
+  the number is never stored, and a resend is an email only. Change that adds a workspace: ONE "You now help manage ..." email naming
+  only the new one (a role edit sends none). Revoke of a live seat: ONE "Your access to ... was removed" email (every workspace in it)
+  and one text to a VERIFIED profile phone; the admin-team verbs pass `silent` to `removeServiceTeamMember` and send their own, once.
+  Turning off a pending invite tells no one. Owner onboarding (Admin > Service team-invite, `ownerOfRecord`): the owner email, plus
+  `buildOwnerInviteText` when a `phone` is given and consent allows; an owner with an account gets the co-manager notice
+  (email, inbox, a text to a verified phone), never a second email. The owner lands view-only in the Property portal (the
+  managed read-only lock, `property_owner` seat), never staff.
 - **Invites are rate limited and cleaned.** 20 invites + resends per hour per inviter (`admin-team-invite:<user>`); the inviter's
   profile name in the email loses URLs and angle brackets and is cut to 60 characters (`sanitizeInviterName`).
 - **Change never seats a stranger.** `changeAdminTeamMember` works only on someone who already holds an Overall role or a
@@ -196,7 +223,7 @@ workspaces, no PropLane logo, no `+`); `/admin` pages redirect them there and th
 - **The audit row says what happened.** Written `applied: false` before the change, stamped `applied: true` after it took
   effect and `applied: false` (+ `error`) on every refused or handed-back path, the redeem undo included.
 - **Redeem** (`applyAdminInviteGrant`): the session's confirmed email must equal the bound one; the inviter is re-derived at that
-  moment (still an Overall admin for an Overall grant; still able to make the workspace grant); the audit row (`admin_team_grant`,
+  moment (still the PRIMARY admin for an Overall grant; still able to make the workspace grant); the audit row (`admin_team_grant`,
   `admin_team_seat`) is written BEFORE the role; any failure hands the spent use back. Every change writes `admin_team_*` audit rows
   first and is refused without them. `admin_team_grants` (server-only, RLS on, no client grants) is the list/trail row.
 - **Last Overall admin** cannot be removed or demoted (`lastOverallAdminVerdict`). An admin that comes from the primary-admin

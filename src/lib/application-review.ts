@@ -327,8 +327,14 @@ export async function declineApplicationWithUndo(args: {
   showToast: (message: string, options?: { undo?: () => void | Promise<void> }) => void;
   /** Called after a decline (or its undo) was accepted, so the caller can refresh or navigate. */
   onChanged?: (event: "declined" | "restored") => void;
+  /**
+   * Asked before anything is written. The FCRA question ("is this decision based on the background check?") lives
+   * here: resolve `false` to stop (nothing is declined, no toast), `true` to go on and save the decline.
+   */
+  confirm?: () => Promise<boolean>;
 }): Promise<boolean> {
   const { row, run, showToast, onChanged } = args;
+  if (args.confirm && !(await args.confirm())) return false;
   const previous: ManagerApplicationBucket = row.bucket === "approved" ? "approved" : "pending";
   const who = row.name?.trim() || row.email?.trim() || "Application";
   const result = await run(row.id, "rejected");

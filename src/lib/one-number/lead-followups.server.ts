@@ -36,14 +36,24 @@ export type FollowUpSummary = {
   skipped?: "not_shared_mode" | "quiet_hours";
 };
 
+/**
+ * The "still looking?" nudges are business-initiated texts to someone who stopped answering, so they are OFF unless a setting
+ * explicitly turns them on (`LEAD_FOLLOWUP_NUDGES_ENABLED`). A room that fits opening up (`newMatch`) is a different, opt-in-by-
+ * interest text and is not gated here.
+ */
+export function leadNudgesEnabled(): boolean {
+  const raw = process.env.LEAD_FOLLOWUP_NUDGES_ENABLED?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
 export function nudgeText(kind: "24" | "72", profile: LeadProfile): string {
-  if (kind === "72") return "PropLane here. Reply anytime to pick up your room search. Reply STOP to opt out.";
+  if (kind === "72") return "Still looking? Text me any time and I will pick your room search back up. Reply STOP to opt out.";
   if (profile.stage === "offered" && (profile.offers?.length ?? 0) > 0) {
     const n = profile.offers!.length;
-    return `Hi, this is PropLane. Still interested in one of those rooms? Reply ${n === 1 ? "1" : n === 2 ? "1 or 2" : "1, 2 or 3"}, or TOUR.`;
+    return `Still interested in one of those rooms? Reply ${n === 1 ? "1" : n === 2 ? "1 or 2" : "1, 2 or 3"}, or TOUR.`;
   }
   const question = nextQuestion(profile);
-  return `Hi, this is PropLane. Still looking for a room?${question ? ` ${question.text}` : ""}`;
+  return `Still looking for a room?${question ? ` ${question.text}` : ""}`;
 }
 
 /** Which nudge (if any) a lead is due, from how long it has been quiet and which went out already. */
@@ -128,6 +138,7 @@ export async function runLeadFollowUps(db: SupabaseClient, depsIn: FollowUpDeps 
       continue;
     }
 
+    if (!leadNudgesEnabled()) continue;
     const due = dueNudge(profile, quietMs);
     if (!due) continue;
     const flagged: LeadProfile = due === "72"

@@ -332,3 +332,50 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
     },
   };
 }
+
+export type SharedLineCallDecision =
+  /** One workspace and role: run that workspace's agent for the caller. */
+  | { kind: "continue"; owned: { managerId: string; workspaceId: string }; candidate: SharedLineCandidate | null }
+  /** Several workspaces fit and nothing said settles it: ask `question`. */
+  | { kind: "ambiguous"; candidates: SharedLineCandidate[]; question: string }
+  /** The caller's only ties are to a workspace with a number of its own: send them there. */
+  | { kind: "dedicated"; candidate: SharedLineCandidate }
+  /** Nobody knows this number: a stranger, served from PropLane's own catalog. */
+  | { kind: "stranger" }
+  /** The line does not serve this caller. */
+  | { kind: "none" };
+
+/**
+ * The routing decision of `handleSharedLineInbound`, for a phone CALL on the shared number. It is the SAME decision, made
+ * from the same pieces (the admin Assistant check, `routeSharedLineInboundWithReply`, the dedicated and pilot filters), with
+ * none of the text-only effects: a call writes no router session, makes no Unassigned lead and sends no reply (`dryRun`).
+ * `body` is what the caller has said so far ("" at the start of a call), so a spoken house name settles an ambiguity the
+ * same way a texted one does.
+ */
+export async function decideSharedLineCall(
+  db: SupabaseClient,
+  input: { config: SharedLineConfig; fromPhone: string; phoneKey: string; body: string; callSid: string },
+): Promise<SharedLineCallDecision> {
+  const admin = await adminAssistantContinuation(db, { config: input.config, fromPhone: input.fromPhone });
+  if (admin) return { kind: "continue", owned: { managerId: admin.owned.managerId, workspaceId: admin.owned.workspaceId }, candidate: null };
+  const inbound: SharedLineInbound = {
+    fromPhone: input.fromPhone,
+    phoneKey: input.phoneKey,
+    body: input.body,
+    messageSid: `voice:${input.callSid}`,
+    mediaCount: 0,
+  };
+  const session = await loadSharedLineSession(db, input.phoneKey);
+  const routed = await routeSharedLineInboundWithReply(db, inbound, session, { dryRun: true, dedicatedWorkspaceIds: input.config.dedicatedWorkspaceIds });
+  if (routed.dedicatedRedirect) return { kind: "dedicated", candidate: routed.dedicatedRedirect };
+  let decision = routed.decision;
+  if (decision.kind === "routed" && !workspaceOnSharedLine(input.config, decision.workspaceId)) return { kind: "none" };
+  if (decision.kind === "ambiguous") {
+    const served = decision.candidates.filter((c) => workspaceOnSharedLine(input.config, c.workspaceId));
+    if (served.length === 0) return { kind: "none" };
+    decision = served.length === 1 ? { kind: "routed", ...served[0] } : { ...decision, candidates: served };
+  }
+  if (decision.kind === "unassigned") return { kind: "stranger" };
+  if (decision.kind === "ambiguous") return { kind: "ambiguous", candidates: decision.candidates, question: decision.question };
+  return { kind: "continue", owned: { managerId: decision.ownerUserId, workspaceId: decision.workspaceId }, candidate: decision };
+}

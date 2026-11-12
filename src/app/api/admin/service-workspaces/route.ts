@@ -164,6 +164,7 @@ export async function POST(request: Request) {
         ownerOfRecord: body.ownerOfRecord,
         replaceOwner: body.replaceOwner,
         inviteeName: body.inviteeName,
+        phone: body.phone,
         teamRole: body.teamRole,
         houseScope: body.houseScope,
         assignedPropertyIds: body.assignedPropertyIds,

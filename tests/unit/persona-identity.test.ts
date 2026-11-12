@@ -7,7 +7,7 @@ afterEach(() => { process.env = { ...saved }; vi.unstubAllGlobals(); });
 
 describe("Persona identity adapter", () => {
   it("defaults off and requires every credential", () => {
-    process.env.RESIDENT_IDENTITY_ENABLED = "true";
+    process.env.RESIDENT_IDENTITY_ENABLED = "true"; process.env.RESIDENT_IDENTITY_PROVIDER = "persona";
     process.env.PERSONA_API_KEY = "key";
     process.env.PERSONA_TEMPLATE_ID = "template";
     delete process.env.PERSONA_WEBHOOK_SECRET;

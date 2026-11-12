@@ -11,11 +11,11 @@ describe("baseline identity", () => {
     const client = db(null); expect(await resolveBaselineResidentIdentity(client, "resident")).toBe("disabled"); expect(client.from).not.toHaveBeenCalled();
   });
   it("retains a provider-approved attestation when provider configuration is unavailable", async () => {
-    process.env.RESIDENT_IDENTITY_ENABLED = "true"; delete process.env.PERSONA_API_KEY;
+    process.env.RESIDENT_IDENTITY_ENABLED = "true"; process.env.RESIDENT_IDENTITY_PROVIDER = "persona"; delete process.env.PERSONA_API_KEY;
     expect(await resolveBaselineResidentIdentity(db({ status: "approved", provider_decision: "approved", verified_at: "2026-01-01T00:00:00Z" }), "resident")).toBe("verified");
   });
   it("fails closed for missing, completed, malformed or unreadable evidence", async () => {
-    process.env.RESIDENT_IDENTITY_ENABLED = "true"; delete process.env.PERSONA_API_KEY;
+    process.env.RESIDENT_IDENTITY_ENABLED = "true"; process.env.RESIDENT_IDENTITY_PROVIDER = "persona"; delete process.env.PERSONA_API_KEY;
     expect(await resolveBaselineResidentIdentity(db(null), null)).toBe("unavailable");
     expect(await resolveBaselineResidentIdentity(db({ status: "review", verified_at: null }), "resident")).toBe("unavailable");
     expect(await resolveBaselineResidentIdentity(db(null, {}), "resident")).toBe("unavailable");

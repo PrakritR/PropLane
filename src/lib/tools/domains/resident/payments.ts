@@ -6,7 +6,12 @@ import { resolveShareableAppOrigin } from "@/lib/app-url";
 import { residentChargesListHref } from "@/lib/portal-detail-routes";
 import { getStripe } from "@/lib/stripe";
 import { householdChargeAmountCents } from "@/lib/stripe-household-charge";
-import { loadHouseholdChargesForCheckout, MAX_BULK_CHARGES } from "@/lib/stripe-household-charge-checkout.server";
+import {
+  loadHouseholdChargesForCheckout,
+  MAX_BULK_CHARGES,
+  resolveHouseholdChargeFeePayer,
+} from "@/lib/stripe-household-charge-checkout.server";
+import { residentServiceFeeBreakdown } from "@/lib/payment-policy";
 import { listResidentSavedPaymentMethods } from "@/lib/stripe-resident-customer";
 import {
   autopayNextScheduledChargeLabel,
@@ -56,20 +61,35 @@ export const startRentPaymentTool = defineWriteTool({
     if (!resolved.ok) throw new Error(resolved.error);
 
     const totalCents = resolved.loaded.reduce((sum, row) => sum + householdChargeAmountCents(row.charge), 0);
+    // The fee is whatever checkout will really charge: the same resolver and the same breakdown, per method. Rent's
+    // processing fee is the resident's, so this never says "no added fees" for a payment that adds one.
+    const feePayer = await resolveHouseholdChargeFeePayer(ctx.db, resolved.managerUserId, resolved.loaded);
+    if (!feePayer.ok) throw new Error(feePayer.error);
+    const quote = (method: "card" | "ach") =>
+      residentServiceFeeBreakdown(totalCents, method, feePayer.feePayer, { coverFeeOnFee: true });
+    const card = quote("card");
+    const bank = quote("ach");
+    const feeFree = card.residentAddedFeeCents === 0 && bank.residentAddedFeeCents === 0;
     return {
       confirmedInput: { chargeIds: resolved.loaded.map((row) => row.id) },
       kind: "start_rent_payment",
       title: "Pay charges in PropLane",
-      summary: `Pay ${centsLabel(totalCents)} for ${resolved.loaded.length} charge${resolved.loaded.length === 1 ? "" : "s"} — this opens Payments in PropLane for exactly that amount, with no added fees.`,
+      summary: feeFree
+        ? `Pay ${centsLabel(totalCents)} for ${resolved.loaded.length} charge${resolved.loaded.length === 1 ? "" : "s"} — this opens Payments in PropLane for exactly that amount, with no added fees.`
+        : `Pay ${centsLabel(totalCents)} for ${resolved.loaded.length} charge${resolved.loaded.length === 1 ? "" : "s"} — this opens Payments in PropLane. ${centsLabel(card.totalCents)} by card or ${centsLabel(bank.totalCents)} by bank, processing fee included.`,
       fields: [
         ...resolved.loaded.map((row) => ({
           label: row.charge.title || row.id,
           value: row.charge.balanceLabel || row.charge.amountLabel || "—",
         })),
-        // Face value: PropLane covers payment processing, so the amount
-        // collected is the sum of the charge balances above.
-        { label: "Added fees", value: centsLabel(0) },
-        { label: "Total due", value: centsLabel(totalCents) },
+        ...(feeFree
+          ? [{ label: "Added fees", value: centsLabel(0) }, { label: "Total due", value: centsLabel(totalCents) }]
+          : [
+              { label: "Processing fee (card)", value: centsLabel(card.residentAddedFeeCents) },
+              { label: "Total by card", value: centsLabel(card.totalCents) },
+              { label: "Processing fee (bank)", value: centsLabel(bank.residentAddedFeeCents) },
+              { label: "Total by bank", value: centsLabel(bank.totalCents) },
+            ]),
         { label: "Payment", value: "Opens Payments in PropLane" },
       ],
       confirmLabel: "Open Payments",
@@ -101,10 +121,14 @@ export const startRentPaymentTool = defineWriteTool({
     if (!resolved.ok) throw new Error(resolved.error);
 
     const totalCents = resolved.loaded.reduce((sum, row) => sum + householdChargeAmountCents(row.charge), 0);
-    const paymentsUrl = residentPaymentsInAppUrl();
+    // One charge opens its own pay sheet (`?pay=<id>&start=1`); several open the list, where the resident picks the method.
+    const only = resolved.loaded.length === 1 ? resolved.loaded[0]!.id : null;
+    const paymentsUrl = only
+      ? `${resolveShareableAppOrigin()}/resident/payments?pay=${encodeURIComponent(only)}&start=1`
+      : residentPaymentsInAppUrl();
 
     return {
-      reply: `Open Payments to pay in PropLane — ${centsLabel(totalCents)} total, with no added fees, for ${resolved.loaded.length} charge${resolved.loaded.length === 1 ? "" : "s"}.`,
+      reply: `Open Payments to pay in PropLane — ${centsLabel(totalCents)} for ${resolved.loaded.length} charge${resolved.loaded.length === 1 ? "" : "s"}. Any processing fee is shown before you pay.`,
       checkoutUrl: paymentsUrl,
       resultSummary: { chargeCount: resolved.loaded.length, totalCents },
     };
@@ -243,6 +267,8 @@ export const setAutopayTool = defineWriteTool({
       paymentMethodId = method.id;
     }
 
+    // The resident confirmed the preview above ("Turn on autopay", naming the method, the run day and the next
+    // payment): that confirmation is their explicit authorization for this method, recorded on the row.
     const saved = await saveResidentAutopaySettings(ctx.db, {
       residentUserId: ctx.userId,
       managerId,
@@ -250,6 +276,7 @@ export const setAutopayTool = defineWriteTool({
       enabled: input.enabled,
       paymentMethodId,
       runDaysBeforeDue: input.daysBeforeDue ?? 0,
+      consent: input.enabled && paymentMethodId ? { paymentMethodId } : null,
     });
 
     return {

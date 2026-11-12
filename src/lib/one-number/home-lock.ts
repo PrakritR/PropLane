@@ -10,7 +10,20 @@ import { formatUsPhoneDisplay } from "@/lib/phone-e164";
  */
 
 /** The one reply a stranger gets when their first text names nothing specific ("hi", "who is this"). */
-export const HOLD_REPLY = "Hi! This is PropLane. Which home are you texting about? (street or house name)";
+export const HOLD_REPLY = "Which house are you asking about? Send me the street or the listing name.";
+
+/**
+ * The one question for a stranger whose first text names no house, with each house's own page in the same text so they can
+ * tap straight to it (most listing sites forbid links in the ad, so this is where they first get one). The houses are read
+ * from the live catalog by the caller, never typed here; more than a handful means the plain question.
+ */
+export function holdReplyFor(homes: ReadonlyArray<{ title: string; url: string }>): string {
+  const unique = homes.filter((home, i) => home.title && home.url && homes.findIndex((other) => other.title === home.title) === i);
+  if (unique.length === 0 || unique.length > 4) return HOLD_REPLY;
+  const names = unique.map((home) => home.title);
+  const list = names.length === 1 ? names[0]! : `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`;
+  return [`Which house are you asking about, ${list}?`, ...unique.map((home) => `${home.title}: ${home.url}`)].join("\n");
+}
 
 /** "4709A 8th Ave NE, Room 3": the street line and, when known, the room. Never a city, a unit code or a door code. */
 export function homeLabel(home: Pick<MockProperty, "address" | "unitLabel"> | { label: string }, roomName?: string | null): string {

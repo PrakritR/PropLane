@@ -1,3 +1,5 @@
+import { isOutboundOnlyOwnerSms } from "@/lib/communication/managed-owner-thread";
+import { loadManagedOwnerIdentity } from "@/lib/communication/managed-owner-thread.server";
 import "server-only";
 import { withSmsMedia } from "@/lib/one-number/sms-media-index.server";
 import { loadSharedLineConfig } from "@/lib/one-number/config.server";
@@ -348,6 +350,8 @@ export async function visibleManagerSmsProjectionIds(
 export async function fetchManagerSmsProjectionPage(db: SupabaseClient, viewerId: string, before: SmsProjectionCursor | null) {
   const scope = await resolveCommunicationScope(db, viewerId, "read");
   const visible: (ManagerSmsResidentConversation & { projectionId: string; unread: boolean; stateVersion: number })[] = [];
+  // The client owner of a PropLane-managed workspace has a conversation here only once they have texted in.
+  const managedOwner = await loadManagedOwnerIdentity(db, scope.activeWorkspaceId);
   let cursor = before;
   let hasMore = false;
   // Each request inspects at most ten indexed summary pages. An owner with
@@ -365,6 +369,10 @@ export async function fetchManagerSmsProjectionPage(db: SupabaseClient, viewerId
       processed += 1;
       const houseIds = context.houseIds.get(summary.id) ?? [];
       const line = summary.workLinePhone;
+      if (managedOwner && isOutboundOnlyOwnerSms({ counterpartyUserId: summary.counterpartyUserId, phone: summary.phone, lastInboundAt: summary.lastInboundAt, lastInboundEventId: summary.lastInboundEventId }, managedOwner)) {
+        cursor = { occurredAt: summary.lastEventAt!, id: summary.id };
+        continue;
+      }
       if (conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds, untaggedTurns: true, lines: line ? [line] : [], sharedLineWorkspaceId: placedWorkspaceIdOf(summary, context) })) {
         visible.push(asResident(summary, context));
       }

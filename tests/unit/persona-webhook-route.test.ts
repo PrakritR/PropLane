@@ -8,7 +8,7 @@ afterEach(() => { process.env = { ...saved }; rpc.mockReset(); vi.unstubAllGloba
 
 describe("Persona webhook", () => {
   it("does not write until a signature is verified and passes only minimal fields", async () => {
-    process.env.RESIDENT_IDENTITY_ENABLED = "true";
+    process.env.RESIDENT_IDENTITY_ENABLED = "true"; process.env.RESIDENT_IDENTITY_PROVIDER = "persona";
     process.env.PERSONA_API_KEY = "key";
     process.env.PERSONA_TEMPLATE_ID = "template";
     process.env.PERSONA_WEBHOOK_SECRET = "secret";

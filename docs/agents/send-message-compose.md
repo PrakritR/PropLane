@@ -148,6 +148,16 @@ anyone it already reached. The tally (Text / Email / App "n of N", one amber lin
 email) and the summary sheet come from `house-message-recipients.ts`; the in-app House chat is unchanged and
 stays in-app only.
 
+**A house text is ABOUT the house's workspace.** Each copy carries `houseSendPropertyId` (a name, never
+authorization); the send route re-derives the workspace, its OWNER and the actor's Communication grant on that house
+(`resolveHouseSendTarget`, `house-message-send.server.ts`) and texts from that workspace's line
+(`resolveHouseSmsLine` over `resolveWorkspaceSendLine` / `resolveServiceLine`: a self-serve workspace's own number,
+the PropLane line for an `is_service` workspace, the shared line when it is live), billed to the owner's wallet - never
+the sender's default workspace, legacy `sms_from_number` or own number; no sendable line REFUSES the text. A wanted
+channel with no recorded delivery reads "Not sent" with its reason (`skipped` in the route's response), never "Sent";
+nothing is mirrored to the manager's own phone, and a text the outbox only deferred is followed to its inbox message
+through `inbox_message_provider_refs` (`outbox:<id>`) so it stops reading "Sending…".
+
 ## Tests
 
 A new send surface fails if it does not import the shared compose fields, or

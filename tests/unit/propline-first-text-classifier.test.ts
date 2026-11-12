@@ -85,7 +85,7 @@ describe("the answer to the question", () => {
 
 describe("the copy", () => {
   it("the PropLane line's question is exact, one GSM-7 segment, no long dash", () => {
-    expect(PROPLANE_ROLE_QUESTION).toBe("Hi, this is PropLane. Are you a resident, a vendor, looking for a place, or want to manage your own property with PropLane?");
+    expect(PROPLANE_ROLE_QUESTION).toBe("Are you a resident, a vendor, looking for a place, or want to manage your own property with PropLane?");
     for (const text of [PROPLANE_ROLE_QUESTION, MANAGE_OWN_REPLY, RESIDENT_NOT_FOUND_REPLY, VENDOR_TRADE_QUESTION]) {
       expect(text).toMatch(/^[\x20-\x7E]+$/);
       expect(text.length).toBeLessThanOrEqual(160);

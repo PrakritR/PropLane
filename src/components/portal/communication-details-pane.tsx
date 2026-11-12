@@ -11,6 +11,7 @@
  */
 import Link from "next/link";
 import { useThreadScheduledItems } from "@/components/portal/use-thread-scheduled-cards";
+import { CopyIconAction } from "@/components/portal/portal-icon-action";
 import { InboxAvatar, inboxInitials } from "@/components/portal/portal-inbox-ui";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +29,8 @@ export type CommunicationDetails = {
   /** "Prospect", "Resident", "Vendor"… — omitted when the conversation does not say. */
   role?: string;
   phone?: string | null;
+  /** The phone is a house's work number a resident may copy (drawn with a copy action). */
+  phoneCopyable?: boolean;
   email?: string | null;
   records: CommunicationDetailsRecord[];
 };
@@ -41,6 +44,8 @@ export function communicationDetailsFromRow(
     name: string;
     personEmail?: string;
     address?: string;
+    /** A house's work number (resident Communication): shown copyable. Never a title. */
+    workPhone?: string;
     recordRef?: { kind: string; id: string; label: string };
   } | null,
   recordHref: (kind: string, id: string) => string | null,
@@ -56,15 +61,31 @@ export function communicationDetailsFromRow(
       href: recordHref(row.recordRef.kind, row.recordRef.id),
     });
   }
-  return { name, email: row.personEmail?.trim() || null, records };
+  const workPhone = row.workPhone?.trim();
+  return {
+    name,
+    email: row.personEmail?.trim() || null,
+    ...(workPhone ? { phone: workPhone, phoneCopyable: true } : {}),
+    records,
+  };
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({ label, value, copyLabel }: { label: string; value: string; copyLabel?: string }) {
   return (
     <div className="grid min-h-8 grid-cols-[88px_minmax(0,1fr)] items-center gap-2 text-[13.5px]">
       <span className="text-muted">{label}</span>
-      <span className="truncate text-foreground" title={value}>
-        {value}
+      <span className="flex min-w-0 items-center gap-1">
+        <span className="min-w-0 truncate text-foreground" title={value}>
+          {value}
+        </span>
+        {copyLabel ? (
+          <CopyIconAction
+            label={copyLabel}
+            className="size-7 md:size-7 lg:size-7"
+            data-attr="communication-details-copy"
+            onCopy={() => navigator.clipboard?.writeText(value).catch(() => {})}
+          />
+        ) : null}
       </span>
     </div>
   );
@@ -113,7 +134,13 @@ export function CommunicationDetailsPane({ details }: { details: CommunicationDe
         </div>
         {hasFacts ? (
           <div className="mt-2.5">
-            {details.phone ? <DetailRow label="Phone" value={details.phone} /> : null}
+            {details.phone ? (
+              <DetailRow
+                label={details.phoneCopyable ? "Work number" : "Phone"}
+                value={details.phone}
+                copyLabel={details.phoneCopyable ? "Copy work number" : undefined}
+              />
+            ) : null}
             {details.email ? <DetailRow label="Email" value={details.email} /> : null}
           </div>
         ) : null}

@@ -4,7 +4,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { traceSystemNotification } from "@/lib/observability/langfuse";
-import { channelStays, leaseStays, roomDateBlockStays, type Stay } from "@/lib/reminders/subjects/bookings.server";
+import { channelStays, leaseStays, loadPlaceNames, roomDateBlockStays, type Stay } from "@/lib/reminders/subjects/bookings.server";
+import { noticePlaceName } from "@/lib/notice-place-label";
 import { pacificTodayKey } from "@/lib/sheet-sync/dates";
 
 /**
@@ -47,6 +48,9 @@ export async function loadBookingsTodayByManager(
 ): Promise<Map<string, BookingsTodaySummary>> {
   const [channel, lease, block] = await Promise.all([channelStays(db), leaseStays(db), roomDateBlockStays(db)]);
   const allStays = [...channel, ...lease, ...block];
+  // The house as its listing names it. A stay that carries only the stored id (a room-date block, a lease with no
+  // name) must never print that id in the digest: it reads the property record's building name instead.
+  const placeNames = await loadPlaceNames(db, [...new Set(allStays.map((stay) => stay.propertyId).filter((id): id is string => Boolean(id)))]);
 
   const byManager = new Map<string, BookingsTodaySummary>();
   const seenKeys = new Map<string, Set<string>>();
@@ -68,7 +72,8 @@ export async function loadBookingsTodayByManager(
       const key = dedupeKey(stay, kind);
       if (seen.has(key)) continue;
       seen.add(key);
-      summary.items.push({ kind, guestName: stay.guestName, propertyLabel: stay.propertyLabel });
+      const names = stay.propertyId ? placeNames.get(stay.propertyId) : undefined;
+      summary.items.push({ kind, guestName: stay.guestName, propertyLabel: noticePlaceName(names?.property, stay.propertyLabel) });
       if (kind === "check-in") summary.checkIns += 1;
       else summary.checkOuts += 1;
     }
@@ -84,7 +89,7 @@ export function renderBookingsTodayMessage(summary: BookingsTodaySummary): strin
   ].filter((part): part is string => Boolean(part));
   const headline = `Today at your houses: ${parts.join(", ")}.`;
   const lines = summary.items.map(
-    (item) => `${item.kind === "check-in" ? "Check-in" : "Check-out"} · ${item.guestName} · ${item.propertyLabel}`,
+    (item) => `${item.kind === "check-in" ? "Check-in" : "Check-out"} · ${item.guestName} · ${noticePlaceName(item.propertyLabel)}`,
   );
   return [headline, ...lines].join("\n");
 }

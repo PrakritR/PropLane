@@ -13,6 +13,7 @@ import { ADMIN_UI_EVENT } from "@/lib/demo-admin-ui";
 import { PROPERTY_PIPELINE_EVENT } from "@/lib/demo-property-pipeline";
 import { HOUSEHOLD_CHARGES_EVENT, householdChargeManagerBucket } from "@/lib/household-charges";
 import { LEASE_PIPELINE_EVENT, readLeasePipeline } from "@/lib/lease-pipeline-storage";
+import { leasesWithoutRentCharges } from "@/lib/residency-without-rent";
 import { MANAGER_APPLICATIONS_EVENT, readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import {
   MANAGER_ATTENTION_MAX_ROWS,
@@ -128,6 +129,26 @@ export function useManagerAttentionQueue(basePath = "/portal"): {
         ),
       [],
     );
+    // Signed leases nobody is billing. Read against every charge the store holds; an EMPTY store is "not synced
+    // yet", never "nothing billed", so it raises no alert.
+    const unbilledResidencyCount = safe(() => {
+      const charges = readManagerPaymentsLedgerCharges(userId);
+      if (charges.length === 0) return 0;
+      const leases = readLeasePipeline(userId).filter((l) =>
+        workspaceContainsProperty(l.propertyId?.trim() || l.application?.propertyId?.trim() || undefined),
+      );
+      return leasesWithoutRentCharges({
+        leases: leases.map((l) => ({
+          id: l.id,
+          status: l.status,
+          residentEmail: l.residentEmail,
+          propertyId: l.propertyId?.trim() || l.application?.propertyId?.trim() || null,
+          fullySignedAt: l.fullySignedAt,
+          voidedAt: l.voidedAt,
+        })),
+        charges,
+      }).length;
+    }, 0);
     // One row per requested window, the way the dashboard's Upcoming list
     // counts them.
     const pendingTourCount = safe(
@@ -152,6 +173,7 @@ export function useManagerAttentionQueue(basePath = "/portal"): {
       pendingApplicationCount: pendingApps.length,
       managerSignatureLeaseCount,
       pendingTourCount,
+      unbilledResidencyCount,
       messagingNeedsSetup,
       messagingSettingsHref: safe(() => MANAGER_MESSAGING_SETTINGS_HREF, `${basePath}/settings/messaging`),
       draftPropertyCount: safe(() => readPortfolioSnapshot(userId).draftCount, 0),

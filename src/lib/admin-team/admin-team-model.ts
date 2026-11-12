@@ -5,8 +5,9 @@
  *   * Every other role is a PropLane-issued service seat (`account_link_invites` with `is_service_seat`) on one or more
  *     PropLane Service workspaces: the team roles the manager Team invite offers. "Workspace admin" is the Admin team role.
  *
- * Who may grant what (captain, Oct 27, decision 1): only an Overall admin can invite or promote to Overall admin; a
- * workspace admin invites to the workspaces they themselves run, never above their own role.
+ * Who may grant what (captain, Nov 12, replacing Oct 27 decision 1): only the platform's PRIMARY admin can invite or
+ * promote to Overall admin; any Overall admin still invites workspace seats; a workspace admin invites to the workspaces
+ * they themselves run, never above their own role.
  */
 import { TEAM_ROLE_INVITE_OPTIONS, parseTeamRole, type TeamRoleId } from "@/lib/co-manager-team-roles";
 
@@ -46,13 +47,19 @@ export function parseAdminTeamRole(raw: unknown): AdminTeamRole | null {
 export type AdminTeamActor = {
   /** Holds the Overall admin role. */
   overall: boolean;
+  /**
+   * The platform's primary admin: an Overall admin whose own CONFIRMED sign-in email is the primary-admin email
+   * (`userIsPrimaryAdmin`). Derived on the server, never from a body. Absent reads as false; only this actor may invite,
+   * promote or redeem an Overall admin grant.
+   */
+  primary?: boolean;
   /** Service workspaces whose team the viewer may manage (owner / Admin seat there). Empty for nobody. */
   manageableWorkspaceIds: ReadonlySet<string>;
 };
 
 export type Verdict = { ok: true } | { ok: false; status: number; error: string };
 
-export const ONLY_OVERALL_GRANTS_OVERALL = "Only an Overall admin can invite another Overall admin.";
+export const ONLY_PRIMARY_GRANTS_OVERALL = "Only the primary admin can make another Overall admin.";
 export const NO_WORKSPACE_CHOSEN = "Choose at least one workspace.";
 export const WORKSPACE_NOT_YOURS = "You can invite only to the workspaces you manage.";
 export const NOT_ON_ADMIN_TEAM = "You do not manage any workspace team.";
@@ -63,7 +70,8 @@ export const NOT_ON_ADMIN_TEAM = "You do not manage any workspace team.";
  */
 export function adminTeamGrantVerdict(actor: AdminTeamActor, input: { role: AdminTeamRole; workspaceIds: readonly string[] }): Verdict {
   if (input.role === OVERALL_ADMIN_ROLE) {
-    return actor.overall ? { ok: true } : { ok: false, status: 403, error: ONLY_OVERALL_GRANTS_OVERALL };
+    // Holding the Overall role is not enough: the primary admin alone creates more of them.
+    return actor.overall && actor.primary === true ? { ok: true } : { ok: false, status: 403, error: ONLY_PRIMARY_GRANTS_OVERALL };
   }
   if (!actor.overall && actor.manageableWorkspaceIds.size === 0) return { ok: false, status: 403, error: NOT_ON_ADMIN_TEAM };
   if (input.workspaceIds.length === 0) return { ok: false, status: 400, error: NO_WORKSPACE_CHOSEN };
@@ -138,9 +146,11 @@ export function adminTeamAccessFields(choice: AdminTeamChoice): Record<string, u
   return base;
 }
 
-export function adminTeamInviteRequest(input: { email: string; choice: AdminTeamChoice }): Record<string, unknown> {
+export function adminTeamInviteRequest(input: { email: string; phone?: string; choice: AdminTeamChoice }): Record<string, unknown> {
+  const phone = input.phone?.trim();
   return {
     email: input.email.trim(),
+    ...(phone ? { phone } : {}),
     role: input.choice.role,
     workspaceIds: input.choice.role === OVERALL_ADMIN_ROLE ? [] : input.choice.workspaceIds,
     access: adminTeamAccessFields(input.choice),
@@ -187,7 +197,7 @@ export type AdminTeamMemberRow = {
 export type AdminTeamWorkspace = { id: string; name: string; city: string | null; houses: { id: string; label: string }[] };
 
 export type AdminTeamPayload = {
-  viewer: { userId: string; overall: boolean };
+  viewer: { userId: string; overall: boolean; primary: boolean };
   workspaces: AdminTeamWorkspace[];
   members: AdminTeamMemberRow[];
 };

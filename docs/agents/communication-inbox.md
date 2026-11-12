@@ -216,6 +216,22 @@ admin:
 - **Inside a service workspace** a PropLane-line thread routed to it (`sms_projection_conversations.workspace_id` of an
   `is_service` workspace) is placed by that stamp alone (`placedWorkspaceIdOf`, the shared-line placement rule): visible
   in that workspace with no house tag, in no other. Another owner's thread still needs the viewer's house grant.
+- **A thread that lives in a workspace is not in the admin's main list (Nov 12).** `placeAdminSmsConversations` keeps only
+  threads no service workspace holds (Unassigned, open leads); an assigned lead, or any text stamped on a service workspace,
+  shows only in that workspace's Communication and under the Workspace filter. A sender that is not a phone number (a
+  carrier short code like `78156`, an alphanumeric id) is stored by `ingestNonPhoneSenderText` as its own history-only
+  thread titled by the sender (`sendDisabled`), alerts the admin phones once with the body in full, and is NEVER replied to
+  or given to an agent (`non-phone-sender.ts`; the inbound route no longer answers it 400).
+- **Thread header chrome.** The admin lead thread's "Assign to workspace" is an icon action over a menu (confirm, then
+  `PATCH /api/admin/unassigned-leads/<id>`); no select pill whose width follows a workspace name. The shared
+  `InboxThreadView` header is `min-w-0 max-w-full`, message text wraps (`break-words [overflow-wrap:anywhere]`).
+- **Who an outbound text is from.** An AI or automated outbound (outbox purpose other than `manager_conversation`, send
+  class `automated`, source `automated`, or an "actor" that is the texter) reads "PropLane" with the Assistant mark; a staff
+  reply wears that person's name (`isAutomatedSmsOutbound`, `smsOutboundAuthorLabel`). Display only: stored rows are untouched.
+- **Notices name the house, never its id.** `notifyManagerFromAgent` replaces any `mgr-…` property id in a notice's prose with
+  the listing's display name (`withHouseDisplayNames`); the digest and reminder builders resolve names at the source
+  (`noticePlaceName`). A lease follow-up is one notice per lease, lead time and person (`reminderNoticeIdempotencyKey`).
+  Guard: `tests/unit/assistant-notice-no-raw-ids.test.ts`.
 - **Identity boxes** are the support address (`PUBLIC_SUPPORT_EMAIL`, the mailbox
   inbound mail is routed from - `docs/agents/inbound-email-inbox.md`) and, when the
   text stream reported one, its number (`AdminWorkIdentityCard`). No "set up" prompt:
@@ -1027,6 +1043,51 @@ are `resident-conversation.ts` (`tests/unit/resident-conversation.test.ts`):
 - Verifying a phone (`PUT /api/manager/phone`) calls `linkVerifiedPhoneHistory`,
   which re-keys the number's past SMS projection rows through the one resolver
   (`acct:` where the resident is linked to the workspace, else the `tel:` key).
+
+## What a resident's conversations are called, and the one PropLane agent (Nov 12)
+
+Captain, Nov 12: the resident's Communication reads like a Messages tab (Airbnb-inspired: a 48px avatar, a bold
+title, a one-line preview, the stamp top right, an unread dot, a full-screen thread on a phone), and a resident can
+tell every voice apart by NAME. The names are one module, `src/lib/communication/resident-conversation-names.ts`
+(pure; `tests/unit/resident-conversation-names.test.ts`), used by the list, the thread header and the details pane.
+
+| What it is | Row title | Avatar |
+| --- | --- | --- |
+| The PropLane agent (the 206 line, the top-bar assistant, the dashboard's Ask card, the phone's Ask tab) | **PropLane** | assistant glyph |
+| A manager's / owner's work-number conversation about a house | the **house** ("4709A 8th Ave"), else the workspace, else the manager's name, else "Your home" | house tile |
+| The house group chat | "House · 4709A 8th Ave" (unchanged) | people tile |
+| The agent behind the resident's OWN PropLane Number (texts that reach that number from other people) | **My PropLane agent** | phone |
+
+- **A phone number is never a title** (`looksLikePhoneNumber`, and a bare email is skipped too). The house's WORK number
+  is a copyable detail: the thread header's subtitle ("<manager> · +1 (206) 555-0100") with a copy icon action
+  (`CopyIconAction`, "Copy work number") and the details pane's "Work number" row. Only a work line is offered
+  (`residentHouseWorkPhone`: the server-stamped counterparty number, or a contact whose `phoneKind` is `work`), never a
+  manager's profile phone. The manager's name is the plain line under the row, the texter's number the line under a
+  "My PropLane agent" row. The stored author "PropLane Assistant" is mapped to "PropLane" at display time
+  (`residentAssistantDisplayName`); the stored string is unchanged.
+- **Order:** the PropLane agent first, always (even when it is the oldest conversation); then the house chats; then every
+  house / number conversation by recency; then the houses with nothing to read yet (below). A stable partition
+  (`orderResidentConversationRows`). On Active only: the agent is not on Archived or Unread, and it cannot be archived.
+  The desktop opens the first conversation by default, which is the agent, so a chat is always open.
+- **One agent, every door.** The pinned row, the top bar's side panel / phone sheet, the dashboard's Ask card, the
+  phone's Ask tab and a composer's "Ask PropLane" all read the ONE `AssistantConversationProvider` the resident layout
+  mounts on `/api/agent/resident-chat` (`residentAssistantEntryTarget` names the one id, `resident-agent-<uid>`, for
+  every entry point). The pinned row's thread pane is `ResidentAssistantThread`, the shared `AssistantDockPanel`; its
+  preview is the latest turn of that conversation, and opening Communication calls `hydrateArchive` so the latest saved
+  session is restored. **Where they diverged:** the old pinned row (removed Oct 3) opened a stored `resident-agent-<uid>`
+  inbox thread whose replies went through `send-inbox-message` to `runResidentInboxAgentTurn`, a second store and a
+  second turn runner, so history typed in one door was invisible in the other. A reply to the agent never takes that
+  path from the list now, and there is no second assistant route or registry. The row exists only where the provider is
+  mounted (not in the demo, not in a "View as" session, not in a record-scoped list). The stored `resident-agent` thread
+  still counts toward the badge when it holds an unread turn. A text filed under `resident-agent-inbound-sms:` shares
+  the id prefix but is "My PropLane agent", not the agent (`isResidentPropLaneAgentThread`).
+- **Start a conversation about a house.** Each current house (a manager contact whose house has no live conversation) is
+  a last row on Active with the house as its title and "No messages yet."; tapping it opens the existing New message
+  composer addressed to that house's manager (`residentHouseStarters`; `openCompose`). The message goes through the one
+  authorize-then-append path (`send-inbox-message`), into the resident's ONE conversation per workspace
+  (`ws:<workspace>`), which the manager reads as the same conversation as that resident's texts. A starter is an offer:
+  it is not counted in the tab or header count and an archived conversation does not cover its house.
+- Notifications that name the agent or a house read these names; the server-side push / SMS notice copy is unchanged.
 
 ## A reply leaves on the channel the person reached you on
 

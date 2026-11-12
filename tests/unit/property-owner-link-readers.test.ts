@@ -58,6 +58,7 @@ const REVIEWED: Record<string, string> = {
   // Readers that ASK about the owner role in order to exclude it: an owner seat is never manager-side.
   "lib/auth/sms-proven-session.server.ts": "counts an accepted seat as manager-side and skips property_owner explicitly (a team role, not a portal)",
   "lib/auth/team-seat-manager-role.server.ts": "asks whether any accepted seat still justifies the manager role; a property_owner seat never does",
+  "lib/service/service-alert-targets.server.ts": "asks which accepted seats are STAFF and skips property_owner explicitly (staffSeatUserIds): an owner seat is never alerted as staff",
   "lib/service/service-workspaces.server.ts": "admin-only: the Service tab lists every live member, the owner of record included, on purpose",
   "app/api/admin/managed-workspaces/[workspaceId]/policies/route.ts": "admin-only: lists every accepted member so an owner of record can be picked",
 };

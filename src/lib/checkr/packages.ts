@@ -145,3 +145,22 @@ export function screeningCheckoutDescription(
 export function formatCheckrPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
+
+/** Higher rank = more products. An upgrade only ever moves up this order. */
+const CHECKR_PACKAGE_RANK: Record<CheckrPackage, number> = { starter: 1, essential: 2, complete: 3 };
+
+export function checkrPackageRank(slug: CheckrPackage): number {
+  return CHECKR_PACKAGE_RANK[slug];
+}
+
+/**
+ * What an upgrade from `from` to `to` costs: the price difference of the two packages, never the full target price
+ * (the applicant already paid for `from`). Zero for the same or a lower package; add-ons are not part of an upgrade.
+ */
+export function checkrUpgradeCostCents(from: CheckrPackage, to: CheckrPackage): number {
+  if (checkrPackageRank(to) <= checkrPackageRank(from)) return 0;
+  const catalog = checkrPackageCatalog();
+  const fromCents = catalog.find((entry) => entry.slug === from)?.priceCents ?? 0;
+  const toCents = catalog.find((entry) => entry.slug === to)?.priceCents ?? 0;
+  return Math.max(0, toCents - fromCents);
+}

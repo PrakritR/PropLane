@@ -1,4 +1,4 @@
-import { settleVoiceCredit, reconcileUnstartedRecording } from "@/lib/comms-billing/voice-credit.server";
+import { settleVoiceCredit, reconcileUnstartedRecording, findVoiceCallPayer } from "@/lib/comms-billing/voice-credit.server";
 import { NextResponse } from "next/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import {
@@ -8,6 +8,8 @@ import {
 import { resolveVoiceCallRoute } from "@/lib/voice/voice-call-routing.server";
 import { deliverVoiceCallSummary, type VoiceCallerKind } from "@/lib/voice/voice-call-summary.server";
 import { sendVoiceSummaryEmail } from "@/lib/voice/voice-summary-email.server";
+import { alertOpsOfCall, sendCallFollowUpLinks } from "@/lib/voice/voice-call-links.server";
+import { loadVoiceCallTranscript } from "@/lib/voice/voice-call-summary.server";
 
 export const runtime = "nodejs";
 
@@ -38,7 +40,7 @@ export async function POST(req: Request) {
   }
 
   const db = createSupabaseServiceRoleClient();
-  const resolved = await resolveVoiceCallRoute(db, { fromPhone, toPhone });
+  const resolved = await resolveVoiceCallRoute(db, { fromPhone, toPhone, callSid });
   if (!resolved.ok) return NextResponse.json({ ok: true, skipped: "unconfigured" });
 
   const seconds = Number(validated.params.CallDuration ?? 0);
@@ -46,9 +48,12 @@ export async function POST(req: Request) {
   if (!Number.isFinite(seconds) || seconds < 0 || !Number.isFinite(recordingSeconds) || recordingSeconds < 0) {
     return NextResponse.json({ error: "Invalid call duration." }, { status: 400 });
   }
-  await settleVoiceCredit(db, resolved.managerId, callSid, seconds, validated.params.RecordingDuration ? recordingSeconds : undefined);
-
-  if (!validated.params.RecordingDuration) await reconcileUnstartedRecording(db, resolved.managerId, callSid);
+  // Whoever held the call's minutes settles them: the workspace, or PropLane on its own line.
+  const payer = await findVoiceCallPayer(db, resolved.billing, callSid);
+  if (payer) {
+    await settleVoiceCredit(db, payer.ownerId, callSid, seconds, validated.params.RecordingDuration ? recordingSeconds : undefined);
+    if (!validated.params.RecordingDuration) await reconcileUnstartedRecording(db, payer.ownerId, callSid);
+  }
 
   const { data: manager } = await db
     .from("profiles")
@@ -72,5 +77,16 @@ export async function POST(req: Request) {
     sendEmail: (email) => sendVoiceSummaryEmail({ ...email, managerUserId: resolved.managerId }),
   });
 
-  return NextResponse.json({ ok: true, delivery });
+  // The caller is texted the pages they asked for, from the line they dialed, and PropLane's alert phones hear about the
+  // call in one line. Each is best effort and idempotent on the call sid: a retried callback sends nothing twice.
+  let links: { sent: boolean; reason?: string } = { sent: false, reason: "skipped" };
+  let alert: "sent" | "skipped" = "skipped";
+  if (status === "completed") {
+    links = await sendCallFollowUpLinks(db, { resolved, fromPhone, callSid }).catch(() => ({ sent: false, reason: "error" }));
+    const transcript = await loadVoiceCallTranscript(db, { managerUserId: resolved.managerId, callSid }).catch(() => []);
+    const asked = transcript.filter((line) => line.direction === "inbound").map((line) => line.body).join(" ").slice(0, 120);
+    alert = await alertOpsOfCall(db, { resolved, fromPhone, callSid, gist: asked ? `Phone call: ${asked}` : "Phone call, no speech captured" });
+  }
+
+  return NextResponse.json({ ok: true, delivery, links, alert });
 }

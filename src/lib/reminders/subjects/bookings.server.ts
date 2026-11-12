@@ -38,6 +38,8 @@ import {
   teamReminderRecipients,
 } from "@/lib/reminders/manager-recipients.server";
 import { materializeReminders } from "@/lib/reminders/queue.server";
+import { noticePlaceName } from "@/lib/notice-place-label";
+import { placeNameOrEmpty } from "@/lib/room-display-label";
 import { loadReminderSettingsResolver } from "@/lib/reminders/settings.server";
 import { withinHorizon } from "@/lib/reminders/subjects/records.server";
 import { zonedWallTimeMs } from "@/lib/tour-slot-math";
@@ -335,7 +337,7 @@ export async function roomDateBlockStays(db: SupabaseClient): Promise<Stay[]> {
 }
 
 /** House and room names for the reminder line; a failed read just leaves the stay's own labels. */
-async function loadPlaceNames(
+export async function loadPlaceNames(
   db: SupabaseClient,
   propertyIds: string[],
 ): Promise<Map<string, { property: string; rooms: Map<string, string> }>> {
@@ -408,15 +410,16 @@ export async function sweepBookingReminders(db: SupabaseClient, now: Date = new 
       ...team,
     ];
     const names = stay.propertyId ? placeNames.get(stay.propertyId) : undefined;
+    // The house as a person names it: never the stored id a stay carries when nothing named it.
     const place = {
-      property: names?.property || stay.propertyLabel,
-      room: (stay.roomId ? names?.rooms.get(stay.roomId) : undefined) ?? stay.roomLabel,
+      property: noticePlaceName(names?.property, stay.propertyLabel),
+      room: placeNameOrEmpty((stay.roomId ? names?.rooms.get(stay.roomId) : undefined) ?? stay.roomLabel) || undefined,
     };
     const url = stay.recordKey ? bookingRecordUrl(origin, stay.recordKey) : `${origin}/portal/bookings/upcoming`;
     const payload = {
-      title: `${stay.guestName} at ${stay.propertyLabel}`,
+      title: `${stay.guestName} at ${place.property}`,
       whenLabel: stayLabel(stay.checkInKey, stay.checkOutKey),
-      propertyLabel: stay.propertyLabel,
+      propertyLabel: place.property,
       counterpartyName: stay.guestName,
       url,
       // One reservation's check-in and check-out notices roll together with its booking notice.

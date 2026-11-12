@@ -21,3 +21,10 @@ export function normalizeAdminEmail(email: string | null | undefined): string {
 export function isPrimaryAdminEmail(email: string | null | undefined): boolean {
   return normalizeAdminEmail(email) === PRIMARY_ADMIN_EMAIL;
 }
+
+/**
+ * The primary admin's verified mobile (captain, Nov 12). It is the number PropLane texts the primary admin on; it is NOT an
+ * identity check, because profiles may share a number (`profiles.phone` has no unique constraint), so a phone match alone
+ * never makes anyone the primary admin. `userIsPrimaryAdmin` (admin-team) decides on the confirmed sign-in email.
+ */
+export const PRIMARY_ADMIN_PHONE_E164 = "+15103098345";

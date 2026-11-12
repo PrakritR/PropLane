@@ -88,7 +88,7 @@ import {
 import { creditVerifiedHouseholdCheckoutSource, creditVerifiedHouseholdManualSource,
   verifyExistingHistoricalHouseholdHold } from "@/lib/household-captured-source.server";
 import {
-  assertMarkedAutopayFailureClaim,
+  handleMarkedAutopayPaymentIntentFailed,
   assertMarkedCheckoutPaymentIntentClaim,
   handleAutopayPaymentIntentFailed,
   handleAutopayPaymentIntentSucceeded,
@@ -150,6 +150,12 @@ async function checkoutOwner(
   } else if (purpose === HOUSEHOLD_CHARGE_PURPOSE) {
     const chargeId = session.metadata?.charge_ids?.split(",")[0]?.trim() || session.metadata?.charge_id?.trim() || "";
     const { data, error } = await db.from("portal_household_charge_records").select("manager_user_id").eq("id", chargeId).maybeSingle();
+    if (error) throw new Error("Could not resolve checkout ownership.");
+    owner = String(data?.manager_user_id ?? "").trim();
+  } else if (purpose === SCREENING_CHECKOUT_PURPOSE && session.metadata?.preapply === "1") {
+    // An applicant's check paid BEFORE applying has no application row: the owner is the listing's manager.
+    const propertyId = session.metadata?.property_id?.trim() ?? "";
+    const { data, error } = await db.from("manager_property_records").select("manager_user_id").eq("id", propertyId).maybeSingle();
     if (error) throw new Error("Could not resolve checkout ownership.");
     owner = String(data?.manager_user_id ?? "").trim();
   } else if (purpose === SCREENING_CHECKOUT_PURPOSE) {
@@ -848,7 +854,7 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
             throw new Error("Failed manual ACH intent differs from its frozen claim.");
           }
         } else if (paymentIntent.metadata.autopay_run_id) {
-          await assertMarkedAutopayFailureClaim(db, paymentIntent);
+          await handleMarkedAutopayPaymentIntentFailed(db, stripe, paymentIntent);
         } else if (paymentIntent.metadata.resident_attempt_token) {
           await assertMarkedCheckoutPaymentIntentClaim(db, stripe, paymentIntent);
         } else {

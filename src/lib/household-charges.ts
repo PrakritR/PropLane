@@ -270,6 +270,11 @@ export const HOUSEHOLD_CHARGE_DEMO_MANAGER_SCOPE = "__axis_demo_manager_scope__"
 
 export type HouseholdChargeKind =
   | "application_fee"
+  /**
+   * An optional fee a manager can charge for booking a tour (default $0 = none). Income, never rent: its processing fee
+   * follows the ordinary payer resolver, and a prospect who owes one is not evidence of a tenancy.
+   */
+  | "tour_fee"
   | "holding_deposit"
   | "stay_total"
   | "first_month_rent"
@@ -314,6 +319,8 @@ export type HouseholdCharge = {
   id: string;
   createdAt: string;
   applicationId?: string;
+  /** `tour_fee` only: the tour request this fee is for (the charge id is derived from it). */
+  tourInquiryId?: string;
   residentEmail: string;
   residentName: string;
   residentUserId: string | null;
@@ -1984,6 +1991,8 @@ export function chargeDueLabel(charge: HouseholdCharge): string {
     case "application_fee":
     case "holding_deposit":
       return "Before approval";
+    case "tour_fee":
+      return "Before the tour is confirmed";
     case "security_deposit":
     case "move_in_fee":
     case "lease_fee":
@@ -2030,6 +2039,8 @@ function chargeTitle(kind: HouseholdChargeKind): string {
   switch (kind) {
     case "application_fee":
       return "Application fee";
+    case "tour_fee":
+      return "Tour fee";
     case "holding_deposit":
       return "Holding deposit";
     case "stay_total":
@@ -3508,7 +3519,7 @@ export function linkHouseholdChargesToResidentUser(email: string, userId: string
  * The two charge kinds a PROSPECT can legitimately owe. Everything else implies
  * a tenancy that someone has actually granted.
  */
-const PRE_TENANCY_CHARGE_KINDS = new Set<HouseholdChargeKind>(["application_fee", "holding_deposit"]);
+const PRE_TENANCY_CHARGE_KINDS = new Set<HouseholdChargeKind>(["application_fee", "tour_fee", "holding_deposit"]);
 
 /**
  * Whether a resident's charges are evidence of a real tenancy.

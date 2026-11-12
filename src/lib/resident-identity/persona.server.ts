@@ -1,8 +1,9 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { residentIdentityProvider } from "@/lib/resident-identity/provider";
 
 export const PERSONA_VERSION = "2026-09-29";
 export function personaEnabled(): boolean {
-  return process.env.RESIDENT_IDENTITY_ENABLED === "true" && Boolean(process.env.PERSONA_API_KEY?.trim() && process.env.PERSONA_TEMPLATE_ID?.trim() && process.env.PERSONA_WEBHOOK_SECRET?.trim());
+  return process.env.RESIDENT_IDENTITY_ENABLED === "true" && residentIdentityProvider() === "persona" && Boolean(process.env.PERSONA_API_KEY?.trim() && process.env.PERSONA_TEMPLATE_ID?.trim() && process.env.PERSONA_WEBHOOK_SECRET?.trim());
 }
 
 export function verifyPersonaSignature(body: string, header: string | null, secret: string, now = Date.now()): boolean {

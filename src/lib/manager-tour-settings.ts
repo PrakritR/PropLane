@@ -12,6 +12,7 @@
  * merge into the existing blob rather than replacing it.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { normalizeTourFeeCents } from "@/lib/tour-fee";
 import {
   DEFAULT_TOUR_END_SLOT_EXCLUSIVE,
   DEFAULT_TOUR_HORIZON_DAYS,
@@ -33,6 +34,8 @@ export type ManagerTourSettings = {
   defaultTourHorizonDays?: number;
   /** When false, an empty calendar offers no default windows to prospects. */
   defaultTourGridEnabled?: boolean;
+  /** Optional fee a signed-in guest pays to book a tour, in cents. 0 (the default) = free, nothing changes. */
+  tourFeeCents?: number;
 };
 
 export const DEFAULT_MANAGER_TOUR_SETTINGS: ManagerTourSettings = {
@@ -40,6 +43,7 @@ export const DEFAULT_MANAGER_TOUR_SETTINGS: ManagerTourSettings = {
   defaultTourStartSlot: DEFAULT_TOUR_START_SLOT,
   defaultTourEndSlotExclusive: DEFAULT_TOUR_END_SLOT_EXCLUSIVE,
   defaultTourHorizonDays: DEFAULT_TOUR_HORIZON_DAYS,
+  tourFeeCents: 0,
 };
 
 export function managerTourSettingsToDefaultAvailability(
@@ -80,6 +84,7 @@ export function normalizeManagerTourSettings(raw: unknown): ManagerTourSettings 
     defaultTourEndSlotExclusive: Math.max(startSlot + 1, endSlotExclusive),
     defaultTourHorizonDays: normalizeHorizonDays(row.defaultTourHorizonDays),
     defaultTourGridEnabled: row.defaultTourGridEnabled === true,
+    tourFeeCents: normalizeTourFeeCents(row.tourFeeCents),
   };
 }
 

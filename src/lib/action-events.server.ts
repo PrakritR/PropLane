@@ -1,3 +1,4 @@
+import { chargeEventSmsWithPayLink, isPayRequestPaymentEvent } from "@/lib/payments/charge-event-pay-link.server";
 import { NOTICE_CHANNEL_PAYLOAD_KEY, payloadNoticeChannel, withResidentPortalLink, type NoticeChannel } from "@/lib/notice-channel";
 import "server-only";
 
@@ -234,6 +235,18 @@ async function eventTimeZone(db: SupabaseClient, propertyId: string | null): Pro
 export function teammateNoticeText(text: string, actorName?: string | null): string {
   const name = actorName?.trim() || "A teammate";
   return text.replace(/^You (?=[a-z])/, `${name} `).replace(/\bwaiting on your\b/g, "waiting on the");
+}
+
+/** Is `ownerUserId` the client owner of the PropLane-managed workspace this house sits in? False for anything unreadable. */
+async function recipientIsManagedWorkspaceOwner(db: SupabaseClient, ownerUserId: string, propertyId: string | null): Promise<boolean> {
+  try {
+    const { resolveManagerAssistantWorkspace } = await import("@/lib/communication/manager-assistant-workspace.server");
+    const { isManagedWorkspaceId } = await import("@/lib/service/service-alert-targets.server");
+    const workspace = await resolveManagerAssistantWorkspace(db, ownerUserId, { propertyId });
+    return await isManagedWorkspaceId(db, workspace.workspaceId);
+  } catch {
+    return false;
+  }
 }
 
 type ActionEventResult = { eventId: string; duplicate: boolean; delivered: number; submitted: number; deferred: number; failed: number };
@@ -506,16 +519,53 @@ async function deliverProjection(
     if (error) throw new Error(`Could not finalize action-event delivery: ${error.message}`);
     return "delivered";
   }
+  // The OWNER of a PropLane-managed (`is_service`) workspace is a client of PropLane, not one of its team. A routine system
+  // notice ("You approved ...") written to them as a one-on-one conversation made an "owner" thread in the staff's
+  // Communication list, and texted them about work PropLane did. The staff hear it from the Team chat line posted above; the
+  // owner hears financials in the monthly statement and anything urgent here. A conversation with the owner exists only when
+  // the owner texts the work number. Nothing is deleted: this only stops writing it.
+  if (
+    input.recipient.audience === "manager" &&
+    input.recipient.userId &&
+    input.managerUserId?.trim() &&
+    input.recipient.userId === input.managerUserId.trim() &&
+    input.senderUserId !== input.recipient.userId &&
+    !input.urgent &&
+    (await recipientIsManagedWorkspaceOwner(db, input.managerUserId.trim(), input.propertyId ?? null))
+  ) {
+    const updatedAt = input.now.toISOString();
+    const { error } = await db.from("action_event_deliveries").update({
+      status: "delivered", attempts: input.attempts + 1, last_error: null, next_attempt_at: null,
+      delivered_at: updatedAt, sms_deferred_until: null, updated_at: updatedAt,
+    }).eq("id", input.deliveryId);
+    if (error) throw new Error(`Could not finalize action-event delivery: ${error.message}`);
+    return "delivered";
+  }
   // The manager's saved channels for this event (Settings -> What PropLane sends) narrow what the
   // recipient's own preferences and Reach by already allow; nothing saved narrows nothing.
   const eventChannels = await savedEventChannels(db, input);
+  // A charge, a failed payment or a late fee is a request to pay: the resident's text carries a link that opens exactly
+  // that charge (a phone-bound /l/ link, or their Payments page) instead of a generic Payments link. Only on the leg
+  // that really sends a text, and never for the portal channel.
+  const sendsResidentText =
+    input.recipient.audience === "resident" && !portalOnly && !input.suppressSms && !input.digest && input.retryMode !== "email";
+  const payRequestSms =
+    sendsResidentText && input.entityId && isPayRequestPaymentEvent(input.domain, input.eventType)
+      ? await chargeEventSmsWithPayLink(db, {
+          managerUserId: input.managerUserId?.trim() || input.senderUserId,
+          chargeId: input.entityId,
+          recipientUserId: input.recipient.userId,
+          recipientEmail: input.recipient.email,
+          text: input.rendered.smsText ?? input.rendered.text,
+        })
+      : null;
   const result = await deliverPortalInboxMessage(db, {
     senderUserId: input.senderUserId,
     senderEmail: input.senderEmail,
     fromName: input.senderName?.trim() || "PropLane Portal",
     subject: input.rendered.subject,
     text,
-    smsText: input.rendered.smsText,
+    smsText: payRequestSms ?? input.rendered.smsText,
     toUserIds: input.recipient.userId ? [input.recipient.userId] : undefined,
     toEmails: input.recipient.email ? [input.recipient.email] : undefined,
     eventCategory: input.category,
@@ -532,6 +582,11 @@ async function deliverProjection(
     urgent: input.urgent,
     ownerManagerUserId: input.managerUserId?.trim() || undefined,
     propertyId: input.propertyId ?? null,
+    // An urgent notice to a managed workspace's owner still texts / emails them, but never opens a one-on-one thread.
+    ...(input.recipient.audience === "manager" && input.recipient.userId && input.recipient.userId === input.managerUserId?.trim()
+      && input.senderUserId !== input.recipient.userId && input.urgent && !input.retryMode
+      && (await recipientIsManagedWorkspaceOwner(db, input.recipient.userId, input.propertyId ?? null))
+      ? { suppressInbox: true } : {}),
     ...(input.recordRef ? { recordRef: input.recordRef } : {}),
     // A resident's copy of a card-worthy event wears the event card in the stay chat. Built from the stored
     // payload and entity id alone, so a retry stamps exactly what the first attempt did.

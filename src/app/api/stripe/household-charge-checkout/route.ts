@@ -64,6 +64,8 @@ export async function POST(req: Request) {
       mode: useEmbedded ? "embedded" : "hosted",
       paymentMethod,
       appOrigin: resolveAppOrigin(req),
+      // The resident's own session: their saved cards are offered in the card form.
+      useSavedPaymentMethods: true,
     });
 
     if (!result.ok) {

@@ -12,7 +12,7 @@ vi.mock("@/lib/test-workspaces/index.server", () => ({ resolveTestWorkspaceClass
 const hold = vi.hoisted(() =>
   vi.fn(async (db: { from: (t: string) => { insert: (r: unknown) => Promise<unknown> } }, inbound: { phoneKey: string }) => {
     await db.from("sms_unassigned_leads").insert({ phone_key: inbound.phoneKey, status: "open", profile: { stage: "hold" } });
-    return { leadId: "lead-hold" as string | null, reply: "Hi! This is PropLane. Which home are you texting about? (street or house name)" as string | null, assignedWorkspaceId: null as string | null };
+    return { leadId: "lead-hold" as string | null, reply: "Which house are you asking about? Send me the street or the listing name." as string | null, assignedWorkspaceId: null as string | null };
   }),
 );
 const named = vi.hoisted(() => ({ value: false }));
@@ -59,10 +59,10 @@ describe("role inference on the first text", () => {
     expect(lead).toHaveBeenCalledTimes(2);
   });
 
-  it("a landlord is offered the sample house, with the STOP notice on the first reply only", async () => {
+  it("a landlord is offered the sample house, with no preamble and no STOP footer on the reply", async () => {
     const f = leadFakeDb();
     const turn = await run(f.db, "I own a 4 bedroom house at 123 Main St");
-    expect(turn.reply).toBe(`Hi, this is PropLane. Reply STOP to opt out. ${ONBOARDING_COPY.offerDemo}`);
+    expect(turn.reply).toBe(ONBOARDING_COPY.offerDemo);
     expect(lead).not.toHaveBeenCalled();
     expect(f.rows.sms_onboarding_state![0]).toMatchObject({ role: "landlord", stage: "offered", hints: { address: "123 Main St", rooms: 4 } });
     const again = await run(f.db, "what does it cost");
@@ -84,7 +84,7 @@ describe("ask once", () => {
   it("holds the first unclear text with one 'which home' reply, then asks the role question once and takes the answer with the STOP notice on it", async () => {
     const f = leadFakeDb();
     const held = await run(f.db, "hi");
-    expect(held.reply).toBe("Hi! This is PropLane. Which home are you texting about? (street or house name)");
+    expect(held.reply).toBe("Which house are you asking about? Send me the street or the listing name.");
     expect(hold).toHaveBeenCalledTimes(1);
     expect(lead).not.toHaveBeenCalled();
     expect(f.rows.sms_onboarding_state ?? []).toEqual([]);
@@ -92,14 +92,14 @@ describe("ask once", () => {
     const asked = await run(f.db, "who is this?");
     expect(hold).toHaveBeenCalledTimes(1);
     expect(asked.reply).toBe(ONBOARDING_COPY.askRole);
-    expect(asked.reply).toBe("Hi, this is PropLane. Are you a resident, a vendor, looking for a place, or want to manage your own property with PropLane?");
+    expect(asked.reply).toBe("Are you a resident, a vendor, looking for a place, or want to manage your own property with PropLane?");
     expect(asked.reply).not.toContain("STOP");
     expect(asked.reply!.length).toBeLessThanOrEqual(160);
     expect(lead).not.toHaveBeenCalled();
 
     // "manage my own" -> the create-account link, once; no demo.
     const answered = await run(f.db, "renting one out");
-    expect(answered.reply).toBe("Set up your homes here: https://proplane.ai/auth/create-account?role=manager You'll text from this number until you get your own. Reply STOP to opt out.");
+    expect(answered.reply).toBe("Set up your homes here: https://proplane.ai/auth/create-account?role=manager You'll text from this number until you get your own.");
     expect(f.rows.sms_onboarding_state![0]).toMatchObject({ role: "landlord", stage: "finish_sent" });
   });
 
@@ -132,7 +132,7 @@ describe("ask once", () => {
     await run(f.db, "hello");
     const answered = await run(f.db, "I'm a resident");
     expect(answered.reply).toMatch(/^I cannot find a resident account for this number\./);
-    expect(answered.reply).toContain("Reply STOP to opt out.");
+    expect(answered.reply).not.toContain("Reply STOP");
     expect(lead).not.toHaveBeenCalled();
     expect(f.rows.sms_onboarding_state?.[0]?.role ?? null).toBeNull();
   });

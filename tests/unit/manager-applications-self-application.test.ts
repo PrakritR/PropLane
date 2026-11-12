@@ -189,6 +189,7 @@ beforeEach(() => {
 describe("POST /api/manager-applications — self-application by a non-resident login", () => {
   it("blocks new submissions without identity while allowing drafts", async () => {
     vi.stubEnv("RESIDENT_IDENTITY_ENABLED", "true");
+    vi.stubEnv("RESIDENT_IDENTITY_PROVIDER", "persona");
     vi.stubEnv("PERSONA_API_KEY", "key");
     vi.stubEnv("PERSONA_TEMPLATE_ID", "template");
     vi.stubEnv("PERSONA_WEBHOOK_SECRET", "secret");
@@ -201,6 +202,7 @@ describe("POST /api/manager-applications — self-application by a non-resident 
   });
   it("refuses a guest submission under the identity flag", async () => {
     vi.stubEnv("RESIDENT_IDENTITY_ENABLED", "true");
+    vi.stubEnv("RESIDENT_IDENTITY_PROVIDER", "persona");
     vi.stubEnv("PERSONA_API_KEY", "key");
     vi.stubEnv("PERSONA_TEMPLATE_ID", "template");
     vi.stubEnv("PERSONA_WEBHOOK_SECRET", "secret");

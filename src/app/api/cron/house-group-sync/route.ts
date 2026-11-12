@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createConversationsGateway } from "@/lib/house-groups/conversations-gateway.server";
 import { closeStaleRetiredGroups, syncAllHouseGroups } from "@/lib/house-groups/manager.server";
+import { syncAllHouseSmsGroups } from "@/lib/house-sms-group/sync.server";
 import { syncAllHouseChats, syncWorkspaceHouseChats } from "@/lib/house-chat/sync.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -26,7 +27,9 @@ export async function GET(req: Request) {
     const closed = await closeStaleRetiredGroups(db, createConversationsGateway());
     // The in-app step never depends on the SMS group step: a failure in one must not skip the other.
     const houseChats = await syncAllHouseChats(db).catch(() => null);
-    return NextResponse.json({ ok: true, ...summary, closed, houseChats });
+    // The SMS door of each in-app house chat: drop STOPped, left and moved-out phones, add the newly onboarded.
+    const smsGroups = await syncAllHouseSmsGroups(db).catch(() => null);
+    return NextResponse.json({ ok: true, ...summary, closed, houseChats, smsGroups });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "House group sync failed." }, { status: 503 });
   }

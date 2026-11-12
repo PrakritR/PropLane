@@ -1084,6 +1084,8 @@ export function InboxConversationRow({
   listVariant = "default",
   appearance = "default",
   emailNameAsPerson = false,
+  avatar,
+  avatarShape = "circle",
 }: {
   name: string;
   subtitle?: string;
@@ -1100,7 +1102,15 @@ export function InboxConversationRow({
    * line, one-line preview, a 6px dot for unread). Every Communication list
    * passes it; `listVariant="manager"` implies it.
    */
-  appearance?: "default" | "flat";
+  appearance?: "default" | "flat" | "messages";
+  /**
+   * `messages` is the resident Messages row (Airbnb-inspired): a 48px avatar, a bold title, a one-line preview, the
+   * stamp top right and a dot bottom right when unread. Same tokens as the flat row, no pills.
+   */
+  /** Replaces the initials avatar (the PropLane agent's glyph, a house glyph). Drawn inside the 48px avatar slot. */
+  avatar?: ReactNode;
+  /** `circle` for people and agents, `tile` for a house. Only the `messages` appearance reads it. */
+  avatarShape?: "circle" | "tile";
   /** Unread threads show an Instagram-style dot on the right. */
   unread?: boolean;
   /** The latest outbound message did not arrive: a red "Not delivered" glyph fact before the preview (never a pill). */
@@ -1146,6 +1156,92 @@ export function InboxConversationRow({
   const isEmptyPreview = /^no messages yet\.?$/i.test(preview.trim());
   const managerList = listVariant === "manager";
   const showMetaLine = !managerList && (address || category || recordChip);
+  if (appearance === "messages") {
+    const shown = emailNameAsPerson ? inboxDisplayName(name) : name;
+    return (
+      <div
+        className={cn(
+          "portal-inbox-row portal-inbox-row--messages group relative border-b border-border/60 px-4 py-3 transition-colors max-md:px-3.5",
+          selected ? "portal-inbox-row--selected bg-primary/[0.07]" : "hover:bg-foreground/[0.035]",
+        )}
+        data-unread={unread ? "true" : undefined}
+      >
+        <div className="flex items-center gap-1">
+          {leading}
+          <button
+            type="button"
+            onClick={onOpen}
+            title={subtitle || name}
+            className="flex min-w-0 flex-1 items-center gap-3 text-left"
+            data-attr="inbox-messages-row"
+          >
+            <span
+              className={cn(
+                "grid size-12 shrink-0 place-items-center overflow-hidden bg-primary/10 text-primary",
+                avatarShape === "tile" ? "rounded-[14px]" : "rounded-full",
+              )}
+              aria-hidden
+            >
+              {avatar ?? <InboxAvatar tile name={name} className="size-12 rounded-[inherit] text-[13px]" />}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-baseline gap-2">
+                <span className={`min-w-0 flex-1 truncate text-[15px] leading-tight text-foreground ${unread ? "font-bold" : "font-semibold"}`}>
+                  {shown}
+                </span>
+                <span className="shrink-0 text-xs tabular-nums text-muted">{time}</span>
+              </span>
+              <span className="mt-1 flex items-center gap-2">
+                <span
+                  className={`min-w-0 flex-1 truncate text-[13.5px] ${
+                    isEmptyPreview ? "italic text-muted/70" : unread ? "font-medium text-foreground/85" : "text-muted"
+                  }`}
+                >
+                  {notDelivered ? (
+                    <span className="mr-1.5 inline-flex items-center gap-0.5 font-medium text-rose-600" data-inbox-row-not-delivered>
+                      <AlertCircle className="size-3 shrink-0" strokeWidth={2.25} aria-hidden />
+                      Not delivered
+                    </span>
+                  ) : null}
+                  {previewPrefix ?? ""}
+                  {preview}
+                </span>
+                {unread ? <span className="size-2.5 shrink-0 rounded-full bg-primary" role="img" aria-label="Unread" /> : null}
+              </span>
+              {placeLine ? (
+                <span className="mt-0.5 block min-w-0 truncate text-xs text-muted" data-attr="inbox-row-place">
+                  {placeLine}
+                </span>
+              ) : null}
+            </span>
+          </button>
+          {trailing ? <div className="shrink-0 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">{trailing}</div> : null}
+        </div>
+        {/* Outside the button: the record chip is a link, and an anchor inside a <button> is invalid HTML. */}
+        {category || recordChip ? (
+          <div className="mt-1 flex items-center gap-2 pl-[60px]">
+            {category ? <span className="shrink-0 text-xs text-muted">{category}</span> : null}
+            {recordChip ? (
+              recordChip.href ? (
+                <Link
+                  href={recordChip.href}
+                  onClick={(event) => event.stopPropagation()}
+                  className="min-w-0 truncate text-xs text-primary hover:underline"
+                  data-attr="inbox-record-chip"
+                >
+                  {recordChip.label}
+                </Link>
+              ) : (
+                <span className="min-w-0 truncate text-xs text-muted" data-attr="inbox-record-chip">
+                  {recordChip.label}
+                </span>
+              )
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
   if (managerList || appearance === "flat") {
     return (
       <div
@@ -1599,7 +1695,7 @@ export function InboxBubble({
   emailNameAsPerson?: boolean;
 }) {
   if (message.eventKind && message.eventCard) {
-    return <InboxEventCard kind={message.eventKind} card={message.eventCard} viewer={eventViewer} />;
+    return <InboxEventCard kind={message.eventKind} card={message.eventCard} viewer={eventViewer} recordRef={message.eventRecordRef} />;
   }
   if (message.direction === "system" || message.automated) {
     const event = inboxActivitySummary(message.eventTitle || message.subject, message.body);
@@ -3374,6 +3470,7 @@ export function InboxThreadView({
   title,
   subtitle,
   avatarName,
+  headerAvatar,
   messages,
   showAuthors = false,
   alignAssistantStart = false,
@@ -3395,6 +3492,8 @@ export function InboxThreadView({
   subtitle?: ReactNode;
   /** Shows initials avatar beside the thread title (CRM-style header). */
   avatarName?: string;
+  /** Replaces the initials tile (a house glyph, the PropLane agent's mark). Hidden on a phone like the tile. */
+  headerAvatar?: ReactNode;
   messages: InboxBubbleMessage[];
   /** Show the author name above inbound bubbles (multi-party threads). */
   showAuthors?: boolean;
@@ -3482,10 +3581,10 @@ export function InboxThreadView({
   );
 
   return (
-    <div className={pageScroll ? "flex flex-col" : "flex h-full min-h-0 flex-1 flex-col overflow-hidden"}>
+    <div className={pageScroll ? "flex min-w-0 flex-col" : "flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden"}>
       {showHeader ? (
       <header
-        className="portal-inbox-thread-header sticky top-0 z-10 flex shrink-0 items-center gap-0.5 border-b border-border bg-card px-2 py-2 max-md:py-2 md:gap-1 md:py-2.5 md:pl-[18px] md:pr-3.5 md:[padding-top:max(0.375rem,env(safe-area-inset-top,0px))] max-md:[padding-top:max(0.5rem,env(safe-area-inset-top,0px))]"
+        className="portal-inbox-thread-header sticky top-0 z-10 flex w-full min-w-0 max-w-full shrink-0 items-center gap-0.5 border-b border-border bg-card px-2 py-2 max-md:py-2 md:gap-1 md:py-2.5 md:pl-[18px] md:pr-3.5 md:[padding-top:max(0.375rem,env(safe-area-inset-top,0px))] max-md:[padding-top:max(0.5rem,env(safe-area-inset-top,0px))]"
       >
         {onBack ? (
           <button
@@ -3501,7 +3600,11 @@ export function InboxThreadView({
         ) : null}
         {!hideIdentityHeader ? (
           <div className="flex min-w-0 flex-1 items-center gap-2 px-0.5 md:gap-2.5 md:px-1">
-            {avatarName ? (
+            {headerAvatar ? (
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary max-md:hidden" aria-hidden>
+                {headerAvatar}
+              </span>
+            ) : avatarName ? (
               // Five 44px header icons leave a phone no room for the name AND a tile.
               <InboxAvatar tile name={avatarName} className="size-8 rounded-lg max-md:hidden" />
             ) : null}

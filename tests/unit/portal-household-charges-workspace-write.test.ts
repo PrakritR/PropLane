@@ -30,6 +30,11 @@ const state = {
   insertErrorId: null as string | null,
 };
 
+const offlineRentRefused = vi.fn().mockResolvedValue(false);
+vi.mock("@/lib/managed-finance/offline-receipt-guard.server", () => ({
+  MANAGED_OFFLINE_RENT_MESSAGE: "managed",
+  offlineReceiptRefusedForManagedRent: (...a: unknown[]) => offlineRentRefused(...a),
+}));
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser } }),
 }));
@@ -320,6 +325,13 @@ describe("offline receipt server authority", () => {
     resolveManagerWorkspaceRowScope.mockResolvedValue({ propertyIds: null, untaggedOwnedVisible: true });
     state.charges.set(id, { manager_user_id: "mgr-1", property_id: "prop-1", status: "pending", updated_at: "2026-01-01", row_data: { id, status: "pending", amountLabel: "$98.76", balanceLabel: "$98.76", kind: "rent" } });
   });
+  it("refuses a hand-recorded receipt for rent on a PropLane-managed house (409), writing nothing", async () => {
+    offlineRentRefused.mockResolvedValueOnce(true);
+    const res = await post(receipt);
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("MANAGED_RENT_PAID_IN_PROPLANE");
+  });
+
   it("uses current server amount and writes the payment ledger before success", async () => {
     const response = await post({ ...receipt, amountLabel: "$0.01", charges: [{ amountLabel: "$0.01" }] });
     expect(response.status).toBe(200);

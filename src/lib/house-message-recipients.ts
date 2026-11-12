@@ -29,6 +29,11 @@ export type HouseRecipient = {
   /** The address the per-person send is addressed to (the person's inbox key). */
   email: string;
   userId: string | null;
+  /**
+   * The house this person lives in. Sent with the per-person send as a NAME only: the server re-derives the
+   * workspace, its owner and its work number from the signed-in actor's access to that house.
+   */
+  propertyId: string;
   /** A short-stay / channel guest: left out unless the manager ticks "Include short-stay guests". */
   guest: boolean;
   channels: RecipientChannels;
@@ -118,6 +123,7 @@ export function houseResidentsFromStays(
       roomLabel: stay.roomLabel.trim(),
       email,
       userId: profile?.id || null,
+      propertyId: input.propertyId,
       guest,
       channels,
     };
@@ -179,6 +185,8 @@ export function houseRecipientLabel(addressLabel: string, count: number): string
 /**
  * The body of one per-person send. The server re-authorizes the recipient; nothing here is trust. No
  * `propertyId`: on this route it switches on the property-manager fan-out, which a resident send must not trigger.
+ * `houseSendPropertyId` is the house's name, and the only thing that tells the route this copy is ABOUT that
+ * house's workspace: it pins the work number, the wallet and the plan to it (never to the sender's default).
  */
 export function houseSendPayload(
   person: HouseRecipient,
@@ -188,6 +196,7 @@ export function houseSendPayload(
     fromName: input.senderName,
     toEmails: [person.email],
     ...(person.userId ? { toUserIds: [person.userId] } : {}),
+    ...(person.propertyId ? { houseSendPropertyId: person.propertyId } : {}),
     subject: input.subject || "Message",
     text: input.text,
     deliverToPortalInbox: true,
@@ -199,7 +208,11 @@ export function houseSendPayload(
   };
 }
 
-export type HouseChannelOutcome = "delivered" | "sent" | "sending" | "failed" | "skipped";
+/** `unsent`: the channel was WANTED and nothing was recorded for it, so it must never read as sent. */
+export type HouseChannelOutcome = "delivered" | "sent" | "sending" | "failed" | "skipped" | "unsent";
+
+/** Why the send route did not attempt a wanted channel (`skipped` in its response). */
+export type HouseChannelSkip = { email: string; channel: "email" | "sms"; reason: string };
 
 export type HousePersonResult = {
   id: string;
@@ -213,16 +226,28 @@ export type HousePersonResult = {
   smsError?: string;
 };
 
+const SKIP_REASON_WORDS: Readonly<Record<string, string>> = {
+  no_account: "no account",
+  no_phone: "no verified phone",
+  opted_out: "opted out",
+  texts_off: "texts off",
+  email_off: "email off",
+  test_account: "test account",
+};
+
 function outcomeFor(
   channel: "email" | "sms",
   wanted: boolean,
   canReach: boolean,
   deliveries: readonly InboxMessageDelivery[] | undefined,
+  skipReason: string | undefined,
 ): { outcome: HouseChannelOutcome | null; error?: string } {
   if (!wanted) return { outcome: null };
   if (!canReach) return { outcome: "skipped" };
   const mine = (deliveries ?? []).filter((delivery) => delivery.channel === channel);
-  if (mine.length === 0) return { outcome: "sent" };
+  // Wanted, reachable on paper, and nothing recorded: the route never took it (texts off, no work number, no
+  // account...). Reading that as sent is how a text that never left said "Text Sent".
+  if (mine.length === 0) return { outcome: "unsent", ...(skipReason ? { error: SKIP_REASON_WORDS[skipReason] ?? skipReason } : {}) };
   const failed = mine.find((delivery) => delivery.status === "failed");
   if (mine.some((delivery) => delivery.status === "delivered")) return { outcome: "delivered" };
   if (failed) return { outcome: "failed", error: failed.error };
@@ -230,7 +255,7 @@ function outcomeFor(
   return { outcome: "sending" };
 }
 
-/** Read the `deliveries` the send route returns, when it returns them; otherwise a wanted channel reads "sent". */
+/** Read the `deliveries` the send route returns. A wanted channel with none recorded reads "not sent", never "sent". */
 export function personResultFromResponse(
   person: HouseRecipient,
   via: HouseSendVia,
@@ -242,13 +267,18 @@ export function personResultFromResponse(
     error?: string;
     deliveries?: InboxMessageDelivery[];
     message?: { deliveries?: InboxMessageDelivery[] };
+    skipped?: HouseChannelSkip[];
   };
   if (!response.ok || data.ok === false) {
     return { ...base, ok: false, error: data.error || "Could not send.", email: null, sms: null };
   }
   const deliveries = data.deliveries ?? data.message?.deliveries;
-  const email = outcomeFor("email", via.email, person.channels.email, deliveries);
-  const sms = outcomeFor("sms", via.sms, person.channels.sms, deliveries);
+  const skipReason = (channel: "email" | "sms") =>
+    (Array.isArray(data.skipped) ? data.skipped : []).find(
+      (skip) => skip?.channel === channel && String(skip.email ?? "").trim().toLowerCase() === person.email,
+    )?.reason;
+  const email = outcomeFor("email", via.email, person.channels.email, deliveries, skipReason("email"));
+  const sms = outcomeFor("sms", via.sms, person.channels.sms, deliveries, skipReason("sms"));
   return {
     ...base,
     ok: true,
@@ -326,6 +356,8 @@ export function houseSendCounts(results: readonly HousePersonResult[]) {
     failed: results.filter((result) => !result.ok).length,
     email_failed: results.filter((result) => result.email === "failed").length,
     sms_failed: results.filter((result) => result.sms === "failed").length,
+    email_unsent: results.filter((result) => result.email === "unsent").length,
+    sms_unsent: results.filter((result) => result.sms === "unsent").length,
   };
 }
 
@@ -335,13 +367,26 @@ const OUTCOME_WORD: Record<HouseChannelOutcome, string> = {
   sending: "Sending…",
   failed: "Not delivered",
   skipped: "Skipped",
+  unsent: "Not sent",
 };
 
-/** One plain line for a summary row: "App ✓ · Text Delivered · Email Not delivered". */
+/** "no verified phone", lowercased and without a closing period, for the parenthesis after an outcome. */
+function reasonInBrackets(reason: string | undefined): string {
+  const text = String(reason ?? "").trim().replace(/\.$/, "");
+  return text ? ` (${text.charAt(0).toLowerCase()}${text.slice(1)})` : "";
+}
+
+/** One plain line for a summary row: "App ✓ · Text Delivered · Email Not delivered (email bounced)". */
 export function housePersonResultLine(result: HousePersonResult): string {
   if (!result.ok) return result.error || "Could not send.";
   const parts = ["App ✓"];
-  if (result.sms) parts.push(`Text ${OUTCOME_WORD[result.sms]}`);
-  if (result.email) parts.push(`Email ${OUTCOME_WORD[result.email]}`);
+  if (result.sms) {
+    const reason = result.sms === "failed" || result.sms === "unsent" ? reasonInBrackets(result.smsError) : "";
+    parts.push(`Text ${OUTCOME_WORD[result.sms]}${reason}`);
+  }
+  if (result.email) {
+    const reason = result.email === "failed" || result.email === "unsent" ? reasonInBrackets(result.emailError) : "";
+    parts.push(`Email ${OUTCOME_WORD[result.email]}${reason}`);
+  }
   return parts.join(" · ");
 }

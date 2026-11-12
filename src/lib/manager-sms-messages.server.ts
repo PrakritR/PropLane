@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ADMIN_SMS_UNASSIGNED_FILTER } from "@/lib/admin-sms-filter";
 import { viewerAndLinkedOwnerIdsForModule } from "@/lib/auth/co-manager-module-scope";
+import { isAutomatedSmsOutbound } from "@/lib/manager-sms-messages";
 import type {
   ConversationHouse,
   ManagerSmsConversationsPayload,
@@ -586,23 +587,29 @@ async function loadSentByForOutbound(
   scopeManagerIds: string[],
   viewerUserId: string,
   messageSids: string[],
-): Promise<Map<string, { userId: string; name: string }>> {
+  counterpartyBySid: Map<string, string | null> = new Map(),
+): Promise<{ sentBy: Map<string, { userId: string; name: string }>; automated: Set<string> }> {
   const out = new Map<string, { userId: string; name: string }>();
-  if (messageSids.length === 0) return out;
+  const automated = new Set<string>();
+  if (messageSids.length === 0) return { sentBy: out, automated };
   const { data: outboxRows } = await db
     .from("sms_outbox")
-    .select("provider_message_sid, actor_user_id")
+    .select("provider_message_sid, actor_user_id, purpose, send_class")
     .in("manager_user_id", scopeManagerIds)
-    .in("provider_message_sid", messageSids.slice(0, 2000))
-    .neq("actor_user_id", viewerUserId)
-    .not("actor_user_id", "is", null);
+    .in("provider_message_sid", messageSids.slice(0, 2000));
   const actorBySid = new Map<string, string>();
   for (const row of outboxRows ?? []) {
     const sid = String(row.provider_message_sid ?? "").trim();
     const actor = String(row.actor_user_id ?? "").trim();
-    if (sid && actor) actorBySid.set(sid, actor);
+    if (!sid) continue;
+    // The agent and automations are the line's agent, never the workspace owner whose number sent them.
+    if (isAutomatedSmsOutbound({ purpose: row.purpose, sendClass: row.send_class, actorUserId: actor, counterpartyUserId: counterpartyBySid.get(sid) })) {
+      automated.add(sid);
+      continue;
+    }
+    if (actor && actor !== viewerUserId) actorBySid.set(sid, actor);
   }
-  if (actorBySid.size === 0) return out;
+  if (actorBySid.size === 0) return { sentBy: out, automated };
   const actorIds = [...new Set(actorBySid.values())];
   const { data: profiles } = await db.from("profiles").select("id, full_name, email").in("id", actorIds);
   const nameById = new Map(
@@ -614,7 +621,7 @@ async function loadSentByForOutbound(
   for (const [sid, actor] of actorBySid) {
     out.set(sid, { userId: actor, name: nameById.get(actor) ?? "Teammate" });
   }
-  return out;
+  return { sentBy: out, automated };
 }
 
 /** Every house of these owners, id → label, for tagging and the filter chips. */
@@ -901,13 +908,13 @@ export async function fetchManagerSmsConversations(
   // column; the outbox does, keyed by the provider sid the log also stores.
   // Only sends by someone OTHER than the viewer are resolved — "You" needs no
   // label — and a missing outbox row simply means no label, never a wrong one.
-  const sentByBySid = await loadSentByForOutbound(
+  const outboundRows = (outbound ?? []).filter((r) => r.direction === "outbound" && r.message_sid);
+  const { sentBy: sentByBySid, automated: automatedSids } = await loadSentByForOutbound(
     db,
     scopeManagerIds,
     managerUserId,
-    (outbound ?? [])
-      .filter((r) => r.direction === "outbound" && r.message_sid)
-      .map((r) => String(r.message_sid)),
+    outboundRows.map((r) => String(r.message_sid)),
+    new Map(outboundRows.map((r) => [String(r.message_sid), String(r.resident_user_id ?? "").trim() || null])),
   );
 
   for (const row of outbound ?? []) {
@@ -937,6 +944,8 @@ export async function fetchManagerSmsConversations(
         createdAt: String(row.created_at),
         storageTable: "manager_sms_messages",
         sentBy: row.message_sid ? sentByBySid.get(String(row.message_sid)) ?? null : null,
+        // The agent or an automation, labelled "PropLane" at the display layer; the stored row is untouched.
+        ...(row.direction !== "inbound" && (isAutomatedSmsOutbound({ source: row.source as string | null }) || (row.message_sid && automatedSids.has(String(row.message_sid)))) ? { automated: true } : {}),
       },
     );
   }
@@ -1532,12 +1541,22 @@ export function placeAdminSmsConversations(
   const placed = payload.residents.map((resident) => {
     const id = String(resident.workspaceId ?? "").trim();
     const known = id && args.names.has(id);
-    return { ...resident, workspaceId: known ? id : null, workspaceName: known ? args.names.get(id)! : null };
+    // A sender that is not a phone number (a short code, an alphanumeric id) is history only: carriers refuse a reply.
+    const textable = !resident.phone || Boolean(normalizeE164(resident.phone));
+    return {
+      ...resident,
+      workspaceId: known ? id : null,
+      workspaceName: known ? args.names.get(id)! : null,
+      ...(textable ? {} : { sendDisabled: true }),
+    };
   });
   const wanted = String(args.workspaceId ?? "").trim();
   const all = [...placed, ...args.leads];
+  // A thread that lives in a PropLane Service workspace (assigned or moved there, or a text that workspace holds) belongs to
+  // THAT workspace's Communication. The admin's main list keeps only what no workspace holds yet; the Workspace filter is
+  // how admin reads one workspace's threads on purpose.
   const residents = !wanted
-    ? all
+    ? all.filter((resident) => !String(resident.workspaceId ?? "").trim())
     : all.filter((resident) =>
         wanted === ADMIN_SMS_UNASSIGNED_FILTER ? !resident.workspaceId : resident.workspaceId === wanted,
       );

@@ -33,6 +33,8 @@ const LOADED_CHARGE = {
 
 vi.mock("@/lib/stripe-household-charge-checkout.server", () => ({
   MAX_BULK_CHARGES: 20,
+  // Rent: the resident always pays the processing fee (the real resolver's answer for a rent charge).
+  resolveHouseholdChargeFeePayer: async () => ({ ok: true as const, feePayer: "resident" as const, managerTier: "free" }),
   loadHouseholdChargesForCheckout: async () => ({
     ok: true as const,
     managerUserId: "manager_1",
@@ -68,12 +70,24 @@ describe("start_rent_payment — pays in PropLane, never a hosted checkout link"
     expect(preview.confirmLabel).toBe("Open Payments");
   });
 
+  it("preview states the resident-paid processing fee instead of claiming there are no added fees", async () => {
+    const preview = await startRentPaymentTool.preview(makeCtx(), { chargeIds: ["CH-1"] });
+    const serialized = JSON.stringify(preview);
+    expect(serialized).not.toMatch(/no added fees/i);
+    expect(serialized).toContain("Processing fee (card)");
+    expect(serialized).toContain("Total by bank");
+    const bank = preview.fields.find((f: { label: string }) => f.label === "Total by bank");
+    // $1,200.00 by bank: 0.8% is $9.60, capped at $5.00.
+    expect(bank?.value).toBe("$1205.00");
+  });
+
   it("handler returns the in-app Payments path, never a hosted checkout.stripe.com URL", async () => {
     const result = await startRentPaymentTool.handler(makeCtx(), { chargeIds: ["CH-1"] });
     expect(result.checkoutUrl).toBeTruthy();
     expect(result.checkoutUrl).not.toMatch(/checkout\.stripe\.com/i);
     expect(result.checkoutUrl).not.toMatch(/connect\.stripe\.com/i);
-    expect(result.checkoutUrl).toContain("/resident/payments/pending");
+    // One charge opens its own pay sheet.
+    expect(result.checkoutUrl).toContain("/resident/payments?pay=CH-1&start=1");
     expect(result.reply).toContain("Open Payments to pay in PropLane");
     expect(result.reply).not.toMatch(/stripe/i);
   });

@@ -210,6 +210,8 @@ export async function ensureSandboxManagerLandlordProfile(
  */
 const LANDLORD_NAME_CACHE_KEY = "axis:landlord-legal-name";
 let memoryLandlordLegalName: { scope: string; name: string } | null = null;
+/** A write (and the clean-up of the entry it left behind) failed: the stored entry may be stale, so it is not read. */
+let storageEntryUntrusted = false;
 
 /** The workspace a cache entry belongs to, or null when no workspace is selected yet — never a scope of its own. */
 function landlordCacheScope(workspaceId?: string | null): string | null {
@@ -234,8 +236,17 @@ export function cacheLandlordLegalName(name: string, workspaceId?: string | null
     } else {
       window.localStorage.removeItem(LANDLORD_NAME_CACHE_KEY);
     }
+    storageEntryUntrusted = false;
   } catch {
-    /* a full or blocked localStorage just means the generator falls back */
+    // The write failed, so whatever entry is still stored is OLDER than what was just cached (possibly this very
+    // workspace's previous name). Drop it; when even that fails, stop reading storage until a write succeeds, so the
+    // stale entry can never win over the in-memory value.
+    try {
+      window.localStorage.removeItem(LANDLORD_NAME_CACHE_KEY);
+      storageEntryUntrusted = false;
+    } catch {
+      storageEntryUntrusted = true;
+    }
   }
 }
 
@@ -246,15 +257,18 @@ export function cacheLandlordLegalName(name: string, workspaceId?: string | null
 export function cachedLandlordLegalName(): string {
   const scope = landlordCacheScope();
   if (!scope) return "";
-  if (typeof window !== "undefined") {
+  if (typeof window !== "undefined" && !storageEntryUntrusted) {
     try {
       const raw = window.localStorage.getItem(LANDLORD_NAME_CACHE_KEY)?.trim() ?? "";
       if (raw) {
-        // A pre-scope entry was a bare name with no workspace on it: unusable, so it reads as a miss.
+        // A pre-scope entry was a bare name with no workspace on it: unusable.
         const parsed = raw.startsWith("{") ? (JSON.parse(raw) as { workspaceId?: unknown; name?: unknown }) : null;
         const storedScope = typeof parsed?.workspaceId === "string" ? parsed.workspaceId.trim() : "";
         const storedName = typeof parsed?.name === "string" ? parsed.name.trim() : "";
-        return storedScope && storedScope === scope && storedName ? storedName : "";
+        // Only an entry that answers for THIS workspace wins. Another workspace's, a legacy bare string or an
+        // unreadable one says nothing about this workspace, so it falls through to what this tab holds in memory
+        // rather than shadowing a correct value with "".
+        if (storedScope && storedScope === scope && storedName) return storedName;
       }
     } catch {
       /* fall through */

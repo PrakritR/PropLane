@@ -16,6 +16,8 @@ import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
 import { buildTeamNoticeLine } from "@/lib/team-notice-line";
 import { notifyPropertyScopedManagersFromAgent } from "@/lib/co-manager-notification-recipients.server";
 import { traceSystemNotification } from "@/lib/observability/langfuse";
+import { chargeNoticeChannel } from "@/lib/resident-notice-channel.server";
+import { withResidentPortalLink } from "@/lib/notice-channel";
 import {
   claimPaymentReminderChannel,
   paymentReminderOccurrenceId,
@@ -37,6 +39,7 @@ const SAFE_SMS_REFUSALS: ReadonlySet<string> = new Set([
   "quiet_hours",
   "workspace_has_no_work_number",
   "workspace_unavailable",
+  "portal_channel_no_sms",
   "provider_identity_mismatch",
   "segment_limit_exceeded",
 ]);
@@ -73,13 +76,19 @@ export async function deliverPaymentReminder(input: {
   // `{pay_link}` in a reminder template is a real link: the resident's Payments page in an email or the
   // inbox (they are signed-in surfaces); a phone-bound link in the text, minted below.
   const rawText = input.text;
-  const text = textUsesPayLinkToken(rawText) ? fillPayLinkToken(rawText, residentPaymentsPortalUrl()) : rawText;
-  const html = reminderHtmlFromText(text);
   if (!isUnpaidHouseholdCharge(charge)) {
     return { sent: false, error: "charge_paid" };
   }
   if (!managerId) return { sent: false, error: "manager_missing" };
   const ownerManagerId = managerId;
+  // Web vs Messages (`notice-channel.ts`): a charge for a resident who came in through the portal, or a guest
+  // stay booked there, is answered by email + the resident inbox with a /resident link - never a text and never
+  // a /l/ pay link. An unreadable channel is `sms`, what every charge did before it was recorded.
+  const portalOnly = (await chargeNoticeChannel(db, { managerUserId: ownerManagerId, charge })) === "portal";
+  const filledText = textUsesPayLinkToken(rawText) ? fillPayLinkToken(rawText, residentPaymentsPortalUrl()) : rawText;
+  // Every reminder carries a way to pay: a portal-channel copy names the resident portal if it names no link.
+  const text = portalOnly && (input.eventCategory ?? "payments") === "payments" ? withResidentPortalLink(filledText, "payment") : filledText;
+  const html = reminderHtmlFromText(text);
   const residentLower = charge.residentEmail.trim().toLowerCase();
   const dedupEntries = [{ dedupId, chargeId: charge.id }, ...(input.bundledDedupEntries ?? [])];
   const occurrence = {
@@ -129,7 +138,7 @@ export async function deliverPaymentReminder(input: {
   const managerDeliverViaSms = input.managerDeliverViaSms === true;
   const managerDeliverViaInbox = input.managerDeliverViaInbox !== false;
   const emailAllowed = managerDeliverViaEmail && channels.email;
-  const smsAllowed = managerDeliverViaSms && channels.sms;
+  const smsAllowed = !portalOnly && managerDeliverViaSms && channels.sms;
   const inboxAllowed = managerDeliverViaInbox && channels.inbox;
 
   let emailSent = false;

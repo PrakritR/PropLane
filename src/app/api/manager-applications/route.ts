@@ -2,6 +2,8 @@ import { freezeSignedTermsForApplication } from "@/lib/rental-application/freeze
 import { approvalPlacementServerBlocker } from "@/lib/application-approval-placement.server";
 import { shortStayApprovalBlocker } from "@/lib/short-stay-pricing-gate.server";
 import { resolveBaselineResidentIdentity } from "@/lib/resident-identity/baseline.server";
+import { preApplyGuestGate } from "@/lib/screening/preapply.server";
+import { ADVERSE_ACTION_BLOCKED_MESSAGE, adverseActionDeclineBlocker } from "@/lib/screening/adverse-action.server";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { readListingSource } from "@/lib/listing-channels/lead-source.server";
 import { openApplicantRow, prepareApplicantIdentityWrite, sealApplicantRow } from "@/lib/security/applicant-identity";
@@ -1289,6 +1291,9 @@ export async function POST(req: Request) {
         const identity = await resolveBaselineResidentIdentity(db, null);
         if (identity === "required") return NextResponse.json({ error: "Sign in and verify your identity to submit an application.", blocked: "identity", href: "/resident/profile?tab=profile#verification" }, { status: 403 });
         if (identity === "unavailable") return NextResponse.json({ error: "Identity verification is unavailable.", blocked: "identity_unavailable" }, { status: 503 });
+        // A listing that requires Verify ID / a background check before applying needs a signed-in applicant.
+        const preApplyGuest = await preApplyGuestGate(db, row);
+        if (!preApplyGuest.ok) return NextResponse.json(preApplyGuest.body, { status: preApplyGuest.status });
       }
       // One application per person per house: a draft for a house the guest already has an open
       // application for folds into it. A typed email is not proof, so the kept row must also be
@@ -1584,6 +1589,16 @@ export async function POST(req: Request) {
       }
       if (formGate === "blocked") {
         return NextResponse.json({ error: APPROVAL_BLOCKED_BY_FORM_MESSAGE, blocked: "forms" }, { status: 409 });
+      }
+      // FCRA: a decline for an application with a consumer report needs the manager's answer on record
+      // ("based on the background check?") and, when yes, the final adverse-action notice. The decline screen
+      // asks first; this makes the question impossible to skip by calling the write directly.
+      const adverseGate = await adverseActionDeclineBlocker(db, storedLoad.record ?? null, guarded.row);
+      if (adverseGate === "unchecked") {
+        return NextResponse.json({ error: "Could not check the adverse-action requirements. Try again.", blocked: "adverse-action-check" }, { status: 503 });
+      }
+      if (adverseGate === "blocked") {
+        return NextResponse.json({ error: ADVERSE_ACTION_BLOCKED_MESSAGE, blocked: "adverse_action" }, { status: 409 });
       }
       row = anchorServerOwnedSmsConsent(
         guarded.row,

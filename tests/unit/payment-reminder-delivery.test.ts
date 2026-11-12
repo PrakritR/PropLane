@@ -32,6 +32,11 @@ vi.mock("@/lib/payment-reminder-occurrence.server", () => ({
 }));
 
 
+const chargeNoticeChannel = vi.fn().mockResolvedValue("sms");
+vi.mock("@/lib/resident-notice-channel.server", () => ({
+  chargeNoticeChannel: (...args: unknown[]) => chargeNoticeChannel(...args),
+}));
+
 vi.mock("@/lib/observability/langfuse", () => ({
   traceSystemNotification: vi.fn(async (opts: { run: () => Promise<unknown> }) => opts.run()),
 }));
@@ -279,6 +284,38 @@ describe("deliverPaymentReminder", () => {
         cadence: "due_date",
       }),
     );
+  });
+
+  it("a portal-channel resident is reminded by email and the inbox with a /resident link: never a text, never a /l/ link", async () => {
+    chargeNoticeChannel.mockResolvedValueOnce("portal");
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const maybeSingle = vi.fn().mockResolvedValue({
+      data: { id: "user-res-1", phone: "+12065550113", phone_verified_at: "2026-07-01T00:00:00.000Z" },
+    });
+    const from = vi.fn().mockImplementation((table: string) =>
+      table === "profiles" ? { select: () => ({ eq: () => ({ maybeSingle }) }) } : { upsert },
+    );
+    const result = await deliverPaymentReminder({
+      db: { from } as never,
+      charge: makeCharge(),
+      managerId: "mgr-1",
+      dedupId: "payment_reminder_portal_channel",
+      managerName: "Manager",
+      apiKey: "test-key",
+      from: "PropLane <test@example.com>",
+      subject: "Rent due",
+      text: "Your July rent is due.",
+      html: "<p>test</p>",
+      slotLabel: "due_date",
+      managerDeliverViaSms: true,
+    });
+    expect(result.sent).toBe(true);
+    expect(sendResidentRentText).not.toHaveBeenCalled();
+    expect(mintRentReminderPayLink).not.toHaveBeenCalled();
+    const emailBody = JSON.parse(String(vi.mocked(fetch).mock.calls[0]![1]!.body)) as { text: string };
+    expect(emailBody.text).toContain("/resident/");
+    expect(emailBody.text).not.toContain("/l/");
+    expect(vi.mocked(deliverPortalMessageThreadSide).mock.calls[0]![1].body).toContain("/resident/");
   });
 
   it("a workspace on the PropLane line still texts: no number on the manager's own row is needed", async () => {

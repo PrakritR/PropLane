@@ -8,12 +8,12 @@ vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.f
 import { PROSPECT_TOUR_REMINDER_BODY } from "@/lib/sms/prospect-tour-reminder.server";
 import { EMERGENCY_SAFETY_REPLY } from "@/lib/one-number/contracts";
 import { HUMAN_ACK_REPLY } from "@/lib/one-number/inbound-seam.server";
-import { NEUTRAL_REPLY, WELCOME } from "@/lib/one-number/lead-qualifying";
+import { NEUTRAL_REPLY } from "@/lib/one-number/lead-qualifying";
 import { NO_MATCH_TEXT } from "@/lib/one-number/lead-match";
 import { smsSegmentCount } from "@/lib/one-number/segments";
 
 describe("canned SMS copy", () => {
-  const texts: Record<string, string> = { PROSPECT_TOUR_REMINDER_BODY, EMERGENCY_SAFETY_REPLY, HUMAN_ACK_REPLY, NEUTRAL_REPLY, WELCOME, NO_MATCH_TEXT };
+  const texts: Record<string, string> = { PROSPECT_TOUR_REMINDER_BODY, EMERGENCY_SAFETY_REPLY, HUMAN_ACK_REPLY, NEUTRAL_REPLY, NO_MATCH_TEXT };
   it.each(Object.entries(texts))("%s is printable ASCII", (_name, text) => {
     expect(text).toMatch(/^[\x20-\x7E]+$/);
   });

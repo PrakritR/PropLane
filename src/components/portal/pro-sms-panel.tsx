@@ -12,7 +12,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Archive, ChevronLeft, Pencil, Phone, RotateCcw, Search, Trash2 } from "lucide-react";
+import { Archive, ChevronLeft, MessageCircle, Pencil, Phone, RotateCcw, Search, Trash2 } from "lucide-react";
 import { ThreadKnowledgeCard } from "@/components/portal/thread-knowledge-card";
 import { AssistantPauseControl, assistantPauseConversationId } from "@/components/portal/assistant-pause-control";
 import { refreshedPageCursor } from "@/lib/sms-paged-head";
@@ -51,6 +51,8 @@ import {
   lookingForCardText,
   MANAGER_SMS_SORT_OPTIONS,
   normalizeManagerSmsConversationsPayload,
+  SMS_AGENT_AUTHOR_LABEL,
+  smsOutboundAuthorLabel,
   smsConversationDisplayName,
   smsConversationSubtitle,
   sortSmsConversationRows,
@@ -1681,7 +1683,8 @@ function Bubble({
   }
   const outbound = message.direction === "outbound";
   const startsRun = cluster === "single" || cluster === "first";
-  const author = outbound ? message.sentBy?.name?.trim() || "You" : authorName;
+  const agent = outbound && (message.automated === true || message.source === "automated");
+  const author = outbound ? smsOutboundAuthorLabel(message) : authorName;
   const clock = inboxMessageClock(message.createdAt);
   // Every turn here is a text, so the channel is only named when it is not the thread's.
   const channelTag = smsTurnChannelTag("sms", "sms");
@@ -1690,7 +1693,14 @@ function Bubble({
   return (
     <div className={`group/msg flex w-full min-w-0 gap-2.5 ${startsRun ? "mt-3 first:mt-0" : ""}`}>
       {startsRun ? (
-        <InboxAvatar tile name={author} className="size-8 rounded-lg" />
+        agent ? (
+          // The line's agent wears the one Assistant mark every other PropLane thread draws, never the owner's initials.
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary" aria-hidden data-sms-agent-tile>
+            <MessageCircle className="size-4" />
+          </span>
+        ) : (
+          <InboxAvatar tile name={author} className="size-8 rounded-lg" />
+        )
       ) : (
         <span className="size-8 shrink-0" aria-hidden />
       )}
@@ -1740,8 +1750,9 @@ function Bubble({
 }
 
 /** "You: " for the viewer's own sends, "Akhil: " for a teammate's. */
-export function smsOutboundPreviewPrefix(message: Pick<ManagerSmsMessageRow, "direction" | "sentBy">): string {
+export function smsOutboundPreviewPrefix(message: Pick<ManagerSmsMessageRow, "direction" | "sentBy" | "automated" | "source">): string {
   if (message.direction !== "outbound") return "";
+  if (message.automated === true || message.source === "automated") return `${SMS_AGENT_AUTHOR_LABEL}: `;
   const name = message.sentBy?.name?.trim();
   return name ? `${name.split(/\s+/)[0]}: ` : "You: ";
 }

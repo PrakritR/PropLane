@@ -36,6 +36,7 @@ import { isStayTimeReminderKind, renderStayTimeReminder } from "@/lib/reminders/
 import { renderMoveInArrival } from "@/lib/reminders/subjects/move-in-arrival.server";
 import type { VendorNotificationTopic } from "@/lib/vendor-notification-settings";
 import { recordRefFromReminderRow } from "@/lib/reminders/reminder-record-ref";
+import { reminderNoticeIdempotencyKey } from "@/lib/reminders/notice-idempotency";
 
 /** Which vendor Settings row gates each vendor-audience kind. */
 const VENDOR_TOPIC_BY_KIND: Partial<Record<ReminderSubjectKind, VendorNotificationTopic>> = {
@@ -303,7 +304,7 @@ export async function dispatchReminderRow(
         threadType: "agent_reminder",
         url: typeof row.payload.url === "string" ? row.payload.url : undefined,
         category,
-        idempotencyKey: row.id,
+        idempotencyKey: reminderNoticeIdempotencyKey(row, reminderRecipientId),
         rollKey: bookingNoticeRollKey(row.payload.bookingKey),
       });
       await resolveReminder(db, row.id, workerId, "sent");

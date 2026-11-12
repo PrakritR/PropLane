@@ -86,7 +86,11 @@ vi.mock("@/lib/manager-outbound-identity.server", () => ({
   managerOutboundFromHeader: vi.fn().mockResolvedValue("PropLane <noreply@proplane.test>"),
 }));
 
+import { deliverPaymentReminder } from "@/lib/payment-reminder-delivery";
 import {
+  autopayConsentCoversMethod,
+  declinedPaymentIntentFromError,
+  recordAutopayDecline,
   AUTOPAY_MAX_ATTEMPTS,
   AUTOPAY_RECURRING_KINDS,
   chargeAutopay,
@@ -172,8 +176,10 @@ function makeFakeDb(tables: {
   const runs = tables.resident_autopay_runs ?? [];
   const profiles = tables.profiles ?? {};
   const inserted: Record<string, unknown>[] = [];
+  const released: string[] = [];
 
   return {
+    released,
     db: {
       rpc(name: string) {
         if (name === "reserve_resident_autopay_slot") {
@@ -181,6 +187,10 @@ function makeFakeDb(tables: {
         }
         if (name === "bind_resident_autopay_payment_intent") {
           return Promise.resolve({ data: tables.binding ?? true, error: null });
+        }
+        if (name === "release_resident_autopay_slot") {
+          released.push(name);
+          return Promise.resolve({ data: true, error: null });
         }
         throw new Error(`fake db: unexpected RPC ${name}`);
       },
@@ -272,6 +282,8 @@ describe("listAutopayDueCharges", () => {
           household_key: "resident@example.com|prop_1",
           enabled: true,
           payment_method_id: "pm_1",
+          consent_at: "2026-09-01T00:00:00Z",
+          consent_payment_method_id: "pm_1",
           run_days_before_due: 3, // Oct 1 - 3 = Sep 28
         },
       ],
@@ -303,6 +315,8 @@ describe("listAutopayDueCharges", () => {
           household_key: "resident@example.com|prop_1",
           enabled: true,
           payment_method_id: "pm_1",
+          consent_at: "2026-09-01T00:00:00Z",
+          consent_payment_method_id: "pm_1",
           run_days_before_due: 0,
         },
       ],
@@ -324,6 +338,8 @@ describe("listAutopayDueCharges", () => {
           household_key: "resident@example.com|prop_1",
           enabled: true,
           payment_method_id: "pm_1",
+          consent_at: "2026-09-01T00:00:00Z",
+          consent_payment_method_id: "pm_1",
           run_days_before_due: 0,
         },
       ],
@@ -346,6 +362,8 @@ describe("listAutopayDueCharges", () => {
           household_key: "resident@example.com|prop_1",
           enabled: true,
           payment_method_id: "pm_1",
+          consent_at: "2026-09-01T00:00:00Z",
+          consent_payment_method_id: "pm_1",
           run_days_before_due: 0,
         },
       ],
@@ -367,6 +385,8 @@ describe("listAutopayDueCharges", () => {
           household_key: "resident@example.com|prop_1",
           enabled: true,
           payment_method_id: "pm_1",
+          consent_at: "2026-09-01T00:00:00Z",
+          consent_payment_method_id: "pm_1",
           run_days_before_due: 0,
         },
       ],
@@ -389,6 +409,8 @@ describe("listAutopayDueCharges", () => {
           household_key: "resident@example.com|prop_1",
           enabled: true,
           payment_method_id: "pm_1",
+          consent_at: "2026-09-01T00:00:00Z",
+          consent_payment_method_id: "pm_1",
           run_days_before_due: 3, // eligible Sep 28, not Sep 20
         },
       ],
@@ -442,7 +464,7 @@ describe("chargeAutopay — fee-payer parity with a manual checkout", () => {
     expect(result.ok).toBe(true);
 
     // Independently computed the same way a manual ACH checkout would.
-    const expectedFee = residentServiceFeeBreakdown(151_000, "ach", "resident");
+    const expectedFee = residentServiceFeeBreakdown(151_000, "ach", "resident", { coverFeeOnFee: true });
 
     expect(paymentIntentsCreate).toHaveBeenCalledTimes(1);
     const args = paymentIntentsCreate.mock.calls[0][0];
@@ -723,9 +745,9 @@ describe("listFailedAutopayRunsEligibleForRetry", () => {
         { id: "hc_paid", row_data: paidCharge },
       ],
       resident_autopay_settings: [
-        { resident_user_id: "res_a", household_key: "a@example.com|prop_a", enabled: true, payment_method_id: "pm_a" },
-        { resident_user_id: "res_b", household_key: "b@example.com|prop_b", enabled: true, payment_method_id: "pm_b" },
-        { resident_user_id: "res_c", household_key: "c@example.com|prop_c", enabled: true, payment_method_id: "pm_c" },
+        { resident_user_id: "res_a", household_key: "a@example.com|prop_a", enabled: true, payment_method_id: "pm_a", consent_at: "2026-09-01T00:00:00Z", consent_payment_method_id: "pm_a" },
+        { resident_user_id: "res_b", household_key: "b@example.com|prop_b", enabled: true, payment_method_id: "pm_b", consent_at: "2026-09-01T00:00:00Z", consent_payment_method_id: "pm_b" },
+        { resident_user_id: "res_c", household_key: "c@example.com|prop_c", enabled: true, payment_method_id: "pm_c", consent_at: "2026-09-01T00:00:00Z", consent_payment_method_id: "pm_c" },
       ],
     });
 
@@ -823,5 +845,120 @@ describe("resolveResidentAutopayHousehold", () => {
       managerId: "AXIS-TESTRSID",
     });
     expect(household).toBeNull();
+  });
+});
+
+
+describe("autopay consent: a saved method never authorizes a debit by itself", () => {
+  it("lists nothing for an enrolled row that has no recorded consent, or consent for a different method", async () => {
+    const today = pacificNoon("2026-09-28");
+    const base = {
+      resident_user_id: "res_1", manager_id: "mgr_1", household_key: "resident@example.com|prop_1",
+      enabled: true, payment_method_id: "pm_1", run_days_before_due: 3,
+    };
+    for (const settings of [
+      { id: "s1", ...base },
+      { id: "s2", ...base, consent_at: "2026-09-01T00:00:00Z", consent_payment_method_id: "pm_other" },
+    ]) {
+      const { db } = makeFakeDb({
+        resident_autopay_settings: [settings],
+        portal_household_charge_records: [{ id: "hc_due", row_data: charge({ id: "hc_due", dueDateLabel: "October 1, 2026" }) }],
+      });
+      expect(await listAutopayDueCharges(db, today)).toEqual([]);
+    }
+  });
+
+  it("covers a method only while enabled, saved and authorized for that same method", () => {
+    const row = { enabled: true, paymentMethodId: "pm_1", consentAt: "2026-09-01T00:00:00Z", consentPaymentMethodId: "pm_1" };
+    expect(autopayConsentCoversMethod(row)).toBe(true);
+    expect(autopayConsentCoversMethod({ ...row, consentAt: null })).toBe(false);
+    expect(autopayConsentCoversMethod({ ...row, paymentMethodId: "pm_2" })).toBe(false);
+    expect(autopayConsentCoversMethod({ ...row, enabled: false })).toBe(false);
+  });
+});
+
+describe("autopay decline: the run fails, the slot is freed and the resident is told", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function stripeCardError() {
+    return Object.assign(new Error("Your card was declined."), {
+      type: "StripeCardError",
+      payment_intent: { id: "pi_declined" },
+    });
+  }
+
+  it("reads the declined PaymentIntent off a StripeCardError, and nothing else", () => {
+    expect(declinedPaymentIntentFromError(stripeCardError())).toEqual({
+      paymentIntentId: "pi_declined",
+      reason: "Your card was declined.",
+    });
+    expect(declinedPaymentIntentFromError(new Error("socket hang up"))).toBeNull();
+    expect(declinedPaymentIntentFromError({ type: "StripeCardError", message: "x" })).toBeNull();
+  });
+
+  it("a synchronous card decline marks the run failed, releases the slot and sends one notice", async () => {
+    const rentCharge = charge();
+    loadHouseholdChargesForCheckout.mockResolvedValue({
+      ok: true, managerUserId: "mgr_1",
+      loaded: [{ id: "hc_1", charge: rentCharge, managerUserId: "mgr_1", propertyFeePayer: null, propertyFeeWaiverCode: null, acceptedPaymentMethods: ["ach", "card"] }],
+    });
+    resolveHouseholdChargeFeePayer.mockResolvedValue({ ok: true, feePayer: "resident", managerTier: "pro" });
+    paymentMethodsRetrieve.mockResolvedValue({ type: "card", customer: "cus_1" });
+    paymentIntentsCreate.mockRejectedValue(stripeCardError());
+    const { db, runs, released } = makeFakeDb({
+      profiles: { res_1: { stripe_customer_id: "cus_1" } },
+      resident_autopay_runs: [{ id: "run_1", charge_id: "hc_1", status: "claimed", attempt: 1, updated_at: "2026-10-01T00:00:00Z" }],
+    });
+
+    const result = await chargeAutopay(db, { id: "run_1", chargeId: "hc_1", residentUserId: "res_1",
+      residentEmail: "resident@example.com", managerId: "mgr_1", paymentMethodId: "pm_card_1" });
+
+    expect(result).toEqual({ ok: false, reason: "Your card was declined.", declined: true });
+    expect(runs[0]).toMatchObject({ status: "failed", failure_reason: "Your card was declined.", attempt: 1 });
+    expect(released).toHaveLength(1);
+    expect(deliverPaymentReminder).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(deliverPaymentReminder).mock.calls[0]![0].text).toContain("Your card was declined.");
+  });
+
+  it("recording the same decline twice (sync path, then the webhook) changes and sends nothing the second time", async () => {
+    const { db, runs, released } = makeFakeDb({
+      resident_autopay_runs: [{ id: "run_1", charge_id: "hc_1", status: "claimed", attempt: 1, updated_at: "2026-10-01T00:00:00Z" }],
+    });
+    const input = { runId: "run_1", attempt: 1, paymentIntentId: "pi_declined", chargeId: "hc_1",
+      managerId: "mgr_1", reason: "declined", charge: charge() };
+    expect(await recordAutopayDecline(db, input)).toBe(true);
+    runs[0]!.stripe_payment_intent_id = "pi_declined";
+    expect(await recordAutopayDecline(db, input)).toBe(true);
+    expect(released).toHaveLength(1);
+    expect(deliverPaymentReminder).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to record a decline for a different PaymentIntent than the run's", async () => {
+    const { db, runs } = makeFakeDb({
+      resident_autopay_runs: [{ id: "run_1", charge_id: "hc_1", status: "claimed", attempt: 1, stripe_payment_intent_id: "pi_other", updated_at: "2026-10-01T00:00:00Z" }],
+    });
+    expect(await recordAutopayDecline(db, { runId: "run_1", attempt: 1, paymentIntentId: "pi_declined",
+      chargeId: "hc_1", managerId: "mgr_1", reason: "declined", charge: charge() })).toBe(false);
+    expect(runs[0]!.status).toBe("claimed");
+  });
+
+  it("a refusal before the provider (no saved method) fails the run AND tells the resident nothing was charged", async () => {
+    loadHouseholdChargesForCheckout.mockResolvedValue({
+      ok: true, managerUserId: "mgr_1",
+      loaded: [{ id: "hc_1", charge: charge(), managerUserId: "mgr_1", propertyFeePayer: null, propertyFeeWaiverCode: null, acceptedPaymentMethods: ["ach", "card"] }],
+    });
+    resolveHouseholdChargeFeePayer.mockResolvedValue({ ok: true, feePayer: "resident", managerTier: "pro" });
+    const { db, runs } = makeFakeDb({
+      profiles: { res_1: { stripe_customer_id: "" } },
+      resident_autopay_runs: [{ id: "run_1", charge_id: "hc_1", status: "claimed", attempt: 1, updated_at: "2026-10-01T00:00:00Z" }],
+    });
+    const result = await chargeAutopay(db, { id: "run_1", chargeId: "hc_1", residentUserId: "res_1",
+      residentEmail: "resident@example.com", managerId: "mgr_1", paymentMethodId: "pm_1" });
+    expect(result.ok).toBe(false);
+    expect(runs[0]!.status).toBe("failed");
+    expect(deliverPaymentReminder).toHaveBeenCalledTimes(1);
+    expect(paymentIntentsCreate).not.toHaveBeenCalled();
   });
 });

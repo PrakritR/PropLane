@@ -16,8 +16,11 @@ const m = vi.hoisted(() => ({
   images: vi.fn(async (..._a: unknown[]) => [] as unknown[]),
   vendorMedia: vi.fn(async (..._a: unknown[]) => ({ handled: false }) as { handled: boolean; vendorUserId?: string | null }),
   leasing: vi.fn(async (..._a: unknown[]) => ({ ok: true })),
+  alert: vi.fn(async (..._a: unknown[]) => { throw new Error("alert boom"); }),
 }));
 
+// The ops alert after an inbound text is best-effort: here it throws (and `after` is not in a request scope), and the inbound must still succeed.
+vi.mock("@/lib/one-number/inbound-alert.server", () => ({ alertOpsOfInboundText: m.alert }));
 vi.mock("@/lib/tools/resident-sms-context", () => ({ resolveResidentSmsAgentContext: m.residentCtx }));
 vi.mock("@/lib/agent/resident-sms-agent.server", () => ({ runResidentSmsAgentTurn: m.residentTurn, deliverResidentSmsReply: m.deliver }));
 vi.mock("@/lib/one-number/debounce.server", () => ({ debounceInbound: m.debounce }));
@@ -108,6 +111,13 @@ describe("resident text on the shared line", () => {
     });
     const logged = m.metrics.mock.calls[0]![1].metrics;
     expect(logged.firstBubbleMs === null || logged.firstBubbleMs >= 0).toBe(true);
+  });
+
+  it("a post-reply ops alert that cannot be scheduled (after() outside a request scope) never fails the inbound", async () => {
+    const res = await runClaimedInbound(fakeDb({ ...PAYLOAD, sharedLine: true }), claim({ sharedLine: true }));
+    expect(res.status).toBe(200);
+    expect(m.deliver).toHaveBeenCalledTimes(1);
+    expect(m.finish).toHaveBeenCalledWith(expect.anything(), "SM1", "w1", "completed");
   });
 
   it("answers the merged burst, oldest first", async () => {

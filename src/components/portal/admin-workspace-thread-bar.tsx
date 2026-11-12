@@ -6,12 +6,11 @@
  * (a stranger who has not picked a house) can be assigned to a service workspace from here.
  */
 import { useState } from "react";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, FolderInput } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { InboxComposer, InboxThreadView, type InboxBubbleMessage } from "@/components/portal/portal-inbox-ui";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { Button } from "@/components/ui/button";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   assignLeadToServiceWorkspace,
   openAdminWorkspaceThread,
@@ -74,9 +73,8 @@ export function AdminLeadThread({
   /** A reply was accepted; the list re-reads so the sent text shows in the thread. */
   onSent?: () => void;
 }) {
-  const { showToast } = useAppUi();
+  const { showToast, confirm } = useAppUi();
   const workspaces = useAdminSmsWorkspaces();
-  const [target, setTarget] = useState("");
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -89,10 +87,20 @@ export function AdminLeadThread({
     direction: message.direction,
     channel: "sms",
   }));
-  const assign = async () => {
-    if (!leadId || !target || busy) return;
+  const assign = async (workspace: { id: string; name: string }) => {
+    if (!leadId || busy) return;
+    const ok = await confirm({
+      title: "Assign to workspace",
+      description: `Move this conversation to ${workspace.name}? It leaves the PropLane inbox and shows only in that workspace's Communication.`,
+      confirmLabel: "Assign",
+      tone: "primary",
+      note: null,
+      guard: "tap",
+      dataAttr: "admin-communication-assign-confirm",
+    });
+    if (!ok) return;
     setBusy(true);
-    const result = await assignLeadToServiceWorkspace({ leadId, workspaceId: target });
+    const result = await assignLeadToServiceWorkspace({ leadId, workspaceId: workspace.id });
     setBusy(false);
     if (!result.ok) {
       showToast(result.error);
@@ -128,22 +136,26 @@ export function AdminLeadThread({
           onBack={onBack}
           emptyLabel="No messages in this conversation."
           headerActions={
-            <div className="flex items-center gap-2" data-attr="admin-communication-assign-header">
-              <FieldSingleSelect
-                label="Assign to workspace"
-                hideLabel
-                variant="pill"
-                value={target}
-                onChange={setTarget}
-                options={workspaces.map((w) => ({ value: w.id, label: w.name }))}
-                placeholder="Assign to workspace"
-                dataAttr="admin-communication-assign-workspace"
-              />
-              {target ? (
-                <Button data-attr="admin-communication-assign-submit" onClick={() => assign()}>
-                  Assign
-                </Button>
-              ) : null}
+            // Icon chrome: the workspaces live in a menu, so a long workspace name can never widen the header past the pane.
+            <div className="flex shrink-0 items-center" data-attr="admin-communication-assign-header">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <PortalIconAction
+                    icon={FolderInput}
+                    label="Assign to workspace"
+                    data-attr="admin-communication-assign-workspace"
+                    disabled={busy || workspaces.length === 0}
+                  />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="max-w-[min(22rem,calc(100vw-2rem))]">
+                  <DropdownMenuLabel>Assign to workspace</DropdownMenuLabel>
+                  {workspaces.map((workspace) => (
+                    <DropdownMenuItem key={workspace.id} data-attr="admin-communication-assign-option" onSelect={() => void assign(workspace)}>
+                      <span className="min-w-0 truncate">{workspace.name}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           }
           composer={

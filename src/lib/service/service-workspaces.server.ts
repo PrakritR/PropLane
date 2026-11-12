@@ -22,9 +22,12 @@ import { mintInviteLink } from "@/lib/invite-links/invite-links.server";
 import {
   SERVICE_INVITE_LABEL_PREFIX,
   sendServiceInviteLinkEmail,
+  sendServiceInviteText,
+  serviceInviteAcceptUrl,
   serviceInviteEmailFromLabel,
   serviceInviteLabel,
 } from "@/lib/service/service-invite-delivery.server";
+import { buildOwnerInviteText, buildServiceTeamInviteText } from "@/lib/co-manager-link-email";
 import { cleanOwnerOfRecord, cleanServiceCity, cleanServiceName } from "@/lib/service/service-input";
 import { updateAuditResult, writeAuditLog } from "@/lib/tools/audit";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
@@ -643,7 +646,11 @@ export async function listServiceAttachCandidates(
  * Overall admin stands as the owner of every PropLane Service workspace for team changes, member or not. Left out, the
  * operator must hold a seat in the workspace, exactly as before.
  */
-export type OperatorOpts = { overall?: boolean };
+export type OperatorOpts = {
+  overall?: boolean;
+  /** The caller tells the person itself (one notice for a whole change), so this verb sends none. */
+  silent?: boolean;
+};
 
 async function operatorStanding(db: SupabaseClient, operatorUserId: string, workspaceId: string, opts: OperatorOpts = {}) {
   const workspace = await loadServiceWorkspace(db, workspaceId);
@@ -1047,6 +1054,8 @@ export type ServiceInviteInput = InviteAccessInput & {
   replaceOwner?: unknown;
   /** The name typed beside the email, for the greeting of an email to someone with no account yet. Never a grant. */
   inviteeName?: unknown;
+  /** An optional mobile for ONE text beside the email (new-account invites). Sent only where the consent rules allow it. */
+  phone?: unknown;
 };
 
 /**
@@ -1187,6 +1196,7 @@ export async function inviteServiceClient(
     name: targetName || (hintedName ?? ""),
     ownerInvite: flag,
     grant,
+    phone: typeof input.phone === "string" ? input.phone : null,
   });
   if (!sent.ok) return sent;
   const withdrawn = await withdrawOutgoingOwner(db, operatorUserId, who.workspace, outgoingOwner);
@@ -1309,7 +1319,7 @@ async function inviteByLink(
   db: SupabaseClient,
   operatorUserId: string,
   workspace: { id: string; ownerUserId: string },
-  input: { email: string; name: string; ownerInvite: boolean; grant: ServiceSeatGrant | undefined },
+  input: { email: string; name: string; ownerInvite: boolean; grant: ServiceSeatGrant | undefined; phone?: string | null },
 ): Promise<ServiceResult<{ linkId: string; delivery: "account" | "link" }>> {
   const email = input.email.trim().toLowerCase();
   // One live service invite per email per workspace.
@@ -1353,6 +1363,18 @@ async function inviteByLink(
       .eq("id", minted.link.id)
       .eq("owner_user_id", workspace.ownerUserId);
     return fail(502, `The invite could not be emailed: ${sent.error}`);
+  }
+  // At most one text, after the email has gone, only when a phone was typed. The dispatcher refuses it without consent.
+  if (input.phone?.trim()) {
+    const acceptUrl = serviceInviteAcceptUrl(minted.token);
+    const roleLabel = input.ownerInvite ? "Owner" : (TEAM_ROLE_LABELS[role === "full" ? "admin" : role] ?? "Teammate");
+    await sendServiceInviteText(db, {
+      toPhone: input.phone,
+      text: input.ownerInvite
+        ? buildOwnerInviteText({ workspaceName, acceptUrl })
+        : buildServiceTeamInviteText({ workspaceName, roleLabel, acceptUrl }),
+      dedupeKey: `invite:${minted.link.id}`,
+    });
   }
   return { ok: true, linkId: minted.link.id, delivery: "link" };
 }
@@ -1629,7 +1651,7 @@ export async function removeServiceTeamMember(
   if (!who.ok) return who;
   const link = await db
     .from("account_link_invites")
-    .select("id, team_role, status")
+    .select("id, team_role, status, invitee_user_id, is_service_seat, is_owner_of_record")
     .eq("id", linkId)
     .eq("inviter_user_id", who.workspace.ownerUserId)
     .eq("workspace_id", who.workspace.id)
@@ -1657,6 +1679,13 @@ export async function removeServiceTeamMember(
     .eq("inviter_user_id", who.workspace.ownerUserId)
     .eq("workspace_id", who.workspace.id);
   if (res.error) return fail(503, "Could not remove the teammate. Please retry.");
+  // The seat is cancelled, so its alerts (`resolveServiceAlertTargets` reads accepted seats only) have already stopped. A
+  // PropLane-issued staff seat that was live gets ONE notice; the admin-team verbs pass `silent` and send their own, once.
+  const removed = link.data as { status?: string; invitee_user_id?: string | null; is_service_seat?: boolean | null; is_owner_of_record?: boolean | null };
+  if (!opts.silent && removed.status === "accepted" && removed.is_service_seat === true && removed.is_owner_of_record !== true && removed.invitee_user_id) {
+    const { notifySeatRevoked } = await import("@/lib/admin-team/admin-team-notify.server");
+    await notifySeatRevoked(db, { actorUserId: operatorUserId, userId: removed.invitee_user_id, workspaceIds: [who.workspace.id] });
+  }
   return { ok: true };
 }
 

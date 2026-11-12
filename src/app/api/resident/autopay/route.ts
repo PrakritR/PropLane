@@ -7,6 +7,7 @@ import { getStripe } from "@/lib/stripe";
 import { listResidentSavedPaymentMethods } from "@/lib/stripe-resident-customer";
 import { isUnpaidHouseholdCharge, type HouseholdCharge } from "@/lib/household-charges";
 import {
+  autopayConsentCoversMethod,
   autopayNextScheduledChargeLabel,
   loadResidentAutopaySettings,
   resolveResidentAutopayHousehold,
@@ -152,6 +153,8 @@ export async function PUT(req: NextRequest) {
       paymentMethodId?: string | null;
       runDaysBeforeDue?: number;
       propertyId?: string | null;
+      /** The resident accepted the autopay authorization shown in the dialog. Required to turn autopay on or to change its method. */
+      consent?: boolean;
     };
 
     const propertyId = requestedPropertyId(body.propertyId);
@@ -197,6 +200,25 @@ export async function PUT(req: NextRequest) {
 
     const runDaysBeforeDue = Math.min(5, Math.max(0, Math.round(Number(body.runDaysBeforeDue ?? 0)) || 0));
 
+    // A saved method never authorizes a debit by itself. Turning autopay on, or moving it to another method, needs
+    // the resident's explicit consent for THAT method; changing only the run day under an authorization already
+    // recorded for the same method does not ask again.
+    let consent: { paymentMethodId: string } | null = null;
+    if (enabled && paymentMethodId) {
+      const existing = await loadResidentAutopaySettings(ctx.db, ctx.userId, household.householdKey);
+      const alreadyAuthorized =
+        existing !== null && autopayConsentCoversMethod(existing) && existing.paymentMethodId === paymentMethodId;
+      if (!alreadyAuthorized) {
+        if (body.consent !== true) {
+          return NextResponse.json(
+            { error: "Confirm the autopay authorization to turn on autopay.", code: "AUTOPAY_CONSENT_REQUIRED" },
+            { status: 400 },
+          );
+        }
+        consent = { paymentMethodId };
+      }
+    }
+
     const saved = await saveResidentAutopaySettings(ctx.db, {
       residentUserId: ctx.userId,
       managerId: ctx.managerId,
@@ -204,6 +226,7 @@ export async function PUT(req: NextRequest) {
       enabled,
       paymentMethodId,
       runDaysBeforeDue,
+      consent,
     });
 
     track("autopay_enable", ctx.userId, { enabled: saved.enabled, days_before: saved.runDaysBeforeDue });

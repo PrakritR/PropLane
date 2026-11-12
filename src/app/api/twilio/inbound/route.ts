@@ -2,6 +2,7 @@ import { NextResponse, after } from "next/server";
 import { createHash } from "node:crypto";
 import twilio from "twilio";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { classifyNonPhoneSender } from "@/lib/sms/non-phone-sender";
 import { isTwilioMessageSid } from "@/lib/sms/message-sid";
 import { twilioWebhookAuthToken } from "@/lib/twilio-client.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -38,11 +39,14 @@ export async function POST(req: Request) {
       (signature && !twilio.validateRequest(authToken, signature, url, params))) {
       return NextResponse.json({ error: "Invalid signature." }, { status: 403 });
     }
-    const from = normalizeE164(params.From); const to = normalizeE164(params.To);
+    // A short code ("78156") or alphanumeric sender is not a phone number but is real inbound mail: it is accepted under its
+    // own sender id and stored, never answered (`non-phone-sender.ts`). Anything that is neither shape is still refused.
+    const nonPhone = classifyNonPhoneSender(params.From);
+    const from = nonPhone ? nonPhone.sender : normalizeE164(params.From); const to = normalizeE164(params.To);
     const sid = params.MessageSid?.trim();
     if (!from || !to || !sid || !isTwilioMessageSid(sid)) return NextResponse.json({ error: "Invalid inbound identity." }, { status: 400 });
     if (params.AccountSid !== process.env.TWILIO_ACCOUNT_SID?.trim()) return NextResponse.json({ error: "Invalid provider account." }, { status: 403 });
-    const shielded = await bounded(Promise.all([isShieldedRecipient({ phone: from }), isShieldedRecipient({ phone: to })]), 2000);
+    const shielded = await bounded(Promise.all([nonPhone ? false : isShieldedRecipient({ phone: from }), isShieldedRecipient({ phone: to })]), 2000);
     if (shielded.some(Boolean)) return emptyTwiml();
     const redaction = redactSensitiveNumbers(String(params.Body ?? "").trim());
     const sanitized = { ...params, Body: redaction.text, PropLaneRedacted: redaction.redacted ? "1" : "0" };

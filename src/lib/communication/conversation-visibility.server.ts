@@ -37,6 +37,9 @@ import { parseTeamThreadId } from "@/lib/team-thread-id";
  * dependency can hide a co-manager's rows but can never leak an owner's.
  */
 
+import { isSystemOnlyOwnerThread } from "@/lib/communication/managed-owner-thread";
+import { loadManagedOwnerIdentity } from "@/lib/communication/managed-owner-thread.server";
+
 export type CommunicationLevel = "read" | "edit" | "delete";
 
 export type ConversationHouseRef = { propertyId: string; label: string };
@@ -599,7 +602,11 @@ export async function filterVisibleInboxThreadRecords<T extends StoredInboxThrea
       visible.push({ ...record, houses });
     }
   }
-  return restrictOtherOwnersThreads(db, scope, visible, houseLabels);
+  const restricted = await restrictOtherOwnersThreads(db, scope, visible, houseLabels);
+  // A PropLane-managed workspace's client owner is not a conversation until they write in: hide (never delete) a thread that
+  // holds only system notices. Read side only, so nothing is lost and a later reply from the owner brings it back.
+  const owner = await loadManagedOwnerIdentity(db, scope.activeWorkspaceId);
+  return owner ? restricted.filter((record) => !isSystemOnlyOwnerThread(record, owner)) : restricted;
 }
 
 /**

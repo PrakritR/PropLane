@@ -6,6 +6,8 @@ import { resolveWorkspaceSendLine } from "@/lib/sms/manager-number-provisioning.
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import { sendManagerNoticeEmail } from "@/lib/manager-notice-email.server";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { userDefaultWorkspaceId } from "@/lib/communication/manager-assistant-workspace.server";
+import { ALERT_PHONE_SMS_PURPOSE } from "@/lib/sms/team-notice-consent.server";
 
 /**
  * People who are not PropLane accounts but get every manager notice the workspace's work number
@@ -77,6 +79,28 @@ export async function notifyWorkNumberRecipients(
     idempotencyKey?: string;
   },
 ): Promise<{ texted: number; emailed: number }> {
+  // A PropLane-MANAGED workspace's alerts are PropLane's own operations: they leave from the PropLane line, paid by the
+  // platform (never the client's wallet, which may hold no credit - prod: Vinod's pool is $0), with the listed phones
+  // consented by their listing. A seat holder who already hears the event as a Team chat line is not texted twice.
+  // A self-serve workspace falls through to its own wallet below; nothing here ever fails open on the money check.
+  try {
+    const workspaceId = input.workspaceId?.trim() || (await userDefaultWorkspaceId(db, input.ownerUserId));
+    if (workspaceId) {
+      const { notifyServiceAlertTargets } = await import("@/lib/service/service-alert-targets.server");
+      const managed = await notifyServiceAlertTargets(db, {
+        workspaceId,
+        scope: "listed_only",
+        smsText: `PropLane: ${input.subject}\n${input.text}`.slice(0, 1500),
+        emailSubject: input.subject,
+        emailText: input.text,
+        url: input.url,
+        idempotencyKey: input.idempotencyKey ?? `extra-notice:${workspaceId}:${new Date().toISOString().slice(0, 10)}:${createHash("sha256").update(`${input.subject}\n${input.text}`).digest("hex").slice(0, 16)}`,
+      });
+      if (managed) return { texted: managed.texted, emailed: managed.emailed };
+    }
+  } catch {
+    // An unreadable service check falls to the owner's own path, which has its own wallet gate: never a free send.
+  }
   let recipients: WorkNumberRecipient[] = [];
   try {
     recipients = await listWorkNumberRecipients(db, input.ownerUserId);
@@ -102,11 +126,12 @@ export async function notifyWorkNumberRecipients(
           fromNumber: line.phoneNumber,
           source: "automated",
           counterpartyRole: "manager",
-          purpose: "work_number_extra_recipient_notice",
+          purpose: ALERT_PHONE_SMS_PURPOSE,
           dedupeKey: key ? `extra-notice:${key}` : undefined,
           skipLog: true,
         });
         if (sent.ok) texted += 1;
+        else console.error("extra recipient text refused", sent.error ?? "unknown");
       } catch {
         console.error("extra recipient text failed");
       }

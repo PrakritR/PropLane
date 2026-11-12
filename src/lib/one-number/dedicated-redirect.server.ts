@@ -65,3 +65,12 @@ export async function answerFromDedicatedWorkspace(
   }).catch(() => false);
   return reply;
 }
+
+/**
+ * The redirect sentence for a workspace with its own number, without writing anything (a phone CALL has no text to log).
+ * Null when the workspace's number cannot be named.
+ */
+export async function dedicatedRedirectReplyFor(db: SupabaseClient, candidate: SharedLineCandidate): Promise<string | null> {
+  const own = await ownNumberOf(db, candidate);
+  return own ? buildDedicatedRedirectReply(spokenLabelFor(candidate), own) : null;
+}

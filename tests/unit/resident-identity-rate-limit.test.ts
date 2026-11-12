@@ -30,7 +30,7 @@ beforeEach(() => {
   h.actor.mockReset();
   h.limit.mockReset();
   h.calls.length = 0;
-  process.env.RESIDENT_IDENTITY_ENABLED = "true";
+  process.env.RESIDENT_IDENTITY_ENABLED = "true"; process.env.RESIDENT_IDENTITY_PROVIDER = "persona";
   h.actor.mockResolvedValue({ userId: "resident-1", db: {} });
 });
 

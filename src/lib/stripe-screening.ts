@@ -11,6 +11,9 @@ import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { track } from "@/lib/analytics/posthog";
 import { runBackgroundCheck, runCosignerBackgroundCheck } from "@/lib/checkr/background-check";
+import type { CheckrPackage } from "@/lib/checkr/config";
+import { isCheckrPackage } from "@/lib/checkr/packages";
+import { fulfillPreApplyFromSession, isPreApplySession } from "@/lib/screening/preapply.server";
 import { getStripe } from "@/lib/stripe";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 
@@ -20,12 +23,51 @@ export function isScreeningCheckoutSession(session: Stripe.Checkout.Session): bo
   return session.metadata?.purpose === SCREENING_CHECKOUT_PURPOSE;
 }
 
+/**
+ * What a paid screening Checkout session says about HOW the order is placed. Everything here was written by our own
+ * checkout routes (never by a client): an applicant-paid session names the applicant and carries their FCRA
+ * authorization; an upgrade session names the package it replaces. The Stripe webhook and the checkout-verify
+ * route both place the order from this, so they cannot disagree.
+ */
+export function screeningOrderOptionsFromSession(session: Stripe.Checkout.Session): {
+  payer?: "applicant";
+  authorization?: { authorizedAt: string; disclosureVersion: string };
+  upgradeFrom?: CheckrPackage;
+} {
+  const applicantPaid = session.metadata?.payer === "applicant";
+  const authorizedAt = session.metadata?.fcra_authorized_at?.trim();
+  const disclosureVersion = session.metadata?.fcra_disclosure_version?.trim();
+  const upgradeFromRaw = session.metadata?.upgrade_from_package?.trim() ?? "";
+  return {
+    ...(applicantPaid ? { payer: "applicant" as const } : {}),
+    ...(applicantPaid && authorizedAt && disclosureVersion ? { authorization: { authorizedAt, disclosureVersion } } : {}),
+    ...(isCheckrPackage(upgradeFromRaw) ? { upgradeFrom: upgradeFromRaw } : {}),
+  };
+}
+
 export async function runScreeningFromStripeSession(
   db: SupabaseClient,
   session: Stripe.Checkout.Session,
 ): Promise<void> {
   if (!isScreeningCheckoutSession(session)) return;
   if (session.payment_status !== "paid" && session.payment_status !== "no_payment_required") return;
+
+  // An applicant paying for the check their listing requires BEFORE applying: there is no application row yet.
+  if (isPreApplySession(session)) {
+    const placed = await fulfillPreApplyFromSession(db, session);
+    const applicantUserId = session.metadata?.payer_user_id?.trim() || session.id;
+    if (placed.ok && placed.check) {
+      track("background_check_started", applicantUserId, { provider: placed.check.provider, phase: "preapply" });
+    } else if (!placed.ok) {
+      console.error("[stripe webhook] pre-apply screening order failed after payment", {
+        sessionId: session.id,
+        status: placed.status,
+        code: placed.code,
+        error: placed.error,
+      });
+    }
+    return;
+  }
 
   const applicationId = session.metadata?.application_id?.trim();
   const cosignerSubmissionId = session.metadata?.cosigner_submission_id?.trim();
@@ -54,6 +96,8 @@ export async function runScreeningFromStripeSession(
   const paymentIntentId =
     typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
 
+  const orderOptions = screeningOrderOptionsFromSession(session);
+
   const result = cosignerSubmissionId
     ? await runCosignerBackgroundCheck({
         db,
@@ -76,6 +120,7 @@ export async function runScreeningFromStripeSession(
           .map((s) => s.trim())
           .filter(Boolean),
         prepaid: { checkoutSessionId: session.id, paymentIntentId },
+        ...orderOptions,
       });
 
   if (result.ok) {

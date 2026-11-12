@@ -120,14 +120,17 @@ afterEach(() => {
 // Selection is local until Continue freezes the chosen method and asks the
 // server for its exact priced claim.
 describe("resident charges modal — one checkout sheet", () => {
-  it('shows "$1,205.00" and pending fee disclosure without claiming a final fee before Continue', async () => {
+  it('shows the rent subtotal and the resident-paid processing fee before Continue', async () => {
     render(<ResidentPaymentsPanel bucket="pending" />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Pay all" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Pay all" }));
 
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(dialog.textContent ?? "").toContain("$1,205.00"));
-    expect(dialog.textContent ?? "").toContain("Processing fee: Pending quote");
+    // Rent: the resident pays the processing fee, so it is shown (and added to the total) BEFORE Continue.
+    // $1,205.00 by bank is 0.8% = $9.64, capped at $5.00 -> $1,210.00.
+    expect(dialog.textContent ?? "").toContain("Includes $5.00 processing fee");
+    expect(dialog.textContent ?? "").toContain("$1,210.00");
     expect(dialog.textContent ?? "").not.toContain("Processing fee: None");
     expect(dialog.querySelector('[data-attr="resident-payments-confirm-pay"]')).toBeNull();
     expect(dialog.textContent ?? "").not.toContain("Continue to Stripe");

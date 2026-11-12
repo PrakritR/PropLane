@@ -340,6 +340,31 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     // Resident rows are keyed by application id — resolved by the resident purge.
   },
   {
+    // The Checkr order an applicant placed before applying: the applicant's own consumer-report authorization.
+    table: "applicant_preapply_checks",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+    resident: { ids: ["resident_user_id"] },
+  },
+  {
+    // The FCRA adverse-action trail for an application (decision, pre-adverse and final notice). Resident rows are
+    // keyed by application id (and the applicant's email) — resolved by the resident purge.
+    table: "application_adverse_actions",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+    resident: { emails: ["resident_email"] },
+  },
+  {
+    // A manager's star rating + review of a resident they housed. Deleting the RESIDENT deletes every rating about them
+    // (a re-registered email is a new person with no history). Deleting the RATER keeps the rating and nulls
+    // `rater_user_id`: the row is the resident's record, and it is only ever shown as "A previous manager" - no
+    // reader ever sees who rated, so nothing about the deleted manager remains (resident-ratings.md).
+    table: "resident_ratings",
+    phase: 1,
+    resident: { ids: ["resident_user_id"] },
+    manager: { detachIds: ["rater_user_id"] },
+  },
+  {
     table: "work_order_bids",
     phase: 1,
     manager: { ids: ["manager_user_id"] },

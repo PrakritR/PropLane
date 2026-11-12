@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 import { notifyTenantTourRequestRemoved } from "@/lib/tour-notification-delivery.server";
+import { settleTourFeeOnCancel } from "@/lib/tour-fee.server";
 
 export const runtime = "nodejs";
 
@@ -217,6 +218,9 @@ export async function POST(req: Request) {
       const { error: deleteError } = await db.from("portal_schedule_records").delete().in("id", eventIds);
       if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 500 });
     }
+
+    // Declining or removing a request returns any tour fee the guest paid (an unpaid one is cancelled). No fee, no effect.
+    for (const removedId of idsToRemove) await settleTourFeeOnCancel(db, { inquiryId: removedId, reason: "manager_declined" });
 
     return NextResponse.json({
       ok: true,

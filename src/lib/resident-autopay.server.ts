@@ -57,6 +57,12 @@ export function residentAutopayHouseholdKey(residentEmail: string, propertyId: s
   return `${residentEmail.trim().toLowerCase()}|${propertyId}`;
 }
 
+/**
+ * The version of the authorization text a resident accepted when they turned autopay on (the dialog in
+ * `ResidentAutopayCard`). Bump it whenever that text changes, so a row records exactly what was agreed to.
+ */
+export const AUTOPAY_CONSENT_VERSION = "2026-11-12";
+
 export type ResidentAutopaySettingsRow = {
   id: string;
   residentUserId: string;
@@ -65,7 +71,23 @@ export type ResidentAutopaySettingsRow = {
   enabled: boolean;
   paymentMethodId: string | null;
   runDaysBeforeDue: number;
+  /** When the resident explicitly authorized autopay on `consentPaymentMethodId`. Null = never authorized. */
+  consentAt: string | null;
+  consentPaymentMethodId: string | null;
 };
+
+const AUTOPAY_SETTINGS_COLUMNS =
+  "id, resident_user_id, manager_id, household_key, enabled, payment_method_id, run_days_before_due, consent_at, consent_payment_method_id";
+
+/**
+ * A saved method never authorizes a debit by itself: autopay may charge only a method the resident
+ * explicitly authorized for it (`consent_payment_method_id`), and a changed method needs a new consent.
+ */
+export function autopayConsentCoversMethod(
+  row: Pick<ResidentAutopaySettingsRow, "enabled" | "paymentMethodId" | "consentAt" | "consentPaymentMethodId">,
+): boolean {
+  return Boolean(row.enabled && row.paymentMethodId && row.consentAt && row.consentPaymentMethodId === row.paymentMethodId);
+}
 
 function normalizeSettingsRow(row: Record<string, unknown>): ResidentAutopaySettingsRow {
   return {
@@ -76,6 +98,9 @@ function normalizeSettingsRow(row: Record<string, unknown>): ResidentAutopaySett
     enabled: row.enabled === true,
     paymentMethodId: typeof row.payment_method_id === "string" && row.payment_method_id ? row.payment_method_id : null,
     runDaysBeforeDue: Math.min(5, Math.max(0, Number(row.run_days_before_due ?? 0))),
+    consentAt: typeof row.consent_at === "string" && row.consent_at ? row.consent_at : null,
+    consentPaymentMethodId:
+      typeof row.consent_payment_method_id === "string" && row.consent_payment_method_id ? row.consent_payment_method_id : null,
   };
 }
 
@@ -87,7 +112,7 @@ export async function loadResidentAutopaySettings(
 ): Promise<ResidentAutopaySettingsRow | null> {
   const { data, error } = await db
     .from("resident_autopay_settings")
-    .select("id, resident_user_id, manager_id, household_key, enabled, payment_method_id, run_days_before_due")
+    .select(AUTOPAY_SETTINGS_COLUMNS)
     .eq("resident_user_id", residentUserId)
     .eq("household_key", householdKey)
     .maybeSingle();
@@ -109,9 +134,21 @@ export async function saveResidentAutopaySettings(
     enabled: boolean;
     paymentMethodId: string | null;
     runDaysBeforeDue: number;
+    /**
+     * The resident's explicit authorization for THIS method. Written only when present (turning autopay on, or
+     * changing its method, while on); a plain re-save of the run day or a turn-off leaves the recorded consent as it was.
+     */
+    consent?: { paymentMethodId: string; at?: Date } | null;
   },
 ): Promise<ResidentAutopaySettingsRow> {
   const runDaysBeforeDue = Math.min(5, Math.max(0, Math.round(input.runDaysBeforeDue)));
+  const consent = input.consent?.paymentMethodId?.trim()
+    ? {
+        consent_at: (input.consent.at ?? new Date()).toISOString(),
+        consent_payment_method_id: input.consent.paymentMethodId.trim(),
+        consent_version: AUTOPAY_CONSENT_VERSION,
+      }
+    : {};
   const { data, error } = await db
     .from("resident_autopay_settings")
     .upsert(
@@ -123,10 +160,11 @@ export async function saveResidentAutopaySettings(
         payment_method_id: input.paymentMethodId,
         run_days_before_due: runDaysBeforeDue,
         updated_at: new Date().toISOString(),
+        ...consent,
       },
       { onConflict: "resident_user_id,household_key" },
     )
-    .select("id, resident_user_id, manager_id, household_key, enabled, payment_method_id, run_days_before_due")
+    .select(AUTOPAY_SETTINGS_COLUMNS)
     .single();
   if (error) throw new Error(error.message);
   return normalizeSettingsRow(data as Record<string, unknown>);
@@ -265,12 +303,13 @@ export async function listAutopayDueCharges(db: SupabaseClient, today: Date = ne
   const todayYmd = pacificCalendarDateYmd(today);
   const { data: settingsRows, error: settingsErr } = await db
     .from("resident_autopay_settings")
-    .select("id, resident_user_id, manager_id, household_key, enabled, payment_method_id, run_days_before_due")
+    .select(AUTOPAY_SETTINGS_COLUMNS)
     .eq("enabled", true);
   if (settingsErr) throw new Error(settingsErr.message);
+  // Only a method the resident explicitly authorized for autopay is ever charged.
   const enrolled = (settingsRows ?? [])
     .map((row) => normalizeSettingsRow(row as Record<string, unknown>))
-    .filter((row) => row.enabled && row.paymentMethodId);
+    .filter((row) => autopayConsentCoversMethod(row));
   if (enrolled.length === 0) return [];
 
   const residentUserIds = [...new Set(enrolled.map((row) => row.residentUserId))];
@@ -403,7 +442,17 @@ export async function chargeAutopay(
   },
 ): Promise<ChargeAutopayResult> {
   const attempt = Math.max(1, Math.round(run.attempt ?? 1));
-  const fail = (reason: string) => updateRun(db, run.id, { status: "failed", failureReason: reason });
+  // Once the charge is loaded, a refusal tells the resident: a failed run that nobody hears about is rent that
+  // silently goes unpaid. Nothing is charged on any of these paths (the provider was never reached).
+  let noticeCharge: HouseholdCharge | null = null;
+  const fail = async (reason: string) => {
+    await updateRun(db, run.id, { status: "failed", failureReason: reason });
+    if (noticeCharge) {
+      await notifyAutopayDeclined(db, { charge: noticeCharge, managerId: run.managerId, declineMessage: reason }).catch(
+        () => undefined,
+      );
+    }
+  };
 
   const resolved = await loadHouseholdChargesForCheckout(db, {
     userId: run.residentUserId,
@@ -417,6 +466,7 @@ export async function chargeAutopay(
   }
   const { loaded, managerUserId } = resolved;
   const loadedCharge = loaded[0]!;
+  noticeCharge = loadedCharge.charge;
 
   // The same two gates manual checkout applies (`stripe-household-charge-checkout.server.ts`). An off-session debit
   // is still a payment: a PropLane-managed cart that cannot be allocated, or an is_service workspace that has no
@@ -480,7 +530,7 @@ export async function chargeAutopay(
     return { ok: false, reason };
   }
 
-  const fee = residentServiceFeeBreakdown(subtotalCents, method, feePayer);
+  const fee = residentServiceFeeBreakdown(subtotalCents, method, feePayer, { coverFeeOnFee: true });
   if (fee.applicationFeeCents > 0 && fee.applicationFeeCents >= fee.totalCents) {
     const reason = "Service fee configuration prevents this charge.";
     await fail(reason);
@@ -533,11 +583,22 @@ export async function chargeAutopay(
     if (bindError || bound !== true) {
       return { ok: false, reason: "Captured payment needs provider reconciliation." };
     }
+    // An off-session confirm that did not take the money and is not on its way (a requires_payment_method / canceled
+    // PaymentIntent) is a decline: record it now instead of leaving the run claimed until a webhook that may not come.
+    if (paymentIntent.status === "requires_payment_method" || paymentIntent.status === "canceled") {
+      const reason = paymentIntent.last_payment_error?.message?.trim() || "The payment was declined.";
+      const recorded = await recordAutopayDecline(db, {
+        runId: run.id, attempt, paymentIntentId: paymentIntent.id, chargeId: run.chargeId,
+        managerId: run.managerId, reason, charge: loadedCharge.charge,
+      });
+      return recorded
+        ? { ok: false, reason, declined: true }
+        : { ok: false, reason: "Payment outcome needs provider reconciliation." };
+    }
     // The webhook (payment_intent.succeeded / .payment_failed) is the
-    // authoritative settle path — a synchronous card decline still arrives
-    // there too, but marking succeeded here when Stripe already confirmed it
-    // synchronously avoids waiting on webhook delivery to show the resident a
-    // paid charge.
+    // authoritative settle path — marking succeeded here when Stripe already
+    // confirmed it synchronously avoids waiting on webhook delivery to show
+    // the resident a paid charge.
     if (paymentIntent.status === "succeeded") {
       const paid = await markHouseholdChargePaidFromPaymentIntent(db, paymentIntent, run.chargeId);
       if (!paid.ok) return { ok: false, reason: "Captured payment needs provider reconciliation." };
@@ -566,6 +627,17 @@ export async function chargeAutopay(
     }
     return { ok: true, paymentIntentId: paymentIntent.id };
   } catch (e) {
+    // A declined card makes Stripe throw, but the PaymentIntent exists and carries the run: bind it, fail the run,
+    // free the charge's slot for the one allowed retry and tell the resident. Without this a decline left the run
+    // claimed for good (no notice, no retry), and the marked webhook only attests, it never fails a run.
+    const declined = declinedPaymentIntentFromError(e);
+    if (declined) {
+      const recorded = await recordAutopayDecline(db, {
+        runId: run.id, attempt, paymentIntentId: declined.paymentIntentId, chargeId: run.chargeId,
+        managerId: run.managerId, reason: declined.reason, charge: loadedCharge.charge,
+      }).catch(() => false);
+      if (recorded) return { ok: false, reason: declined.reason, declined: true };
+    }
     // A transport error can follow provider creation. The slot and run stay
     // claimed until exact PI/webhook evidence proves a terminal outcome.
     console.error("[autopay] provider outcome needs reconciliation", {
@@ -574,6 +646,90 @@ export async function chargeAutopay(
     });
     return { ok: false, reason: "Payment outcome needs provider reconciliation." };
   }
+}
+
+/** The PaymentIntent a declined off-session confirm left behind, from the error Stripe threw (a StripeCardError). */
+export function declinedPaymentIntentFromError(error: unknown): { paymentIntentId: string; reason: string } | null {
+  if (!error || typeof error !== "object") return null;
+  const err = error as {
+    type?: unknown;
+    message?: unknown;
+    payment_intent?: unknown;
+    raw?: { payment_intent?: unknown } | null;
+  };
+  if (err.type !== "StripeCardError") return null;
+  const intent = err.payment_intent ?? err.raw?.payment_intent;
+  const id = typeof intent === "string" ? intent : (intent as { id?: unknown } | null | undefined)?.id;
+  if (typeof id !== "string" || !id.trim()) return null;
+  const message = typeof err.message === "string" ? err.message.trim() : "";
+  return { paymentIntentId: id.trim(), reason: message || "The payment was declined." };
+}
+
+/**
+ * Record that an autopay PaymentIntent definitively did not collect: bind it to the run, mark the run `failed`
+ * (which is what the Payments banner, the retry sweep and the resident notice all key on), release the charge's
+ * payment slot so the one allowed retry can reserve it again, and tell the resident. Idempotent: the synchronous
+ * decline and the `payment_intent.payment_failed` webhook both call it, whichever lands first does the work and
+ * the other finds the run already failed on that same PaymentIntent. Returns false only when the run does not
+ * match (a different PaymentIntent, or an attempt that moved on): then nothing is changed and the caller must
+ * treat the outcome as unreconciled, never as a decline.
+ */
+export async function recordAutopayDecline(
+  db: SupabaseClient,
+  input: {
+    runId: string;
+    attempt: number;
+    paymentIntentId: string;
+    chargeId: string;
+    managerId: string;
+    reason: string;
+    charge: HouseholdCharge | null;
+  },
+): Promise<boolean> {
+  const { data: before, error: readError } = await db
+    .from("resident_autopay_runs")
+    .select("status, attempt, stripe_payment_intent_id")
+    .eq("id", input.runId)
+    .maybeSingle();
+  if (readError || !before) return false;
+  if (runAttempt(before.attempt) !== input.attempt) return false;
+  if (before.stripe_payment_intent_id && before.stripe_payment_intent_id !== input.paymentIntentId) return false;
+  // Already recorded by the other path: nothing left to do, and no second notice.
+  if (before.status === "failed") return before.stripe_payment_intent_id === input.paymentIntentId;
+  if (before.status !== "claimed") return false;
+
+  const { data: bound, error: bindError } = await db.rpc("bind_resident_autopay_payment_intent", {
+    p_run_id: input.runId,
+    p_attempt: input.attempt,
+    p_payment_intent_id: input.paymentIntentId,
+  });
+  if (bindError || bound !== true) return false;
+
+  const { data: failed, error: failError } = await db
+    .from("resident_autopay_runs")
+    .update({ status: "failed", failure_reason: input.reason, updated_at: new Date().toISOString() })
+    .eq("id", input.runId)
+    .eq("attempt", input.attempt)
+    .eq("status", "claimed")
+    .select("id");
+  if (failError) throw new Error(failError.message);
+  if (!failed || failed.length === 0) return false;
+
+  const { error: releaseError } = await db.rpc("release_resident_autopay_slot", {
+    p_run_id: input.runId,
+    p_attempt: input.attempt,
+    p_payment_intent_id: input.paymentIntentId,
+  });
+  if (releaseError) throw new Error(releaseError.message);
+
+  if (input.charge) {
+    await notifyAutopayDeclined(db, {
+      charge: input.charge,
+      managerId: input.managerId,
+      declineMessage: input.reason,
+    }).catch(() => undefined);
+  }
+  return true;
 }
 
 /**
@@ -713,13 +869,18 @@ export async function listFailedAutopayRunsEligibleForRetry(
   const residentUserIds = [...new Set(candidates.map((row) => String(row.resident_user_id)))];
   const { data: settingsRows, error: settingsErr } = await db
     .from("resident_autopay_settings")
-    .select("resident_user_id, household_key, payment_method_id, enabled")
+    .select("resident_user_id, household_key, payment_method_id, enabled, consent_at, consent_payment_method_id")
     .in("resident_user_id", residentUserIds);
   if (settingsErr) throw new Error(settingsErr.message);
   const settingsByKey = new Map(
     (settingsRows ?? []).map((row) => [
       `${row.resident_user_id}|${row.household_key}`,
-      { enabled: row.enabled === true, paymentMethodId: row.payment_method_id as string | null },
+      {
+        enabled: row.enabled === true,
+        paymentMethodId: row.payment_method_id as string | null,
+        consentAt: (row.consent_at as string | null) ?? null,
+        consentPaymentMethodId: (row.consent_payment_method_id as string | null) ?? null,
+      },
     ]),
   );
 
@@ -729,7 +890,7 @@ export async function listFailedAutopayRunsEligibleForRetry(
     if (!charge?.id || charge.status === "partially_paid" || !isUnpaidHouseholdCharge(charge)) continue;
     const householdKey = residentAutopayHouseholdKey(charge.residentEmail, charge.propertyId);
     const settings = settingsByKey.get(`${run.resident_user_id}|${householdKey}`);
-    if (!settings?.enabled || !settings.paymentMethodId) continue;
+    if (!settings || !autopayConsentCoversMethod(settings)) continue;
     out.push({
       runId: String(run.id),
       chargeId: String(run.charge_id),
@@ -737,7 +898,7 @@ export async function listFailedAutopayRunsEligibleForRetry(
       residentEmail: charge.residentEmail,
       managerId: String(run.manager_id),
       propertyId: charge.propertyId,
-      paymentMethodId: settings.paymentMethodId,
+      paymentMethodId: settings.paymentMethodId!,
       attempt: runAttempt(run.attempt),
       updatedAt: String(run.updated_at),
     });

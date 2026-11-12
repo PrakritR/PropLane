@@ -52,6 +52,8 @@ export type ManagerSmsMessageRow = {
    * Never shown to the texter; only inside Communication.
    */
   sentBy?: { userId: string; name: string } | null;
+  /** The PropLane agent or an automation sent this, not a person (`isAutomatedSmsOutbound`). Drawn as "PropLane". */
+  automated?: boolean;
   /** MMS attachments of this text (inbound photos), shown inline in the bubble. */
   media?: ManagerSmsMessageMedia[];
 };
@@ -75,12 +77,49 @@ export function lookingForCardText(body: string): string {
  * name for what they sent. Never the raw direction word.
  */
 export function smsBubbleSenderLabel(
-  message: Pick<ManagerSmsMessageRow, "direction" | "sentBy">,
+  message: Pick<ManagerSmsMessageRow, "direction" | "sentBy" | "automated" | "source">,
   counterpartName = "Property manager",
 ): string {
   if (message.direction === "inbound") return counterpartName.trim() || "Property manager";
-  const teammate = message.sentBy?.name?.trim();
-  return teammate || "You";
+  return smsOutboundAuthorLabel(message);
+}
+
+/** What an AI or automated outbound text is signed as: the line's agent, never the workspace owner who owns the number. */
+export const SMS_AGENT_AUTHOR_LABEL = "PropLane";
+
+/** The only outbox purpose a person's own typed reply carries; every other purpose is a system send. */
+const HUMAN_SMS_PURPOSES: ReadonlySet<string> = new Set(["manager_conversation"]);
+
+/**
+ * Is this outbound text the PropLane agent's or an automation's rather than a person's? Pure; the server stamps the answer
+ * on the row (`ManagerSmsMessageRow.automated`) from the outbox row that sent it. A send class of `automated`, a purpose
+ * other than a person's conversation reply, a row logged as automated, or an "actor" that is the texter themselves (the
+ * agent answering on their behalf) is the agent. Stored rows are never rewritten.
+ */
+export function isAutomatedSmsOutbound(input: {
+  purpose?: string | null;
+  sendClass?: string | null;
+  source?: string | null;
+  actorUserId?: string | null;
+  counterpartyUserId?: string | null;
+}): boolean {
+  if (input.source === "automated" || input.sendClass === "automated") return true;
+  const actor = String(input.actorUserId ?? "").trim();
+  const counterparty = String(input.counterpartyUserId ?? "").trim();
+  if (actor && counterparty && actor === counterparty) return true;
+  const purpose = String(input.purpose ?? "").trim();
+  return purpose !== "" && purpose !== "unspecified" && !HUMAN_SMS_PURPOSES.has(purpose);
+}
+
+/**
+ * Who an outbound text reads as from: "PropLane" for the agent or an automation, the staff member's own name for a
+ * human reply that was not the viewer's, "You" for the viewer's own. An automated turn is never given a person's name.
+ */
+export function smsOutboundAuthorLabel(
+  message: Pick<ManagerSmsMessageRow, "sentBy" | "automated" | "source">,
+): string {
+  if (message.automated === true || message.source === "automated") return SMS_AGENT_AUTHOR_LABEL;
+  return message.sentBy?.name?.trim() || "You";
 }
 
 export type ManagerSmsResidentConversation = {

@@ -7,6 +7,7 @@ import {
   type InboxMessageDelivery,
 } from "@/lib/inbox-delivery-status";
 import { isPlaceholderMailbox, isSandboxEmail } from "@/lib/inbox-delivery-status";
+import { WORKSPACE_NO_WORK_NUMBER_CODE, WORKSPACE_NO_WORK_NUMBER_MESSAGE } from "@/lib/sms/workspace-no-work-number";
 
 /**
  * Server writers for per-message delivery status (see docs/agents/communication-inbox.md § Delivery status).
@@ -138,6 +139,50 @@ export async function recordInboxMessageDelivery(
   return full;
 }
 
+/** The provider-ref key of a text that was queued or deferred: it has no provider id until the dispatcher sends it. */
+export function outboxProviderRef(outboxId: string): string {
+  return `outbox:${outboxId}`;
+}
+
+/**
+ * A text the outbox only ACCEPTED (deferred, queued) had no provider id when it was recorded, so its inbox message
+ * was remembered under the outbox row instead (`outboxProviderRef`). When the dispatcher finally hands it to the
+ * provider, the first status callback carries a MessageSid nobody recorded: find the outbox row that holds that sid,
+ * follow it to the message, and remember the real sid so every later callback is a direct hit.
+ */
+async function refFromDeferredOutbox(
+  db: SupabaseClient,
+  providerId: string,
+  channel: InboxDeliveryChannel,
+): Promise<{ thread_record_id?: string; message_id?: string } | null> {
+  try {
+    const { data: outbox } = await db
+      .from("sms_outbox")
+      .select("id")
+      .eq("provider_message_sid", providerId)
+      .limit(1)
+      .maybeSingle();
+    const outboxId = String((outbox as { id?: unknown } | null)?.id ?? "").trim();
+    if (!outboxId) return null;
+    const { data } = await db
+      .from("inbox_message_provider_refs")
+      .select("thread_record_id, message_id")
+      .eq("provider_id", outboxProviderRef(outboxId))
+      .maybeSingle();
+    const ref = data as { thread_record_id?: string; message_id?: string } | null;
+    if (!ref?.thread_record_id || !ref.message_id) return null;
+    await rememberProviderRef(db, {
+      providerId,
+      channel,
+      threadId: ref.thread_record_id,
+      messageId: ref.message_id,
+    });
+    return ref;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * A provider callback (Twilio status, Resend webhook): find the message this id was recorded against and
  * advance its delivery. Idempotent; an id nobody recorded is ignored.
@@ -158,7 +203,10 @@ export async function applyProviderDeliveryStatus(
     .select("thread_record_id, message_id")
     .eq("provider_id", providerId)
     .maybeSingle();
-  const ref = data as { thread_record_id?: string; message_id?: string } | null;
+  let ref = data as { thread_record_id?: string; message_id?: string } | null;
+  if (!ref?.thread_record_id && args.channel === "sms") {
+    ref = await refFromDeferredOutbox(db, providerId, args.channel);
+  }
   if (!ref?.thread_record_id || !ref.message_id) return { updated: false };
   const entry: InboxMessageDelivery = {
     channel: args.channel,
@@ -220,7 +268,7 @@ export async function recordPlaceholderEmailFailures(
 export async function recordSmsAttempt(
   db: SupabaseClient,
   target: InboxMessageTarget | null | undefined,
-  result: { sent: boolean; accepted?: boolean; sid?: string | null; error?: string | null } | null,
+  result: { sent: boolean; accepted?: boolean; sid?: string | null; error?: string | null; outboxId?: string | null } | null,
 ): Promise<InboxMessageDelivery> {
   if (result?.sent) {
     return recordInboxMessageDelivery(db, target, {
@@ -229,6 +277,12 @@ export async function recordSmsAttempt(
       ...(result.sid ? { providerId: result.sid } : {}),
     });
   } else if (result?.accepted) {
+    // Queued or deferred, not yet sent: there is no provider id, so the message is remembered under the outbox row and
+    // the first status callback after the dispatcher sends it finds the message again (`refFromDeferredOutbox`).
+    // Without it this stays "Sending…" for good.
+    if (result.outboxId && target?.threadId && target.messageId) {
+      await rememberProviderRef(db, { ...target, providerId: outboxProviderRef(result.outboxId), channel: "sms" });
+    }
     return recordInboxMessageDelivery(db, target, { channel: "sms", status: "sending" });
   } else {
     return recordInboxMessageDelivery(db, target, {
@@ -243,5 +297,10 @@ export function smsSendErrorText(error: string | null | undefined): string {
   const code = String(error ?? "").trim();
   if (code === "recipient_opted_out") return "They opted out of texts (replied STOP)";
   if (code === "invalid_to") return "That isn't a valid phone number";
+  if (code === WORKSPACE_NO_WORK_NUMBER_CODE) return WORKSPACE_NO_WORK_NUMBER_MESSAGE;
+  if (code === "control_plane_unreadable" || code === "line_unreadable") return "Couldn't check the work number. Try again";
+  if (code.startsWith("comms_billing_")) return "Not enough text credit";
+  if (code === "quiet_hours") return "Not sent during quiet hours (9 pm to 8 am Pacific)";
+  if (code === "scoped_consent_missing") return "They haven't opted in to texts from this number";
   return "Text couldn't be sent";
 }

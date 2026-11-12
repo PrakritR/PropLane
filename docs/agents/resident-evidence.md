@@ -9,3 +9,5 @@
 Persona `completed` is not an approval. Only the signed provider decision confirmed against Persona can attest identity; manual review records a support request and cannot attest identity. Never store identity documents or SSNs in these records or send them to analytics.
 
 The current screening adapter and policy foundation are not a complete purchase, report sharing or enforcement flow. Keep screening rollout off until those paths and their real provider, database and browser proof are complete. The baseline gate must be wired to every protected entry point before identity rollout is enabled.
+
+`RESIDENT_IDENTITY_PROVIDER` picks the provider (default `checkr`, or `persona`); the Persona rows above apply only when it is `persona`. The default Checkr ID check rides the applicant's screening order and is not a pre-application gate. Stripe Identity is refused: its terms bar FCRA-covered eligibility decisions. See [`identity-and-screening.md`](identity-and-screening.md).

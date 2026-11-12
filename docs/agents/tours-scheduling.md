@@ -496,6 +496,12 @@ inquiry id, recipient email, manager and property; redeeming it goes through
 `/api/auth/email-onboarding/start` with intent `tour`, which reserves the exact tour context before Auth
 can mint an OTP and retries only the same still-pending handoff.
 
+### Optional tour fee (Nov 12; setting hidden)
+
+Applications, leases and tours are free through PropLane by default; a manager can charge for a tour. `tourFeeCents` lives on the tour settings (property override, workspace row or account row, same resolver as the notice days), default 0, and **0 changes nothing anywhere**. Above 0 (`src/lib/tour-fee.server.ts`): a signed-in guest's request raises ONE pending `tour_fee` household charge before the request is stored (id `hc_tour_fee_<inquiryId>`, through `persistHouseholdChargeRows`, so the ledger sync and `charge_created` notice follow); the pending request is the slot's hold; `confirmTourInquiry` refuses (402) while the fee is unpaid (an unreadable fee refuses, 503); a manager cancel (`cancelPlannedTour`), decline/delete, or a confirm that removes a sibling request settles the fee: paid -> full refund through `runHouseholdChargeRefund` on operation key `tour-fee-refund:<inquiryId>`, unpaid -> the charge is cancelled. An SMS prospect has no account and owes nothing. `tour_fee` is income (`other_income`), not rent (the fee payer follows the ordinary resolver), and a prospect who owes one is not evidence of a tenancy (`PRE_TENANCY_CHARGE_KINDS`).
+
+**The setting is hidden (`TOUR_FEE_SETTING_ENABLED = false` in `src/lib/tour-fee.ts`) and the settings route ignores `tourFeeCents` until it is flipped**, because a prospect has no safe place to pay yet: the resident Payments page is stage-locked for them and the notice's link would be a dead click. Turning it on needs a prospect pay surface (a `/l/` link or an embedded checkout reachable at stage 0) first. Tests: `tour-fee`, `tour-fee-wiring`.
+
 ## Tour tools, and who may do what
 
 | Tool | Registries | What it does |

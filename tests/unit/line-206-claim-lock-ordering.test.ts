@@ -413,7 +413,7 @@ describe("(f) a replay of the same MessageSid after a failed attempt", () => {
   it.each(["fail", "throw"] as const)("never surfaces a success reply (lock write %s)", async (act) => {
     const failSessionWrites = (c: Ctx) => (c.table === "sms_line_sessions" && c.op !== "select" ? act : undefined);
     const first = await text("is 12 Ravenna Pl still available?", "SM-RETRY", gated("router", failSessionWrites));
-    expect(first.unassignedReply).toBe(`Hi, this is PropLane. Reply STOP to opt out. ${RETRY}`);
+    expect(first.unassignedReply).toBe(RETRY);
     expect(lead()).toMatchObject({ status: "open" });
     expect(session()).toBeUndefined();
     // Twilio redelivers the same MessageSid, now with a healthy database: the stored answer is the retry line, not a success.

@@ -117,7 +117,13 @@ export type OperationsNamespace =
    * (`manager_automation_settings.row_data.landlordProfile`) is the fallback
    * every workspace without its own row still resolves to.
    */
-  | "landlordProfile";
+  | "landlordProfile"
+  /**
+   * Which applicant checks this listing offers (`ApplicantScreeningSettings`, `screening/applicant-screening.ts`):
+   * the ID check and the applicant-paid background check, separately. Property override, then workspace row, then
+   * the built-in default (ON for a PropLane-managed workspace, OFF for self-serve).
+   */
+  | "applicantScreening";
 
 /** A `propertyId` that is not in this manager's workspace. Routes map it to 403. */
 export class ForeignPropertyError extends Error {

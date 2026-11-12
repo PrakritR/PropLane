@@ -83,6 +83,8 @@ import { paymentFailureCopy } from "@/lib/payments/payment-error-copy";
 import { canPayHouseholdChargeWithAxisAch } from "@/lib/household-charge-payment-eligibility";
 import {
   residentPaymentMethodLabel,
+  cartForcesResidentFee,
+  residentServiceFeeBreakdown,
   residentProcessingFeeDisplayLabel,
   RESIDENT_CARD_PAYMENT_DISPLAY_LABEL,
   type ResidentAxisPaymentMethod,
@@ -988,6 +990,18 @@ export function ResidentPaymentsPanel({
         return;
       }
     }
+    // `&start=1` (a Pay button on a payment request card or a texted link) goes one step further: it opens the
+    // pay sheet for exactly this charge, so the resident taps Pay, confirms the amount and pays. It starts nothing
+    // by itself (no claim, no Stripe object) until they continue, and only for a charge they can pay right now.
+    if (searchParams.get("start") === "1" && linked && isPayableHouseholdCharge(linked)) {
+      const ids = filterChargesForPayMethod([linked]).map((c) => c.id);
+      if (ids.length > 0) {
+        landedOnBucket.current = true;
+        openPayConfirm(ids, paymentMethod);
+        router.replace(`${basePath}/payments`);
+        return;
+      }
+    }
     const group = moveInGroups.find((g) => g.items.some((c) => c.id === payParam));
     const target = group ? undefined : rows.find((c) => c.id === payParam);
     if (group || target) landedOnBucket.current = true;
@@ -1007,7 +1021,9 @@ export function ResidentPaymentsPanel({
     chargeIdProp,
     initialSyncDone,
     moveInGroups,
+    openPayConfirm,
     payConfirm,
+    paymentMethod,
     paymentsTerm,
     paymentsUnlocked,
     payHeaderAction,
@@ -1249,7 +1265,18 @@ export function ResidentPaymentsPanel({
     [confirmCharges],
   );
 
-  const confirmTotalLabel = useMemo(() => formatUsd(confirmSubtotalCents), [confirmSubtotalCents]);
+  // Rent's processing fee is always the resident's (`cartForcesResidentFee`), so for a rent cart the exact fee is known
+  // before anything is reserved: the same function the server quotes with. Any other cart waits for its server quote.
+  const confirmFeeEstimate = useMemo(() => {
+    if (!payConfirm || confirmCharges.length === 0 || !cartForcesResidentFee(confirmCharges.map((c) => c.kind))) return null;
+    const fee = residentServiceFeeBreakdown(confirmSubtotalCents, payConfirm.method, "resident", { coverFeeOnFee: true });
+    return { feeCents: fee.residentAddedFeeCents, totalCents: fee.totalCents };
+  }, [confirmCharges, confirmSubtotalCents, payConfirm]);
+
+  const confirmTotalLabel = useMemo(
+    () => formatUsd(confirmFeeEstimate ? confirmFeeEstimate.totalCents : confirmSubtotalCents),
+    [confirmFeeEstimate, confirmSubtotalCents],
+  );
   // The pay sheet names the move-in when the ids are exactly one group's payable lines.
   const confirmMoveInGroup = useMemo(() => {
     if (!payConfirm) return undefined;
@@ -1580,7 +1607,7 @@ export function ResidentPaymentsPanel({
       title="Pay charges"
       contextPanel={<PopupRecordPreview rows={[{ label: "Selected charges", value: confirmCharges.length }]} />}
       previewLabel="Payment preview"
-      preview={<PopupRecordPreview rows={[...confirmCharges.map((charge, index) => ({ label: `${index + 1}. ${householdChargeDisplayTitle(charge)}`, value: formatChargeMoneyLabel(charge.balanceLabel) })), { label: "Amount due", value: confirmTotalLabel }]} />}
+      preview={<PopupRecordPreview rows={[...confirmCharges.map((charge, index) => ({ label: `${index + 1}. ${householdChargeDisplayTitle(charge)}`, value: formatChargeMoneyLabel(charge.balanceLabel) })), ...(confirmFeeEstimate ? [{ label: "Processing fee", value: formatUsd(confirmFeeEstimate.feeCents) }] : []), { label: "Amount due", value: confirmTotalLabel }]} />}
       scrollableContent
       panelClassName={payModalCheckoutReady ? MODAL_LARGE_PANEL_CLASS : "max-w-lg"}
     >
@@ -1592,7 +1619,10 @@ export function ResidentPaymentsPanel({
               {checkout?.totalCents != null ? formatUsd(checkout.totalCents) : confirmTotalLabel}
             </p>
             <p className="text-xs text-muted">
-              {checkout?.totalCents == null ? "Processing fee: Pending quote" :
+              {checkout?.totalCents == null
+                ? confirmFeeEstimate
+                  ? `Includes ${formatUsd(confirmFeeEstimate.feeCents)} processing fee`
+                  : "Processing fee: Pending quote" :
               (checkout.processingFeeCents ?? 0) + (checkout.axisFeeCents ?? 0) > 0
                 ? `Processing fee ${formatUsd((checkout?.processingFeeCents ?? 0) + (checkout?.axisFeeCents ?? 0))}`
                 : "Processing fee: None"}

@@ -25,6 +25,8 @@ import { isOldNumberOnSharedLine, sendMovedAutoReply } from "@/lib/one-number/ol
 import { recordShadowDecision } from "@/lib/one-number/shadow.server";
 import { redactSensitiveNumbers } from "@/lib/one-number/redact";
 
+import { classifyNonPhoneSender } from "@/lib/sms/non-phone-sender";
+import { ingestNonPhoneSenderText } from "@/lib/sms/non-phone-sender.server";
 import { durableSmsCheckpoint, getDurableSmsCheckpoint, SafeSmsIngressRetry, isDurableSmsIngress } from "@/lib/sms/durable-ingress-context.server";
 import type { PreparedBubble } from "@/lib/sms/inbound-envelope.server";
 const SMS_STOP_KEYWORDS = new Set(["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"]);
@@ -56,6 +58,17 @@ export async function processInboundParams(params: Record<string, string>, prepa
 
   const db = createSupabaseServiceRoleClient();
   if (getDurableSmsCheckpoint()?.stage === "unstarted") await durableSmsCheckpoint({ stage: "safe" });
+  // A short code / alphanumeric sender: stored as its own conversation and announced, never answered, no agent, no STOP/HELP.
+  const nonPhoneSender = classifyNonPhoneSender(fromPhone);
+  if (nonPhoneSender) {
+    try {
+      await ingestNonPhoneSenderText(db, { from: nonPhoneSender, toPhone, body, messageSid });
+    } catch (error) {
+      if (isDurableSmsIngress()) throw new SafeSmsIngressRetry("non_phone_inbound_unavailable");
+      throw error;
+    }
+    return twimlOk();
+  }
   // Durable acceptance must never reinterpret an unreadable shared line as an owned line.
   let resolvedNumber: Awaited<ReturnType<typeof resolveOwnedWorkNumber>>;
   let lineConfig: Awaited<ReturnType<typeof loadSharedLineConfig>>;
@@ -177,6 +190,21 @@ export async function processInboundParams(params: Record<string, string>, prepa
           phoneKey: sharedKey,
         });
         if (seam.kind === "handled") {
+          // A stranger or an unassigned lead on the PropLane line: PropLane's admin phones hear it (who, what they want, link).
+          if (messageSid) {
+            const alertSid = messageSid;
+            const alertTask = async () => {
+              await import("@/lib/one-number/inbound-alert.server")
+                .then((m) => m.alertOpsOfInboundText(db, { workspaceId: null, fromPhone, body, messageSid: alertSid, onPropLaneLine: true }))
+                .catch(() => undefined);
+            };
+            // Best-effort: a post-reply alert never fails the inbound (`after` throws outside a request scope).
+            try {
+              after(alertTask);
+            } catch {
+              void alertTask();
+            }
+          }
           const bubbles: Array<{ body: string; mediaUrl?: string }> = seam.bubbles ?? (seam.messages?.map((body) => ({ body })) ?? (seam.twiml ? [{ body: seam.twiml, mediaUrl: seam.mediaUrl }] : []));
           state.sender = lineConfig.sharedNumber ?? undefined;
           prepared.push(...bubbles.map((bubble) => ({ body: bubble.body, ...(bubble.mediaUrl ? { mediaUrls: [bubble.mediaUrl] } : {}) })));

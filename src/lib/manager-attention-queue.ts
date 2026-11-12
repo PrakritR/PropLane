@@ -34,6 +34,8 @@ export type ManagerAttentionInput = {
   undeliveredConversationCount?: number;
   /** Residents who used the in-app assistant to ask for the manager and have not been read (`countResidentHandoffs`). */
   residentHandoffCount?: number;
+  /** Signed leases whose resident has never been billed rent (`leasesWithoutRentCharges`): money silently not flowing. */
+  unbilledResidencyCount?: number;
 };
 
 export const MANAGER_ATTENTION_MAX_ROWS = 6;
@@ -53,6 +55,7 @@ export function buildManagerAttentionRows(input: ManagerAttentionInput): Manager
     unreadConversationCount,
     undeliveredConversationCount = 0,
     residentHandoffCount = 0,
+    unbilledResidencyCount = 0,
   } = input;
   const rows: ManagerAttentionRow[] = [];
   if (undeliveredConversationCount > 0) {
@@ -70,6 +73,15 @@ export function buildManagerAttentionRows(input: ManagerAttentionInput): Manager
       title: `${overdueChargeCount} overdue ${overdueChargeCount === 1 ? "charge" : "charges"} · ${overdueBalanceLabel}`,
       actionLabel: "Remind",
       href: `${BASE}/payments/incoming/overdue`,
+      tone: "danger",
+    });
+  }
+  if (unbilledResidencyCount > 0) {
+    rows.push({
+      id: "unbilled-residency",
+      title: `${unbilledResidencyCount} signed ${unbilledResidencyCount === 1 ? "lease has" : "leases have"} no rent charged`,
+      actionLabel: "Review",
+      href: `${BASE}/payments/incoming/pending`,
       tone: "danger",
     });
   }

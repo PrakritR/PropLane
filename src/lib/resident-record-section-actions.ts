@@ -1,4 +1,4 @@
-import { Bell, CheckCircle2, Download, FileX, Pencil, PenLine, Plus, RefreshCw, Send, Undo2, XCircle } from "lucide-react";
+import { Bell, CheckCircle2, Download, FileX, Pencil, PenLine, Plus, RefreshCw, Send, Star, Undo2, XCircle } from "lucide-react";
 import type { RecordHeaderAction } from "@/lib/portals/record-sections";
 import type { ResidentRecordStatusBucketId } from "@/lib/resident-detail-subsection-tabs";
 import type { LeaseListTabId } from "@/lib/lease-pipeline-storage";
@@ -102,4 +102,17 @@ export function residentSectionHeaderActions(ctx: ResidentSectionActionContext):
     default:
       return ctx.registry;
   }
+}
+
+/**
+ * The record's top-right set is Edit and Delete from the registry; for someone who is (or was) a tenant it also
+ * carries **Rate** (a star glyph) between them: the manager's 1-5 star rating and review (`resident-ratings.md`).
+ * Added once; the server still decides whether this workspace really housed them.
+ */
+export function withResidentRateAction(actions: RecordHeaderAction[]): RecordHeaderAction[] {
+  if (actions.some((action) => action.id === "rate")) return actions;
+  const rate: RecordHeaderAction = { id: "rate", label: "Rate", icon: Star };
+  const deleteIndex = actions.findIndex((action) => action.id === "delete");
+  if (deleteIndex === -1) return [...actions, rate];
+  return [...actions.slice(0, deleteIndex), rate, ...actions.slice(deleteIndex)];
 }

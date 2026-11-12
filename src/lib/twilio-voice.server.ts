@@ -21,7 +21,7 @@ export function resolveVoiceInboundWebhookUrl(): string {
   return `${base}/api/twilio/voice/inbound`;
 }
 
-export function resolveVoiceTurnWebhookUrl(phase: "consent" | "agent" = "agent", turnId?: string): string {
+export function resolveVoiceTurnWebhookUrl(phase: "consent" | "agent" | "escalation" = "agent", turnId?: string, attempt = 0, reason?: string): string {
   const explicit = process.env.TWILIO_VOICE_TURN_WEBHOOK_URL?.trim();
   if (explicit) {
     try {
@@ -31,13 +31,15 @@ export function resolveVoiceTurnWebhookUrl(phase: "consent" | "agent" = "agent",
       }
       url.searchParams.set("phase", phase);
       if (turnId) url.searchParams.set("turn", turnId);
+      if (attempt > 0) url.searchParams.set("attempt", String(attempt));
+      if (reason) url.searchParams.set("reason", reason);
       return url.toString();
     } catch {
       /* fall through to derived URL */
     }
   }
   const base = (resolveEmailLinkBaseUrl() || PRODUCTION_APP_ORIGIN).replace(/\/$/, "");
-  return `${base}/api/twilio/voice/turn?phase=${phase}${turnId ? `&turn=${encodeURIComponent(turnId)}` : ""}`;
+  return `${base}/api/twilio/voice/turn?phase=${phase}${turnId ? `&turn=${encodeURIComponent(turnId)}` : ""}${attempt > 0 ? `&attempt=${attempt}` : ""}${reason ? `&reason=${encodeURIComponent(reason)}` : ""}`;
 }
 
 /** Twilio call-status callback (fires on completed/failed/no-answer). */
@@ -100,6 +102,24 @@ export function twimlDial(args: { toPhone: string; callerId: string; timeoutSeco
   );
 }
 
+/**
+ * Ring a person for a short time, then come back. `action` is the turn route: when the ring ends unanswered (or the bridged
+ * call finishes) Twilio posts `DialCallStatus` there, so the assistant can pick the call back up. `whisperUrl` is played to
+ * the person who answers (who is calling) before the caller is connected.
+ */
+export function twimlDialEscalation(args: { toPhone: string; callerId: string; actionUrl: string; whisperUrl?: string; timeoutSeconds?: number }): string {
+  const timeout = Math.max(10, Math.min(30, args.timeoutSeconds ?? 20));
+  const number = args.whisperUrl
+    ? `<Number url="${escapeXml(args.whisperUrl)}" method="POST">${escapeXml(args.toPhone)}</Number>`
+    : `<Number>${escapeXml(args.toPhone)}</Number>`;
+  return `<Dial timeLimit="600" answerOnBridge="true" callerId="${escapeXml(args.callerId)}" timeout="${timeout}" action="${escapeXml(args.actionUrl)}" method="POST">${number}</Dial>`;
+}
+
+export function resolveVoiceWhisperWebhookUrl(kind: string): string {
+  const base = (resolveEmailLinkBaseUrl() || PRODUCTION_APP_ORIGIN).replace(/\/$/, "");
+  return `${base}/api/twilio/voice/whisper?kind=${encodeURIComponent(kind.replace(/[^a-z]/g, "").slice(0, 20))}`;
+}
+
 export function twimlHangup(): string {
   return "<Hangup/>";
 }
@@ -109,13 +129,25 @@ export function twimlGatherSpeech(args: {
   prompt?: string;
   timeout?: number;
   speechTimeout?: "auto" | number;
+  /**
+   * Where the call goes when the caller says nothing. Twilio skips the Gather's action on silence and runs the next verb,
+   * so without this the line simply goes dead after the timeout: the redirect hands silence back to the turn handler,
+   * which re-asks once and then says goodbye.
+   */
+  noInputUrl?: string;
 }): string {
   const prompt = args.prompt ? twimlSay(args.prompt) : "";
-  const timeout = args.timeout ?? 8;
+  const timeout = args.timeout ?? 6;
   const speechTimeout = args.speechTimeout ?? "auto";
   const speechTimeoutAttr =
     speechTimeout === "auto" ? 'speechTimeout="auto"' : `speechTimeout="${speechTimeout}"`;
-  return `${prompt}<Gather input="speech" action="${escapeXml(args.actionUrl)}" method="POST" timeout="${timeout}" ${speechTimeoutAttr} language="${escapeXml(resolveVoiceLanguage())}"><Say voice="${escapeXml(resolveVoicePollyVoice())}" language="${escapeXml(resolveVoiceLanguage())}"> </Say></Gather>`;
+  const noInput = args.noInputUrl ? `<Redirect method="POST">${escapeXml(args.noInputUrl)}</Redirect>` : "";
+  return `${prompt}<Gather input="speech" action="${escapeXml(args.actionUrl)}" method="POST" timeout="${timeout}" ${speechTimeoutAttr} language="${escapeXml(resolveVoiceLanguage())}"><Say voice="${escapeXml(resolveVoicePollyVoice())}" language="${escapeXml(resolveVoiceLanguage())}"> </Say></Gather>${noInput}`;
+}
+
+/** A spoken goodbye that ends the call. */
+export function twimlGoodbye(text = "Thanks for calling PropLane. Goodbye."): string {
+  return twimlSay(text) + twimlHangup();
 }
 
 export function twimlStartRecording(statusCallbackUrl: string): string {

@@ -41,6 +41,7 @@ import { anchorTourWindowToSlotKey, isActivePlannedTourEvent } from "@/lib/tour-
 import { REQUESTED_TOUR_KIND, resolveRequestedTourWindow } from "@/lib/tour-request-time";
 import { listOpenTourSlots } from "@/lib/tour-availability.server";
 import { rateLimit } from "@/lib/rate-limit";
+import { raiseTourFeeCharge, settleTourFeeOnCancel, type TourFeeInfo } from "@/lib/tour-fee.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -376,6 +377,8 @@ export async function createTourInquiry(
   // property and time in the shared payload, and have that resident receive the notices for
   // the tour they just overwrote. The id is minted here and never read from input.
   delete incoming.id;
+  // Server-owned too: the fee stamp below is set only when a fee charge was really raised.
+  delete incoming.tourFee;
   const notify = args.notify !== false;
 
   const id = crypto.randomUUID();
@@ -532,6 +535,27 @@ export async function createTourInquiry(
   // The id is freshly minted, so this replaces nothing. Kept as a guard: a row already under
   // this id would mean a UUID collision, and the new tour must not silently inherit its link.
   if (existing.some((item) => item.id === id)) return { ok: false, reason: "write_failed", error: "Could not file this tour request. Please try again." };
+  // The optional tour fee (default $0: nothing happens). A signed-in guest's request raises one pending fee charge BEFORE the
+  // request is stored: the pending request is the slot's hold, and the confirm gate keeps it from being confirmed until the
+  // fee is paid. If the fee is owed and cannot be written, the request is refused rather than stored as a free tour.
+  let tourFee: TourFeeInfo | null = null;
+  if (isTour && args.verifiedApplicantUserId && !args.smsOrigin?.senderPhoneE164) {
+    try {
+      tourFee = await raiseTourFeeCharge(db, {
+        inquiry: row,
+        inquiryId: id,
+        residentUserId: args.verifiedApplicantUserId,
+        residentEmail: args.verifiedApplicantEmail ?? null,
+        hostUserId: textValue(row.managerUserId) || textValue(requestedWindows[0]?.adminUserId),
+      });
+    } catch {
+      return { ok: false, reason: "write_failed", error: "Could not set up the tour fee. Please try again." };
+    }
+    if (tourFee) row.tourFee = { chargeId: tourFee.chargeId, amountCents: tourFee.amountCents, amountLabel: tourFee.amountLabel };
+  }
+  const dropTourFee = async () => {
+    if (tourFee) await settleTourFeeOnCancel(db, { inquiryId: id, reason: "request_not_saved" });
+  };
   const next = [row, ...existing];
 
   const leadSource = normalizeLeadSource(args.sourceChannel);
@@ -594,6 +618,7 @@ export async function createTourInquiry(
   }
 
   if (writeError) {
+    await dropTourFee();
     if ("code" in writeError && writeError.code === "23505") {
       return {
         ok: false,

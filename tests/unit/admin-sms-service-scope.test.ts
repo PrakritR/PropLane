@@ -60,12 +60,18 @@ describe("service scope for admin Communication", () => {
     expect(await loadServiceInboxScope(db as never)).toEqual({ serviceOwnerIds: [], clientOwnerIds: [], workspaceIds: [] });
   });
 
-  it("shows the PropLane line's texts and a service workspace's texts, and nothing else of the client's", async () => {
-    const payload = await fetchAdminSmsConversations(withRange(db) as never);
-    const bodies = payload.residents.flatMap((r) => (r as unknown as { messages?: Array<{ body: string }> }).messages ?? []).map((m) => m.body);
-    expect(bodies).toContain("line prospect");
-    expect(bodies).toContain("service tour request");
-    expect(bodies).not.toContain("personal workspace text");
-    expect(bodies).not.toContain("unstamped text");
+  it("reads the PropLane line's texts and a service workspace's texts, and nothing else of the client's", async () => {
+    const bodiesOf = (payload: Awaited<ReturnType<typeof fetchAdminSmsConversations>>) =>
+      payload.residents.flatMap((r) => (r as unknown as { messages?: Array<{ body: string }> }).messages ?? []).map((m) => m.body);
+    // The main list holds what no workspace holds yet; a workspace's own threads live in that workspace (and its filter).
+    const main = bodiesOf(await fetchAdminSmsConversations(withRange(db) as never));
+    expect(main).toContain("line prospect");
+    expect(main).not.toContain("service tour request");
+    const inWorkspace = bodiesOf(await fetchAdminSmsConversations(withRange(db) as never, { workspaceId: WS_SVC }));
+    expect(inWorkspace).toContain("service tour request");
+    for (const bodies of [main, inWorkspace]) {
+      expect(bodies).not.toContain("personal workspace text");
+      expect(bodies).not.toContain("unstamped text");
+    }
   });
 });

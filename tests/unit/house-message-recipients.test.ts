@@ -52,6 +52,11 @@ describe("who lives in the house", () => {
     { ...longStay("past@example.com", "Past", "Room 8"), end: "2026-10-01" },
   ];
 
+  it("carries the house each person lives in, so their copy is pinned to that house's workspace", () => {
+    const { people } = derive(stays);
+    expect(people.every((p) => p.propertyId === "p1")).toBe(true);
+  });
+
   it("excludes short-stay guests, other houses and ended stays by default", () => {
     const { people, excludedGuests } = derive(stays);
     expect(people.map((person) => person.name)).toEqual(["Ann", "Ben"]);
@@ -98,6 +103,7 @@ const person = (id: string, channels: Partial<HouseRecipient["channels"]> = {}):
   roomLabel: `Room ${id}`,
   email: `${id}@example.com`,
   userId: null,
+  propertyId: "p1",
   guest: false,
   channels: { app: true, email: true, sms: true, ...channels },
 });
@@ -171,7 +177,9 @@ describe("per-person send", () => {
       deliverViaSms: false,
       eventCategory: "messages",
     });
+    // The bare `propertyId` would switch the route's property-manager fan-out on; the house rides under its own key.
     expect(payload).not.toHaveProperty("propertyId");
+    expect(payload).toMatchObject({ houseSendPropertyId: "p1" });
     expect(payload).not.toHaveProperty("toBroadcast");
   });
 
@@ -191,12 +199,40 @@ describe("per-person send", () => {
       },
     );
     expect(result).toMatchObject({ ok: true, sms: "delivered", email: "failed", emailError: "Not a real mailbox" });
-    expect(housePersonResultLine(result)).toBe("App ✓ · Text Delivered · Email Not delivered");
+    expect(housePersonResultLine(result)).toBe("App ✓ · Text Delivered · Email Not delivered (not a real mailbox)");
   });
 
-  it("reads Sent for a wanted channel with no deliveries, and Skipped for one they cannot receive", () => {
+  it("reads Not sent (never Sent) for a wanted channel with no deliveries, and Skipped for one they cannot receive", () => {
     const result = personResultFromResponse(person("b", { sms: false }), { app: true, email: true, sms: true }, { ok: true, data: { ok: true } });
-    expect(result).toMatchObject({ email: "sent", sms: "skipped" });
+    expect(result).toMatchObject({ email: "unsent", sms: "skipped" });
+    expect(housePersonResultLine(result)).toBe("App ✓ · Text Skipped · Email Not sent");
+  });
+
+  it("names the reason the route gave for a channel it did not attempt", () => {
+    const result = personResultFromResponse(
+      person("a"),
+      { app: true, email: false, sms: true },
+      { ok: true, data: { ok: true, skipped: [{ email: "a@example.com", channel: "sms", reason: "opted_out" }, { email: "other@example.com", channel: "sms", reason: "no_phone" }] } },
+    );
+    expect(result).toMatchObject({ sms: "unsent", smsError: "opted out" });
+    expect(housePersonResultLine(result)).toBe("App ✓ · Text Not sent (opted out)");
+    expect(houseSendCounts([result])).toMatchObject({ sms_unsent: 1, sms_failed: 0 });
+  });
+
+  it("shows why a delivery failed beside Not delivered", () => {
+    const result = personResultFromResponse(
+      person("a"),
+      { app: true, email: false, sms: true },
+      { ok: true, data: { ok: true, deliveries: [{ channel: "sms", status: "failed", error: "This workspace has no work number.", at: "t" }] } },
+    );
+    expect(housePersonResultLine(result)).toBe("App ✓ · Text Not delivered (this workspace has no work number)");
+  });
+
+  it("a delivery that is only queued reads Sending, and a delivered one needs no reason", () => {
+    const sending = personResultFromResponse(person("a"), { app: true, email: false, sms: true }, { ok: true, data: { ok: true, deliveries: [{ channel: "sms", status: "sending", at: "t" }] } });
+    expect(sending.sms).toBe("sending");
+    const delivered = personResultFromResponse(person("a"), { app: true, email: false, sms: true }, { ok: true, data: { ok: true, deliveries: [{ channel: "sms", status: "delivered", at: "t" }] } });
+    expect(housePersonResultLine(delivered)).toBe("App ✓ · Text Delivered");
   });
 });
 

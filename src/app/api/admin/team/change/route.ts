@@ -5,7 +5,7 @@ import { NO_STORE, failureResponse, readJsonBody, requireAdminTeamActor } from "
 
 export const runtime = "nodejs";
 
-/** Change a person's role, workspaces, houses and access. Overall-admin changes are Overall-admin only (the verb checks). */
+/** Change a person's role, workspaces, houses and access. making an Overall admin is the primary admin's alone, and changing one is Overall-admin only (the verb checks). */
 export async function POST(request: Request) {
   const gate = await requireAdminTeamActor();
   if (!gate.ok) return gate.response;

@@ -1,13 +1,14 @@
 /**
  * Admin team (plan admin-team-1027), server side, over the real service layer and an in-memory database:
  *   * an invite is bound to one email and grants nothing until that exact email redeems it;
- *   * an Overall admin invite needs an Overall admin, at create AND at redeem;
+ *   * an Overall admin invite needs the PRIMARY admin, at create AND at redeem;
  *   * a workspace admin invites only into workspaces they run, never above their own role;
  *   * the last Overall admin cannot be removed or demoted;
  *   * a workspace admin gets 403 on PropLane-wide admin routes and sees only their own workspace's tile and seats.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { makeServiceFakeDb, type ServiceFakeDb } from "../helpers/service-fake-db";
+import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 
 const OWNER = "11111111-1111-4111-8111-111111111111";
 const PRAKRIT = "22222222-2222-4222-8222-222222222222";
@@ -74,7 +75,8 @@ let VINOD = "";
 
 const EMAILS: Record<string, string> = {
   [OWNER]: "owner@example.com",
-  [PRAKRIT]: "prakrit@example.com",
+  // The platform's primary admin: the only account that may make another Overall admin.
+  [PRAKRIT]: PRIMARY_ADMIN_EMAIL,
   [AARAV]: "aarav@example.com",
   [JORDAN]: "jordan@example.com",
   [SAM]: "sam@example.com",
@@ -441,7 +443,7 @@ describe("who can invite", () => {
   it("a workspace admin cannot invite an Overall admin: refused before any link or email exists", async () => {
     await seatJordanAsWorkspaceAdmin();
     const refused = await invite(JORDAN, { email: "sam@example.com", role: "overall_admin" });
-    expect(refused).toMatchObject({ ok: false, status: 403, error: "Only an Overall admin can invite another Overall admin." });
+    expect(refused).toMatchObject({ ok: false, status: 403, error: "Only the primary admin can make another Overall admin." });
     expect(db.tables.manager_invite_links).toHaveLength(1);
     expect(sentEmails.items).toHaveLength(0);
   });
@@ -915,7 +917,9 @@ describe("invites and resends are rate limited, and the inviter's name is cleane
     await redeem(AARAV, lastToken());
     for (let i = 0; i < 19; i++) await invite(PRAKRIT, { email: `person${i}@example.com`, role: "overall_admin" });
     expect(await invite(PRAKRIT, { email: "x@example.com", role: "overall_admin" })).toMatchObject({ ok: false, status: 429 });
-    expect(await invite(AARAV, { email: "y@example.com", role: "overall_admin" })).toMatchObject({ ok: true });
+    // Aarav is an Overall admin but not the primary one: his own budget is untouched, and he seats a workspace role.
+    expect(await invite(AARAV, { email: "y@example.com", role: "viewer", workspaceIds: [AMBIKA] })).toMatchObject({ ok: true });
+    expect(limiter.counts.get(`admin-team-invite:${AARAV}`)).toBe(1);
   });
 
   it("links, markup and length are stripped from the inviter's name in the email", async () => {

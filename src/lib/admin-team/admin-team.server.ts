@@ -10,9 +10,11 @@ import { actorWorkspaceStanding } from "@/lib/workspaces/membership.server";
 import { loadServiceStaffWorkspaces } from "@/lib/service/service-mode.server";
 import { checkAdminTeamSeatGrant, prepareAdminTeamSeatGrant, removeServiceTeamMember, seatAdminTeamMember } from "@/lib/service/service-workspaces.server";
 import { auditAdminTeam, type AdminTeamFailure } from "@/lib/admin-team/admin-team-audit.server";
+import { notifySeatGranted, notifySeatRevoked } from "@/lib/admin-team/admin-team-notify.server";
 import {
   OVERALL_ADMIN_ROLE,
   adminTeamGrantVerdict,
+  adminTeamRoleLabel,
   lastOverallAdminVerdict,
   parseAdminTeamRole,
   parseStoredAdminGrant,
@@ -38,9 +40,30 @@ const fail = (status: number, error: string): AdminTeamFailure => ({ ok: false, 
  */
 type AdminTeamSeatRow = { id: string; workspace_id: string; team_role: string | null; is_owner_of_record: boolean | null; status: string; inviter_user_id: string; house_scope: string | null; assigned_property_ids: unknown; property_co_manager_permissions: unknown; co_manager_permissions: unknown; workspace_permissions: unknown };
 
-/** Overall admin = the Overall admin role; manageable = the service workspaces whose team the viewer may change. */
+/**
+ * Is this account the platform's PRIMARY admin? It must hold the Overall admin role AND sign in with the primary-admin email
+ * (`isPrimaryAdminEmail`), read from the Auth user and confirmed: `profiles.email` has no unique constraint, so it is never
+ * the evidence. The primary admin's mobile (`PRIMARY_ADMIN_PHONE_E164`) is where PropLane texts them, not an identity
+ * proof (profiles can share a number). Any unreadable answer is false: the only thing this opens is making more Overall
+ * admins, which a failed read must never allow.
+ */
+export async function userIsPrimaryAdmin(db: SupabaseClient, userId: string): Promise<boolean> {
+  const id = userId.trim();
+  if (!id) return false;
+  try {
+    if (!(await userHoldsAdminRole(db, id))) return false;
+    const { data, error } = await db.auth.admin.getUserById(id);
+    if (error || !data?.user) return false;
+    return isPrimaryAdminEmail(data.user.email) && Boolean(String(data.user.email_confirmed_at ?? "").trim());
+  } catch {
+    return false;
+  }
+}
+
+/** Overall admin = the Overall admin role; primary = the one account that may make more of them; manageable = the service workspaces whose team the viewer may change. */
 export async function resolveAdminTeamActor(db: SupabaseClient, userId: string): Promise<AdminTeamActor> {
   const overall = await userHoldsAdminRole(db, userId);
+  const primary = overall && (await userIsPrimaryAdmin(db, userId));
   const manageable = new Set<string>();
   if (overall) {
     const all = await db.from("portal_workspaces").select("id").eq("is_service", true);
@@ -54,7 +77,7 @@ export async function resolveAdminTeamActor(db: SupabaseClient, userId: string):
       if (standing?.rights.members) manageable.add(workspace.id);
     }
   }
-  return { overall, manageableWorkspaceIds: manageable };
+  return { overall, primary, manageableWorkspaceIds: manageable };
 }
 
 /**
@@ -143,7 +166,7 @@ export async function applyAdminInviteGrant(
     return fail(
       403,
       grant.role === OVERALL_ADMIN_ROLE
-        ? "The person who invited you is no longer an Overall admin. Ask for a new invite."
+        ? "The person who invited you can no longer make an Overall admin. Ask for a new invite."
         : "The person who invited you can no longer give this access. Ask for a new invite.",
     );
   }
@@ -431,7 +454,7 @@ export async function listAdminTeam(db: SupabaseClient, viewerUserId: string, ac
   return {
     ok: true,
     payload: {
-      viewer: { userId: viewerUserId, overall: actor.overall },
+      viewer: { userId: viewerUserId, overall: actor.overall, primary: actor.primary === true },
       workspaces: workspaceRows.map((w) => ({ id: w.id, name: w.name, city: w.city?.trim() || null, houses: housesByWorkspace.get(w.id) ?? [] })),
       members: members.filter((m) => actor.overall || m.seats.length > 0),
     },
@@ -564,6 +587,8 @@ export async function changeAdminTeamMember(
     return { ok: true };
   }
 
+  const heldBefore = new Set(currentSeats.filter((seat) => seat.status === "accepted").map((seat) => seat.workspace_id));
+  const newlySeated: string[] = [];
   for (const workspaceId of chosen) {
     const seated = await seatAdminTeamMember(
       db,
@@ -574,16 +599,22 @@ export async function changeAdminTeamMember(
     if (!seated.ok) {
       return fail(seated.status, seated.error);
     }
+    if (!heldBefore.has(workspaceId)) newlySeated.push(workspaceId);
   }
-  // Workspaces the person leaves, inside the actor's reach only.
+  // Workspaces the person leaves, inside the actor's reach only. One notice for the whole change, never one per workspace.
+  const left: string[] = [];
   for (const seat of currentSeats) {
     if (chosen.has(seat.workspace_id) || !actor.manageableWorkspaceIds.has(seat.workspace_id)) continue;
-    const removed = await removeServiceTeamMember(db, actorUserId, { id: seat.workspace_id, linkId: seat.id }, { overall: actor.overall });
+    const removed = await removeServiceTeamMember(db, actorUserId, { id: seat.workspace_id, linkId: seat.id }, { overall: actor.overall, silent: true });
     if (!removed.ok) {
       return fail(removed.status, removed.error);
     }
+    if (seat.status === "accepted") left.push(seat.workspace_id);
   }
   await recordGrant(db, { userId, grantedBy: actorUserId, role: input.role, workspaceIds: input.workspaceIds });
+  // Told once each, after the change stands: the workspaces newly granted, and the workspaces just left.
+  await notifySeatGranted(db, { actorUserId, userId, workspaceIds: newlySeated, roleLabel: adminTeamRoleLabel(input.role) });
+  await notifySeatRevoked(db, { actorUserId, userId, workspaceIds: left });
   return { ok: true };
 }
 
@@ -689,14 +720,18 @@ export async function removeAdminTeamMember(
     if (result.data !== "revoked") return fail(result.data === "invalid" ? 400 : result.data === "forbidden" ? 403 : result.data === "stale" || result.data === "last_admin" ? 409 : 503, "Could not remove the admin. Please refresh and retry.");
     await revokeGrants(db, userId, actorUserId, OVERALL_ADMIN_ROLE);
   }
+  const revokedWorkspaceIds: string[] = [];
   for (const seat of targetIsOverall ? [] : reachable) {
-    const removed = await removeServiceTeamMember(db, actorUserId, { id: seat.workspace_id, linkId: seat.id }, { overall: actor.overall });
+    const removed = await removeServiceTeamMember(db, actorUserId, { id: seat.workspace_id, linkId: seat.id }, { overall: actor.overall, silent: true });
     if (!removed.ok) return fail(removed.status, removed.error);
+    if (seat.status === "accepted") revokedWorkspaceIds.push(seat.workspace_id);
   }
   // An Overall admin reaches every service workspace, so every remaining grant row is theirs to close. A workspace
   // admin closes only the rows that name the workspaces they just emptied.
   if (actor.overall) await revokeGrants(db, userId, actorUserId, "all");
   else await revokeGrantsForWorkspaces(db, userId, actorUserId, reachable.map((seat) => seat.workspace_id));
+  // One notice for the whole removal (their alerts for those workspaces have already stopped: the seats are cancelled).
+  await notifySeatRevoked(db, { actorUserId, userId, workspaceIds: revokedWorkspaceIds });
   return { ok: true };
 }
 

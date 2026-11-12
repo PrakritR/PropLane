@@ -3,7 +3,8 @@
 // C1-R3 (captain 2026-10-03): resident Communication has the manager page's
 // structure — Active | Archived tabs with counts, search, Filter, a round
 // compose button — names the MANAGER on every row, shows the resident's OWN
-// identity in the list header, and has no PropLane assistant anywhere.
+// identity in the list header, and (with no assistant mounted: demo, View as) no PropLane row. With the assistant
+// mounted the agent is pinned first and every other row is titled by its HOUSE (resident-communication-pinned-agent).
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 
@@ -41,7 +42,7 @@ const ROWS = [
     time: "Jul 01, 2026",
     unread: false,
   },
-  // A leftover assistant thread from before it was removed: it must never show.
+  // A stored assistant thread: with no assistant provider mounted it must not show as a row.
   {
     id: "resident-agent-resident-test",
     folder: "inbox",
@@ -156,7 +157,7 @@ describe("resident Communication list matches the manager page", () => {
     expect(screen.getByRole("button", { name: /new message/i })).toBeTruthy();
   });
 
-  it("never shows a PropLane Assistant row, even with a leftover assistant thread", async () => {
+  it("shows no PropLane row where no assistant is mounted, even with a stored assistant thread", async () => {
     stubFetch();
     render(<ResidentCommunication />);
     await waitFor(() => expect(screen.getByText("Cascade Lofts Management")).toBeTruthy());
@@ -164,7 +165,7 @@ describe("resident Communication list matches the manager page", () => {
     expect(screen.queryByText(/Ask PropLane/i)).toBeNull();
   });
 
-  it("names each conversation's own manager and home", async () => {
+  it("titles each conversation by its own house and names its manager beside it", async () => {
     stubFetch();
     render(<ResidentCommunication />);
     const cascade = await screen.findByText("Cascade Lofts Management");

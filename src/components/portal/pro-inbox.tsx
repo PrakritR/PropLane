@@ -66,7 +66,8 @@ import {
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 import { bubbleEventFields } from "@/lib/inbox-event-card";
-import { isHouseInboxThread } from "@/lib/house-thread-id";
+import { HouseSmsGroupAction } from "@/components/portal/house-sms-group-action";
+import { isHouseInboxThread, parseHouseThreadId } from "@/lib/house-thread-id";
 import { InboxStayCard } from "@/components/portal/inbox-stay-card";
 import { inboxThreadLastTurnDirection, inboxTurnDirection } from "@/lib/inbox-turn-direction";
 import { markThreadMessageDelivery } from "@/lib/inbox-message-timeline";
@@ -2612,6 +2613,10 @@ export const ManagerInbox = forwardRef<
       <>
         {/* One row of matching circular controls: call, open, edit, archive, delete. */}
         {threadContactActions}
+        {/* The SMS door of a house chat: create / link the group text and manage its members. */}
+        {isHouseInboxThread(activeThread) && parseHouseThreadId(activeThread.id) ? (
+          <HouseSmsGroupAction propertyId={parseHouseThreadId(activeThread.id)!.propertyId} />
+        ) : null}
         {threadContactEditButton}
         {!activeIsAssistantThread ? (
         <button

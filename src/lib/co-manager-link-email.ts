@@ -93,6 +93,11 @@ export function buildServiceTeamInviteBody(params: { workspaceName: string; role
   ].join("\n");
 }
 
+export function buildServiceTeamInviteText(params: { workspaceName: string; roleLabel: string; acceptUrl: string }): string {
+  const name = params.workspaceName.trim() || "a PropLane workspace";
+  return `PropLane: you're invited to ${name} as ${params.roleLabel}. Accept: ${params.acceptUrl}`;
+}
+
 /** Admin team invite (plan admin-team-1027): "You're invited to PropLane admin". */
 export const ADMIN_INVITE_SUBJECT = "You're invited to PropLane admin";
 

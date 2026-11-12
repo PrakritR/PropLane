@@ -203,8 +203,11 @@ describe("one move-in payment", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Pay $2,300.00" }));
     const sheet = await screen.findByRole("dialog");
-    expect(within(sheet.querySelector("[data-popup-form]") as HTMLElement).getByText("$2,300.00")).toBeTruthy();
-    expect(within(sheet.querySelector("[data-popup-preview]") as HTMLElement).getByText("$2,300.00")).toBeTruthy();
+    // Rent is in the cart, so the resident pays the processing fee: a bank debit's 0.8% is capped at $5.00, and the
+    // sheet says so before anything is reserved ($2,300.00 + $5.00).
+    expect(within(sheet.querySelector("[data-popup-form]") as HTMLElement).getByText("$2,305.00")).toBeTruthy();
+    expect(within(sheet.querySelector("[data-popup-preview]") as HTMLElement).getByText("$2,305.00")).toBeTruthy();
+    expect(within(sheet.querySelector("[data-popup-preview]") as HTMLElement).getByText("$5.00")).toBeTruthy();
     // C2-RJ11: one sheet lists the charges in its preview (no "Move-in total · 4 items" subtext)
     // and the one checkout is for exactly the four move-in lines.
     const previewText = (sheet.querySelector("[data-popup-preview]") as HTMLElement).textContent ?? "";
@@ -219,8 +222,8 @@ describe("one move-in payment", () => {
     await waitFor(() => expect(screen.getAllByText("Move-in total").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByRole("button", { name: "Pay all" }));
     const sheet = await screen.findByRole("dialog");
-    expect(within(sheet.querySelector("[data-popup-form]") as HTMLElement).getByText("$3,400.00")).toBeTruthy();
-    expect(within(sheet.querySelector("[data-popup-preview]") as HTMLElement).getByText("$3,400.00")).toBeTruthy();
+    expect(within(sheet.querySelector("[data-popup-form]") as HTMLElement).getByText("$3,405.00")).toBeTruthy();
+    expect(within(sheet.querySelector("[data-popup-preview]") as HTMLElement).getByText("$3,405.00")).toBeTruthy();
     expect(checkoutBodies).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Continue with Bank (ACH)" }));
     await waitFor(() => expect(checkoutBodies.at(-1)?.chargeIds.slice().sort()).toEqual(["clean", "dep", "fee", "nov", "rent1"]));

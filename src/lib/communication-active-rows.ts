@@ -3,7 +3,6 @@ import {
   type CommunicationAssistantPortal,
 } from "@/lib/communication-assistant-inbox-list";
 import type { ManagerAssistantWorkspace } from "@/lib/communication-manager-assistant-thread";
-import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import { collapsePersonInboxThreads, type PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import { conversationJoinKey } from "@/lib/communication/conversation-key";
@@ -46,6 +45,8 @@ export type BuildActiveCommunicationThreadsOpts = {
  * resident list does not collapse. This must stay byte-for-byte identical to
  * those two pipelines; if either page's `filteredEmail` changes, update this
  * function (and its callers) in the same commit.
+ *
+ * Both portals pin their PropLane agent thread; the resident one only on the Active tab.
  */
 export function buildActiveCommunicationThreads(
   rows: PersistedInboxThread[],
@@ -56,10 +57,9 @@ export function buildActiveCommunicationThreads(
   // state; the flag controls SMS chrome, not the availability of history.
   const emailOnly = filterEmailInboxThreads(rows, { keepSmsLike: opts.portal === "manager" || !opts.smsUiEnabled });
   const base = opts.portal === "manager" ? collapsePersonInboxThreads(emailOnly, { mergeFolders: true }) : emailOnly;
-  // Resident Communication has no PropLane assistant at all (captain 2026-10-03):
-  // no placeholder row is pinned and any leftover assistant thread is dropped,
-  // so neither the list nor the sidebar badge can count one.
-  if (opts.portal === "resident") return base.filter((thread) => !isPropLaneAssistantInboxThread(thread));
+  // The resident's PropLane agent is pinned first on Active (captain, Nov 12, reversing Oct 3): it is the SAME
+  // conversation the top bar, the dashboard card and the phone's Ask tab open (`resident-agent-<uid>`), so the
+  // row is always there, restored from Archived like the manager's, and counts only when it holds unread turns.
   return withPinnedPropLaneAssistantThreads(
     base,
     opts.portal,

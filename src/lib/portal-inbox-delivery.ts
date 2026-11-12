@@ -17,6 +17,7 @@ import {
   type ResidentSmsLinkKind,
 } from "@/lib/claw-resident-links";
 import { canSendResidentOutboundSms, sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
+import { resolvePropertySendPin } from "@/lib/sms/property-send-pin.server";
 import { sendPushToUser } from "@/lib/push-notifications.server";
 import { inboxDeepLinkForRole } from "@/lib/platform/parity";
 import { enqueueWebhookEvent } from "@/lib/webhooks/deliver.server";
@@ -1603,11 +1604,22 @@ export async function deliverPortalInboxMessage(
     if (status !== "skipped") smsOutcomes.push({ recipientEmail: recipient.email, status });
   }
   if (residentPathSmsRecipients.length > 0) {
-    const smsFromNumber = String(senderProfile?.sms_from_number ?? "").trim();
+    // A text about one HOUSE (a charge, a reminder) leaves from that house's workspace line, resolved from the stored
+    // house and not from the sender's cached number: a PropLane-managed workspace answers with the PropLane line, any other
+    // workspace with its own. The owner's wallet pays. An unreadable line refuses the text for this attempt (it is reported
+    // as failed and retried), never a fallback to another line.
+    const sendPin = await resolvePropertySendPin(db, {
+      ownerUserId: opts.ownerManagerUserId?.trim() || opts.senderUserId,
+      propertyId: opts.propertyId,
+    });
+    const pinned = sendPin.kind === "pinned" ? sendPin : null;
+    const smsFromNumber = pinned?.line?.phoneNumber || String(senderProfile?.sms_from_number ?? "").trim();
     // The managed dispatcher derives the authoritative work number from the
     // owner. An explicit, server-resolved thread proves that it exists even if
     // the old profiles.sms_from_number cache is blank.
-    if (canSendResidentOutboundSms(smsFromNumber) || opts.smsConversationByEmail !== undefined) {
+    if (sendPin.kind === "unreadable") {
+      for (const recipient of residentPathSmsRecipients) smsOutcomes.push({ recipientEmail: recipient.email, status: "failed" });
+    } else if (canSendResidentOutboundSms(smsFromNumber) || opts.smsConversationByEmail !== undefined || pinned?.line) {
       const recipientEmails = residentPathSmsRecipients.map((r) => r.email);
       const { data: phones } = await db.from("profiles").select("email, phone").in("email", recipientEmails);
       const phoneByEmail = new Map((phones ?? []).map((p) => [String(p.email).toLowerCase(), String(p.phone ?? "").trim()]));
@@ -1654,7 +1666,8 @@ export async function deliverPortalInboxMessage(
         const openThread =
           recipientIsResident
             ? {
-                managerUserId: opts.senderUserId,
+                // A house-pinned text is logged against the workspace OWNER (the line's and wallet's owner).
+                managerUserId: pinned ? opts.ownerManagerUserId?.trim() || opts.senderUserId : opts.senderUserId,
                 residentUserId: recipient.userId,
                 residentEmail: recipient.email,
                 topic:
@@ -1684,6 +1697,15 @@ export async function deliverPortalInboxMessage(
             linkKind: null, // already appended above
             sendClass: eventCategory ? "automated" : "transactional",
             openThread,
+            ...(pinned
+              ? {
+                  propertyId: pinned.propertyId,
+                  workspaceId: pinned.workspaceId,
+                  actorUserId: opts.senderUserId,
+                  selectedWorkLineId: pinned.line?.numberId ?? null,
+                  recipientUserId: recipient.userId,
+                }
+              : {}),
           });
         } catch {
           await recordSmsAttempt(db, sentTargets.get(recipient.email), { sent: false });

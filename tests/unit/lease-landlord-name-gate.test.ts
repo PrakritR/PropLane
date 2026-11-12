@@ -154,6 +154,79 @@ describe("the cached landlord name belongs to ONE workspace", () => {
   });
 });
 
+describe("a stored entry never shadows a correct in-memory name", () => {
+  const KEY = "axis:landlord-legal-name";
+  const stubStorage = (store: Map<string, string>, over: { setItem?: (key: string, value: string) => void; removeItem?: (key: string) => void } = {}) =>
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: over.setItem ?? ((key: string, value: string) => void store.set(key, value)),
+        removeItem: over.removeItem ?? ((key: string) => void store.delete(key)),
+      },
+    });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setWorkspaceSelection(null);
+    cacheLandlordLegalName("");
+  });
+
+  it("falls through to memory when storage holds ANOTHER workspace's entry", () => {
+    setWorkspaceSelection(workspacePayload("ws-a"));
+    cacheLandlordLegalName("Alpha Holdings LLC");
+    stubStorage(new Map([[KEY, JSON.stringify({ workspaceId: "ws-b", name: "Beta Homes LLC" })]]));
+    expect(cachedLandlordLegalName()).toBe("Alpha Holdings LLC");
+  });
+
+  it("falls through to memory when storage holds a legacy bare-string entry", () => {
+    setWorkspaceSelection(workspacePayload("ws-a"));
+    cacheLandlordLegalName("Alpha Holdings LLC");
+    stubStorage(new Map([[KEY, "Old Bare Name LLC"]]));
+    expect(cachedLandlordLegalName()).toBe("Alpha Holdings LLC");
+  });
+
+  it("falls through to memory when the stored entry is unreadable JSON", () => {
+    setWorkspaceSelection(workspacePayload("ws-a"));
+    cacheLandlordLegalName("Alpha Holdings LLC");
+    stubStorage(new Map([[KEY, "{not json"]]));
+    expect(cachedLandlordLegalName()).toBe("Alpha Holdings LLC");
+  });
+
+  it("still prefers a stored entry that answers for the active workspace", () => {
+    setWorkspaceSelection(workspacePayload("ws-a"));
+    stubStorage(new Map([[KEY, JSON.stringify({ workspaceId: "ws-a", name: "Stored Alpha LLC" })]]));
+    expect(cachedLandlordLegalName()).toBe("Stored Alpha LLC");
+  });
+
+  it("when setItem throws, drops the stale entry so the new name wins", () => {
+    setWorkspaceSelection(workspacePayload("ws-a"));
+    const store = new Map([[KEY, JSON.stringify({ workspaceId: "ws-a", name: "Stale Alpha LLC" })]]);
+    stubStorage(store, {
+      setItem: () => {
+        throw new Error("QuotaExceededError");
+      },
+    });
+    cacheLandlordLegalName("Fresh Alpha LLC");
+    expect(store.has(KEY)).toBe(false);
+    expect(cachedLandlordLegalName()).toBe("Fresh Alpha LLC");
+  });
+
+  it("when setItem AND removeItem throw, stops trusting storage rather than reading the stale entry", () => {
+    setWorkspaceSelection(workspacePayload("ws-a"));
+    const store = new Map([[KEY, JSON.stringify({ workspaceId: "ws-a", name: "Stale Alpha LLC" })]]);
+    const blocked = () => {
+      throw new Error("blocked");
+    };
+    stubStorage(store, { setItem: blocked, removeItem: blocked });
+    cacheLandlordLegalName("Fresh Alpha LLC");
+    expect(cachedLandlordLegalName()).toBe("Fresh Alpha LLC");
+    // A later write that works makes storage trustworthy again.
+    stubStorage(store);
+    cacheLandlordLegalName("Newest Alpha LLC");
+    expect(cachedLandlordLegalName()).toBe("Newest Alpha LLC");
+  });
+});
+
 describe("landlord legal name validation", () => {
   it("derives the lease landlord name from account full name", () => {
     expect(landlordLegalNameFromAccountFullName("Jane Doe")).toBe("Jane Doe");

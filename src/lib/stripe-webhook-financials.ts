@@ -16,7 +16,7 @@ import { parseMoneyAmount } from "@/lib/parse-money";
 import { enqueueWebhookEvent } from "@/lib/webhooks/deliver.server";
 import { webhookEventBuilders } from "@/lib/webhooks/events";
 import { markHouseholdChargePaidFromPaymentIntent } from "@/lib/stripe-household-charge";
-import { notifyAutopayDeclined, runAttempt } from "@/lib/resident-autopay.server";
+import { notifyAutopayDeclined, recordAutopayDecline, runAttempt } from "@/lib/resident-autopay.server";
 import { releaseVerifiedPlatformHoldsForOwner } from "@/lib/platform-hold-release.server";
 import { settleClearedPlatformOwnerRecovery } from "@/lib/platform-owner-recovery.server";
 import { creditVerifiedHouseholdAutopaySource,
@@ -852,6 +852,9 @@ export async function assertMarkedCheckoutPaymentIntentClaim(
  * historical failure handler by copying the marker. */
 export async function assertMarkedAutopayFailureClaim(
   db: SupabaseClient, paymentIntent: Stripe.PaymentIntent,
+  /** The decline recorder may meet a run that has not bound this PaymentIntent yet (a create whose response was a
+   *  decline) or has already failed on it (the synchronous path got there first). Both are this same PaymentIntent. */
+  options?: { recordingDecline?: boolean },
 ): Promise<void> {
   const metadata = paymentIntent.metadata;
   const runId = metadata?.autopay_run_id?.trim();
@@ -868,10 +871,52 @@ export async function assertMarkedAutopayFailureClaim(
     .select("id,charge_id,manager_id,attempt,stripe_payment_intent_id,status")
     .eq("id", runId).maybeSingle();
   if (error || !run || run.charge_id !== chargeId || run.manager_id !== ownerId ||
-      Number(run.attempt) !== attempt || run.stripe_payment_intent_id !== paymentIntent.id ||
-      !["claimed", "succeeded"].includes(run.status)) {
+      Number(run.attempt) !== attempt ||
+      !(run.stripe_payment_intent_id === paymentIntent.id ||
+        (options?.recordingDecline === true && run.stripe_payment_intent_id == null)) ||
+      !(["claimed", "succeeded"].includes(run.status) ||
+        (options?.recordingDecline === true && run.status === "failed"))) {
     throw new Error("Marked autopay failure differs from its persisted run.");
   }
+}
+
+/**
+ * The declined side of a MARKED autopay PaymentIntent (`payment_intent.payment_failed`, `source_arbitration_v=1`).
+ *
+ * The marked flow deliberately mints no NSF fee and never reopens a charge, but it used to stop at the attestation:
+ * the run stayed `claimed` for good, so the resident was never told, the Payments banner never showed, the one
+ * allowed retry never ran (it only picks up `failed` rows) and the charge's payment slot was never freed. An
+ * autopay PaymentIntent is never confirmed again by a client, so a failure on it is terminal for that attempt.
+ * The live PaymentIntent is read first, so a stale event for an intent that went on to succeed records nothing.
+ */
+export async function handleMarkedAutopayPaymentIntentFailed(
+  db: SupabaseClient, stripe: Stripe, paymentIntent: Stripe.PaymentIntent,
+): Promise<void> {
+  const runId = paymentIntent.metadata?.autopay_run_id?.trim();
+  const chargeId = paymentIntent.metadata?.charge_id?.trim();
+  const managerUserId = paymentIntent.metadata?.manager_user_id?.trim();
+  if (!runId || !chargeId || !managerUserId) throw new Error("Marked autopay failure lacks frozen claim terms.");
+
+  // A redelivered failure for an earlier attempt must not touch a later attempt in flight.
+  const { data: existing } = await db.from("resident_autopay_runs").select("attempt").eq("id", runId).maybeSingle();
+  const intentAttempt = runAttempt(paymentIntent.metadata?.autopay_attempt);
+  if (existing && intentAttempt < runAttempt(existing.attempt)) return;
+
+  await assertMarkedAutopayFailureClaim(db, paymentIntent, { recordingDecline: true });
+
+  const live = await stripe.paymentIntents.retrieve(paymentIntent.id);
+  if (live.status !== "requires_payment_method" && live.status !== "canceled") return;
+
+  const reason = live.last_payment_error?.message?.trim() ||
+    paymentIntent.last_payment_error?.message?.trim() || "The payment was declined.";
+  const { data: row } = await db.from("portal_household_charge_records")
+    .select("row_data").eq("id", chargeId).maybeSingle();
+  const recorded = await recordAutopayDecline(db, {
+    runId, attempt: intentAttempt, paymentIntentId: paymentIntent.id, chargeId,
+    managerId: managerUserId, reason, charge: (row?.row_data as HouseholdCharge | null) ?? null,
+  });
+  // Unrecordable means the run does not match this intent: fail the delivery so it is retried and reviewed.
+  if (!recorded) throw new Error("Marked autopay decline could not be recorded against its run.");
 }
 
 /**

@@ -9,7 +9,8 @@ import { managerHasCoManagerPermissionForProperty } from "@/lib/auth/manager-lea
 import { runBackgroundCheck, runCosignerBackgroundCheck } from "@/lib/checkr/background-check";
 import { isCheckrAddOn, isCheckrPackage, type CheckrAddOnSlug } from "@/lib/checkr/packages";
 import type { CheckrPackage } from "@/lib/checkr/config";
-import { isScreeningCheckoutSession } from "@/lib/stripe-screening";
+import { fulfillPreApplyFromSession, isPreApplySession } from "@/lib/screening/preapply.server";
+import { isScreeningCheckoutSession, screeningOrderOptionsFromSession } from "@/lib/stripe-screening";
 import { getStripe } from "@/lib/stripe";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -36,6 +37,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Not a screening checkout session." }, { status: 400 });
     }
 
+    // A check the applicant paid for BEFORE applying (no application row yet): only the paying applicant confirms it.
+    if (isPreApplySession(session)) {
+      if (session.metadata?.payer_user_id?.trim() !== user.id || session.client_reference_id !== user.id) {
+        return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      }
+      if (session.payment_status !== "paid" && session.payment_status !== "no_payment_required") {
+        return NextResponse.json({ paid: false, paymentStatus: session.payment_status, status: session.status, error: "Payment is not completed yet." }, { status: 200 });
+      }
+      const placed = await fulfillPreApplyFromSession(createSupabaseServiceRoleClient(), session);
+      if (!placed.ok) return NextResponse.json({ error: placed.error, code: placed.code }, { status: placed.status });
+      return NextResponse.json({ paid: true, sessionId: session.id });
+    }
+
     const applicationId = session.metadata?.application_id?.trim();
     const cosignerSubmissionId = session.metadata?.cosigner_submission_id?.trim();
     const managerUserId = session.metadata?.manager_user_id?.trim();
@@ -45,7 +59,10 @@ export async function POST(req: Request) {
 
     const db = createSupabaseServiceRoleClient();
     const admin = await isAdminUser(user.id);
-    if (!admin && managerUserId !== user.id) {
+    // The applicant who paid may confirm their own session (the payer id was set by our checkout route).
+    const isPayingApplicant =
+      session.metadata?.payer === "applicant" && session.metadata?.payer_user_id?.trim() === user.id;
+    if (!admin && !isPayingApplicant && managerUserId !== user.id) {
       const { data: record } = await db
         .from("manager_application_records")
         .select("property_id, assigned_property_id")
@@ -126,6 +143,7 @@ export async function POST(req: Request) {
           packageSlug,
           addOnProducts,
           prepaid: { checkoutSessionId: session.id, paymentIntentId },
+          ...screeningOrderOptionsFromSession(session),
         });
 
     if (!result.ok) {

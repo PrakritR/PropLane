@@ -152,3 +152,50 @@ Twilio voice setup for PropLane work number {{E164}}:
 
 4. Send back: Call SID + whether webhooks returned 200 (Monitor → Logs → Calls).
 ```
+
+
+---
+
+## Nov 12 2026: AI calling end to end (production steps)
+
+What the code now does (flag-gated, `MANAGER_VOICE_AGENT_ENABLED` stays the kill switch):
+
+- **Routing is the SMS routing.** A call to a workspace's own work number belongs to that workspace. A call to the shared PropLane
+  line (the 206) goes through `decideSharedLineCall` (`inbound-seam.server.ts`, the same pieces `handleSharedLineInbound` uses, with
+  none of the text-only effects): a verified manager / staff gets the manager agent, a verified resident the resident agent (read-only
+  by voice, plus `escalate_to_manager`), a prospect the leasing agent (listing facts through tools only), a stranger the leasing agent
+  over PropLane's own managed homes (`serviceCatalog`), an unclear caller ONE question ("Is this about A or B?", settled by a spoken
+  house name and remembered on the router session), someone whose only ties are to a workspace with its own number is told that
+  number, and a vendor is told to text. Voice never adds a write the SMS surface does not allow.
+- **Consent before recording.** With `TWILIO_VOICE_RECORDING` on, the first thing a caller hears is the recording line; `<Start><Recording>`
+  appears only in the response to a yes ("yes", "okay", "sure"). Silence is asked once more; a no ends the call and settles the
+  recording hold to zero.
+- **Silence and goodbye.** A silent Gather redirects back to the turn route with `attempt` + 1 (the URL Twilio signs includes it);
+  one re-ask, then a goodbye. "That's all" / "bye" ends the call gracefully. An agent that has nothing promises a text and the browse
+  page is texted after the call.
+- **A person.** A caller who asks for one, an emergency word, a frustrated caller, an agent that called `escalate_to_manager` or had no
+  answer, or a caller who keeps going unheard gets "One moment, connecting you to <first name>" and a `<Dial>` (20 s ring, callerId
+  = the line, a whisper to the answerer saying who is calling). Target, server-side: the covering staff seat / co-manager with the
+  house grant and a verified phone, else the owner's verified phone, else (PropLane-managed workspaces, the 206, an unplaced caller)
+  PropLane's admin alert phone read from `workspace_work_number_recipients`. No answer: the assistant takes the call back ("They're
+  not available right now. I'll have them call you back."), the target is texted one line with the caller's number, and the thread
+  logs it. Quiet hours: a routine escalation is a call-back text, an emergency always rings.
+- **After the call** (`/api/twilio/voice/status`, terminal status): the minutes are settled by whoever held them, the manager summary
+  goes out as before, the caller is texted the pages the call offered (tour / apply / listing, only from tool results) from the dialed
+  line through the normal outbound path (once per call: `voice-links:<CallSid>`), and PropLane's alert phones get the same one-line
+  alert an inbound text raises (`alertOpsOfInboundText`, idempotent on `voice:<CallSid>`).
+- **Billing.** A workspace's own wallet pays first; on a PropLane-run line (the 206, a PropLane-managed workspace) PropLane's wallet is
+  the backstop with no wallet limit, so an empty client wallet never turns a caller away. A self-serve workspace with an empty wallet is
+  still refused (`VOICE_CREDIT_UNAVAILABLE`).
+
+Production steps, in order (nothing here is done by code):
+
+1. Vercel (production): set `MANAGER_VOICE_AGENT_ENABLED=1`. Optional: `TWILIO_VOICE_RECORDING=1` (consent line + recording), `TWILIO_VOICE_POLLY_VOICE`.
+   Leave `TWILIO_VOICE_*_WEBHOOK_URL` unset unless a proxy rewrites the host (they are part of the signed URL).
+2. Twilio Console, number +12066781909 and every work number: Voice "A call comes in" is already `https://proplane.ai/api/twilio/voice/inbound`
+   (POST). No other change is required: the call's status callback is attached to each call by the app when it bounds the call. If you
+   prefer it on the number as well: "Call status changes" = `https://proplane.ai/api/twilio/voice/status` (POST).
+3. Confirm `TWILIO_AUTH_TOKEN` is the account's token (signature validation fails closed on Vercel).
+4. Smoke test from a verified phone: call the 206, say "yes" to the recording line, ask about a house, say "text me the link", say
+   "that's all". Expect the links text within a minute of hanging up, and one alert text on the admin alert phone.
+5. Roll back by unsetting the flag: callers hear "The voice assistant is not enabled yet" again.

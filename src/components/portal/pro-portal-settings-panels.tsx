@@ -79,6 +79,7 @@ import {
   type ReminderPresetId,
 } from "@/lib/payment-reminder-presets";
 import { DEFAULT_MANAGER_TOUR_SETTINGS, type ManagerTourSettings } from "@/lib/manager-tour-settings";
+import { TOUR_FEE_MAX_CENTS, TOUR_FEE_SETTING_ENABLED } from "@/lib/tour-fee";
 import { tourNoticeUnitLabel } from "@/lib/tour-notice-labels";
 import { normalizeTourNoticeDays } from "@/lib/tour-slot-math";
 import { ManagerTourAvailabilityModal } from "@/components/portal/manager-tour-availability-modal";
@@ -1073,6 +1074,71 @@ function TourNoticeStepper({
   );
 }
 
+/** Dollars the tour fee stepper moves by. */
+const TOUR_FEE_STEP_DOLLARS = 5;
+
+/** −/+ stepper for `tourFeeCents` in whole dollars ($0 = no fee). Same capsule as `TourNoticeStepper`. */
+function TourFeeStepper({
+  cents,
+  onChange,
+  disabled,
+  dataAttr,
+}: {
+  cents: number;
+  onChange: (nextCents: number) => void;
+  disabled?: boolean;
+  dataAttr: string;
+}) {
+  const maxDollars = Math.floor(TOUR_FEE_MAX_CENTS / 100);
+  const dollars = Math.round(cents / 100);
+  const commit = (n: number) => {
+    if (!Number.isFinite(n)) return;
+    onChange(Math.min(maxDollars, Math.max(0, Math.round(n))) * 100);
+  };
+  const side =
+    "grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted transition hover:bg-foreground/[0.06] disabled:opacity-35 disabled:hover:bg-transparent";
+  return (
+    <div className="inline-flex h-9 items-center gap-1 rounded-lg border border-[var(--input)] bg-card px-1" role="group" aria-label="Tour fee">
+      <button
+        type="button"
+        aria-label="Decrease tour fee"
+        disabled={disabled || dollars <= 0}
+        onClick={() => commit(dollars - TOUR_FEE_STEP_DOLLARS)}
+        data-attr={`${dataAttr}-decrement`}
+        className={side}
+      >
+        <Minus className="size-3.5" aria-hidden />
+      </button>
+      <span className="inline-flex items-center gap-0.5 px-1 text-sm text-muted">
+        $
+        <input
+          type="number"
+          inputMode="numeric"
+          aria-label="Tour fee"
+          min={0}
+          max={maxDollars}
+          step={TOUR_FEE_STEP_DOLLARS}
+          value={dollars}
+          disabled={disabled}
+          data-attr={dataAttr}
+          onChange={(e) => commit(Number(e.target.value))}
+          className="h-7 w-10 bg-transparent text-center text-sm font-semibold tabular-nums text-foreground [appearance:textfield] focus:outline-none disabled:opacity-50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        />
+      </span>
+      <button
+        type="button"
+        aria-label="Increase tour fee"
+        disabled={disabled || dollars >= maxDollars}
+        onClick={() => commit(dollars + TOUR_FEE_STEP_DOLLARS)}
+        data-attr={`${dataAttr}-increment`}
+        className={side}
+      >
+        <Plus className="size-3.5" aria-hidden />
+      </button>
+    </div>
+  );
+}
+
 /** "9:00 AM" for a 30-minute slot index (0 = midnight), the same grid `tour-slot-math.ts` counts in. */
 function formatTourSlotClock(slot: number): string {
   const totalMinutes = Math.max(0, slot) * 30;
@@ -1340,6 +1406,16 @@ export function TourSettingsPanel({
           onChange={(next) => setTourSettings((prev) => ({ ...prev, tourNoticeDays: next }))}
         />
       </PortalSettingsRow>
+      {TOUR_FEE_SETTING_ENABLED ? (
+        <PortalSettingsRow label="Tour fee">
+          <TourFeeStepper
+            cents={tourSettings.tourFeeCents ?? 0}
+            disabled={disabled}
+            dataAttr="manager-tour-fee"
+            onChange={(next) => setTourSettings((prev) => ({ ...prev, tourFeeCents: next }))}
+          />
+        </PortalSettingsRow>
+      ) : null}
       <PortalSettingsRow
         label="Auto confirm tours"
       >

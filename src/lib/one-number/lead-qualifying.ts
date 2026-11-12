@@ -66,7 +66,12 @@ export type LeadProfile = {
   overviewSent?: boolean;
 };
 
-export const WELCOME = "Hi, this is PropLane. Reply STOP to opt out.";
+/**
+ * What a stranger's first reply used to open with ("Hi, this is PropLane. Reply STOP to opt out."). Gone (captain, Nov 12): a
+ * reply to someone who texted us reads like a person texting back, and carries no STOP footer; carrier opt-out wording belongs only
+ * on the FIRST business-initiated message to someone who never texted in. Kept as an empty constant so no caller reads a stale copy.
+ */
+export const WELCOME = "";
 
 export const NEUTRAL_REPLY =
   "I can only help with price, dates, location and room features, which are the same for everyone.";

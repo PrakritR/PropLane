@@ -26,6 +26,8 @@ import type { CheckrPackage } from "@/lib/checkr/config";
 import {
   buildScreeningCheckoutProductName,
   checkrOrderCostCents,
+  checkrPackageRank,
+  checkrUpgradeCostCents,
   isCheckrAddOn,
   isCheckrPackage,
   screeningCheckoutDescription,
@@ -132,15 +134,33 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, ran: true, backgroundCheck: result.backgroundCheck });
     }
 
-    const totalCents = checkrOrderCostCents(packageSlug, addOnProducts);
+    // The manager upgrading an applicant who already paid for a check pays the package DIFFERENCE (the settings
+    // that exist today make the manager the payer of an upgrade). The ID add-on is never bought twice.
+    const currentCheck = "row" in precheck ? precheck.row.backgroundCheck : undefined;
+    let upgradeFrom: CheckrPackage | undefined;
+    if (currentCheck?.status === "complete" && currentCheck.payer === "applicant") {
+      if (checkrPackageRank(packageSlug) <= checkrPackageRank(currentCheck.packageSlug)) {
+        return NextResponse.json(
+          { error: "This applicant already has this check or a higher one.", code: "already_screened" },
+          { status: 409 },
+        );
+      }
+      upgradeFrom = currentCheck.packageSlug;
+    }
+    const orderAddOns: CheckrAddOnSlug[] = upgradeFrom ? [] : addOnProducts;
+    const totalCents = upgradeFrom
+      ? checkrUpgradeCostCents(upgradeFrom, packageSlug)
+      : checkrOrderCostCents(packageSlug, orderAddOns);
 
     const lineItems = [
       {
         price_data: {
           currency: "usd" as const,
           product_data: {
-            name: buildScreeningCheckoutProductName(packageSlug, addOnProducts),
-            description: screeningCheckoutDescription(packageSlug, addOnProducts),
+            name: upgradeFrom
+              ? `Applicant screening upgrade — ${upgradeFrom} to ${packageSlug}`
+              : buildScreeningCheckoutProductName(packageSlug, orderAddOns),
+            description: upgradeFrom ? undefined : screeningCheckoutDescription(packageSlug, orderAddOns),
           },
           unit_amount: totalCents,
         },
@@ -153,7 +173,8 @@ export async function POST(req: Request) {
       application_id: applicationId,
       manager_user_id: managerUserId,
       package_slug: packageSlug,
-      add_on_products: addOnProducts.join(","),
+      add_on_products: orderAddOns.join(","),
+      ...(upgradeFrom ? { upgrade_from_package: upgradeFrom } : {}),
       ...(cosignerSubmissionId ? { cosigner_submission_id: cosignerSubmissionId } : {}),
     };
 

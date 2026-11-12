@@ -21,6 +21,8 @@ import {
 } from "./model";
 import { appendHouseLine, ensureHouseThread, loadHouseThread, saveHouseRoster } from "./store.server";
 import { houseThreadId } from "@/lib/house-thread-id";
+import { readSmsGroupState } from "@/lib/house-sms-group/model";
+import { addResidentToHouseSmsGroup } from "@/lib/house-sms-group/sync.server";
 
 /**
  * Keeps the in-app house chats and the move-out archive in step with the Bookings occupancy snapshot.
@@ -92,6 +94,8 @@ export async function syncHouseChat(
       const stored = readHouseChatState(existing.rowData).residents;
       if (stored.length === 0) return { ...base, outcome: "no_residents" };
       await saveHouseRoster(db, threadId, []);
+      // The SMS door follows: a house with a group text drops the people who moved out.
+      if (readSmsGroupState(existing.rowData)) await addResidentToHouseSmsGroup(db, { workspaceId: input.workspaceId, propertyId: input.propertyId });
       return { ...base, outcome: "updated", left: stored.length };
     }
     const ensured = await ensureHouseThread(db, {
@@ -124,6 +128,8 @@ export async function syncHouseChat(
         system: true,
       });
     }
+    // The SMS door follows: a house with a group text adds the newcomers and drops the people who left.
+    if (current && readSmsGroupState(current.rowData)) await addResidentToHouseSmsGroup(db, { workspaceId: input.workspaceId, propertyId: input.propertyId });
     return { ...base, outcome: existing ? "updated" : "created", joined: diff.joined.length, left: diff.leftEmails.length };
   } catch {
     return { ...base, outcome: "error" };

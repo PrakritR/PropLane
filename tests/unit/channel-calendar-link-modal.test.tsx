@@ -263,7 +263,8 @@ describe("ChannelCalendarLinkModal (one page)", () => {
       await ready();
       fireEvent.click(screen.getByText("Sync all now"));
       await waitFor(() => expect(toasts.length).toBe(1));
-      expect(toasts[0]).toBe("Synced 8 · 50 houses could not sync, try again");
+      // The reason the run carries, in the same unit (calendars) as the count, never a generic line.
+      expect(toasts[0]).toBe("Synced 8 calendars · 50 houses not synced · Too many syncs. Try again in a minute.");
     });
 
     it("Sync all now reports a clean run plainly", async () => {

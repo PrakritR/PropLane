@@ -77,6 +77,7 @@ import { loadSharedLineConfigStrict, workspaceOnSharedLine } from "@/lib/one-num
 import { answerPropLaneLineText } from "@/lib/one-number/line-inbound.server";
 import { isHousingSearchText } from "@/lib/one-number/line-intent";
 import { isPropLaneServiceLine } from "@/lib/service/service-catalog.server";
+import { isManagedWorkspaceId, isManagedWorkspaceOwnerActor } from "@/lib/service/service-alert-targets.server";
 import { gateAiReply } from "@/lib/one-number/knowledge/reply-modes.server";
 import { withWorkspaceStamp } from "@/lib/one-number/workspace-stamp";
 import { attachVendorJobMedia, inboundImageBlocks, ingestInboundMedia } from "@/lib/one-number/inbound-media.server";
@@ -764,6 +765,23 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
   }
 
   mark("logged");
+  // PropLane's own people hear every text to a PropLane-managed workspace's number and to the PropLane line, with who, which
+  // house and what they want. After the response so it never delays the reply; idempotent per message; never throws.
+  const textedPropLaneLine = Boolean(saved?.sharedLine || input.sharedLine)
+    || (await isPropLaneServiceLine(db, { ownerUserId: managerId, workNumber: toPhone }).catch(() => false));
+  const managedWorkspaceText = await isManagedWorkspaceId(db, workspaceId ?? null).catch(() => false);
+  if (managedWorkspaceText || textedPropLaneLine) {
+    // Best-effort: `after` throws outside a request scope, and an alert must never fail the inbound it follows.
+    try {
+      after(async () => {
+        await import("@/lib/one-number/inbound-alert.server")
+          .then((m) => m.alertOpsOfInboundText(db, { workspaceId: workspaceId ?? null, managerId, fromPhone, body, messageSid, onPropLaneLine: textedPropLaneLine }))
+          .catch(() => undefined);
+      });
+    } catch {
+      /* not in a request scope: the alert is dropped, the inbound is unaffected */
+    }
+  }
   // Every role: copy each media item into the private sms-media bucket now
   // (Twilio deletes it later) and index it. Best-effort and idempotent per
   // item; a failure never stops the turn.
@@ -974,6 +992,42 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
   mark("identity");
   if (managerInbound) {
     mark("route:manager");
+    // The client owner of a PropLane-MANAGED workspace texting its number is a person writing to PropLane's staff, not a
+    // manager talking to an Assistant: her words are a normal conversation, from her by name, that staff reply to on the
+    // work number. A clear owner question (statement, balance, a repair yes/no) is still answered from the ledger; nothing
+    // else is read by the manager agent and no Assistant thread is written. Nothing here creates a conversation until she texts.
+    if (!serviceManager && (await isManagedWorkspaceOwnerActor(db, workspaceId ?? null, managerInbound.actorUserId).catch(() => false))) {
+      mark("route:managed-owner");
+      const ownerAnswer = await import("@/lib/owner-management/owner-line.server")
+        .then((m) => m.handleOwnerLine(db, { fromPhone, body }))
+        .catch(() => ({ handled: false as const }));
+      await projectClassifiedInbound(db, {
+        managerUserId: managerId,
+        role: "manager",
+        counterpartyUserId: managerInbound.actorUserId,
+        fromPhone,
+        toPhone,
+        messageSid,
+        body,
+        occurredAt,
+        workspaceId: workspaceId ?? null,
+      }).catch((error) => console.error("managed owner inbound projection failed", error instanceof Error ? error.message : "unknown"));
+      if (ownerAnswer.handled && ownerAnswer.reply) {
+        await deliverManagerSmsReply({
+          managerUserId: managerInbound.workNumberOwnerId,
+          actorUserId: managerInbound.actorUserId,
+          toPhone: fromPhone,
+          text: stripLongDashes(ownerAnswer.reply),
+          workNumber,
+          inboundMessageSid: messageSid,
+          workspaceId: workspaceId ?? null,
+        }).catch((error: unknown) => console.error("owner line reply not delivered", error instanceof Error ? error.message : "unknown"));
+      }
+      if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+        return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
+      }
+      return twimlOk();
+    }
     // Vendor dispatch (vendor-dispatch-1018): Y / N / 2 / R / B answering a dispatch approval is
     // parsed here, deterministically, before the Team chat or the Assistant sees the text. Only a
     // sender with something waiting on them is claimed; everything else falls through unchanged.
@@ -1715,7 +1769,9 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     // Leg 1 for the resident agent fork. Without this, only prospect/leasing
     // traffic reached the manager's cell and a known resident's text — the one
     // most likely to need a human — was portal-only.
-    if (!isClawSharedLineBridgeEnabled()) {
+    // A PropLane-managed workspace is told by the descriptive alert above (who, house, gist, link): the raw forward to the
+    // client owner's cell and to each teammate would be a second, worse text for the same message.
+    if (!isClawSharedLineBridgeEnabled() && !managedWorkspaceText) {
       await forwardResidentInboundToManagerCell(db, {
         managerUserId: managerId,
         workNumber,
@@ -1730,7 +1786,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         ownerManagerUserId: managerId,
         residentEmail: residentIdentity.ctx.email,
       }).catch(() => null);
-      await forwardInboundToTeammates(db, {
+      if (!managedWorkspaceText) await forwardInboundToTeammates(db, {
         managerUserId: managerId,
         workspaceId: workspaceId ?? null,
         houseId: residentHouseId,
@@ -2032,7 +2088,8 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
   if (!isClawSharedLineBridgeEnabled()) {
     // The leasing responder handles prospects and anyone whose resident thread
     // could not be opened, so this mirror must not invite a texted-back reply.
-    await forwardResidentInboundToManagerCell(db, {
+    // (A PropLane-managed workspace skips both text forwards: the descriptive alert covers the message once.)
+    if (!managedWorkspaceText) await forwardResidentInboundToManagerCell(db, {
       managerUserId: managerId,
       workNumber,
       fromPhone,
@@ -2043,7 +2100,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     // No house yet: the role matrix hands a prospect text to property managers, leasing and viewers
     // (a text forward under the same consent gate and hourly cap, plus an Assistant notice), and the
     // leasing agent's auto-reply goes out to them as "Replied: ...".
-    await forwardInboundToTeammates(db, {
+    if (!managedWorkspaceText) await forwardInboundToTeammates(db, {
       managerUserId: managerId,
       workspaceId: workspaceId ?? null,
       houseId: null,

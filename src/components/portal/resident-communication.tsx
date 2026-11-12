@@ -6,7 +6,7 @@ import { CommunicationStatusFilterDraft, type CommunicationStatus } from "@/comp
 import { CommunicationRowActions } from "@/components/portal/communication-row-actions";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
-import { PenSquare, ShieldCheck } from "lucide-react";
+import { House, PenSquare, ShieldCheck, Smartphone, Users } from "lucide-react";
 import Link from "next/link";
 import type { ResidentPhoneState } from "@/lib/communication/resident-conversation";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
@@ -46,9 +46,25 @@ import {
 } from "@/lib/portal-inbox-storage";
 import { buildActiveCommunicationThreads, emailThreadJoinKeys } from "@/lib/communication-active-rows";
 import {
+  assistantUnifiedListItemFromThread,
   communicationInboxListPreview,
+  propLaneAssistantThreadIdForPortal,
   resolveCommunicationViewerId,
 } from "@/lib/communication-assistant-inbox-list";
+import { useAssistantConversationIfMounted } from "@/lib/axis-assistant/assistant-conversation-context";
+import { AxisAssistantChatIcon } from "@/components/portal/assistant-shared";
+import { ResidentAssistantThread } from "@/components/portal/resident-assistant-thread";
+import {
+  PROPLANE_AGENT_NAME,
+  isHouseStarterId,
+  isResidentPropLaneAgentThread,
+  orderResidentConversationRows,
+  residentConversationLabel,
+  residentConversationKind,
+  residentHouseStarters,
+  residentHouseWorkPhone,
+  type ResidentConversationKind,
+} from "@/lib/communication/resident-conversation-names";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { useResidentManagerContacts } from "@/hooks/use-resident-manager-contacts";
 import {
@@ -71,7 +87,7 @@ import {
   type ManagerSmsMessageRow,
 } from "@/lib/manager-sms-messages";
 import { formatInboxStamp, type PersistedInboxThread } from "@/lib/portal-inbox-storage";
-import { houseThreadDisplayName, isHouseInboxThread, isHouseThreadId } from "@/lib/house-thread-id";
+import { isHouseThreadId } from "@/lib/house-thread-id";
 import {
   EMPTY_COMMUNICATION_THREAD_FILTERS,
   RECORD_KIND_FILTER_OPTIONS,
@@ -150,6 +166,26 @@ function ResidentUnifiedInbox({
   // A resident can hold conversations with several managers, so each row names
   // its OWN manager and home; the lookup is shared with the thread header.
   const managerContacts = useResidentManagerContacts();
+  // The PropLane agent is ONE conversation per resident: the row pinned here, the top bar's side panel / phone sheet,
+  // the dashboard's Ask card and the phone's Ask tab all read this same provider state (`/api/agent/resident-chat`,
+  // id `resident-agent-<uid>`). No provider (the demo, a "View as" session) means no pinned row.
+  const assistantConversation = useAssistantConversationIfMounted();
+  const assistantAvailable = assistantConversation !== null;
+  const assistantId = viewerId ? propLaneAssistantThreadIdForPortal("resident", viewerId) : null;
+  const hydrateAssistantRef = useRef(assistantConversation?.hydrateArchive);
+  useEffect(() => {
+    hydrateAssistantRef.current = assistantConversation?.hydrateArchive;
+  });
+  // Opening Communication restores the latest saved conversation, so the pinned row previews what the resident
+  // last said to PropLane from any door, not an empty placeholder.
+  useEffect(() => {
+    void hydrateAssistantRef.current?.();
+  }, [assistantAvailable]);
+  const assistantMessages = assistantConversation?.messages;
+  const assistantLastTurn = useMemo(() => {
+    const visible = (assistantMessages ?? []).filter((m) => m.content.trim().length > 0);
+    return visible[visible.length - 1] ?? null;
+  }, [assistantMessages]);
   // Inbox rows hydrate from sessionStorage — never read them in useState initializers (SSR mismatch).
   const [emailThreads, setEmailThreads] = useState<PersistedInboxThread[]>([]);
   const [smsMessages, setSmsMessages] = useState<ManagerSmsMessageRow[]>([]);
@@ -254,11 +290,43 @@ function ResidentUnifiedInbox({
       viewerId,
       smsUiEnabled,
     });
-    if (!threadFilters) return rows;
-    return rows.filter((t) =>
-      threadPassesCommunicationFilters({ filters: threadFilters, contacts: [], counterpartyEmail: t.email, recordRef: t.recordRef }),
-    );
-  }, [emailThreads, smsUiEnabled, threadFilters, viewerId]);
+    // A list scoped to one record (or an "About" kind) is not the place for the agent: it has no record.
+    if (!threadFilters) return assistantAvailable ? rows : rows.filter((t) => !isResidentPropLaneAgentThread(t));
+    return rows
+      .filter((t) => !isResidentPropLaneAgentThread(t))
+      .filter((t) =>
+        threadPassesCommunicationFilters({ filters: threadFilters, contacts: [], counterpartyEmail: t.email, recordRef: t.recordRef }),
+      );
+  }, [assistantAvailable, emailThreads, smsUiEnabled, threadFilters, viewerId]);
+
+  /** What each stored row IS (agent, house chat, my number, house), read once per list. */
+  const rowKinds = useMemo(
+    () => new Map<string, ResidentConversationKind>(filteredEmail.map((t) => [t.id, residentConversationKind(t)])),
+    [filteredEmail],
+  );
+  const kindOfRow = useCallback(
+    (row: { threadId: string }): ResidentConversationKind =>
+      isHouseStarterId(row.threadId) ? "house" : rowKinds.get(row.threadId) ?? (isHouseThreadId(row.threadId) ? "house_chat" : "house"),
+    [rowKinds],
+  );
+
+  // Houses with no conversation yet: the list offers each one as a place to start (the existing New message path).
+  const houseStarters = useMemo(() => {
+    const covered = filteredEmail
+      .filter((t) => t.folder !== "trash" && residentConversationKind(t) === "house")
+      .map((t) => resolveResidentThreadManager(t, managerContacts).homeLabel)
+      .filter((label): label is string => Boolean(label));
+    return residentHouseStarters(managerContacts, filteredEmail, covered);
+  }, [filteredEmail, managerContacts]);
+  const workPhoneByThreadId = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const t of filteredEmail) {
+      if (residentConversationKind(t) !== "house") continue;
+      const phone = residentHouseWorkPhone(t, managerContacts);
+      if (phone) byId.set(t.id, phone);
+    }
+    return byId;
+  }, [filteredEmail, managerContacts]);
 
   /** The merged conversation rows one segment shows, for an optional search. */
   const rowsForSegment = useCallback(
@@ -277,7 +345,8 @@ function ResidentUnifiedInbox({
         // into Unread or active rows back into Archived.
         rows = rows.filter((t) => {
           const manager = resolveResidentThreadManager(t, managerContacts);
-          const hay = [t.from, manager.name, manager.workspaceName, manager.homeLabel, t.email, t.subject, t.body, t.preview]
+          const label = residentConversationLabel(t, manager, managerContacts);
+          const hay = [label.title, t.from, manager.name, manager.workspaceName, manager.homeLabel, t.email, t.subject, t.body, t.preview]
             .filter(Boolean)
             .join(" ")
             .toLowerCase();
@@ -288,15 +357,32 @@ function ResidentUnifiedInbox({
       const emailItems = rows.map((t): UnifiedInboxListItem => {
         const msgs = inboxThreadMessages(t);
         const lastMsg = msgs[msgs.length - 1];
-        // Every row names the MANAGER it is with, and that manager's home.
+        // Every row is NAMED by what it is: "PropLane" for the agent, the house for a manager / work-number
+        // conversation, "My PropLane agent" for the resident's own number. Never a phone number.
         const manager = resolveResidentThreadManager(t, managerContacts);
-        // The house chat is its own row: titled by the house, with no manager workspace to join or fold into.
-        if (isHouseInboxThread(t)) {
+        const label = residentConversationLabel(t, manager, managerContacts);
+        if (label.kind === "proplane_agent") {
+          // The agent row shows the latest turn of the shared conversation (the one the top bar types into).
+          const base = assistantUnifiedListItemFromThread(t, segment);
+          return {
+            ...base,
+            name: PROPLANE_AGENT_NAME,
+            subtitle: undefined,
+            ...(assistantLastTurn
+              ? {
+                  preview: communicationInboxListPreview(assistantLastTurn.content, segment, 160),
+                  previewPrefix: assistantLastTurn.role === "user" ? "You: " : undefined,
+                }
+              : {}),
+          };
+        }
+        // The house chat is its own row, with no manager workspace to join or fold into.
+        if (label.kind === "house_chat") {
           return {
             key: unifiedInboxKey("email", t.id),
             channel: "email" as const,
             threadId: t.id,
-            name: t.from || houseThreadDisplayName(null),
+            name: label.title,
             preview: communicationInboxListPreview(lastMsg?.body ?? t.preview ?? "", segment, 80),
             previewPrefix: inboxThreadLastTurnDirection(t) === "outbound" ? "You: " : undefined,
             time: t.time,
@@ -308,13 +394,14 @@ function ResidentUnifiedInbox({
           key: unifiedInboxKey("email", t.id),
           channel: "email" as const,
           threadId: t.id,
-          name: manager.name,
+          name: label.title,
           subtitle: t.subject,
+          // The manager (or the texter, for the resident's own number): a plain line under the preview.
+          ...(label.withName ? { placeLine: label.withName } : {}),
           preview: communicationInboxListPreview(lastMsg?.body ?? t.preview ?? "", segment, 80),
           previewPrefix: inboxThreadLastTurnDirection(t) === "outbound" ? "You: " : undefined,
           time: t.time,
           unread: t.folder === "inbox" && t.unread,
-            address: manager.homeLabel,
           category: inboxThreadCategoryLabel(t),
           recordRef: t.recordRef,
           // One conversation per manager workspace: rows sharing a key are one row.
@@ -326,7 +413,7 @@ function ResidentUnifiedInbox({
         };
       });
       const visibleEmailItems = segment === "unread" ? emailItems.filter((item) => item.unread) : emailItems;
-      // House chats sit at the top of the list as a group and never take part in the one-workspace text fold.
+      // House chats sit together near the top and never take part in the one-workspace text fold.
       const houseItems = visibleEmailItems.filter((item) => isHouseThreadId(item.threadId));
       const filteredEmailItems = visibleEmailItems.filter((item) => !isHouseThreadId(item.threadId));
 
@@ -338,12 +425,17 @@ function ResidentUnifiedInbox({
           const last = [...smsMessages].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]!;
           const unread = smsMessages.some((m) => m.direction === "inbound" && smsMessageBucket(m, smsOpened) === "unopened");
           if (segment !== "unread" || unread) {
+            // A text row that folds into the one workspace row is titled like it; a stray one is the texts, not a number.
+            const houseRowNames = new Set(
+              filteredEmailItems.filter((item) => (item.joinKeys?.length ?? 0) > 0).map((item) => item.name),
+            );
+            const smsName = houseRowNames.size === 1 ? [...houseRowNames][0]! : "Text messages";
             smsItems = [
               {
                 key: unifiedInboxKey("sms", SMS_THREAD_ID),
                 channel: "sms",
                 threadId: SMS_THREAD_ID,
-                name: "Text messages",
+                name: smsName,
                 subtitle: "Property manager",
                 preview: communicationInboxListPreview(last.body, segment, 80),
                 previewPrefix: last.direction === "outbound" ? "You: " : undefined,
@@ -355,15 +447,39 @@ function ResidentUnifiedInbox({
           }
         }
       }
-      return [
-        ...mergeUnifiedInboxItems(houseItems, "recent"),
-        ...mergeUnifiedInboxItems(
-          [...filteredEmailItems, ...foldTextRowIntoSoleWorkspace(filteredEmailItems, smsItems)],
-          "recent",
-        ),
-      ];
+
+      // The PropLane agent first, always; then the house chats; then every house conversation by recency.
+      const ordered = orderResidentConversationRows(
+        [
+          ...mergeUnifiedInboxItems(houseItems, "recent"),
+          ...mergeUnifiedInboxItems(
+            [...filteredEmailItems, ...foldTextRowIntoSoleWorkspace(filteredEmailItems, smsItems)],
+            "recent",
+          ),
+        ],
+        (row) => (row.threadId === assistantId ? "proplane_agent" : kindOfRow(row)),
+      );
+
+      // A house with no conversation yet is offered last, only on Active and never inside a record-scoped list.
+      const starterItems: UnifiedInboxListItem[] =
+        segment === "active" && !threadFilters
+          ? houseStarters
+              .filter((starter) => !q || [starter.houseLabel, starter.managerName].filter(Boolean).join(" ").toLowerCase().includes(q))
+              .map((starter) => ({
+                key: unifiedInboxKey("email", starter.id),
+                channel: "email" as const,
+                threadId: starter.id,
+                name: starter.houseLabel,
+                ...(starter.managerName ? { placeLine: starter.managerName } : {}),
+                preview: "No messages yet.",
+                time: "",
+                unread: false,
+                sortMs: 0,
+              }))
+          : [];
+      return [...ordered, ...starterItems];
     },
-    [filteredEmail, managerContacts, smsMessages, smsOpened, smsUiEnabled],
+    [assistantId, assistantLastTurn, filteredEmail, houseStarters, kindOfRow, managerContacts, smsMessages, smsOpened, smsUiEnabled, threadFilters],
   );
 
   const merged = useMemo(
@@ -374,7 +490,8 @@ function ResidentUnifiedInbox({
   // The tabs' counts are the conversations each tab would list, search aside.
   const tabCounts = useMemo(
     () => ({
-      active: rowsForSegment("active", "", false).length,
+      // A "start a conversation" row for a house is an offer, not a conversation: it is not counted.
+      active: rowsForSegment("active", "", false).filter((row) => !isHouseStarterId(row.threadId)).length,
       archived: rowsForSegment("archived", "", false).length,
     }),
     [rowsForSegment],
@@ -427,7 +544,9 @@ function ResidentUnifiedInbox({
         return null;
       }
       if (cur && merged.some((row) => row.key === cur)) return cur;
-      if (inboxUsesDesktopSplit()) return merged[0]!.key;
+      // By default the desktop opens the first CONVERSATION, which is the PropLane agent: a chat is always there.
+      const firstConversation = merged.find((row) => !isHouseStarterId(row.threadId));
+      if (inboxUsesDesktopSplit() && firstConversation) return firstConversation.key;
       return null;
     });
   }, [initialListReady, merged, routeThreadId]);
@@ -440,6 +559,18 @@ function ResidentUnifiedInbox({
     </div>
   ) : null;
   const listControlsPublished = usePublishTitleActions(listControls, listControls != null);
+
+  // Start the conversation about a house through the one New message path (authorize, then append): the manager reads
+  // it in the same conversation as this resident's texts.
+  const startConversationAboutHouse = (starterId: string) => {
+    const target = houseStarters.find((entry) => entry.id === starterId);
+    if (!target) return;
+    inboxRef.current?.openCompose({
+      subject: `Question about ${target.houseLabel}`,
+      body: "",
+      recipientEmail: target.email,
+    });
+  };
 
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col min-w-0 overflow-clip">
@@ -471,7 +602,7 @@ function ResidentUnifiedInbox({
           ariaLabel: "Search messages",
           dataAttr: "resident-inbox-search",
         }}
-        count={initialListReady ? merged.length : undefined}
+        count={initialListReady ? merged.filter((row) => !isHouseStarterId(row.threadId)).length : undefined}
         trailing={listControlsPublished ? null : listControls}
       />
       <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
@@ -495,41 +626,62 @@ function ResidentUnifiedInbox({
             </div>
           ) : null
         ) : (
-          merged.map((row) => (
-            <InboxConversationRow
-              key={row.key}
-              appearance="flat"
-              emailNameAsPerson
-              // A text-only conversation is derived, read-only: nothing to archive.
-              trailing={
-                emailThreads.find((t) => t.id === row.threadId)?.smsOnly ? undefined : (
-                  <CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} />
-                )
-              }
-              name={row.name}
-              subtitle={row.subtitle}
-              preview={row.preview}
-              previewPrefix={row.previewPrefix}
-              time={row.time}
-              unread={row.unread}
-              address={row.address}
-              category={row.category}
-              recordChip={
-                row.recordRef
-                  ? { label: row.recordRef.label, href: recordRoutePath("resident", row.recordRef.kind, row.recordRef.id) }
-                  : undefined
-              }
-              selected={selectedKey === row.key}
-              onOpen={() => {
-                setSelectedKey(row.key);
-                onRouteThreadChange?.(row.threadId);
-                const href = `${commBase}/${listSegment}/${encodeURIComponent(row.threadId)}`;
-                if (routeThreadId !== row.threadId) {
-                  selectCommunicationThreadUrl(href, { replaceExisting: Boolean(routeThreadId) });
+          merged.map((row) => {
+            const kind = kindOfRow(row);
+            const starter = isHouseStarterId(row.threadId);
+            const isAgent = row.threadId === assistantId;
+            return (
+              <InboxConversationRow
+                key={row.key}
+                appearance="messages"
+                avatarShape={isAgent || kind === "my_agent" ? "circle" : "tile"}
+                avatar={
+                  isAgent ? (
+                    <AxisAssistantChatIcon className="size-6" />
+                  ) : kind === "my_agent" ? (
+                    <Smartphone className="size-6" aria-hidden />
+                  ) : kind === "house_chat" ? (
+                    <Users className="size-6" aria-hidden />
+                  ) : (
+                    <House className="size-6" aria-hidden />
+                  )
                 }
-              }}
-            />
-          ))
+                // A text-only conversation is derived, read-only: nothing to archive. The agent cannot be archived
+                // away and a house still to be started has nothing to archive.
+                trailing={
+                  isAgent || starter || emailThreads.find((t) => t.id === row.threadId)?.smsOnly ? undefined : (
+                    <CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} />
+                  )
+                }
+                name={row.name}
+                subtitle={row.subtitle}
+                placeLine={row.placeLine}
+                preview={row.preview}
+                previewPrefix={row.previewPrefix}
+                time={row.time}
+                unread={row.unread}
+                category={row.category}
+                recordChip={
+                  row.recordRef
+                    ? { label: row.recordRef.label, href: recordRoutePath("resident", row.recordRef.kind, row.recordRef.id) }
+                    : undefined
+                }
+                selected={!starter && selectedKey === row.key}
+                onOpen={() => {
+                  if (starter) {
+                    startConversationAboutHouse(row.threadId);
+                    return;
+                  }
+                  setSelectedKey(row.key);
+                  onRouteThreadChange?.(row.threadId);
+                  const href = `${commBase}/${listSegment}/${encodeURIComponent(row.threadId)}`;
+                  if (routeThreadId !== row.threadId) {
+                    selectCommunicationThreadUrl(href, { replaceExisting: Boolean(routeThreadId) });
+                  }
+                }}
+              />
+            );
+          })
         )}
       </div>
     </div>
@@ -539,17 +691,43 @@ function ResidentUnifiedInbox({
     () => (selectedKey ? merged.find((row) => row.key === selectedKey || (row.memberKeys ?? []).includes(selectedKey)) ?? null : null),
     [merged, selectedKey],
   );
-  const contactDetails = useMemo(
-    () =>
-      communicationDetailsFromRow(selectedRow, (kind, id) =>
-        recordRoutePath("resident", kind as RecordKind, id),
-      ),
-    [selectedRow],
-  );
+  const contactDetails = useMemo(() => {
+    if (!selectedRow) return null;
+    // The house's work number, copyable here and in the thread header; never the row's title.
+    const members = [selectedRow.key, ...(selectedRow.memberKeys ?? [])];
+    const workPhone = members
+      .map((key) => parseUnifiedInboxKey(key))
+      .map((parsed) => (parsed ? workPhoneByThreadId.get(parsed.threadId) : undefined))
+      .find(Boolean);
+    return communicationDetailsFromRow({ ...selectedRow, ...(workPhone ? { workPhone } : {}) }, (kind, id) =>
+      recordRoutePath("resident", kind as RecordKind, id),
+    );
+  }, [selectedRow, workPhoneByThreadId]);
 
   const smsSelected = selection?.channel === "sms";
+  // The pinned PropLane row opens the SHARED assistant conversation, not a stored inbox thread: what a resident
+  // types here is what the top bar's panel shows, and the other way round.
+  const assistantSelected = Boolean(
+    assistantAvailable && assistantId && selection?.channel === "email" && selection.threadId === assistantId,
+  );
   const threadPane = (
     <>
+      {assistantSelected ? (
+        <div className="flex min-h-0 flex-1 flex-col" data-attr="resident-assistant-thread">
+          <ResidentAssistantThread
+            // The desktop split always has an open conversation, so there is nothing to close to there.
+            onClose={
+              inboxUsesDesktopSplit()
+                ? undefined
+                : () => {
+                    setSelectedKey(null);
+                    onRouteThreadChange?.(undefined);
+                    clearCommunicationThreadUrl(`${commBase}/${listSegment}`);
+                  }
+            }
+          />
+        </div>
+      ) : null}
       {smsSelected ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
           <RoleSmsPanel apiPath="/api/resident/sms-conversations" storageScope="resident" tabId={"all" as ManagerSmsBucketId} />
@@ -559,8 +737,8 @@ function ResidentUnifiedInbox({
           leave the email pane's "Select a conversation" under an open text thread. */}
       <div
         className="flex min-h-0 flex-1 flex-col"
-        style={smsSelected ? { display: "none" } : undefined}
-        aria-hidden={smsSelected || undefined}
+        style={smsSelected || assistantSelected ? { display: "none" } : undefined}
+        aria-hidden={smsSelected || assistantSelected || undefined}
       >
         <ResidentInboxPanel
           ref={inboxRef}

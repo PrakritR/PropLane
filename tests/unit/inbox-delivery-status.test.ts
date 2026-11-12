@@ -24,6 +24,7 @@ function fakeDb(tables: Record<string, Row[]>) {
       select: () => builder,
       eq: (k: string, v: unknown) => (filters.push([k, v]), builder),
       is: (k: string, v: unknown) => (filters.push([k, v]), builder),
+      limit: () => builder,
       update: (p: Row) => ((patch = p), builder),
       upsert: (p: Row) => {
         const key = Object.keys(p)[0]!;
@@ -194,6 +195,57 @@ describe("provider status reaches the thread message", () => {
     await recordSmsAttempt(db, { threadId: THREAD, messageId: "m1" }, { sent: false, error: "recipient_opted_out" });
     const messages = (db.tables.portal_inbox_thread_records![0]!.row_data as { messages: { deliveries?: InboxMessageDelivery[] }[] }).messages;
     expect(messages[0]!.deliveries).toEqual([expect.objectContaining({ channel: "sms", status: "failed", error: expect.stringMatching(/opted out/i) })]);
+  });
+});
+
+describe("a text the outbox only accepted (deferred) still reaches its inbox message", () => {
+  it("remembers the message under the outbox row, and the first status callback after it goes out finds it", async () => {
+    const { recordSmsAttempt, applyProviderDeliveryStatus } = await import("@/lib/inbox-delivery-status.server");
+    const db = seed();
+    // The text was deferred: no provider id yet, so the message shows "sending" and is remembered by outbox id.
+    const recorded = await recordSmsAttempt(db, { threadId: THREAD, messageId: "m2" }, { sent: false, accepted: true, error: "deferred", outboxId: "ob-1" });
+    expect(recorded).toMatchObject({ channel: "sms", status: "sending" });
+    expect(db.tables.inbox_message_provider_refs).toEqual([
+      expect.objectContaining({ provider_id: "outbox:ob-1", thread_record_id: THREAD, message_id: "m2", channel: "sms" }),
+    ]);
+
+    // Later the dispatcher hands it to the provider and the outbox row carries the MessageSid.
+    db.tables.sms_outbox = [{ id: "ob-1", provider_message_sid: "SM-late" }];
+    const sent = await applyProviderDeliveryStatus(db, { providerId: "SM-late", channel: "sms", status: "sent" });
+    expect(sent.updated).toBe(true);
+    const messages = (db.tables.portal_inbox_thread_records![0]!.row_data as { messages: { id: string; deliveries?: InboxMessageDelivery[] }[] }).messages;
+    // The "sending" entry (no provider id) became the real one: no longer "Sending..." forever.
+    expect(messages[1]!.deliveries).toEqual([expect.objectContaining({ channel: "sms", providerId: "SM-late", status: "sent" })]);
+    // The real sid is remembered, so the next callback needs no outbox lookup.
+    expect(db.tables.inbox_message_provider_refs).toEqual(
+      expect.arrayContaining([expect.objectContaining({ provider_id: "SM-late", message_id: "m2" })]),
+    );
+    db.tables.sms_outbox = [];
+    expect((await applyProviderDeliveryStatus(db, { providerId: "SM-late", channel: "sms", status: "delivered" })).updated).toBe(true);
+    const after = (db.tables.portal_inbox_thread_records![0]!.row_data as { messages: { deliveries?: InboxMessageDelivery[] }[] }).messages;
+    expect(after[1]!.deliveries).toEqual([expect.objectContaining({ providerId: "SM-late", status: "delivered" })]);
+  });
+
+  it("an accepted text with no outbox id is recorded as before (nothing to follow)", async () => {
+    const { recordSmsAttempt } = await import("@/lib/inbox-delivery-status.server");
+    const db = seed();
+    await recordSmsAttempt(db, { threadId: THREAD, messageId: "m2" }, { sent: false, accepted: true });
+    expect(db.tables.inbox_message_provider_refs).toEqual([]);
+  });
+
+  it("a sid that belongs to no outbox row is still ignored", async () => {
+    const { applyProviderDeliveryStatus } = await import("@/lib/inbox-delivery-status.server");
+    const db = seed();
+    db.tables.sms_outbox = [{ id: "ob-9", provider_message_sid: "SM-other" }];
+    expect(await applyProviderDeliveryStatus(db, { providerId: "SM-nobody", channel: "sms", status: "delivered" })).toEqual({ updated: false });
+  });
+
+  it("names the new failure reasons plainly", async () => {
+    const { smsSendErrorText } = await import("@/lib/inbox-delivery-status.server");
+    expect(smsSendErrorText("workspace_has_no_work_number")).toBe("This workspace has no work number.");
+    expect(smsSendErrorText("quiet_hours")).toMatch(/quiet hours/i);
+    expect(smsSendErrorText("comms_billing_no_credit")).toMatch(/credit/i);
+    expect(smsSendErrorText("something_else")).toBe("Text couldn't be sent");
   });
 });
 

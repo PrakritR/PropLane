@@ -277,13 +277,14 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
       const notes = [
         failed ? `${failed} failed` : "",
         skipped ? `${skipped} left, sync again` : "",
-        error
-          ? `${unsynced ? `${unsynced} ${unsynced === 1 ? "house" : "houses"}` : "some houses"} could not sync, try again`
-          : "",
+        // A batch only fails with its own houses, so a partial run always counts some; there is no "some houses" case.
+        error && unsynced ? `${unsynced} ${unsynced === 1 ? "house" : "houses"} not synced` : "",
+        // The reason the run already carries ("Too many syncs. Try again in a minute."), not a generic line.
+        error ?? "",
       ].filter(Boolean);
       showToast(
         notes.length
-          ? `Synced ${synced} · ${notes.join(" · ")}`
+          ? `Synced ${synced} ${synced === 1 ? "calendar" : "calendars"} · ${notes.join(" · ")}`
           : `Synced ${synced} ${synced === 1 ? "calendar" : "calendars"}.`,
       );
     } finally { await refresh(); }

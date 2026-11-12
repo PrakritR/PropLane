@@ -1,3 +1,4 @@
+import { MANAGED_OFFLINE_RENT_MESSAGE, offlineReceiptRefusedForManagedRent } from "@/lib/managed-finance/offline-receipt-guard.server";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { NextResponse } from "next/server";
 import { isDeepStrictEqual } from "node:util";
@@ -336,6 +337,9 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }
       const current = existing.row_data as HouseholdCharge;
+      if (user.role !== "admin" && (await offlineReceiptRefusedForManagedRent(db, { kind: current.kind, propertyId: propertyId ?? current.propertyId }))) {
+        return NextResponse.json({ error: MANAGED_OFFLINE_RENT_MESSAGE, code: "MANAGED_RENT_PAID_IN_PROPLANE" }, { status: 409 });
+      }
       const note = body.note?.trim() ?? "";
       // A retry after ledger failure repairs the same receipt; it never changes a paid charge.
       const sameReceipt = existing.status === "paid" && current.paidAt === paidAt.toISOString() && current.paidMethod === method && (current.paidNote ?? "") === note;

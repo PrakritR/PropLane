@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { LinkedFormsFinishList, type LinkedFormListItem } from "@/components/marketing/linked-forms-finish-list";
 import { fetchLinkedFormsForApplication } from "@/lib/linked-form-requests-client";
+import { ResidentApplicantScreeningCard } from "@/components/portal/resident-applicant-screening-card";
 import { ResidentLifecycleStatusPanel } from "@/components/portal/resident-lifecycle-status-panel";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { useResidentManagerContacts } from "@/hooks/use-resident-manager-contacts";
@@ -127,6 +128,7 @@ export function ResidentApplicationStatusScreen({
         ]}
       />
       <ResidentApplicationOwedForms applicationId={row.id} className="mt-4" />
+      <ResidentApplicantScreeningCard applicationId={row.id} className="mt-4" />
     </>
   );
 }

@@ -20,7 +20,7 @@ vi.mock("@/lib/sms/manager-sms-contacts.server", () => ({ upsertManagerSmsContac
 vi.mock("@/lib/one-number/team-alerts.server", () => ({ alertWorkspaceTeam: (...args: unknown[]) => mocks.alert(...args) }));
 
 import { publicListingProjection } from "@/lib/public-listings.server";
-import { NEUTRAL_REPLY, WELCOME } from "@/lib/one-number/lead-qualifying";
+import { NEUTRAL_REPLY } from "@/lib/one-number/lead-qualifying";
 import { NO_MATCH_TEXT, OFFER_DETAILS_HEADER } from "@/lib/one-number/lead-match";
 import {
   assignLeadToHouse,
@@ -107,11 +107,10 @@ beforeEach(() => {
 });
 
 describe("the first reply", () => {
-  it("names PropLane, says how to opt out, and asks the budget", async () => {
+  it("asks the budget directly: no business-name preamble and no STOP footer", async () => {
     const fake = seed();
     const turn = await say(fake, "hi");
-    expect(turn.reply).toBe(`${WELCOME} What is your monthly budget for rent?`);
-    expect(turn.reply).toBe("Hi, this is PropLane. Reply STOP to opt out. What is your monthly budget for rent?");
+    expect(turn.reply).toBe("What is your monthly budget for rent?");
     expect(turn.reply!.length).toBeLessThanOrEqual(160);
     expect(turn.assignedWorkspaceId).toBeNull();
     expect(lead(fake)).toMatchObject({ phone_key: PHONE_KEY, status: "open" });
@@ -124,7 +123,7 @@ describe("the first reply", () => {
   it("does not repeat the welcome on later texts, and reads a first text that already answers things", async () => {
     const fake = seed();
     const first = await say(fake, "Looking for a room under $1100 near UW, move in Nov 1 for 6 months");
-    expect(first.reply!.startsWith(WELCOME)).toBe(true);
+    expect(first.reply!.startsWith("Hi, this is PropLane")).toBe(false);
     expect(first.reply).toContain("Do you want a private or shared bath, and furnished or unfurnished?");
     expect(profile(fake)).toMatchObject({ budgetMax: 1100, moveInDate: "2026-11-01", leaseMonths: 6, area: "UW", asked: "room" });
     const second = await say(fake, "shared and furnished");
@@ -235,16 +234,16 @@ describe("a question about what is open is answered with the open homes first", 
       const turn = await say(fake, text);
       const bodies = texts(turn);
       expect(bodies.length).toBeGreaterThanOrEqual(3);
-      expect(bodies[0]!.startsWith(WELCOME)).toBe(true);
+      expect(bodies[0]!.startsWith("Hi, this is PropLane")).toBe(false);
       const all = bodies.join("\n");
       expect(all).toContain("from $900/mo");
       expect(all).toContain("https://proplane.ai/rent/listings/prop-uw-a");
       expect(all).toContain("https://proplane.ai/rent/tours-contact?propertyId=prop-uw-a");
       expect(all).toMatch(/tap Apply/);
-      expect(turn.reply).not.toBe(`${WELCOME} What is your monthly budget for rent?`);
+      expect(turn.reply).not.toBe("What is your monthly budget for rent?");
       expect(profile(fake)).toMatchObject({ stage: "offered", asked: "pick", overviewSent: true });
-      // STOP text exactly once, one question at most.
-      expect(all.match(/Reply STOP/g)).toHaveLength(1);
+      // A reply to someone who texted in carries no STOP footer and no business-name preamble; one question at most.
+      expect(all).not.toMatch(/Reply STOP|This is PropLane/);
       expect((all.match(/\?/g) ?? []).filter(() => true).length).toBeLessThanOrEqual(1 + (all.match(/propertyId=/g) ?? []).length);
       expect(bodies[bodies.length - 1]!.match(/[^.?!]*\?/g)?.length ?? 0).toBeLessThanOrEqual(1);
     },
@@ -296,7 +295,7 @@ describe("a question about what is open is answered with the open homes first", 
     const fake = seed();
     const turn = await say(fake, "Is there availability", { listings: async () => [] });
     expect(turn.reply).toContain("I do not see an open room listed right now.");
-    expect(turn.reply!.startsWith(WELCOME)).toBe(true);
+    expect(turn.reply!.startsWith("Hi, this is PropLane")).toBe(false);
     expect(profile(fake)).toMatchObject({ stage: "no_match" });
   });
 
@@ -585,7 +584,7 @@ describe("webhook retries and hygiene", () => {
 // one of those paths now sends the deterministic first-text reply, recorded against the inbound sid so a retry
 // replays it instead of asking twice. (A MISSING table is different and stays silent: see above.)
 describe("a first text is never left unanswered", () => {
-  const firstReply = `${WELCOME} What is your monthly budget for rent?`;
+  const firstReply = "What is your monthly budget for rent?";
 
   it("answers when the lead store cannot be read", async () => {
     const fake = leadFakeDb({}, { failing: ["sms_unassigned_leads"] });
@@ -632,7 +631,7 @@ describe("a first text is never left unanswered", () => {
     const fake = seed();
     await say(fake, "hi");
     const turn = await say(fake, "$900", { now: throwingClock() });
-    expect(turn.reply ?? "").not.toContain(WELCOME);
+    expect(turn.reply ?? "").not.toMatch(/This is PropLane|Reply STOP/);
   });
 });
 
@@ -663,7 +662,7 @@ describe("the admin queue", () => {
     await say(fake, "hi");
     await closeLead(fake.db, String(lead(fake).id));
     const turn = await say(fake, "hello again");
-    expect(turn.reply!.startsWith(WELCOME)).toBe(true);
+    expect(turn.reply!.startsWith("Hi, this is PropLane")).toBe(false);
     expect(fake.rows.sms_unassigned_leads).toHaveLength(2);
   });
 

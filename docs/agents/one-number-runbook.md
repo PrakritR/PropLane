@@ -178,6 +178,7 @@ branch, and `db:push` applies it only once merged):
 | 20261110140000 | `inbox_message_provider_refs` | New service-role-only table mapping a Twilio SID / Resend id to its inbox message so delivery callbacks update the right bubble; child of `portal_inbox_thread_records` (cascade), RLS on, no client grants |
 | 20261111120000 | `rate_limit_cost` | Adds `consume_rate_limit_cost`: an all-or-nothing multi-token consume on the same bucket as `consume_rate_limit` (typed new-contact budget); additive, the three-argument function is unchanged |
 | 20261111130000 | `profiles_email_lower` | Adds the stored generated column `profiles.email_lower` plus its index, so the recipient-account lookup is an index read instead of a sequential scan per chunk; additive, derived, no grant or policy change |
+| 20261112100000 | `autopay_consent` | Adds the autopay consent columns (`consent_at`, `consent_payment_method_id`, `consent_version`) to `resident_autopay_settings`; already-enabled rows are backfilled once as `legacy-enrollment` for their current method; additive and idempotent |
 
 Check after the push (SQL editor, read-only):
 

@@ -88,6 +88,7 @@ describe("POST /api/auth/resident-setup — phone required", () => {
   });
   it("does not turn a guest draft token into verified email under identity rollout", async () => {
     vi.stubEnv("RESIDENT_IDENTITY_ENABLED", "true");
+    vi.stubEnv("RESIDENT_IDENTITY_PROVIDER", "persona");
     getUserMock.mockResolvedValue({ data: { user: null } });
     const res = await POST(post({ email: "sam@example.com", password: "hunter2hunter", phone: "2065550142", token: "tok", axisId: "PROPLANE-SETUP01" }));
     expect(res.status).toBe(403);

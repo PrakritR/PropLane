@@ -216,7 +216,7 @@ describe.each(["error", "throw"] as const)("a lock save that %ss", (mode) => {
   it("a stranger naming a paid manager's home: retry line (with the first-reply notice), no lock, no interest rows, lead open", async () => {
     saveMode = mode;
     const out = await text("is 12 Ravenna Pl still available?");
-    expect(out.unassignedReply).toBe(`Hi, this is PropLane. Reply STOP to opt out. ${RETRY}`);
+    expect(out.unassignedReply).toBe(RETRY);
     expect(out.unassignedReply).not.toContain("Marcus");
     expect(session()).toBeUndefined();
     expect(lead()).toMatchObject({ status: "open" });

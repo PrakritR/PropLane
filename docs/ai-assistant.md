@@ -15,6 +15,9 @@ resident route, registry, persona or row scoping changed; the same tools also
 serve resident SMS and the inbox agents (`set_autopay` is portal-only). Guards:
 `tests/unit/agent/portal-assistant-wiring.test.ts`,
 `tests/unit/resident-portal-top-bar-assistant.test.tsx`.
+(Nov 12) The resident's Communication list pins this SAME conversation as its first row, named "PropLane": its thread
+pane is the shared dock panel on this endpoint, so the top bar, the dashboard card, the phone's Ask tab and the list
+are one history. See `communication-inbox.md` § What a resident's conversations are called.
 
 All conversational surfaces assemble their runtime prompt through
 `src/lib/agent/system-prompts.ts`. It is the catalog for portal, public-site,

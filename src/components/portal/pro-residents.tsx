@@ -35,6 +35,9 @@ import {
   PORTAL_MODAL_FORM_GRID_CLASS,
 } from "@/components/ui/modal";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
+import { ManagerResidentRatingsSection } from "@/components/portal/manager-resident-ratings-section";
+import { ResidentRatingSheet } from "@/components/portal/resident-rating-sheet";
+import { useAdverseActionDecline } from "@/components/portal/adverse-action-decline";
 import { ApproveApplicationDialog } from "@/components/portal/approve-application-dialog";
 import { LeaseSendSheet } from "@/components/portal/lease-send-sheet";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
@@ -124,7 +127,7 @@ import {
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { MoreHorizontal } from "lucide-react";
 import { downloadCsv, toSafeCsv } from "@/lib/csv";
-import { residentSectionHeaderActions as residentSectionActionsFor } from "@/lib/resident-record-section-actions";
+import { residentSectionHeaderActions as residentSectionActionsFor, withResidentRateAction } from "@/lib/resident-record-section-actions";
 import type { RecordHeaderAction } from "@/lib/portals/record-sections";
 import { ManagerResidentsGroupedTable } from "@/components/portal/pro-residents-grouped-table";
 import { ManagerResidentToursPanel } from "@/components/portal/pro-resident-tours-panel";
@@ -747,6 +750,8 @@ export function ManagerResidents({
   const [welcomePreviewFor, setWelcomePreviewFor] = useState<ActiveResident | null>(null);
   const [welcomePreviewContent, setWelcomePreviewContent] = useState("");
   const [approvePreviewRow, setApprovePreviewRow] = useState<DemoApplicantRow | null>(null);
+  // FCRA: declining an application with a consumer report asks "is this based on the background check?" first.
+  const adverseAction = useAdverseActionDecline();
   const [checkrScreeningRowId, setCheckrScreeningRowId] = useState<string | null>(null);
   const [holdingFeeRowId, setHoldingFeeRowId] = useState<string | null>(null);
   const [checkrScreeningShowPicker, setCheckrScreeningShowPicker] = useState(false);
@@ -779,6 +784,9 @@ export function ManagerResidents({
     useState<ResidentRecordStatusBucketId>("pending");
   const [residentLeasePipelineTab, setResidentLeasePipelineTab] = useState<LeaseListTabId>("draft");
   const [addResidentPaymentOpen, setAddResidentPaymentOpen] = useState(false);
+  // Rate (a header icon): the manager's 1-5 star rating + review of this resident; the ratings card re-reads on save.
+  const [rateResidentOpen, setRateResidentOpen] = useState(false);
+  const [ratingsRefresh, setRatingsRefresh] = useState(0);
   const [addResidentServiceOpen, setAddResidentServiceOpen] = useState(false);
   const [embeddedPaymentFooterActions, setEmbeddedPaymentFooterActions] = useState<ReactNode>(null);
   const [embeddedPaymentBulkActions, setEmbeddedPaymentBulkActions] = useState<ReactNode>(null);
@@ -2223,6 +2231,7 @@ export function ManagerResidents({
     await declineApplicationWithUndo({
       row,
       showToast,
+      confirm: () => adverseAction.confirmDecline(row),
       run: async (id, next) => {
         const result = await transitionApplicationBucket(id, next, {
           userId: userId ?? null,
@@ -3264,9 +3273,19 @@ export function ManagerResidents({
   }, [portalBase, residentsTab, selected, residentLifecycleInput, tourBucketProp]);
 
   // Edit · Delete, identical on every tab. Everything else is an action of the tab it belongs to.
-  const residentRecordHeaderActions = useMemo(
+  const residentRegistryHeaderActions = useMemo(
     () => recordSections("manager", "resident", { basePath: portalBase, residentsTab }).headerActions,
     [portalBase, residentsTab],
+  );
+  // Rate sits between Edit and Delete once the person is (or was) a tenant. The server is the authority on whether
+  // this workspace really housed them (and whether the viewer may edit Residents); this only keeps the icon off
+  // someone who is still an applicant.
+  const residentRecordHeaderActions = useMemo(
+    () =>
+      selected && selected.stage !== "potential"
+        ? withResidentRateAction(residentRegistryHeaderActions)
+        : residentRegistryHeaderActions,
+    [residentRegistryHeaderActions, selected],
   );
 
   /**
@@ -3357,6 +3376,9 @@ export function ManagerResidents({
     switch (actionId) {
       case "edit":
         openEditResidentModal(selected.id);
+        return;
+      case "rate":
+        setRateResidentOpen(true);
         return;
       case "delete":
         void (async () => {
@@ -3675,6 +3697,9 @@ export function ManagerResidents({
                                   }}
                                   extraNeedsYou={moveInNeedsYou}
                                 />
+                                <div className="mt-3">
+                                  <ManagerResidentRatingsSection applicationId={selected.id} refreshKey={ratingsRefresh} />
+                                </div>
                               </ResidentDetailTabPanel>
                             ) : resolvedDetailTab === "forms" ? (
                               <ResidentDetailTabPanel>
@@ -3833,6 +3858,7 @@ export function ManagerResidents({
                               ) : (
                                 <p className="text-sm text-muted">No application on file for this resident.</p>
                               )}
+                              <ManagerResidentRatingsSection applicationId={selected.id} refreshKey={ratingsRefresh} />
                             </ResidentDetailTabPanel>
                             </div>
                             ) : resolvedDetailTab === "tours" ? (
@@ -4510,6 +4536,13 @@ export function ManagerResidents({
 
       </ManagerPortalPageShell>
       )}
+      <ResidentRatingSheet
+        open={rateResidentOpen && Boolean(selected)}
+        onClose={() => setRateResidentOpen(false)}
+        applicationId={selected?.id ?? ""}
+        onSaved={() => setRatingsRefresh((n) => n + 1)}
+      />
+
       <ManagerAddPaymentModal
         open={addResidentPaymentOpen}
         onClose={() => setAddResidentPaymentOpen(false)}
@@ -4724,6 +4757,7 @@ export function ManagerResidents({
         onClose={() => setHoldingFeeRowId(null)}
       />
 
+      {adverseAction.dialog}
       <ApproveApplicationDialog
         row={approvePreviewRow}
         userId={userId ?? null}
