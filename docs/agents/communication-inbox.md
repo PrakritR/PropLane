@@ -1323,3 +1323,10 @@ Cancel booking's "Notify guest" sends through the same authorized `POST /api/por
 
 ## Prospect threads, staff visibility and delivery issues (Nov 12)
 Staff of a PropLane Service workspace read that workspace's conversations whole (`staffWorkspaceOwners`); the thread header carries `prospectContext` ("5259 Brooklyn Ave NE · Room 4"), `platformState` ("Moved to text") and `platformDraft` (Copy + "Open on <site>"). A thread `deliveryIssue` (inbound unsaved, reply refused, provider failure) lists under Filter > "Delivery issues" with its reason and clears on the next delivered send. Owner: [`prospect-spine.md`](prospect-spine.md).
+
+## List order, From filter, Team chat roster, chat fit (Nov 12)
+
+- **Pin only the Assistant and the Team chat.** Every other conversation, house chats included, sorts strictly by `sortMs` (`inboxThreadSortMs`, a real timestamp, never the "Nov 4" label) on every portal (`groupWorkspaceChatsAfterAssistant`, `orderResidentConversationRows`). Test: `tests/unit/inbox-sort-pinning.test.ts`.
+- **From filter** (manager + admin Filter popover, single-select, per-viewer localStorage): `communication-from-filter.ts` derives Residents / Vendors / Managers / Prospects from the SMS counterparty role, the Team chat id, `prospectContext`, or the contact directory, never a name; unknown = All only. Applicant counts as Prospect. Test: `communication-from-filter.test.ts`.
+- **Team chat roster** = owner + every accepted seat of the workspace (co-managers and PropLane staff seats, any manager role, Viewer reads) via `resolveWorkspaceTeamMembers`; the list also admits `staffWorkspaceOwners`. Test: `team-chat-members-groups.test.ts`.
+- **Chat fit:** thread body clips x-overflow, wraps long strings, media is `max-width:100%`, pane fallback uses `dvh`. Test: `inbox-chat-fit.test.ts`.

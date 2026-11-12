@@ -3606,6 +3606,27 @@ html[data-native] [data-listing-subnav] {
   max-width: min(92%, 42rem);
 }
 
+/* Chat fits the screen at 375 and 1440 wide: nothing in a thread may be wider than the thread. Long unbroken
+   strings wrap, media scales down, wide code and tables scroll inside their own box, and the composer never
+   pushes the pane wider than its column (tests/unit/inbox-chat-fit.test.ts). */
+.portal-inbox-thread-pane,
+.portal-inbox-thread-body,
+.portal-inbox-composer {
+  min-width: 0;
+  max-width: 100%;
+}
+.portal-inbox-thread-body {
+  overflow-wrap: anywhere;
+}
+.portal-inbox-thread-body :where(img, video, canvas, iframe) {
+  max-width: 100%;
+}
+.portal-inbox-thread-body :where(pre, table) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 .portal-resident-detail-inbox .portal-inbox-bubble-wrap {
   max-width: min(98%, 56rem);
 }

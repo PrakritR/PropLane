@@ -347,7 +347,7 @@ export function PortalInboxMessageTable({
             <div key={msg.id} className="rounded-xl border border-border bg-accent/20 px-3 py-2.5">
               <p className="text-[11px] font-semibold text-foreground">{msg.from}</p>
               <p className="text-[10px] text-muted">{msg.at}</p>
-              <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-muted">{msg.body}</p>
+              <p className="mt-1.5 whitespace-pre-wrap break-words text-sm leading-relaxed text-muted [overflow-wrap:anywhere]">{msg.body}</p>
             </div>
           ))}
         </div>
@@ -3550,8 +3550,8 @@ export function InboxThreadView({
         onScroll={pageScroll ? undefined : handleThreadScroll}
         className={
           pageScroll
-            ? "portal-inbox-thread-body flex flex-col px-3 py-3 md:px-[18px] md:py-3.5"
-            : "portal-inbox-thread-body flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 py-3 [-webkit-overflow-scrolling:touch] md:px-[18px] md:py-3.5"
+            ? "portal-inbox-thread-body flex min-w-0 max-w-full flex-col overflow-x-hidden px-3 py-3 md:px-[18px] md:py-3.5"
+            : "portal-inbox-thread-body flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-contain px-3 py-3 [-webkit-overflow-scrolling:touch] md:px-[18px] md:py-3.5"
         }
       >
         {messages.length === 0 && !beforeMessages && !afterMessages ? (
@@ -3854,7 +3854,7 @@ export function InboxTwoPane({
   }, [fillParent, fillViewport, heightMode, mobileCompact, threadOpen, fullScreenDrawn]);
 
   const sectionHeight = "min(20rem, 38dvh)";
-  const fallback = isNativeRuntimeSync() ? "min(78dvh, calc(100dvh - 12rem))" : "min(68vh, 640px)";
+  const fallback = isNativeRuntimeSync() ? "min(78dvh, calc(100dvh - 12rem))" : "min(68dvh, 640px)";
   const flexFillMobile = fillViewport && threadOpen;
   const flexFillLayout = fillParent && heightMode === "viewport";
   const flowLayout = heightMode === "flow";
