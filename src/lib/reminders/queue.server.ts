@@ -162,6 +162,7 @@ export async function materializeReminders(
         anchorIso: input.anchorIso,
         recipientUserId: recipient.userId ?? null,
         recipientPhone: recipient.phone ?? null,
+        managerUserId: input.managerUserId,
       }),
       payload: {
         ...input.payload,

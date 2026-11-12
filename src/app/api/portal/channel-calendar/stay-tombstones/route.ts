@@ -7,6 +7,7 @@ import {
   resolveTombstoneRestoreInput,
   restoreChannelStay,
 } from "@/lib/channel-calendar/stay-tombstones.server";
+import { rateLimit } from "@/lib/rate-limit";
 import { persistConnectionImportedRanges, syncChannelCalendarConnection } from "@/lib/channel-calendar/sync.server";
 
 export const runtime = "nodejs";
@@ -44,6 +45,12 @@ export async function POST(req: Request) {
     };
     const action = body.action === "restore" ? "restore" : body.action === "remove" ? "remove" : null;
     if (!action) return NextResponse.json({ error: "action must be remove or restore." }, { status: 400 });
+    // A restore re-reads the feed from the channel, so it shares the sync budget.
+    if (action === "restore") {
+      const limit = await rateLimit(`channel-sync:${ctx.userId}`, 20, 60_000);
+      if (limit.unavailable) return NextResponse.json({ error: "Restore is temporarily unavailable." }, { status: 503 });
+      if (!limit.ok) return NextResponse.json({ error: "Too many restores. Try again in a minute." }, { status: 429 });
+    }
     let input = { connectionId: String(body.connectionId ?? ""), sourceUid: String(body.sourceUid ?? ""),
       start: String(body.start ?? "").trim() || undefined,
       end: String(body.end ?? "").trim() || undefined,

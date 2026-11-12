@@ -348,6 +348,36 @@ describe("reminderDedupeKey", () => {
   });
 });
 
+describe("reminderDedupeKey: person-deduped counterparty copies are scoped to the workspace owner", () => {
+  const base = {
+    kind: "application" as const,
+    leadMinutes: 1440,
+    recipient: "pat@x.com",
+    recipientRole: "counterparty",
+    anchorIso: "2026-11-20T18:00:00.000Z",
+    recipientUserId: "user-pat",
+  };
+
+  it("same person, two managers -> two keys (two rows)", () => {
+    const a = reminderDedupeKey({ ...base, subjectId: "app-1", managerUserId: "mgr-a" });
+    const b = reminderDedupeKey({ ...base, subjectId: "app-9", managerUserId: "mgr-b" });
+    expect(a).not.toBe(b);
+    expect(a).toContain("manager:mgr-a|user:user-pat");
+  });
+
+  it("same person, same manager, two subjects -> one key (one row)", () => {
+    const a = reminderDedupeKey({ ...base, subjectId: "app-1", managerUserId: "mgr-a" });
+    const b = reminderDedupeKey({ ...base, subjectId: "app-2", managerUserId: "mgr-a" });
+    expect(a).toBe(b);
+  });
+
+  it("never collapses across workspaces when no manager is known", () => {
+    const a = reminderDedupeKey({ ...base, subjectId: "app-1" });
+    const b = reminderDedupeKey({ ...base, subjectId: "app-2" });
+    expect(a).not.toBe(b);
+  });
+});
+
 describe("PLAN-0915: vendor audience and urgent kinds", () => {
   it("normalises audience.vendor to false on kinds that have no vendor, and keeps it on service kinds", async () => {
     const { normalizeReminderSettings, URGENT_REMINDER_KINDS, reminderSendTimes, DEFAULT_REMINDER_RULES } = await import("@/lib/reminders/rules");

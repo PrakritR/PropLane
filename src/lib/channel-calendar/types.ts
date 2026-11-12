@@ -124,7 +124,6 @@ export type RemovedChannelStay = {
   summary: string;
   hostBlock: boolean;
   removedAt: string;
-  removedBy: string;
   propertyLabel: string;
   roomLabel: string;
   channelLabel: string | null;

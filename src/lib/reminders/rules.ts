@@ -1056,7 +1056,8 @@ export const REMINDER_DEDUPE_KEY_VERSION = "v2|";
  * Recipient is part of the key because the manager and the guest each get their
  * own copy of the same reminder.
  *
- * Given `anchorIso` (the queue always does), the key is the v2 identity: kind + who it is about + the
+ * Given `anchorIso` (the queue always does), the key is the v2 identity: kind + who it is about (a person-keyed
+ * kind is scoped to the workspace owner, `manager:<id>|<person>`) + the
  * anchor DATE (Pacific) + lead + recipient role. For a person-keyed kind the person replaces both the
  * subject row and the address, so two rows of the same person collapse to one reminder; a moved anchor
  * date is a new key, which is what lets a changed date re-queue.
@@ -1070,13 +1071,19 @@ export function reminderDedupeKey(input: {
   anchorIso?: string;
   recipientUserId?: string | null;
   recipientPhone?: string | null;
+  /** The workspace owner this reminder is queued for. Scopes a person-deduped key so another workspace's reminder for the same person never suppresses this one. */
+  managerUserId?: string | null;
 }): string {
   const recipient = input.recipient.trim().toLowerCase();
   if (!input.anchorIso) return `${input.kind}:${input.subjectId.trim()}:${input.leadMinutes}:${recipient}`;
   const role = input.recipientRole ?? "counterparty";
-  const personKeyed = role === "counterparty" && PERSON_DEDUPED_KINDS.has(input.kind);
+  const managerId = (input.managerUserId ?? "").trim();
+  // The unique index is global, so a person key must carry the workspace owner or workspace B's reminder for a
+  // person silently suppresses workspace A's. With no owner to scope it, fall back to the subject row (never
+  // collapse across workspaces).
+  const personKeyed = role === "counterparty" && PERSON_DEDUPED_KINDS.has(input.kind) && managerId !== "";
   const who = personKeyed
-    ? reminderPersonRef({ userId: input.recipientUserId, email: recipient, phone: input.recipientPhone, subjectId: input.subjectId })
+    ? `manager:${managerId}|${reminderPersonRef({ userId: input.recipientUserId, email: recipient, phone: input.recipientPhone, subjectId: input.subjectId })}`
     : `subject:${input.subjectId.trim()}`;
   return [
     `${REMINDER_DEDUPE_KEY_VERSION}${input.kind}`,

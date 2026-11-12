@@ -62,6 +62,7 @@ import {
 import {
   assertSettingsScopeOwned,
   resolveSettingsScopeParams,
+  serviceStaffSettingsAccess,
   trackSettingsScopeChanged,
   writeRungFromSource,
 } from "@/lib/scope/settings-scope";
@@ -253,6 +254,17 @@ export async function PATCH(req: Request) {
     let landlord: Awaited<ReturnType<typeof resolveWorkspaceLandlordLegalName>> | undefined;
     if ("landlordLegalName" in body) {
       if (propertyId) return NextResponse.json({ error: "The landlord is set once for the workspace." }, { status: 400 });
+      // The name is the OWNER's, written to the owner's row and printed on every lease in the workspace: an
+      // `applications` grant on one house is not a grant over it. Only the owner, or PropLane Service staff
+      // holding an Admin / Full seat on this very workspace, may change it. Fail closed on any other caller.
+      if (ownerUserId !== ctx.userId) {
+        const staff = workspaceId
+          ? await serviceStaffSettingsAccess(ctx.db, ctx.userId, workspaceId, "edit")
+          : ({ kind: "none" } as const);
+        if (staff.kind !== "ok" || !staff.fullGrant || staff.ownerUserId !== ownerUserId) {
+          return NextResponse.json({ error: "Only the workspace owner can change the landlord name." }, { status: 403 });
+        }
+      }
       const checked = validateLandlordLegalName(body.landlordLegalName);
       if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
       await saveManagerLandlordProfile(ctx.db, ownerUserId, { landlordLegalName: checked.landlordLegalName });

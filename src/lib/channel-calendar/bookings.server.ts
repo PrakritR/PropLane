@@ -280,7 +280,6 @@ export async function listRemovedChannelStaysWithLabels(
       summary: stay.range.summary,
       hostBlock: isHostBlockRange(stay.range),
       removedAt: stay.removedAt,
-      removedBy: stay.removedBy ?? "",
       propertyLabel: propertyLabelFromRecord(stay.propertyId, record?.property ?? null, record?.rowData ?? null),
       roomLabel: roomLabelFromSubmission(record?.property ?? null, stay.roomId, connection?.label ?? null),
       channelLabel: stay.provider === "ical" ? connection?.label?.trim() || null : null,

@@ -103,7 +103,7 @@ describe("Remove stay (channel feed reservation)", () => {
 });
 
 describe("Removed stays list", () => {
-  const stay = { id: "t1", propertyId: "prop-1", roomId: "r2", provider: "booking_com" as const, sourceUid: "uid-1", start: "2026-10-10", end: "2026-10-14", summary: "CLOSED - Not available", hostBlock: false, removedAt: "2026-10-30T00:00:00Z", removedBy: "m", propertyLabel: "Alder House", roomLabel: "Room 2", channelLabel: null };
+  const stay = { id: "t1", propertyId: "prop-1", roomId: "r2", provider: "booking_com" as const, sourceUid: "uid-1", start: "2026-10-10", end: "2026-10-14", summary: "CLOSED - Not available", hostBlock: false, removedAt: "2026-10-30T00:00:00Z", propertyLabel: "Alder House", roomLabel: "Room 2", channelLabel: null };
 
   it("is hidden when nothing is removed", () => {
     const { container } = render(<AppUiProvider><BookingsRemovedStays stays={[]} busy={false} onRestore={() => {}} /></AppUiProvider>);

@@ -39,6 +39,7 @@ import { ensureManagerAgentNoticeThread } from "@/lib/agent-notify.server";
 import { isViewAsSessionOpen } from "@/lib/auth/view-as.server";
 import { isTeamThreadId, updateTeamThreadMailboxState } from "@/lib/team-comms.server";
 import { teamThreadRowForViewer } from "@/lib/team-thread-view";
+import { withoutDeliveryReceipts } from "@/lib/inbox-delivery-projection";
 import { isHouseInboxThread } from "@/lib/house-thread-id";
 import {
   applyHouseMailboxState,
@@ -449,7 +450,9 @@ export async function GET(request: Request) {
       const storedRow = (record.row_data && typeof record.row_data === "object" ? record.row_data : record) as Record<string, unknown>;
       // A team chat is read by several people: whose lines are "mine" is the viewer's.
       const row = isTeamThreadId(String(record.id ?? "")) ? teamThreadRowForViewer(storedRow, ctx.user.id) : storedRow;
-      return { ...normalizeInboxRow({ ...row, id: record.id, ownerUserId: record.owner_user_id, threadType: record.thread_type, ...(record.houses ? { houses: record.houses } : {}) }), readSources: [{ id: record.id, observation: portalInboxReadObservation(record), unread: row?.unread === true }], readSourcesComplete: true };
+      const normalized = { ...normalizeInboxRow({ ...row, id: record.id, ownerUserId: record.owner_user_id, threadType: record.thread_type, ...(record.houses ? { houses: record.houses } : {}) }), readSources: [{ id: record.id, observation: portalInboxReadObservation(record), unread: row?.unread === true }], readSourcesComplete: true };
+      // Provider ids and failure reasons are the sender's: a Team chat is read by teammates who did not send the line.
+      return isTeamThreadId(String(record.id ?? "")) ? withoutDeliveryReceipts(normalized) : normalized;
     });
 
     // The viewer's house chats (manager: the active workspace's, by team access; resident: the houses they
@@ -468,11 +471,13 @@ export async function GET(request: Request) {
             : scopeParam === RESIDENT_INBOX_SCOPE
               ? await houseRowsForResident(ctx.db, { userId: ctx.user.id, email: ctx.user.email ?? "", inboxScope: scopeParam })
               : [];
-        houseRows = raw.map((row) => ({
-          ...normalizeInboxRow(row),
-          readSources: [{ id: String(row.id), observation: String(row.updatedAt ?? ""), unread: row.unread === true }],
-          readSourcesComplete: true,
-        }));
+        houseRows = raw.map((row) =>
+          withoutDeliveryReceipts({
+            ...normalizeInboxRow(row),
+            readSources: [{ id: String(row.id), observation: String(row.updatedAt ?? ""), unread: row.unread === true }],
+            readSourcesComplete: true,
+          }),
+        );
       } catch (e) {
         console.error("house chat list failed", e instanceof Error ? e.message : "unknown");
       }
@@ -502,7 +507,7 @@ export async function GET(request: Request) {
           },
           collapsed,
         );
-        return NextResponse.json({ rows: [...extras.rows, ...houseRows], residentPhone: extras.phone });
+        return NextResponse.json({ rows: [...extras.rows.map(withoutDeliveryReceipts), ...houseRows], residentPhone: extras.phone });
       } catch (e) {
         console.error("resident conversation extras failed", e instanceof Error ? e.message : "unknown");
       }
@@ -523,15 +528,21 @@ export async function GET(request: Request) {
           },
           collapsed,
         );
-        return NextResponse.json({ rows: [...extras.rows, ...houseRows], vendorPhone: extras.phone });
+        return NextResponse.json({ rows: [...extras.rows.map(withoutDeliveryReceipts), ...houseRows], vendorPhone: extras.phone });
       } catch (e) {
         console.error("vendor conversation extras failed", e instanceof Error ? e.message : "unknown");
       }
     }
 
+    // The resident / vendor on the receiving end never sees the sender's provider receipts.
+    const receivingSide = scopeParam === RESIDENT_INBOX_SCOPE || scopeParam === VENDOR_INBOX_SCOPE;
     return NextResponse.json({
       rows: [
-        ...(scopeParam === MANAGER_INBOX_SCOPE ? collapseAssistantInboxThreads(collapsed) : collapsed),
+        ...(scopeParam === MANAGER_INBOX_SCOPE
+          ? collapseAssistantInboxThreads(collapsed)
+          : receivingSide
+            ? collapsed.map(withoutDeliveryReceipts)
+            : collapsed),
         ...houseRows,
       ],
     }, { headers: { "Server-Timing": timer.header() } });
