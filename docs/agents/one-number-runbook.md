@@ -176,6 +176,7 @@ branch, and `db:push` applies it only once merged):
 | 20261110120000 | `drop_application_before_tour_key` | Strips the retired `applicationBeforeTour` key from `manager_automation_settings.row_data` (data only, idempotent) |
 | 20261110130000 | `identity_functions_search_path` | Pins `search_path = public, pg_temp` on the SECURITY DEFINER resident-identity functions (`apply_resident_identity_event`, `retry_expired_resident_identity`); function settings only, idempotent |
 | 20261110140000 | `inbox_message_provider_refs` | New service-role-only table mapping a Twilio SID / Resend id to its inbox message so delivery callbacks update the right bubble; child of `portal_inbox_thread_records` (cascade), RLS on, no client grants |
+| 20261111120000 | `rate_limit_cost` | Adds `consume_rate_limit_cost`: an all-or-nothing multi-token consume on the same bucket as `consume_rate_limit` (typed new-contact budget); additive, the three-argument function is unchanged |
 
 Check after the push (SQL editor, read-only):
 

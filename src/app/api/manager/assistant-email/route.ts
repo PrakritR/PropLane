@@ -186,7 +186,7 @@ async function buildStatus(
     // A pure co-manager and a PropLane Service staff reader both send from the owner's address and
     // never see a Request button, which `workspace.owned` alone already settles.
     canRequest:
-      workspace.owned && storageReady && canRequestBilling && provisioningEnvEnabled && !row,
+      workspace.owned && !pureCoManager && storageReady && canRequestBilling && provisioningEnvEnabled && !row,
     canUse,
     requestedAtSignup: automationSettings?.workEmailRequestedAtSignup === true,
   };
