@@ -4,24 +4,21 @@
  * The public listing's price card: one card, no dead rows.
  *
  * A price line at the top ("$1,050 / mo", or "from $1,050 / mo" when the base rent is zero and the price is
- * the lowest room rent; never a dash or "$0"), a Monthly | Short stay segmented control when the listing
- * has a nightly rate, and under the segment only what that stay needs. Monthly: move-in, room, one primary
- * (Quick apply for a signed-in resident with saved answers, Continue application when those answers do not
- * cover the listing, Apply otherwise) and Schedule tour. Short stay: the booking block, whose primary is
- * Request to book. No phone number and no text link: /rent is the web channel, so every action goes
+ * the lowest room rent; never a dash or "$0"), the availability line, and exactly two actions: Tour and Book
+ * (Book opens the quick sheet for a signed-in resident with saved answers, Continue application when those answers do not
+ * cover the listing, Book otherwise). No stay-type control, no date or room pickers, no short-stay block
+ * (captain, Nov 12), no phone number and no text link: /rent is the web channel, so every action goes
  * through a resident account into the portal (captain, Oct 20).
  *
  * `ListingActionsProvider` decides the primary once for the whole page, so the card (drawn twice by width)
- * and the phone's sticky bar always agree and the read-only server check runs once.
+ * and the phone's dock always agree and the read-only server check runs once.
  */
 import Link from "next/link";
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { listingPrimaryCtaClass } from "@/components/marketing/listing-contact-card";
 import { ProspectListingCta } from "@/components/marketing/prospect-listing-cta";
 import { QuickApplySheet } from "@/components/marketing/quick-apply-sheet";
-import { ShortStayBookingBlock, useShortStay } from "@/components/marketing/short-stay-booking";
-import { DateField } from "@/components/ui/date-field";
-import { Select } from "@/components/ui/input";
+import { useShortStay } from "@/components/marketing/short-stay-booking";
 import type { ListingRichContent } from "@/data/listing-rich-content";
 import type { MockProperty } from "@/data/types";
 import { isEntireHomeListing } from "@/lib/manager-listing-submission";
@@ -33,8 +30,6 @@ import {
 } from "@/hooks/use-quick-apply-eligibility";
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
 import { listingMonthlyPriceLine } from "@/lib/listing-price-line";
-import { pacificTodayKey } from "@/lib/sheet-sync/dates";
-import { listingShortStayNightlyFrom } from "@/lib/short-stay-request";
 
 type ListingActions = {
   /** A signed-in resident with saved answers, on the public page (never a manager's own preview). */
@@ -105,8 +100,8 @@ export function ListingActionsProvider({
 }
 
 /**
- * The monthly segment's one primary button. Quick apply opens the sheet; Continue application and View
- * application are plain links to where the server said to go; Apply is the existing door.
+ * The one primary button. Book opens the quick sheet for a signed-in resident with saved answers; Continue application and View application are plain
+ * links to where the server said to go; Book is the existing apply door (same destination, only the word).
  */
 export function MonthlyPrimaryCta({
   property,
@@ -124,7 +119,7 @@ export function MonthlyPrimaryCta({
   const stay = useShortStay();
   const roomId = listingIsEntireHome(property) ? "" : stay?.roomId ?? "";
   const words = (long: string, short: string) => (
-    label === "short" ? (
+    label === "short" && short !== long ? (
       <>
         <span aria-hidden>{short}</span>
         <span className="sr-only">{long}</span>
@@ -136,7 +131,7 @@ export function MonthlyPrimaryCta({
   if (actions?.quickEligible && (actions.readiness.kind === "checking" || actions.readiness.kind === "ready")) {
     return (
       <button type="button" className={className} onClick={actions.openQuickApply} data-attr="listing-quick-apply">
-        {words("Quick apply", "Quick apply")}
+        {words("Book", "Book")}
       </button>
     );
   }
@@ -163,30 +158,8 @@ export function MonthlyPrimaryCta({
       newTab={newTab}
       applyParams={roomId ? { listingRoomId: roomId } : undefined}
     >
-      {words("Apply", "Apply")}
+      {words("Book", "Book")}
     </ProspectListingCta>
-  );
-}
-
-function SegmentControl({ value, onChange }: { value: "monthly" | "short"; onChange: (next: "monthly" | "short") => void }) {
-  const options = [
-    { id: "monthly" as const, label: "Monthly" },
-    { id: "short" as const, label: "Short stay" },
-  ];
-  return (
-    <div role="group" aria-label="Stay type" className="ps-ld-seg" data-attr="listing-stay-segments">
-      {options.map((option) => (
-        <button
-          key={option.id}
-          type="button"
-          aria-pressed={value === option.id}
-          onClick={() => onChange(option.id)}
-          data-attr={`listing-stay-${option.id}`}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -207,104 +180,38 @@ export function PriceFigure({ label, className = "", "data-attr": dataAttr }: { 
   );
 }
 
-export const BOOK_TOUR_LABEL = "Book a tour";
+export const BOOK_TOUR_LABEL = "Tour";
 
 export function ListingPriceCard({
   property,
   rich,
   newTab,
   className = "",
-  variant = "aside",
-  showActions = true,
   availableLine = null,
 }: {
   property: MockProperty;
   rich: ListingRichContent;
   newTab: boolean;
   className?: string;
-  /** `aside` is the sticky desktop card (price first); `inline` is the phone's block of pickers under the overview. */
-  variant?: "aside" | "inline";
-  /** The phone dock carries the actions on the public page, so its inline block leaves them out. */
-  showActions?: boolean;
   /** "Available now" / "Next opening Oct 24" — plain text under the price. */
   availableLine?: string | null;
 }) {
-  const stay = useShortStay();
-  const entireHome = listingIsEntireHome(property);
   const priceLine = listingMonthlyPriceLine(rich);
-  const nightlyFrom = listingShortStayNightlyFrom(property.listingSubmission);
-  // `stay.offered` already answers "is a short stay on offer" (a room to hold AND a nightly rate to
-  // price it), which is the same answer the phone sticky bar reads.
-  const segments = stay?.offered === true;
-  const segment = segments && stay ? stay.segment : "monthly";
-  const freeRooms = stay ? stay.rooms.filter((room) => stay.verdictFor(room.id)?.free !== false) : [];
-  const today = pacificTodayKey();
-  const inline = variant === "inline";
-  const showFields = Boolean(stay) && !newTab && segment !== "short";
-  const hasBody = segments || showFields || segment === "short" || showActions;
-  if (inline && !hasBody) return null;
 
   return (
-    <div
-      className={`${inline ? "ps-card-soft ps-ld-inline" : "ps-card ps-ld-card"} ${className}`}
-      data-attr={inline ? "listing-inline-card" : "listing-price-card"}
-    >
-      {!inline ? (
-        segment === "short" ? (
-          <PriceFigure label={`from $${nightlyFrom.toLocaleString("en-US")} / night`} data-attr="listing-price-line" />
-        ) : priceLine ? (
-          <PriceFigure label={priceLine.label} data-attr="listing-price-line" />
-        ) : null
-      ) : null}
-      {!inline && availableLine ? (
+    <div className={`ps-card ps-ld-card ${className}`} data-attr="listing-price-card">
+      {priceLine ? <PriceFigure label={priceLine.label} data-attr="listing-price-line" /> : null}
+      {availableLine ? (
         <p className="ps-ld-avail" data-attr="listing-available-line">
           {availableLine}
         </p>
       ) : null}
-      {segments && stay ? <SegmentControl value={stay.segment} onChange={stay.setSegment} /> : null}
-
-      {segment === "short" ? (
-        <ShortStayBookingBlock className="mt-4" />
-      ) : (
-        <>
-          {showFields && stay ? (
-            <div className="ps-ld-fields" data-attr="listing-monthly-fields">
-              <label data-attr="listing-move-in">
-                Move-in
-                <DateField value={stay.moveIn} onChange={stay.setMoveIn} min={today} className="mt-1" aria-label="Move-in" />
-              </label>
-              {!entireHome && stay.rooms.length > 1 ? (
-                <label data-attr="listing-room-select">
-                  Room
-                  <Select aria-label="Room" className="mt-1" value={stay.roomId} onChange={(e) => stay.setRoomId(e.target.value)}>
-                    <option value="">Any room</option>
-                    {freeRooms.map((room) => (
-                      <option key={room.id} value={room.id}>{room.name}</option>
-                    ))}
-                  </Select>
-                </label>
-              ) : null}
-            </div>
-          ) : null}
-          {showActions ? (
-            <div className="ps-ld-acts">
-              <ProspectListingCta action="tour" propertyId={property.id} data-attr="listing-web-tour" className="ps-btn ps-btn-blue" newTab={newTab}>
-                {BOOK_TOUR_LABEL}
-              </ProspectListingCta>
-              <MonthlyPrimaryCta property={property} newTab={newTab} className="ps-btn ps-btn-line" />
-              {segments && stay ? (
-                <button type="button" className="ps-link ps-ld-more" data-attr="listing-book-short-term" onClick={() => stay.setSegment("short")}>
-                  Book short term
-                </button>
-              ) : null}
-            </div>
-          ) : segments && stay ? (
-            <button type="button" className="ps-link ps-ld-more" data-attr="listing-book-short-term" onClick={() => stay.setSegment("short")}>
-              Book short term
-            </button>
-          ) : null}
-        </>
-      )}
+      <div className="ps-ld-acts">
+        <ProspectListingCta action="tour" propertyId={property.id} data-attr="listing-web-tour" className="ps-btn ps-btn-blue" newTab={newTab}>
+          {BOOK_TOUR_LABEL}
+        </ProspectListingCta>
+        <MonthlyPrimaryCta property={property} newTab={newTab} className="ps-btn ps-btn-line" />
+      </div>
     </div>
   );
 }

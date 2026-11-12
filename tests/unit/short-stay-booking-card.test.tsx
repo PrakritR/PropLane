@@ -9,11 +9,9 @@ vi.mock("@/hooks/use-listing-public-occupancy", () => ({
     rooms: [{ roomChoice: "prop-1::r1", spans: [{ start: "2026-10-21", end: "2026-10-22", count: 1 }] }],
   }),
 }));
-const auth = vi.hoisted(() => ({ current: { ready: true, userId: null as string | null, hasResidentRole: false } }));
-vi.mock("@/hooks/use-prospect-contact-autofill", () => ({ useProspectContactAutofill: () => auth.current }));
 vi.mock("@/lib/sheet-sync/dates", async (orig) => ({ ...(await orig<typeof import("@/lib/sheet-sync/dates")>()), pacificTodayKey: () => "2026-10-12" }));
 
-import { ShortStayBookingBlock, ShortStayProvider, useShortStay } from "@/components/marketing/short-stay-booking";
+import { ShortStayProvider, useShortStay } from "@/components/marketing/short-stay-booking";
 
 const property = {
   id: "prop-1",
@@ -43,15 +41,10 @@ function Probe() {
   );
 }
 
-function PickRoom() {
-  const stay = useShortStay();
-  return <button type="button" onClick={() => stay?.setRoomId("r3")}>pick room 3</button>;
-}
-
 beforeEach(() => vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 }))));
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); auth.current = { ready: true, userId: null, hasResidentRole: false }; });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-describe("short-stay booking card", () => {
+describe("short-stay verdicts", () => {
   it("has no verdicts until a valid range is picked, then dims only the booked room", async () => {
     render(<ShortStayProvider property={property}><Probe /></ShortStayProvider>);
     expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["no-range", "no-range"]);
@@ -60,64 +53,23 @@ describe("short-stay booking card", () => {
     expect(document.querySelector('[data-room="r3"]')?.textContent).toBe("free");
   });
 
-  it("is absent when disabled (the manager's own preview) or the listing offers no short stay", () => {
-    const { container, rerender } = render(<ShortStayProvider property={property} disabled><ShortStayBookingBlock /></ShortStayProvider>);
-    expect(container.querySelector('[data-attr="short-stay-block"]')).toBeNull();
-    rerender(<ShortStayProvider property={{ ...property, listingSubmission: { v: 1, rooms: [{ id: "r1" }] } } as unknown as MockProperty}><ShortStayBookingBlock /></ShortStayProvider>);
-    expect(container.querySelector('[data-attr="short-stay-block"]')).toBeNull();
+  it("offers no stay when disabled (the manager's own preview) or the listing has no short-stay rate", () => {
+    function Read() { return <span data-offered={String(useShortStay()?.offered)} />; }
+    const offered = (p: MockProperty, disabled = false) => {
+      const { container, unmount } = render(<ShortStayProvider property={p} disabled={disabled}><Read /></ShortStayProvider>);
+      const value = container.querySelector("[data-offered]")?.getAttribute("data-offered") === "true";
+      unmount();
+      return value;
+    };
+    expect(offered(property)).toBe(true);
+    expect(offered(property, true)).toBe(false);
+    expect(offered({ ...property, listingSubmission: { v: 1, rooms: [{ id: "r1" }] } } as unknown as MockProperty)).toBe(false);
   });
 
-  it("prints no price header of its own (the card's one price line sits above it), and never a dash", () => {
-    render(<ShortStayProvider property={property}><ShortStayBookingBlock /></ShortStayProvider>);
-    expect(screen.queryByText("/ night")).toBeNull();
-    expect(document.body.textContent).not.toContain("—");
-  });
-
-  it("shows the live total; Request to book waits for a room and never offers a text link, a number or Quick book", async () => {
-    render(<ShortStayProvider property={property}><ShortStayBookingBlock /><Probe /></ShortStayProvider>);
-    const request = screen.getByRole("button", { name: "Request to book" }) as HTMLButtonElement;
-    expect(request.disabled).toBe(true);
-    fireEvent.click(screen.getByText("pick dates"));
-    await waitFor(() => expect(screen.getByText("$55 × 4 nights")).toBeTruthy());
-    expect(screen.getByText("$220")).toBeTruthy();
-    expect(request.disabled).toBe(true);
-    expect(document.querySelector('a[href^="sms:"], a[href^="tel:"]')).toBeNull();
-    expect(screen.queryByText(/Text us|Quick book/)).toBeNull();
-    expect(document.body.textContent).not.toMatch(/\(814\)|8146793694/);
-    expect(document.body.textContent).not.toContain("— / night");
-  });
-
-  it("a signed-out visitor's Request to book makes a resident account, then opens the portal's stay request with the picks", async () => {
-    render(
-      <ShortStayProvider property={property}>
-        <ShortStayBookingBlock />
-        <Probe />
-        <PickRoom />
-      </ShortStayProvider>,
-    );
-    fireEvent.click(screen.getByText("pick dates"));
-    fireEvent.click(screen.getByText("pick room 3"));
-    const book = await screen.findByRole("link", { name: "Request to book" });
-    const href = book.getAttribute("href")!;
-    expect(href.startsWith("/auth/create-account?mode=create&role=resident&next=")).toBe(true);
-    expect(decodeURIComponent(href.split("next=")[1]!)).toBe("/resident/applications/stay?listing=prop-1&room=r3&checkIn=2026-10-20&checkOut=2026-10-24&guests=1");
-    // Nothing is sent from the public card: no form, no request.
-    expect(screen.queryByLabelText("Your name")).toBeNull();
-    expect(fetch).not.toHaveBeenCalledWith("/api/public/short-stay-request", expect.anything());
-  });
-
-  it("a signed-in resident goes straight to the portal's stay request", async () => {
-    auth.current = { ready: true, userId: "u1", hasResidentRole: true };
-    render(
-      <ShortStayProvider property={property}>
-        <ShortStayBookingBlock />
-        <Probe />
-        <PickRoom />
-      </ShortStayProvider>,
-    );
-    fireEvent.click(screen.getByText("pick dates"));
-    fireEvent.click(screen.getByText("pick room 3"));
-    const book = await screen.findByRole("link", { name: "Request to book" });
-    expect(book.getAttribute("href")).toBe("/resident/applications/stay?listing=prop-1&room=r3&checkIn=2026-10-20&checkOut=2026-10-24&guests=1");
+  it("no longer exports a booking block: the listing page has no short-stay entry point (captain, Nov 12)", async () => {
+    const mod = await import("@/components/marketing/short-stay-booking");
+    expect(Object.keys(mod)).not.toContain("ShortStayBookingBlock");
+    render(<ShortStayProvider property={property}><Probe /></ShortStayProvider>);
+    expect(document.querySelector('[data-attr="short-stay-block"], [data-attr="short-stay-request"]')).toBeNull();
   });
 });

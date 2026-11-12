@@ -494,43 +494,6 @@
   font-size: clamp(30px, 2.6vw, 38px);
   white-space: nowrap;
 }
-.ps-ld-seg {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  margin-top: 18px;
-  border: 1px solid var(--ps-ink);
-  border-radius: 3px;
-  overflow: hidden;
-}
-.ps-ld-seg button {
-  min-height: 44px;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--ps-mute);
-  cursor: pointer;
-}
-.ps-ld-seg button + button {
-  border-left: 1px solid var(--ps-ink);
-}
-.ps-ld-seg button[aria-pressed="true"] {
-  background: var(--ps-ink);
-  color: #fff;
-}
-.ps-ld-fields {
-  display: grid;
-  gap: 14px;
-  margin-top: 18px;
-}
-.ps-ld-fields label {
-  display: block;
-  min-width: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ps-ink);
-}
 .ps-ld-acts {
   display: grid;
   gap: 10px;
@@ -538,18 +501,6 @@
 }
 .ps-ld-acts .ps-btn {
   width: 100%;
-}
-.ps-ld-inline {
-  padding: 18px;
-}
-.ps-ld-inline .ps-ld-seg {
-  margin-top: 0;
-}
-.ps-ld-inline .ps-ld-fields {
-  margin-top: 0;
-}
-.ps-ld-inline .ps-ld-seg + .ps-ld-fields {
-  margin-top: 16px;
 }
 
 /* ---------- loading and not found ---------- */

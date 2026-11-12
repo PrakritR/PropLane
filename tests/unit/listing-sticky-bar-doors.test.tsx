@@ -150,7 +150,7 @@ describe("public page dock", () => {
     const dock = document.querySelector('[data-attr="listing-sticky-bar"][data-dock]') as HTMLElement;
     expect(dock).not.toBeNull();
     expect(dock.className).toContain("ps-dock");
-    expect(dock.textContent).toContain("Book a tour");
+    expect(dock.textContent).toContain("Tour");
     expect(dock.querySelector('[data-attr="listing-web-apply"]')).not.toBeNull();
     expect(document.documentElement.hasAttribute("data-ps-dock")).toBe(true);
     cleanup();

@@ -97,16 +97,16 @@ const bar = () => document.querySelector('[data-attr="listing-sticky-bar"]') as 
 const href = (selector: string) => bar().querySelector<HTMLAnchorElement>(selector)?.getAttribute("href") ?? "";
 
 const labels = () =>
-  [...bar().querySelectorAll('[data-attr="listing-sticky-actions"] a')].map((a) => a.querySelector("[aria-hidden]")?.textContent);
+  [...bar().querySelectorAll('[data-attr="listing-sticky-actions"] a')].map((a) => a.querySelector("[aria-hidden]")?.textContent ?? a.textContent);
 
 describe("manager preview phone bar with both stays", () => {
-  it("shows one Apply and Tour, whatever stays the listing offers", () => {
+  it("shows one Book and Tour, whatever stays the listing offers", () => {
     render(<ListingDetailSections property={property} rich={rich} portalEmbedded managerPreviewChrome hidePortalSubnav />);
-    expect(labels()).toEqual(["Apply", "Tour"]);
+    expect(labels()).toEqual(["Book", "Tour"]);
     expect(bar().querySelector('[data-attr="listing-web-apply-short"]')).toBeNull();
     // A guest's Apply makes a resident account first, then opens the application (captain, Oct 20).
     expect(href('[data-attr="listing-web-apply"]')).toContain("/auth/create-account?mode=create&role=resident&next=");
-    expect(bar().querySelector('[data-attr="listing-web-apply"] .sr-only')?.textContent).toBe("Apply");
+    expect(bar().querySelector('[data-attr="listing-web-apply"]')?.textContent).toBe("Book");
   });
 
   it("never draws two buttons to the same application", () => {
@@ -118,7 +118,7 @@ describe("manager preview phone bar with both stays", () => {
   it("keeps one row", () => {
     stays.short = false;
     render(<ListingDetailSections property={property} rich={rich} portalEmbedded managerPreviewChrome hidePortalSubnav />);
-    expect(labels()).toEqual(["Apply", "Tour"]);
+    expect(labels()).toEqual(["Book", "Tour"]);
     expect(bar().querySelector('[data-attr="listing-sticky-actions"]')?.parentElement?.className).not.toContain("flex-col");
   });
 });
@@ -138,8 +138,8 @@ describe("the assistant floats above the bar", () => {
   it("the non-dock bar keeps its two rows", () => {
     render(<ListingDetailSections property={property} rich={rich} />);
     expect(bar().hasAttribute("data-slim")).toBe(false);
-    expect(bar().textContent).toContain("Apply");
-    expect(bar().textContent).toContain("Book a tour");
+    expect(bar().textContent).toContain("Book");
+    expect(bar().textContent).toContain("Tour");
     expect(bar().textContent).not.toContain("Apply long term");
   });
 });

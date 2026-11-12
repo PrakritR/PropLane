@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 /**
- * The public listing's price card: a price line that is never a dash or $0, Monthly | Short stay
- * segments only when a nightly rate exists, and one primary per segment: Quick apply for a signed-in
- * resident with saved answers (Continue application when those answers do not cover the listing),
- * Apply for everyone else.
+ * The public listing's price card: a price line that is never a dash or $0, and exactly two actions,
+ * Tour and Book (captain, Nov 12: no Monthly | Short stay control, no move-in or room pickers). Book
+ * opens the quick sheet for a signed-in resident with saved answers (Continue application when those
+ * answers do not cover the listing) and is the plain apply door for everyone else.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import { ListingDetailSections } from "@/components/marketing/listing-detail-sections";
 import { resetQuickApplyReadiness } from "@/hooks/use-quick-apply-eligibility";
 import { listingMonthlyPriceLine } from "@/lib/listing-price-line";
@@ -193,37 +193,44 @@ describe("price line", () => {
   });
 });
 
-describe("segments", () => {
-  it("shows Monthly | Short stay only when the listing has a nightly rate, Monthly first", () => {
-    render(<ListingDetailSections property={property()} rich={rich()} />);
-    expect(card().querySelector('[data-attr="listing-stay-segments"]')).toBeNull();
-    cleanup();
-
-    render(<ListingDetailSections property={withShortStay()} rich={rich()} />);
-    expect(card().querySelector('[data-attr="listing-stay-monthly"]')!.getAttribute("aria-pressed")).toBe("true");
-    expect(card().querySelector('[data-attr="listing-price-line"]')!.textContent).toBe("$1,050 / mo");
-    fireEvent.click(card().querySelector('[data-attr="listing-stay-short"]')!);
-    expect(card().querySelector('[data-attr="listing-price-line"]')!.textContent).toContain("/ night");
-    expect(card().textContent).not.toContain("— / night");
-    expect(card().querySelector('[data-attr="short-stay-request"]')!.textContent).toBe("Request to book");
-    // No text link and no number on a /rent page (captain, Oct 20).
-    expect(card().querySelector('[data-attr="short-stay-text-us"], a[href^="sms:"]')).toBeNull();
+describe("actions", () => {
+  it("is the price, then Tour and Book: no stay-type control, no pickers, no short-stay block, even with a nightly rate", () => {
+    for (const p of [property(), withShortStay()]) {
+      render(<ListingDetailSections property={p} rich={rich()} />);
+      expect(card().querySelector('[data-attr="listing-price-line"]')!.textContent).toBe("$1,050 / mo");
+      expect(card().querySelector('[data-attr="listing-stay-segments"]')).toBeNull();
+      expect(card().querySelector('[data-attr="listing-monthly-fields"]')).toBeNull();
+      expect(card().querySelector('[data-attr="listing-move-in"]')).toBeNull();
+      expect(card().querySelector('[data-attr="listing-room-select"]')).toBeNull();
+      expect(card().querySelector('[data-attr="listing-book-short-term"]')).toBeNull();
+      expect(document.querySelector('[data-attr="short-stay-block"], [data-attr="short-stay-request"]')).toBeNull();
+      expect(document.body.textContent).not.toMatch(/Short stay|Book short term|Request to book|\/ night\b/);
+      cleanup();
+    }
   });
 
-  it("the monthly segment has Move-in, Apply and Book a tour, no Text us and no Email door", () => {
+  it("has exactly two actions, Tour and Book, no Text us and no Email door", () => {
     render(<ListingDetailSections property={property()} rich={rich()} />);
-    expect(card().querySelector('[data-attr="listing-move-in"]')).not.toBeNull();
-    expect(card().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Apply");
-    expect(card().querySelector('[data-attr="listing-web-tour"]')!.textContent).toBe("Book a tour");
+    expect(card().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Book");
+    expect(card().querySelector('[data-attr="listing-web-tour"]')!.textContent).toBe("Tour");
+    expect(card().querySelectorAll(".ps-ld-acts a, .ps-ld-acts button")).toHaveLength(2);
     expect(card().querySelector('[data-attr="listing-text-tour"]')).toBeNull();
     expect(document.body.textContent).not.toContain("Email the manager");
     expect(document.body.textContent).not.toContain("Apply long term");
     expect(document.body.textContent).not.toContain("Apply short term");
+    expect(document.body.textContent).not.toContain("Book a tour");
+  });
+
+  it("the phone's in-page block is gone: the dock carries the actions", () => {
+    render(<ListingDetailSections property={property()} rich={rich()} phoneDock />);
+    expect(document.querySelector('[data-attr="listing-phone-price-card"], [data-attr="listing-inline-card"]')).toBeNull();
+    const dock = document.querySelector('[data-attr="listing-sticky-bar"]')!;
+    expect([...dock.querySelectorAll("a")].map((a) => a.textContent)).toEqual(["Tour", "Book"]);
   });
 });
 
-describe("Quick apply vs Apply", () => {
-  it("a signed-out visitor sees Apply and never calls the saved-answers route", () => {
+describe("Quick book vs Book", () => {
+  it("a signed-out visitor sees Book and never calls the saved-answers route", () => {
     const fetchSpy = vi.fn(async () => new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchSpy);
     render(<ListingDetailSections property={property()} rich={rich()} />);
@@ -232,21 +239,21 @@ describe("Quick apply vs Apply", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("a resident with no saved application keeps Apply", async () => {
+  it("a resident with no saved application keeps Book", async () => {
     session.state = { ready: true, userId: "u1", hasResidentRole: true, name: "Dana", email: "dana@example.com", phone: "" };
     stubFetch({ profile: null, dryRun: { ready: true } });
     render(<ListingDetailSections property={property()} rich={rich()} />);
     await waitFor(() => expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0));
     expect(card().querySelector('[data-attr="listing-quick-apply"]')).toBeNull();
-    expect(card().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Apply");
+    expect(card().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Book");
   });
 
-  it("a resident with saved answers sees Quick apply, and the same word in the sticky bar", async () => {
+  it("a resident with saved answers sees Book (opening the quick sheet), and the same word in the sticky bar", async () => {
     session.state = { ready: true, userId: "u1", hasResidentRole: true, name: "Dana", email: "dana@example.com", phone: "" };
     stubFetch({ profile: { fullLegalName: "Dana Resident" }, dryRun: { ready: true } });
     render(<ListingDetailSections property={property()} rich={rich()} />);
     await waitFor(() => expect(card().querySelector('[data-attr="listing-quick-apply"]')).not.toBeNull());
-    expect(card().querySelector('[data-attr="listing-quick-apply"]')!.textContent).toBe("Quick apply");
+    expect(card().querySelector('[data-attr="listing-quick-apply"]')!.textContent).toBe("Book");
     expect(document.querySelector('[data-attr="listing-sticky-bar"] [data-attr="listing-quick-apply"]')).not.toBeNull();
     expect(card().querySelector('[data-attr="listing-web-apply"]')).toBeNull();
   });
@@ -262,15 +269,5 @@ describe("Quick apply vs Apply", () => {
     const link = card().querySelector('[data-attr="listing-continue-application"]') as HTMLAnchorElement;
     expect(link.textContent).toBe("Continue application");
     expect(link.getAttribute("href")).toBe("/resident/applications/apply?propertyId=prop-1&prefill=1");
-  });
-
-  it("the Short stay primary is Request to book even for that resident: Quick book is gone (captain, Oct 20)", async () => {
-    session.state = { ready: true, userId: "u1", hasResidentRole: true, name: "Dana", email: "dana@example.com", phone: "2065550100" };
-    stubFetch({ profile: { fullLegalName: "Dana Resident" }, dryRun: { ready: true } });
-    render(<ListingDetailSections property={withShortStay()} rich={rich()} />);
-    await waitFor(() => expect(card().querySelector('[data-attr="listing-quick-apply"]')).not.toBeNull());
-    fireEvent.click(card().querySelector('[data-attr="listing-stay-short"]')!);
-    expect(screen.queryByRole("button", { name: "Quick book" })).toBeNull();
-    expect(card().querySelector('[data-attr="short-stay-request"]')!.textContent).toBe("Request to book");
   });
 });

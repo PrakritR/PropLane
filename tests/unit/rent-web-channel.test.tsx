@@ -82,19 +82,16 @@ const noTextAnywhere = () => {
 };
 
 describe("a /rent listing is the web channel", () => {
-  it("draws no number, text link or prefilled message on either segment, in the card or the phone dock", () => {
+  it("draws no number, text link or prefilled message, in the card or the phone dock", () => {
     render(
       <PublicTextingProvider value={{ phone: "+12066781909", smsHref: "sms:+12066781909" }}>
         <ListingDetailSections property={property} rich={rich} phoneDock />
       </PublicTextingProvider>,
     );
     noTextAnywhere();
-    const short = document.querySelector('[data-attr="listing-stay-short"]') as HTMLElement | null;
-    short?.click();
-    noTextAnywhere();
   });
 
-  it("sends a signed-out visitor's Book a tour and Apply through resident sign-up into the portal", () => {
+  it("sends a signed-out visitor's Tour and Book through resident sign-up into the portal", () => {
     render(<ListingDetailSections property={property} rich={rich} />);
     for (const attr of ["listing-web-tour", "listing-web-apply"]) {
       const href = document.querySelector(`[data-attr="${attr}"]`)!.getAttribute("href")!;

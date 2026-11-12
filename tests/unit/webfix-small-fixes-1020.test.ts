@@ -42,11 +42,12 @@ describe("the web channel never carries the PropLane number", () => {
     expect(read("src/components/auth/auth-split-shell.tsx")).not.toContain("getPublicTextingConfig");
   });
 
-  it("the short-stay card is found by a data hook, not a duplicated id", () => {
+  it("the listing page carries no short-stay card (captain, Nov 12), and never a duplicated id for one", () => {
     const sections = read("src/components/marketing/listing-detail-sections.tsx");
     expect(sections).not.toContain('id="short-stay-card"');
     expect(sections).not.toContain('getElementById("short-stay-card")');
-    expect(sections).toContain("data-short-stay-card");
+    expect(sections).not.toContain("data-short-stay-card");
+    expect(sections).not.toContain("scrollToShortStayCard");
   });
 });
 
