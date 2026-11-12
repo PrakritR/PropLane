@@ -84,7 +84,7 @@ describe("booking record and actions", () => {
     page({ ...block, source: "airbnb", blockId: undefined, sourceUid: "event-uid" });
     expect(document.querySelector('[data-attr="record-header-action-edit"]')).toBeNull();
     expect(screen.getByText("Channel")).toBeTruthy();
-    expect(screen.getByText("Airbnb · event-uid")).toBeTruthy();
+    expect(screen.getByText("Airbnb · synced from calendar")).toBeTruthy();
   });
   it("shows the stay note as a plain Notes row", () => {
     page({ ...block, source: "airbnb", blockId: undefined, sourceUid: "uid-1", connectionId: "c1", stayNotes: "Late arrival" });

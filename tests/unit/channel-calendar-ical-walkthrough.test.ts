@@ -71,8 +71,9 @@ describe("an Other calendar feed, end to end", () => {
     // `end` is the LAST NIGHT: iCalendar DTEND is exclusive, and the calendar paints nights.
     expect(imported[0]).toMatchObject({ start: "2026-10-20", end: "2026-10-22", phoneLast4: "8842" });
     expect(imported[1]).toMatchObject({ start: "2026-11-01", end: "2026-11-02", hostBlock: true });
-    // The guest's description is not stored - only the code and the last four digits survive.
-    expect(JSON.stringify(imported)).not.toContain("Reservation URL");
+    // The description is kept (trimmed to 500) on a reservation for the manager-side record page, never on a host block.
+    expect(imported[0]!.description).toContain("Reservation URL");
+    expect(imported[1]).not.toHaveProperty("description");
   });
 
   it("the manager's Bookings calendar names the site, for both links on the same room", () => {

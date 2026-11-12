@@ -85,6 +85,11 @@ export feed leaves out only ITS OWN connection's imports (`ownConnectionId` in
 `importedRangesForFeed`): Houfy's feed carries Furnished Finder's stays and the reverse.
 Removed-stay tombstones are keyed by provider, so two `ical` feeds on one room share a
 tombstone namespace (a UID collision across two sites is the only way to cross-prune).
+A removed stay is not permanent: a manual **Sync now / Sync all now** (`force`) re-imports a removed
+reservation the channel still lists, the cron never does, and a host's "Not available" block, a failed or empty
+fetch, and a stay still in the feed all keep their tombstone. A tombstone whose UID left the feed and whose stay
+ended is cleaned on the next non-empty sync. Restore lives in the Connect popup's **Removed stays**
+(`docs/agents/bookings.md` § Removed channel stays).
 
 **The popup opens at once.** It used to read every stay of every linked room on open
 (`fetchManagerChannelBookings`, capped at `PORTAL_READ_TIMEOUT_MS`), which on a 28-room

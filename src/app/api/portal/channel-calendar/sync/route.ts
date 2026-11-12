@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const browserOrigin = resolveRequestOrigin(req);
-    const body = (await req.json()) as { connectionId?: string };
+    const body = (await req.json()) as { connectionId?: string; force?: boolean };
     const connectionId = body.connectionId?.trim() ?? "";
     if (!connectionId) {
       return NextResponse.json({ error: "connectionId is required." }, { status: 400 });
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    const saved = await syncChannelCalendarConnection(ctx.db, connectionId);
+    const saved = await syncChannelCalendarConnection(ctx.db, connectionId, { force: body.force === true });
     return NextResponse.json({ connection: toPublicConnection(saved, browserOrigin) });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Sync failed.";

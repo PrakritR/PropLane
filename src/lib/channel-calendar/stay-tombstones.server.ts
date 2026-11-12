@@ -3,15 +3,22 @@ import "server-only";
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { managerCanWriteCalendarForProperty } from "@/lib/auth/manager-lease-scope";
+import { managerCanWriteCalendarForProperties, managerCanWriteCalendarForProperty } from "@/lib/auth/manager-lease-scope";
 import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import { parseConnectionRow } from "@/lib/channel-calendar/connections.server";
 import {
   channelStayTombstoneKey,
+  channelStayTombstoneKeyOf,
   importedRangeUid,
   type ChannelStayTombstone,
+  type StoredChannelStayTombstone,
 } from "@/lib/channel-calendar/stay-tombstones";
-import type { ChannelCalendarConnectionRow, ChannelCalendarImportedRange } from "@/lib/channel-calendar/types";
+import { isPhoneLast4, isReservationCode } from "@/lib/channel-calendar/reservation-details";
+import {
+  CHANNEL_IMPORTED_DESCRIPTION_MAX,
+  type ChannelCalendarConnectionRow,
+  type ChannelCalendarImportedRange,
+} from "@/lib/channel-calendar/types";
 import { CHANNEL_STAY_TOMBSTONE_RECORD_TYPE } from "@/lib/portal-schedule-record-scope";
 
 /** Record id is a hash of the identity so a retried Remove is the same row, never a second one. */
@@ -21,15 +28,7 @@ export function channelStayTombstoneRecordId(key: string): string {
   return `axis_channel_tombstone_${createHash("sha256").update(key).digest("hex").slice(0, 40)}`;
 }
 
-function tombstoneKeyOf(t: ChannelStayTombstone): string {
-  return channelStayTombstoneKey({
-    ...t,
-    start: t.range.start,
-    end: t.range.end,
-    hostBlock: t.range.hostBlock,
-    summary: t.range.summary,
-  });
-}
+const tombstoneKeyOf = channelStayTombstoneKeyOf;
 
 function parseTombstoneRow(rowData: unknown): ChannelStayTombstone | null {
   if (!rowData || typeof rowData !== "object") return null;
@@ -51,9 +50,38 @@ function parseTombstoneRow(rowData: unknown): ChannelStayTombstone | null {
       end: String(range.end ?? range.start ?? "").trim(),
       summary: String(range.summary ?? "").trim(),
       ...(typeof range.hostBlock === "boolean" ? { hostBlock: range.hostBlock } : {}),
+      ...(isReservationCode(range.reservationCode) ? { reservationCode: range.reservationCode } : {}),
+      ...(isPhoneLast4(range.phoneLast4) ? { phoneLast4: range.phoneLast4 } : {}),
+      ...(typeof range.description === "string" && range.description.trim()
+        ? { description: range.description.trim().slice(0, CHANNEL_IMPORTED_DESCRIPTION_MAX) }
+        : {}),
     },
     removedAt: String(o.removedAt ?? ""),
+    ...(String(o.connectionId ?? "").trim() ? { connectionId: String(o.connectionId).trim() } : {}),
+    ...(String(o.removedBy ?? "").trim() ? { removedBy: String(o.removedBy).trim() } : {}),
   };
+}
+
+/** Every tombstone for these houses, with its record id (what a forced sync, the list and Undo read). */
+export async function loadChannelStayTombstoneRecords(
+  db: SupabaseClient,
+  propertyIds: readonly string[],
+): Promise<StoredChannelStayTombstone[]> {
+  const ids = [...new Set(propertyIds.map((id) => id.trim()).filter(Boolean))];
+  if (ids.length === 0) return [];
+  const { data, error } = await db
+    .from("portal_schedule_records")
+    .select("id, row_data")
+    .eq("record_type", CHANNEL_STAY_TOMBSTONE_RECORD_TYPE)
+    .in("property_id", ids);
+  // A read failure must not let a sync resurrect removed stays silently.
+  if (error) throw new Error("Could not check removed stays.");
+  const out: StoredChannelStayTombstone[] = [];
+  for (const row of (data ?? []) as Array<{ id?: unknown; row_data?: unknown }>) {
+    const tombstone = parseTombstoneRow(row.row_data);
+    if (tombstone) out.push({ ...tombstone, id: String(row.id ?? "") });
+  }
+  return out;
 }
 
 /** Every tombstone for these houses, as keys (what a sync prunes against). */
@@ -61,31 +89,74 @@ export async function loadChannelStayTombstoneKeys(
   db: SupabaseClient,
   propertyIds: readonly string[],
 ): Promise<Set<string>> {
-  const ids = [...new Set(propertyIds.map((id) => id.trim()).filter(Boolean))];
-  if (ids.length === 0) return new Set();
-  const { data, error } = await db
-    .from("portal_schedule_records")
-    .select("row_data")
-    .eq("record_type", CHANNEL_STAY_TOMBSTONE_RECORD_TYPE)
-    .in("property_id", ids);
-  // A read failure must not let a sync resurrect removed stays silently.
-  if (error) throw new Error("Could not check removed stays.");
-  const keys = new Set<string>();
-  for (const row of (data ?? []) as Array<{ row_data?: unknown }>) {
-    const tombstone = parseTombstoneRow(row.row_data);
-    if (tombstone) {
-      keys.add(
-        channelStayTombstoneKey({
-          ...tombstone,
-          start: tombstone.range.start,
-          end: tombstone.range.end,
-          hostBlock: tombstone.range.hostBlock,
-          summary: tombstone.range.summary,
-        }),
-      );
-    }
+  return new Set((await loadChannelStayTombstoneRecords(db, propertyIds)).map(channelStayTombstoneKeyOf));
+}
+
+/** Delete tombstone rows by record id. Throws on failure, so a sync never half-clears silently. */
+export async function deleteChannelStayTombstoneRecords(db: SupabaseClient, recordIds: readonly string[]): Promise<void> {
+  const ids = [...new Set(recordIds.filter(Boolean))];
+  if (ids.length === 0) return;
+  const { error } = await db.from("portal_schedule_records").delete().in("id", ids);
+  if (error) throw new Error("Could not clear removed stays.");
+}
+
+/**
+ * The "Removed stays" list: the tombstones of the houses the caller may EDIT the calendar of
+ * (the same gate Remove and Restore use). With no house named, the caller's own houses.
+ */
+export async function listRemovedChannelStays(
+  db: SupabaseClient,
+  userId: string,
+  propertyIds: readonly string[],
+): Promise<StoredChannelStayTombstone[]> {
+  let ids = [...new Set(propertyIds.map((id) => id.trim()).filter(Boolean))];
+  if (ids.length === 0) {
+    const { data, error } = await db.from("manager_property_records").select("id").eq("manager_user_id", userId);
+    if (error) throw new Error("Could not load removed stays.");
+    ids = ((data ?? []) as Array<{ id?: unknown }>).map((row) => String(row.id ?? "").trim()).filter(Boolean);
   }
-  return keys;
+  const writable = await managerCanWriteCalendarForProperties(db, userId, ids);
+  const records = await loadChannelStayTombstoneRecords(db, [...writable]);
+  return records
+    .filter((record) => writable.has(record.propertyId))
+    .sort((a, b) => b.removedAt.localeCompare(a.removedAt));
+}
+
+/**
+ * Resolve a tombstone record id to the connection and identity Restore needs. The connection is the one
+ * the tombstone recorded, else the room's connection for that channel. Authorization is NOT decided here:
+ * `restoreChannelStay` re-derives it from the connection's house.
+ */
+export async function resolveTombstoneRestoreInput(
+  db: SupabaseClient,
+  tombstoneId: string,
+): Promise<{ connectionId: string; sourceUid: string; start?: string; end?: string } | null> {
+  const { data } = await db
+    .from("portal_schedule_records")
+    .select("id, row_data")
+    .eq("id", tombstoneId)
+    .eq("record_type", CHANNEL_STAY_TOMBSTONE_RECORD_TYPE)
+    .maybeSingle();
+  const tombstone = parseTombstoneRow((data as { row_data?: unknown } | null)?.row_data);
+  if (!tombstone) return null;
+  let connectionId = tombstone.connectionId ?? "";
+  if (!connectionId) {
+    const { data: rows } = await db
+      .from("external_calendar_connections")
+      .select("id")
+      .eq("property_id", tombstone.propertyId)
+      .eq("room_id", tombstone.roomId)
+      .eq("provider", tombstone.provider)
+      .limit(1);
+    connectionId = String(((rows ?? []) as Array<{ id?: unknown }>)[0]?.id ?? "");
+  }
+  if (!connectionId) return null;
+  return {
+    connectionId,
+    sourceUid: tombstone.sourceUid,
+    start: tombstone.range.start || undefined,
+    end: tombstone.range.end || undefined,
+  };
 }
 
 export type RemoveChannelStayResult =
@@ -139,6 +210,7 @@ export async function removeChannelStay(
     sourceUid,
     range: { ...range, sourceUid },
     removedAt: new Date().toISOString(),
+    connectionId: connection.id,
   };
   const key = tombstoneKeyOf(tombstone);
   const { error } = await db.from("portal_schedule_records").upsert(

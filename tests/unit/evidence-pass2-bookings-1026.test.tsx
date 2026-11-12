@@ -40,6 +40,8 @@ vi.mock("@/lib/manager-property-links", async (importOriginal) => ({
   copyTextToClipboard: copied,
 }));
 vi.mock("@/lib/channel-calendar/client", () => ({
+  fetchRemovedChannelStays: vi.fn(async () => []),
+  restoreRemovedChannelStay: vi.fn(async () => undefined),
   fetchChannelCalendarConnections: vi.fn(async () => []),
   fetchManagerChannelBookings: vi.fn(async () => [{ propertyId: "p1", propertyLabel: "4709A", rooms: channel.rooms }]),
   fetchOccupancySnapshot: vi.fn(async () => ({ days: [] })),

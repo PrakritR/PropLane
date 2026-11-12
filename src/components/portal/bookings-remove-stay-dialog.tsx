@@ -3,10 +3,15 @@ import { useState } from "react";
 import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Button } from "@/components/ui/button";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
-import { formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
+import { bookingSourceLabel, formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
 import { bookingEntryGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { canRemoveChannelStay } from "@/lib/channel-calendar/booking-presentation";
 import { removeChannelStay, restoreChannelStay } from "@/lib/channel-calendar/client";
+
+/** The destructive confirm's one sentence: removing a channel stay reopens its dates everywhere. */
+export function removeStayWarning(channelName: string): string {
+  return `This stay comes from ${channelName}. Removing it opens these dates on every connected channel. You can restore it from Removed stays.`;
+}
 
 /**
  * Remove stay (C2-AB7) for a reservation a channel calendar feed brought in.
@@ -36,5 +41,5 @@ export function BookingsRemoveStayDialog({ entry, onClose, onChanged, remove = r
     finally { setBusy(false); }
   };
   if (removed) return <div role="status" className="fixed inset-x-4 bottom-[max(5rem,calc(env(safe-area-inset-bottom,0px)+1rem))] z-50 rounded-xl border border-border bg-card p-4 shadow-lg sm:inset-x-auto sm:right-4" data-attr="bookings-remove-stay-undo"><div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[16px] sm:text-sm">Removed {guest}’s stay<Button variant="ghost" onClick={() => run(true)} disabled={busy}>Undo</Button><Button variant="ghost" onClick={onClose}>Dismiss</Button></div>{error ? <p role="alert" className="text-danger">{error}</p> : null}</div>;
-  return <PortalDialog open onClose={onClose} fullScreenMobile={false} title={`Remove ${guest}’s stay?`} tone="danger" dataAttr="bookings-remove-stay-dialog" primaryAction={{ label: "Remove stay", onClick: () => run(false), disabled: busy || !canRemoveChannelStay(entry), loading: busy }}><div className="space-y-4"><p>{entry.propertyLabel} · {entry.roomLabel}</p><p>{formatBookingStayRange(entry.start, entry.end, entry.openEnded)}</p>{error ? <p role="alert" className="text-danger">{error}</p> : null}</div></PortalDialog>;
+  return <PortalDialog open onClose={onClose} fullScreenMobile={false} title={`Remove ${guest}’s stay?`} tone="danger" dataAttr="bookings-remove-stay-dialog" primaryAction={{ label: "Remove and open dates", onClick: () => run(false), disabled: busy || !canRemoveChannelStay(entry), loading: busy }}><div className="space-y-4"><p>{entry.propertyLabel} · {entry.roomLabel}</p><p>{formatBookingStayRange(entry.start, entry.end, entry.openEnded)}</p><p>{removeStayWarning(bookingSourceLabel(entry.source, entry.channelLabel))}</p>{error ? <p role="alert" className="text-danger">{error}</p> : null}</div></PortalDialog>;
 }

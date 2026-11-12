@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Check, ClipboardCopy, ClipboardPaste, MoreHorizontal, RotateCw } from "lucide-react";
+import { BookingsRemovedStays } from "@/components/portal/bookings-removed-stays";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { PortalDialog } from "@/components/portal/portal-dialog";
@@ -15,14 +16,16 @@ import { Input, Textarea } from "@/components/ui/input";
 import {
   deleteChannelCalendarConnection,
   fetchManagerChannelBookings,
+  fetchRemovedChannelStays,
   fetchRoomExportCalendarUrl,
+  restoreRemovedChannelStay,
   fetchWritableChannelCalendarPropertyIds,
   saveChannelCalendarConnectionsBatch,
   syncAllChannelCalendarConnections,
   syncChannelCalendarConnection,
   validateChannelImportUrl,
 } from "@/lib/channel-calendar/client";
-import type { ChannelCalendarProvider, ManagerChannelBookingProperty, ManagerChannelBookingRoom } from "@/lib/channel-calendar/types";
+import type { ChannelCalendarProvider, ManagerChannelBookingProperty, ManagerChannelBookingRoom, RemovedChannelStay } from "@/lib/channel-calendar/types";
 import { channelCalendarProviderLabel, icalLabelKey, ICAL_LABEL_MAX_LENGTH, isValidChannelImportUrl, normalizeIcalLabel } from "@/lib/channel-calendar/airbnb-url";
 import { isEntireHomeProperty } from "@/lib/rental-application/data";
 import { channelStatusParts, type ChannelConnectionStatus } from "@/lib/channel-calendar/channel-links";
@@ -218,9 +221,24 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
     return () => { stopped = true; };
   }, [active, scopeKey, haveInitial]);
 
+  // The stays removed from these calendars (Calendar edit only, re-checked by the server). A failed read
+  // leaves the list as it was; the section is hidden while there is nothing in it.
+  const [removedStays, setRemovedStays] = useState<readonly RemovedChannelStay[]>([]);
+  const loadRemovedStays = async (ids: string[]) => {
+    try { setRemovedStays(ids.length ? await fetchRemovedChannelStays(ids) : []); } catch { /* keep what is shown */ }
+  };
+  useEffect(() => {
+    const ids = scopeKey ? scopeKey.split("\n") : [];
+    if (!active || ids.length === 0) return;
+    let stopped = false;
+    fetchRemovedChannelStays(ids).then((stays) => { if (!stopped) setRemovedStays(stays); }).catch(() => { /* keep what is shown */ });
+    return () => { stopped = true; };
+  }, [active, scopeKey]);
+
   const refresh = async () => {
     const ids = scopeKey ? scopeKey.split("\n") : [];
     setLinked(ids.length ? await fetchManagerChannelBookings(ids, { slim: true }) : []);
+    await loadRemovedStays(ids);
     onChanged?.();
   };
   const run = async (action: () => Promise<void>) => {
@@ -252,7 +270,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
   };
   const syncAll = () => run(async () => {
     try {
-      const { synced, failed, skipped } = await syncAllChannelCalendarConnections(scopeKey ? scopeKey.split("\n") : []);
+      const { synced, failed, skipped } = await syncAllChannelCalendarConnections(scopeKey ? scopeKey.split("\n") : [], { force: true });
       showToast(
         failed || skipped
           ? `Synced ${synced}${failed ? ` · ${failed} failed` : ""}${skipped ? ` · ${skipped} left, sync again` : ""}`
@@ -402,7 +420,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
             </div>
             <div className="flex md:justify-end">
               <DropdownMenu><DropdownMenuTrigger asChild><PortalIconAction icon={MoreHorizontal} label={`${row.unit.label} actions`} /></DropdownMenuTrigger><DropdownMenuContent align="end">
-                <DropdownMenuItem disabled={busy || !connection?.hasImportUrl} onSelect={() => { void run(async () => { try { await syncChannelCalendarConnection(connection!.connectionId); } finally { await refresh(); } }); }}>Sync now</DropdownMenuItem>
+                <DropdownMenuItem disabled={busy || !connection?.hasImportUrl} onSelect={() => { void run(async () => { try { await syncChannelCalendarConnection(connection!.connectionId, { force: true }); } finally { await refresh(); } }); }}>Sync now</DropdownMenuItem>
                 <DropdownMenuItem disabled={busy} onSelect={() => { void run(() => openPreview(row)); }}>Feed preview</DropdownMenuItem>
                 {channel === "airbnb" ? <DropdownMenuItem disabled={busy} onSelect={() => { void run(() => copyListingPack(row)); }}>Copy Airbnb listing pack</DropdownMenuItem> : null}
                 <DropdownMenuItem className="text-danger" disabled={!connection || busy} onSelect={() => setDisconnect({ id: connection!.connectionId, label: row.unit.label })}>Disconnect</DropdownMenuItem>
@@ -413,6 +431,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
         })}
       </section>)}
     </div>}
+    {!loading ? <BookingsRemovedStays stays={removedStays} busy={busy} onRestore={(stay) => { void run(async () => { await restoreRemovedChannelStay(stay.id); await refresh(); showToast("Stay restored."); }); }} /> : null}
   </StepColumn>;
 
   const previewPanel = <aside aria-label="What will be linked" data-attr="channel-calendar-link-preview" className="space-y-4">

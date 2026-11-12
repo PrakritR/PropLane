@@ -5,6 +5,7 @@ import type {
   ChannelCalendarConnectionPublic,
   ChannelCalendarProvider,
   ManagerChannelBookingProperty,
+  RemovedChannelStay,
 } from "@/lib/channel-calendar/types";
 import type { OccupancyRoomOption } from "@/lib/occupancy/snapshot";
 
@@ -110,14 +111,18 @@ export async function deleteChannelCalendarConnection(connectionId: string): Pro
   if (!res.ok) throw new Error(data.error ?? "Could not remove connection.");
 }
 
+/**
+ * `force` (the manager's own Sync all now) also brings back a removed reservation the channel still lists.
+ */
 export async function syncAllChannelCalendarConnections(
   propertyIds: string[],
+  options: { force?: boolean } = {},
 ): Promise<{ synced: number; failed: number; skipped: number }> {
   const res = await fetch(`/api/portal/channel-calendar/sync-all`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ propertyIds }),
+    body: JSON.stringify({ propertyIds, ...(options.force ? { force: true } : {}) }),
   });
   const data = (await res.json()) as { synced?: number; failed?: number; skipped?: number; error?: string };
   if (!res.ok) throw new Error(data.error ?? "Sync failed.");
@@ -126,12 +131,13 @@ export async function syncAllChannelCalendarConnections(
 
 export async function syncChannelCalendarConnection(
   connectionId: string,
+  options: { force?: boolean } = {},
 ): Promise<ChannelCalendarConnectionPublic> {
   const res = await fetch(`/api/portal/channel-calendar/sync`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ connectionId }),
+    body: JSON.stringify({ connectionId, ...(options.force ? { force: true } : {}) }),
   });
   const data = (await res.json()) as { connection?: ChannelCalendarConnectionPublic; error?: string };
   if (!res.ok) throw new Error(data.error ?? "Sync failed.");
@@ -223,6 +229,30 @@ export function removeChannelStay(input: { connectionId: string; sourceUid: stri
 /** Undo for Remove stay. */
 export function restoreChannelStay(input: { connectionId: string; sourceUid: string; start?: string; end?: string }): Promise<void> {
   return postChannelStayTombstone("restore", input);
+}
+
+/** The stays a manager removed from the channel calendars of these houses (Calendar edit only). */
+export async function fetchRemovedChannelStays(propertyIds: readonly string[]): Promise<RemovedChannelStay[]> {
+  const ids = propertyIds.filter(Boolean);
+  const res = await fetch(`/api/portal/channel-calendar/stay-tombstones?propertyIds=${encodeURIComponent(ids.join(","))}`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  const data = (await res.json().catch(() => ({}))) as { removed?: RemovedChannelStay[]; error?: string };
+  if (!res.ok) throw new Error(data.error ?? "Could not load removed stays.");
+  return data.removed ?? [];
+}
+
+/** Restore a removed stay by its tombstone id; the server re-syncs that calendar so it reappears at once. */
+export async function restoreRemovedChannelStay(tombstoneId: string): Promise<void> {
+  const res = await fetch("/api/portal/channel-calendar/stay-tombstones", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "restore", tombstoneId }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(data.error ?? "Could not restore that stay.");
 }
 
 /** Save the guest name a manager types for a channel stay (empty clears it). */

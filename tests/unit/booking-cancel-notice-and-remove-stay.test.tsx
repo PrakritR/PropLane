@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
+import { BookingsRemovedStays } from "@/components/portal/bookings-removed-stays";
 import { BookingsRemoveStayDialog } from "@/components/portal/bookings-remove-stay-dialog";
 import { bookingCancelNoticeBody, canNotifyBookingGuest, sendBookingCancelNotice } from "@/lib/channel-calendar/booking-cancel-notice";
 import { canRemoveChannelStay } from "@/lib/channel-calendar/booking-presentation";
@@ -76,7 +77,7 @@ describe("Remove stay (channel feed reservation)", () => {
     const onChanged = vi.fn();
     const onClose = vi.fn();
     render(<AppUiProvider><BookingsRemoveStayDialog entry={channel} onClose={onClose} onChanged={onChanged} remove={remove} restore={restore} /></AppUiProvider>);
-    fireEvent.click(screen.getByRole("button", { name: "Remove stay" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove and open dates" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy());
     expect(remove).toHaveBeenCalledWith({ connectionId: "conn-1", sourceUid: "uid-marcus", start: "2099-02-01", end: "2099-02-04" });
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
@@ -85,11 +86,36 @@ describe("Remove stay (channel feed reservation)", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("warns that removing opens the dates on every channel, names the channel, and the confirm says so", () => {
+    render(<AppUiProvider><BookingsRemoveStayDialog entry={{ ...channel, source: "booking_com" }} onClose={() => {}} onChanged={() => {}} remove={vi.fn()} restore={vi.fn()} /></AppUiProvider>);
+    expect(screen.getByText("This stay comes from Booking.com. Removing it opens these dates on every connected channel. You can restore it from Removed stays.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove and open dates" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Remove stay" })).toBeNull();
+  });
+
   it("a failed removal shows the error and does not claim the stay is gone", async () => {
     const remove = vi.fn().mockRejectedValue(new Error("Forbidden."));
     render(<AppUiProvider><BookingsRemoveStayDialog entry={channel} onClose={() => {}} onChanged={() => {}} remove={remove} restore={vi.fn()} /></AppUiProvider>);
-    fireEvent.click(screen.getByRole("button", { name: "Remove stay" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove and open dates" }));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Forbidden."));
     expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+  });
+});
+
+describe("Removed stays list", () => {
+  const stay = { id: "t1", propertyId: "prop-1", roomId: "r2", provider: "booking_com" as const, sourceUid: "uid-1", start: "2026-10-10", end: "2026-10-14", summary: "CLOSED - Not available", hostBlock: false, removedAt: "2026-10-30T00:00:00Z", removedBy: "m", propertyLabel: "Alder House", roomLabel: "Room 2", channelLabel: null };
+
+  it("is hidden when nothing is removed", () => {
+    const { container } = render(<AppUiProvider><BookingsRemovedStays stays={[]} busy={false} onRestore={() => {}} /></AppUiProvider>);
+    expect(container.querySelector('[data-attr="bookings-removed-stays"]')).toBeNull();
+  });
+
+  it("lists house, room, dates and channel as one flat row with a Restore action", () => {
+    const onRestore = vi.fn();
+    render(<AppUiProvider><BookingsRemovedStays stays={[stay]} busy={false} onRestore={onRestore} /></AppUiProvider>);
+    expect(screen.getByText("Alder House · Room 2")).toBeTruthy();
+    expect(screen.getByText("Booking.com")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Restore Alder House · Room 2/ }));
+    expect(onRestore).toHaveBeenCalledWith(stay);
   });
 });

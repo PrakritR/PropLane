@@ -21,10 +21,11 @@ import {
   parseConnectionRow,
   toPublicConnection,
 } from "@/lib/channel-calendar/connections.server";
-import type {
-  ChannelCalendarConnectionRow,
-  ChannelCalendarImportedRange,
-  ChannelCalendarProvider,
+import {
+  CHANNEL_IMPORTED_DESCRIPTION_MAX,
+  type ChannelCalendarConnectionRow,
+  type ChannelCalendarImportedRange,
+  type ChannelCalendarProvider,
 } from "@/lib/channel-calendar/types";
 import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
 import { parseReservationDescription } from "@/lib/channel-calendar/reservation-details";
@@ -41,11 +42,20 @@ import { pacificCalendarDateYmd } from "@/lib/pacific-time";
 import type { MockProperty } from "@/data/types";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { releaseAirbnbResidentsAbsentFromFeed } from "@/lib/channel-calendar/airbnb-residents.server";
-import { importedRangeUid, pruneTombstonedRanges } from "@/lib/channel-calendar/stay-tombstones";
+import {
+  channelStayTombstoneKey,
+  channelStayTombstoneKeyOf,
+  importedRangeUid,
+  pruneTombstonedRanges,
+  tombstoneBelongsToConnection,
+} from "@/lib/channel-calendar/stay-tombstones";
 import {
   clearChannelStayTombstonesForRoom,
+  deleteChannelStayTombstoneRecords,
   loadChannelStayTombstoneKeys,
+  loadChannelStayTombstoneRecords,
 } from "@/lib/channel-calendar/stay-tombstones.server";
+import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 
 const IMPORT_FETCH_TIMEOUT_MS = 15_000;
 
@@ -54,8 +64,9 @@ export function icalEventsToImportedRanges(
 ): ChannelCalendarImportedRange[] {
   return events.map((ev) => {
     const hostBlock = isHostBlockSummary(ev.summary);
-    // Only the reservation code and phone suffix survive; the description itself is dropped.
     const details = hostBlock ? {} : parseReservationDescription(ev.description);
+    // The feed's own DESCRIPTION, trimmed, for the record page (manager-side only). Never on a host block.
+    const description = hostBlock ? "" : (ev.description ?? "").trim().slice(0, CHANNEL_IMPORTED_DESCRIPTION_MAX);
     return {
       id: ev.uid,
       sourceUid: ev.uid,
@@ -63,6 +74,7 @@ export function icalEventsToImportedRanges(
       ...(hostBlock ? { hostBlock: true } : {}),
       ...(details.reservationCode ? { reservationCode: details.reservationCode } : {}),
       ...(details.phoneLast4 ? { phoneLast4: details.phoneLast4 } : {}),
+      ...(description ? { description } : {}),
       start: ev.startDate,
       end: ev.endDate,
     };
@@ -756,9 +768,18 @@ async function withoutMoves(
   }
 }
 
+/**
+ * `force` is the manager's own Sync now / Sync all now: a removed RESERVATION that the channel still lists
+ * comes back (its tombstone is cleared before the ranges are stored). The cron never forces, and a feed that
+ * fails to load or parses empty clears nothing. A host's own "Not available" block stays removed (it is
+ * restorable from the Removed stays list).
+ */
+export type SyncChannelCalendarOptions = { force?: boolean };
+
 export async function syncChannelCalendarConnection(
   db: SupabaseClient,
   connectionId: string,
+  options: SyncChannelCalendarOptions = {},
 ): Promise<ChannelCalendarConnectionRow> {
   const { data: row, error } = await db
     .from("external_calendar_connections")
@@ -794,12 +815,43 @@ export async function syncChannelCalendarConnection(
     const icsText = await fetchChannelIcs(importUrl, connection.provider, { label: connection.label });
     // C2-AB7: a stay the manager removed is not stored again, so neither Bookings
     // nor the public room calendar nor the occupancy snapshot ever see it back.
-    const tombstoneKeys = await loadChannelStayTombstoneKeys(db, [connection.property_id]);
-    const firstPass = pruneTombstonedRanges(
-      icalEventsToImportedRanges(parseIcsCalendar(icsText)),
-      { propertyId: connection.property_id, roomId: connection.room_id, provider: connection.provider },
-      tombstoneKeys,
-    );
+    const parsed = icalEventsToImportedRanges(parseIcsCalendar(icsText));
+    const identity = { propertyId: connection.property_id, roomId: connection.room_id, provider: connection.provider };
+    let tombstoneKeys: Set<string>;
+    {
+      const stored = await loadChannelStayTombstoneRecords(db, [connection.property_id]);
+      const mine = stored.filter((t) => tombstoneBelongsToConnection(t, connection));
+      // Only a feed that loaded AND parsed non-empty may clear a tombstone, either way.
+      const clearable = new Set<string>();
+      if (parsed.length > 0) {
+        const feedKeys = new Set(
+          parsed.map((range) =>
+            channelStayTombstoneKey({
+              ...identity,
+              sourceUid: importedRangeUid(range),
+              start: range.start,
+              end: range.end,
+              hostBlock: range.hostBlock,
+              summary: range.summary,
+            }),
+          ),
+        );
+        const feedUids = new Set(parsed.filter((range) => !isHostBlockRange(range)).map((range) => importedRangeUid(range)));
+        const today = pacificCalendarDateYmd(new Date(now));
+        for (const t of mine) {
+          if (options.force && !isHostBlockRange(t.range) && feedUids.has(t.sourceUid)) {
+            // Forced sync: a removed reservation the channel still lists is back.
+            clearable.add(t.id);
+          } else if (!feedKeys.has(channelStayTombstoneKeyOf(t)) && t.range.end && t.range.end < today) {
+            // Gone from the feed AND ended: nothing left for the tombstone to hold back.
+            clearable.add(t.id);
+          }
+        }
+      }
+      await deleteChannelStayTombstoneRecords(db, [...clearable]);
+      tombstoneKeys = new Set(stored.filter((t) => !clearable.has(t.id)).map(channelStayTombstoneKeyOf));
+    }
+    const firstPass = pruneTombstonedRanges(parsed, identity, tombstoneKeys);
     const imported = firstPass.kept;
     if (firstPass.dropped.length > 0) {
       // Diagnostics only (last_error means failure): a sync that stores fewer ranges than the feed
@@ -1005,7 +1057,9 @@ type SyncPoolOptions = {
   budgetMs?: number;
   stopSchedulingMs?: number;
   now?: () => number;
-  syncOne?: (db: SupabaseClient, connectionId: string) => Promise<unknown>;
+  /** A manual Sync / Sync all passes `force`; the cron never does. */
+  force?: boolean;
+  syncOne?: (db: SupabaseClient, connectionId: string, options?: SyncChannelCalendarOptions) => Promise<unknown>;
 };
 
 /**
@@ -1032,7 +1086,7 @@ export async function syncChannelCalendarConnectionIds(
       if (id === undefined) return;
       next += 1;
       try {
-        await syncOne(db, id);
+        await syncOne(db, id, { force: options.force === true });
         result.synced += 1;
       } catch {
         result.failed += 1;

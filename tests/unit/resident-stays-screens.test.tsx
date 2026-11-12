@@ -35,6 +35,8 @@ vi.mock("@/lib/rental-application/data", async (orig) => ({
   isEntireHomeProperty: () => false,
 }));
 vi.mock("@/lib/channel-calendar/client", () => ({
+  fetchRemovedChannelStays: vi.fn(async () => []),
+  restoreRemovedChannelStay: vi.fn(async () => undefined),
   fetchChannelCalendarConnections: vi.fn(async () => []),
   fetchManagerChannelBookings: vi.fn(async () => []),
   fetchOccupancySnapshot: vi.fn(async () => ({ days: [] })),

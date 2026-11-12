@@ -15,7 +15,7 @@ export async function POST(req: Request) {
     const ctx = await requireManagerRouteUser();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
-    const body = (await req.json().catch(() => ({}))) as { propertyIds?: string[] };
+    const body = (await req.json().catch(() => ({}))) as { propertyIds?: string[]; force?: boolean };
     const requested = (body.propertyIds ?? []).map((id) => String(id).trim()).filter(Boolean);
 
     // Scoped by HOUSE, not by who typed the link: a co-manager with Calendar at edit and service-mode staff
@@ -44,7 +44,7 @@ export async function POST(req: Request) {
     const { synced, failed, skipped } = await syncChannelCalendarConnectionIds(
       ctx.db,
       syncable.map((c) => c.id),
-      { budgetMs: Math.max(0, maxDuration * 1000 - (Date.now() - requestStartedAt)) },
+      { budgetMs: Math.max(0, maxDuration * 1000 - (Date.now() - requestStartedAt)), force: body.force === true },
     );
 
     return NextResponse.json({

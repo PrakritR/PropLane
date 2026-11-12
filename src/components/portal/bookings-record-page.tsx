@@ -3,7 +3,8 @@
 import { formatCentsAsUsd } from "@/lib/money-label-totals";
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ExternalLink, Pencil, UserRound } from "lucide-react";
+import { ExternalLink, Globe, Pencil, UserRound } from "lucide-react";
+import { BookingsAirbnbIcon } from "@/components/portal/bookings-airbnb-icon";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
@@ -149,7 +150,8 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
       <RecordFactCard title="Booking" dataAttr="booking-overview-facts">
         <RecordFactRow label="Dates" value={`${range}${entry.openEnded ? " · open-ended" : ` · ${nights} ${nights === 1 ? "night" : "nights"}`}`} />
         <RecordFactRow label="Where" value={place} />
-        {channelLabel ? <RecordFactRow label="Channel" value={channelLabel} /> : null}
+        {channel ? <RecordFactRow label="Channel" value={<span className="inline-flex items-center gap-1.5" data-attr="booking-channel-source">{entry.source === "airbnb" ? <BookingsAirbnbIcon aria-hidden className="size-3.5 shrink-0" /> : <Globe aria-hidden className="size-3.5 shrink-0" />}{bookingSourceLabel(entry.source, entry.channelLabel)} · synced from calendar</span>} /> : channelLabel ? <RecordFactRow label="Channel" value={channelLabel} /> : null}
+        {channel && entry.description ? <RecordFactRow label="Description" value={<span className="whitespace-pre-line break-words" data-attr="booking-channel-description">{entry.description}</span>} /> : null}
         {sourceTarget ? <RecordFactRow label="Source" value={<Link className="text-primary" href={sourceTarget.href}>{entry.source === "hold" ? (entry.applicationId ? "Resident" : "Application") : bookingSourceLabel(entry.source, entry.channelLabel)}</Link>} /> : null}
         <RecordFactRow label="Check-in" value={moments.inLabel} />
         {moments.outLabel ? <RecordFactRow label="Check-out" value={moments.outLabel} /> : null}

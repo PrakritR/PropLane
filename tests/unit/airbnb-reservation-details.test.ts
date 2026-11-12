@@ -94,11 +94,12 @@ describe("reservation code and phone suffix", () => {
 });
 
 describe("icalEventsToImportedRanges", () => {
-  it("stores the code and phone suffix, never the raw description", () => {
+  it("stores the code and phone suffix, and the description (trimmed, manager-side) on a reservation only", () => {
     const [reserved, block] = icalEventsToImportedRanges(parseIcsCalendar(FEED));
     expect(reserved).toMatchObject({ sourceUid: "uid-reserved@airbnb.com", summary: "Reserved", reservationCode: "HMABCDEFGH", phoneLast4: "1234" });
-    expect(JSON.stringify(reserved)).not.toContain("Reservation URL");
-    expect(reserved).not.toHaveProperty("description");
+    expect(reserved!.description).toContain("Reservation URL");
+    expect(reserved!.description!.length).toBeLessThanOrEqual(500);
+    expect(block).not.toHaveProperty("description");
     expect(block).toMatchObject({ hostBlock: true });
     expect(block).not.toHaveProperty("reservationCode");
   });

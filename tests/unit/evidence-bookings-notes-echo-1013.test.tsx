@@ -318,7 +318,7 @@ describe("evidence · notes on a stay and on a host block", () => {
       860,
     );
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Remove stay" }));
+      fireEvent.click(screen.getByRole("button", { name: "Remove and open dates" }));
       await Promise.resolve();
     });
     expect(removed).toEqual([{ connectionId: "conn-a", sourceUid: "echo-1", start: "2026-08-01", end: "2026-08-20" }]);
