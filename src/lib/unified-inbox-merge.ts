@@ -22,6 +22,8 @@ export type UnifiedInboxListItem = {
   previewPrefix?: string;
   time: string;
   unread: boolean;
+  /** The latest outbound message failed on every channel it went on (red "Not delivered" fact + Filter). */
+  notDelivered?: boolean;
   /** Milliseconds since epoch for sort (higher = newer). */
   sortMs: number;
   /**
@@ -221,6 +223,7 @@ export function mergeUnifiedInboxItems(
       unread: ordered.some((row) =>
         row.unread &&
         !(row.smsNotice && ordered.some((other) => other.channel === "sms" && !other.smsNotice))),
+      notDelivered: ordered.some((row) => row.notDelivered) || undefined,
       channels,
       memberKeys: dedupe([
         ...(winner.memberKeys ?? [winner.key]),

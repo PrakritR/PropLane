@@ -67,6 +67,7 @@ import { checkResidentAtSigningGate } from "@/lib/lease-at-signing.server";
 import { buildDurableLeaseTransitionEnvelope, leaseEventForTransition } from "@/lib/domain-action-events.server";
 import { dispatchMoveInFormsForSignedLeaseAfterResponse } from "@/lib/move-in-forms/server";
 import { assertPropertyInActiveWorkspace } from "@/lib/workspaces/scope.server";
+import { leaseRecipientEmailBlocker } from "@/lib/lease-send-recipient";
 
 /** The resident-identity scope for this route's two reads; null = match nothing. */
 function residentIdentityFilter(user: { id?: string | null; email?: string | null }): string | null {
@@ -1341,6 +1342,13 @@ export async function POST(req: Request) {
       // and, for converted mode, the exact sanitized HTML offered for signature.
       // The browser gate is a convenience; row_data arrives from the client.
       const sendingToResident = ctx.user.role !== "resident" && nextRow.status === "Resident Signature Pending";
+      // The server's own check, since the browser gate is a convenience: a lease going out to an import
+      // placeholder address reaches nobody, so the send is refused with the reason (and the UI opens Edit
+      // resident at Email). Only the transition into "sent" is judged, never a later write.
+      if (sendingToResident && storedRow?.status !== "Resident Signature Pending") {
+        const recipientBlocker = leaseRecipientEmailBlocker(nextRow as { residentEmail?: string | null });
+        if (recipientBlocker) return NextResponse.json({ error: recipientBlocker, blocked: "placeholder-email" }, { status: 409 });
+      }
       if (sendingToResident && !(storedRow && rowHasAnySignature(storedRow))) {
         const pricing = shortStayPricingBlocker(nextRow, await loadShortStayPricingSubmission(ctx.db, nextRow, existingRecord?.manager_user_id ?? ctx.user.id));
         if (pricing) return NextResponse.json({ error: pricing, blocked: "stay-pricing" }, { status: 409 });

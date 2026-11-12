@@ -22,6 +22,7 @@
 import { writeThroughFetch } from "@/lib/shared-get-cache";
 import { useCallback, useEffect, useState } from "react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { Input } from "@/components/ui/input";
 import {
   PortalSettingsGroup,
   PortalSettingsRow,
@@ -48,6 +49,7 @@ import {
   type SharedRoomLeaseDefault,
 } from "@/lib/leasing-pipeline-preferences";
 import { cacheLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-cache";
+import { cacheLandlordLegalName } from "@/lib/manager-landlord-profile";
 
 const ON_OFF_OPTIONS = [
   { value: "off", label: "Off" },
@@ -69,6 +71,11 @@ export function WorkspaceApplicationsLeasesSettings() {
   const [pipeline, setPipeline] = useState<LeasingPipelinePreferences>(DEFAULT_LEASING_PIPELINE);
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(DEFAULT_APPLICATION_AUTOMATION);
   const [leaseAutomation, setLeaseAutomation] = useState<LeaseAutomationSettings>(DEFAULT_LEASE_AUTOMATION_SETTINGS);
+  // "Landlord on leases": the typed value, the last saved one, and the owner's name shown as the placeholder
+  // (what a blank field falls back to).
+  const [landlordName, setLandlordName] = useState("");
+  const [landlordSaved, setLandlordSaved] = useState("");
+  const [landlordFallback, setLandlordFallback] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -88,6 +95,7 @@ export function WorkspaceApplicationsLeasesSettings() {
         const settings = (await settingsRes.json().catch(() => ({}))) as {
           leasingPipeline?: unknown;
           automation?: unknown;
+          landlord?: { setting?: string; ownerFullName?: string };
           error?: string;
         };
         if (!settingsRes.ok) throw new Error(settings.error ?? "Could not load settings.");
@@ -95,6 +103,9 @@ export function WorkspaceApplicationsLeasesSettings() {
         if (cancelled) return;
         setPipeline(cacheLeasingPipelinePreferences(settings.leasingPipeline));
         setAutomation(normalizeApplicationAutomation(settings.automation));
+        setLandlordName(settings.landlord?.setting ?? "");
+        setLandlordSaved(settings.landlord?.setting ?? "");
+        setLandlordFallback(settings.landlord?.ownerFullName ?? "");
         if (leaseRes.ok) setLeaseAutomation(normalizeLeaseAutomationSettings(lease.settings));
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load settings.");
@@ -123,7 +134,11 @@ export function WorkspaceApplicationsLeasesSettings() {
   );
 
   const patchSettings = useCallback(
-    async (body: { leasingPipeline?: LeasingPipelinePreferences; automation?: ApplicationAutomationPreferences }) => {
+    async (body: {
+      leasingPipeline?: LeasingPipelinePreferences;
+      automation?: ApplicationAutomationPreferences;
+      landlordLegalName?: string;
+    }) => {
       const res = await writeThroughFetch("/api/portal/manager-application-settings", {
         method: "PATCH",
         credentials: "include",
@@ -131,7 +146,12 @@ export function WorkspaceApplicationsLeasesSettings() {
         body: JSON.stringify({ ...body, ...(workspaceId ? { workspaceId } : {}) }),
         keepalive: true,
       });
-      const data = (await res.json().catch(() => ({}))) as { leasingPipeline?: unknown; automation?: unknown; error?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        leasingPipeline?: unknown;
+        automation?: unknown;
+        landlord?: { landlordLegalName?: string; setting?: string };
+        error?: string;
+      };
       if (!res.ok) throw new Error(data.error ?? "Could not save.");
       return data;
     },
@@ -149,6 +169,23 @@ export function WorkspaceApplicationsLeasesSettings() {
         setPipeline(cacheLeasingPipelinePreferences(data.leasingPipeline ?? next));
       } catch (e) {
         setPipeline(previous);
+        throw e;
+      }
+    }, "Could not save.");
+  };
+
+  const saveLandlordName = () => {
+    const next = landlordName.replace(/\s+/g, " ").trim();
+    if (demo || next === landlordSaved) return;
+    void withSaveStatus(async () => {
+      try {
+        const data = await patchSettings({ landlordLegalName: next });
+        setLandlordSaved(data.landlord?.setting ?? next);
+        setLandlordName(data.landlord?.setting ?? next);
+        // The lease generator reads the name from a client cache; refresh it from the server's answer.
+        cacheLandlordLegalName(data.landlord?.landlordLegalName ?? next);
+      } catch (e) {
+        setLandlordName(landlordSaved);
         throw e;
       }
     }, "Could not save.");
@@ -215,6 +252,22 @@ export function WorkspaceApplicationsLeasesSettings() {
       </PortalSettingsSection>
       <PortalSettingsSection id="leases" title="Leases">
         <PortalSettingsGroup>
+          <PortalSettingsRow label="Landlord on leases">
+            <Input
+              aria-label="Landlord on leases"
+              className="w-64"
+              value={landlordName}
+              placeholder={landlordFallback}
+              maxLength={160}
+              disabled={disabled}
+              data-attr="workspace-landlord-legal-name"
+              onChange={(event) => setLandlordName(event.target.value)}
+              onBlur={saveLandlordName}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+              }}
+            />
+          </PortalSettingsRow>
           <PortalSettingsRow label="Roommates in a shared room sign">
             <FieldSingleSelect
               hideLabel

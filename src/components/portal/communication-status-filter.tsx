@@ -13,7 +13,7 @@ import { useScheduledSendCount } from "@/hooks/use-scheduled-send-count";
  * Manager Communication drops Archived from this list: Active | Archived tabs
  * own the folder. Resident and vendor still pick Archived here.
  */
-export type CommunicationStatus = "active" | "all" | "read" | "unread" | "archived" | "scheduled";
+export type CommunicationStatus = "active" | "all" | "read" | "unread" | "notDelivered" | "archived" | "scheduled";
 
 const COMMUNICATION_STATUS_OPTIONS: { value: CommunicationStatus; label: string }[] = [
   { value: "active", label: "Active" },
@@ -26,6 +26,7 @@ const COMMUNICATION_STATUS_OPTIONS: { value: CommunicationStatus; label: string 
 const MANAGER_COMMUNICATION_STATUS_OPTIONS: { value: CommunicationStatus; label: string }[] = [
   { value: "active", label: "All conversations" },
   { value: "unread", label: "Unread" },
+  { value: "notDelivered", label: "Not delivered" },
   { value: "read", label: "Read" },
 ];
 

@@ -28,6 +28,7 @@ vi.mock("@/lib/test-workspaces/index.server", () => ({ resolveAuthenticatedBusin
 vi.mock("@/lib/workspaces/server", () => ({
   loadWorkspaces: async () => state.workspaces,
   loadWorkspacePlan: async () => ({ tier: "pro", unknown: false, workspaceLimit: 1, usage: { workspaces: 1 } }),
+  readWorkspacePlanInputs: async () => ({}),
 }));
 vi.mock("@/lib/service/service-mode.server", () => ({
   loadServiceStaffIds: async () => ({ ids: state.staff, failed: state.staffFailed }),

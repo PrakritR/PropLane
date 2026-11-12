@@ -155,6 +155,7 @@ import { lookupPropertyKnowledgeTool, saveKnowledgeAnswerTool } from "./domains/
 import { portfolioImportStatusTool } from "./domains/portfolio-import";
 import {
   buildProspectLinksTool,
+  startProspectSignupTool,
   checkRoomAvailabilityTool,
   escalateLeasingToManagerTool,
   getListingDetailsTool,
@@ -422,6 +423,7 @@ export const leasingSmsAgentRegistry = buildRegistry([
   getNearbyTransitTool,
   getProspectPropertyLocationResearchTool,
   buildProspectLinksTool,
+  startProspectSignupTool,
   getSiteLinksTool,
   suppressRedundantLeasingReplyTool,
   escalateLeasingToManagerTool,

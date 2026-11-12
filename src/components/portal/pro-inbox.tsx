@@ -96,6 +96,8 @@ import {
   PortalInboxEmptyState,
   inboxTabEmptyCopy,
   type InboxBubbleMessage,
+  type InboxDeliveryActions,
+  InboxDeliveryActionsContext,
   INBOX_THREAD_ICON_BTN,
   INBOX_THREAD_ICON_BTN_DANGER,
   useInboxDetailsPanelMode,
@@ -1382,6 +1384,20 @@ export const ManagerInbox = forwardRef<
     },
     [activeThreadId, activeLastInboundChannel],
   );
+  /* A failed bubble's Retry / Send by text|email: the message goes back into the composer on the channel
+     chosen, focused, for one tap on Send. The send itself stays the composer's own (one path, one gate). */
+  const deliveryActions = useMemo<InboxDeliveryActions>(() => {
+    const prefill = (message: InboxBubbleMessage, channel: "sms" | "email") => {
+      setReplyDraft(message.body);
+      pickReplyChannel({ viaEmail: channel === "email", viaSms: channel === "sms", viaProplane: false });
+      setReplyFocusSignal((n) => n + 1);
+    };
+    return {
+      retry: prefill,
+      sendAnotherWay: prefill,
+      canSendVia: (channel) => (channel === "email" ? activeEmailAvailable : activeSmsAvailable),
+    };
+  }, [activeEmailAvailable, activeSmsAvailable, pickReplyChannel, setReplyDraft]);
   const onPickViaProplane = useCallback((on: boolean) => pickReplyChannel({ viaProplane: on }), [pickReplyChannel]);
   const onPickViaEmail = useCallback((on: boolean) => pickReplyChannel({ viaEmail: on }), [pickReplyChannel]);
   const onPickViaSms = useCallback((on: boolean) => pickReplyChannel({ viaSms: on }), [pickReplyChannel]);
@@ -1551,6 +1567,7 @@ export const ManagerInbox = forwardRef<
         // turns show no tag — a guessed "Email" is how an in-app reply that never
         // left PropLane used to look sent.
         channel: m.channel,
+        deliveries: m.deliveries,
         houseLabel: m.houseLabel,
         ...(fields.subject ? { subject: fields.subject } : {}),
         attachments: m.attachments,
@@ -2680,6 +2697,7 @@ export const ManagerInbox = forwardRef<
     ) : null;
 
   const threadPane = activeThread ? (
+    <InboxDeliveryActionsContext.Provider value={deliveryActions}>
     <InboxThreadView
       title={activeThreadTitle}
       avatarName={
@@ -2816,6 +2834,7 @@ export const ManagerInbox = forwardRef<
         )
       }
     />
+    </InboxDeliveryActionsContext.Provider>
   ) : emptyThreadFallback && suppressListPane ? (
     emptyThreadFallback
   ) : expandedId ? (

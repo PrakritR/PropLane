@@ -165,3 +165,21 @@ POST /api/auth/email-onboarding/start           POST /api/auth/register-resident
   `resident-setup-email-link-recovery.test.ts`.
 - E2E (gated `RESIDENT_SETUP_E2E_ENABLED=1`, dev/test only):
   `tests/e2e/resident-account-setup.spec.ts`.
+
+## Phone-first resident account (Nov 10)
+
+`/auth/create-account?role=resident` leads with **Mobile number -> Text me a code -> Code**, then Google/Apple, then email. It is the existing phone
+sign-in door (`PhoneAuthForm`, `POST /api/auth/phone/start` + `/verify`, `purpose: sign_in`), not a new primitive: the same code, proof cookie, limits
+and refusals, drawn only while `phoneSignInEnabled` is on (the page reads it once; the server can still answer "off" at the first send, which hides
+the box). The form adds `intent: "resident_signup"` to the verify call, which changes exactly one thing: a number with no account (the bind gave
+it a phone-only login with a resident role, `resolvePhoneUser` / `phone_auth_bind`) goes straight into the resident portal through
+`resolvePostSignInDestination` instead of the `/auth/get-started?phone_new=1` role chooser; a failure to resolve falls back to `/auth/continue`. A
+number that already has an account signs that account in, as any sign-in does. The account has the placeholder `@phone.proplane.invalid` login and no
+email; email is added later (Settings), and `phone_required` is not touched. No new server route and no new provisioning path. Tests:
+`create-account-phone-first.test.tsx`, `phone-verify-next.test.ts`.
+
+A prospect who texts the PropLane line to tour or apply and has no account is offered the by-text sign-up (`start_prospect_signup`, `startTourSignup` in
+`one-number/signup/flow.server.ts`): the same W26 conversation as a resident sign-up that remembers the one live home, skips "which home do you live
+in", and on the code echo texts the one-tap sign-in link (`mintPhoneSignInLink`) plus that home's `/resident/tour/schedule?propertyId=` page. The link
+carries no destination (`/auth/confirm` derives it from its type alone), so the tour page is a second link built from the stored id. Only on the
+PropLane line (service catalog, SMS); everything else, and any phone that already has an account or a sign-up in progress, keeps the ordinary links.

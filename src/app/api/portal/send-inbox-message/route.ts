@@ -31,6 +31,13 @@ import {
 } from "@/lib/admin-shared-inbox.server";
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 import { sendPortalConversationEmails } from "@/lib/portal-email-send.server";
+import {
+  recordEmailAttempt,
+  recordPlaceholderEmailFailures,
+  recordSmsAttempt,
+  type InboxMessageTarget,
+} from "@/lib/inbox-delivery-status.server";
+import { isPlaceholderMailbox, type InboxMessageDelivery } from "@/lib/inbox-delivery-status";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -364,6 +371,7 @@ export async function POST(req: Request) {
     // Stamp the sender's own copy with the channel this send is leaving on, so
     // a reload shows the same tag the optimistic bubble did — and an in-app-only
     // send never reads as EMAIL. Email turns also keep their subject.
+    const replyCommitId = replyMessageId ?? `reply-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
     const replyChannel = deliverViaEmail ? "email" : deliverViaSms ? "sms" : "proplane";
     const replyBody = {
       fromName,
@@ -371,7 +379,8 @@ export async function POST(req: Request) {
       attachments: inboxAttachmentsFromUrls(attachmentUrls),
       channel: replyChannel as "email" | "sms" | "proplane",
       ...(deliverViaEmail ? { subject } : {}),
-      ...(replyMessageId ? { messageId: replyMessageId } : {}),
+      // Always an id, so the provider's delivery status can find this turn again.
+      messageId: replyCommitId,
       recordRef,
     };
 
@@ -890,8 +899,11 @@ export async function POST(req: Request) {
     const emailToSend = recipients
       .filter((recipient) => emailWanted(recipient.email))
       .map((recipient) => recipient.email)
-      .filter((email) => !shouldSkipOutboundEmail(email));
+      // A placeholder import address is recorded "Not a real mailbox" below; Resend is never handed it.
+      .filter((email) => !shouldSkipOutboundEmail(email) && !isPlaceholderMailbox(email));
 
+    // Where each recipient's copy of this message lives, so the provider's delivery status can be stamped on it.
+    const sentTargets = new Map<string, InboxMessageTarget>();
     // Deliver to portal inbox for all recipients (including @axis.local demo emails)
     let propertyThreadId: string | null = null;
     const propertyTitleInput = String(body.propertyTitle ?? "").trim();
@@ -1030,12 +1042,14 @@ export async function POST(req: Request) {
         // Sender's Sent record (owner-only, scoped to the sender's portal).
         // Repeated sends to the same person append to the ONE sent thread.
         // A co-host has none: their reply is a turn of the owner's thread, which is the one conversation.
-        if (!coHostReply) await deliverPortalMessageThreadSide(db, {
+        const sentMessageId = `sent_${ts}_${rand}`;
+        const sentSide = coHostReply ? null : await deliverPortalMessageThreadSide(db, {
           scope: senderScope,
           folder: "sent",
           ownerUserId: user.id,
           participantEmail: null,
           otherPartyEmail: recipientLower,
+          messageId: sentMessageId,
           // The reply was committed to the thread the sender was looking at; with
           // one conversation per person that thread IS the sent copy.
           alreadyRecordedIn: replyTarget?.threadId,
@@ -1056,6 +1070,8 @@ export async function POST(req: Request) {
           attachments: inboxAttachmentsFromUrls(attachmentUrls),
           recordRef,
         });
+        if (replyTarget) sentTargets.set(recipientLower, { threadId: replyTarget.threadId, messageId: replyCommitId });
+        else if (sentSide) sentTargets.set(recipientLower, { threadId: sentSide.threadId, messageId: sentMessageId });
 
         if (recipientLower === senderEmail) continue;
 
@@ -1136,6 +1152,13 @@ export async function POST(req: Request) {
       }
     }
 
+    // What each channel did, returned to the caller (a house send shows it per person).
+    const responseDeliveries: InboxMessageDelivery[] = await recordPlaceholderEmailFailures(
+      db,
+      sentTargets,
+      recipients.filter((recipient) => emailWanted(recipient.email)).map((recipient) => recipient.email),
+    );
+
     // If no eligible real email recipients and SMS not requested, short-circuit
     if (toEmails.length === 0 && !anySmsWanted) {
       const sentAt = new Date().toISOString();
@@ -1156,6 +1179,7 @@ export async function POST(req: Request) {
         ok: true,
         skipped: true,
         reason: "No eligible real recipients — portal inbox updated.",
+        deliveries: responseDeliveries,
         ...(propertyThreadId ? { propertyThreadId } : {}),
       });
     }
@@ -1189,6 +1213,10 @@ export async function POST(req: Request) {
           emailSent = true;
           emailResendId = emailResendId ?? result.resendId;
         }
+      }
+      for (const email of emailToSend) {
+        const recorded = await recordEmailAttempt(db, sentTargets.get(email), email, emailResults.get(email));
+        if (recorded) responseDeliveries.push(recorded);
       }
     }
 
@@ -1363,6 +1391,7 @@ export async function POST(req: Request) {
             openThread,
             mirrorToManager: Boolean(eventCategory),
           });
+          responseDeliveries.push(await recordSmsAttempt(db, sentTargets.get(recipient.email), result));
           if (result.sent) {
             const logId = `outbound_sms_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
             await db.from("portal_outbound_mail_records").upsert(
@@ -1394,6 +1423,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       id: emailResendId,
+      deliveries: responseDeliveries,
       ...(propertyThreadId ? { propertyThreadId } : {}),
     });
   } catch (err) {

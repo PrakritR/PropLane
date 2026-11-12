@@ -16,6 +16,7 @@ import {
 } from "@/lib/scheduled-inbox-messages.server";
 import { contentHash, linkedManagerContacts, type LinkedManagerContact } from "./load-resident-rows";
 import { managerLabelForPreview } from "@/lib/tools/manager-label";
+import { recordResidentHandoff } from "@/lib/resident-handoff.server";
 
 const PAGE_SIZE = 1000;
 
@@ -213,7 +214,24 @@ export const sendMessageToManagerTool = defineWriteTool({
         /* the learning loop never blocks a message */
       }
     }
-    return { reply: `Sent "${subject}" to ${resolved.targets.map((t) => managerLabelForPreview(t.name)).join(", ")}.`, resultSummary: { recipientCount: result.recipientCount } };
+    // The in-app assistant only (not SMS, email or voice): the manager gets a "Resident asked for you" Needs-attention
+    // item, written AFTER the message went out. `managerNotified` is the only thing the assistant may call "notified".
+    let managerNotified = false;
+    if (ctx.channel === "portal") {
+      managerNotified = await recordResidentHandoff(ctx.db, {
+        managerUserIds: resolved.targets.map((t) => t.id),
+        residentUserId: ctx.userId,
+        residentName: await residentFromName(ctx),
+        subject,
+        messageHash: contentHash(`${subject}\n${body}`),
+        dayBucket: auditDayBucket(),
+      });
+    }
+    const sentLine = `Sent "${subject}" to ${resolved.targets.map((t) => managerLabelForPreview(t.name)).join(", ")}.`;
+    return {
+      reply: managerNotified ? `${sentLine} They have been notified.` : sentLine,
+      resultSummary: { recipientCount: result.recipientCount, managerNotified },
+    };
   },
 });
 

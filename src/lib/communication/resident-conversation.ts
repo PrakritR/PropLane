@@ -239,6 +239,7 @@ function withTurns(
     rootChannel: first.channel,
     rootSubject: first.subject,
     rootAutomated: first.automated === true,
+    rootDeliveries: first.deliveries,
     ...rootEventFieldsFromTurn(first),
     rootHouseId: first.houseId,
     rootHouseLabel: first.houseLabel,

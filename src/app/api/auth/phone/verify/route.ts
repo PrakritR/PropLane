@@ -33,6 +33,9 @@ export async function POST(req: Request) {
     assertPhoneRequestOrigin(req);
     const body = await req.json();
     signIn = body?.purpose === "sign_in";
+    // `/auth/create-account?role=resident` runs this same door and says so. It only changes where a number that has no
+    // account yet lands (the bind already gave it a resident role); the proof, limits and every refusal are untouched.
+    const residentSignup = signIn && body?.intent === "resident_signup";
     const failure = (error?: unknown) => {
       if (!signIn) return phoneAuthFailure();
       const kind = phoneAuthKindOf(error);
@@ -73,7 +76,7 @@ export async function POST(req: Request) {
       // failure leaves `next` unset and the form falls back to /auth/continue exactly as before.
       try {
         const intendedPath = intendedPathFrom(body.next);
-        if (result.created) {
+        if (result.created && !residentSignup) {
           next = newNumberPath(intendedPath);
         } else {
           destination = await resolvePostSignInDestination({

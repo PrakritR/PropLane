@@ -91,10 +91,8 @@ import { WorkNumberAlsoNotifyCard } from "@/components/portal/work-number-also-n
 import { DARK_MODE_ENABLED } from "@/lib/theme-storage";
 import type { PortalKind } from "@/lib/portal-types";
 import { formatProplaneIdForDisplay } from "@/lib/manager-id";
-import {
-  cacheLandlordLegalName,
-  landlordLegalNameFromAccountFullName,
-} from "@/lib/manager-landlord-profile";
+import { fetchAndCacheLandlordLegalName } from "@/lib/manager-landlord-profile";
+import { selectedWorkspaceId } from "@/lib/workspaces/selection";
 
 function dashToEmpty(v: unknown): string {
   return typeof v === "string" && v !== "—" ? v : "";
@@ -367,7 +365,8 @@ export function PortalProfileClient({
         return false;
       }
       if (variant === "manager") {
-        cacheLandlordLegalName(landlordLegalNameFromAccountFullName(next.fullName));
+        // The lease landlord is the workspace's (setting, else its owner's name), not whoever is signed in.
+        void fetchAndCacheLandlordLegalName(selectedWorkspaceId());
       }
       savedRef.current = next;
       // A different number is unverified until its own code is confirmed (the API clears phone_verified_at too).

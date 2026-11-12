@@ -126,7 +126,7 @@ import {
   coManagerLinkLeftSubject,
   coManagerLinkRemovedSubject,
 } from "@/lib/co-manager-link-email";
-import { fetchAndCacheLandlordLegalName } from "@/lib/manager-landlord-profile";
+import { landlordLegalNameFromAccountFullName } from "@/lib/manager-landlord-profile";
 import {
   normalizeWorkspacePermissions,
   type WorkspaceCoManagerGrant,
@@ -516,7 +516,12 @@ export function ProAccountLinksPanel({
     if (!managerSessionReady) return;
     let cancelled = false;
     void (async () => {
-      const name = await fetchAndCacheLandlordLegalName();
+      // The signed-in manager's OWN name for the team display. (The lease landlord is read as the
+      // workspace owner and cached by `LandlordLegalNameCacheSync`.)
+      const name = await fetch("/api/profile", { credentials: "include", cache: "no-store" })
+        .then(async (res) => (res.ok ? ((await res.json().catch(() => ({}))) as { fullName?: string | null }) : {}))
+        .then((data) => landlordLegalNameFromAccountFullName((data as { fullName?: string | null }).fullName))
+        .catch(() => "");
       if (cancelled) return;
       if (name) {
         setManagerDisplayName(name);

@@ -194,6 +194,7 @@ describe("leasing SMS agent registry", () => {
         "list_open_tour_slots",
         "lookup_property_knowledge",
         "request_tour",
+        "start_prospect_signup",
         "suppress_redundant_reply",
       ].sort(),
     );

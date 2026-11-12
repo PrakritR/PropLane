@@ -2,10 +2,14 @@
 
 import { EmailFirstSignup } from "@/components/auth/email-first-signup";
 import { AuthCard } from "@/components/auth/auth-card";
+import { AuthDivider } from "@/components/auth/auth-mobile-primitives";
+import { OAuthSocialStack } from "@/components/auth/oauth-social-stack";
+import { PhoneAuthForm } from "@/components/auth/phone-auth-form";
 import { isUnsafeRedirectPath } from "@/lib/auth/normalize-post-auth-path";
 import { safeNextPath } from "@/lib/auth/safe-next-path";
 import { parseTourSlotKey } from "@/lib/tour-schedule-link";
 import { useSearchParams } from "next/navigation";
+import { useState } from "react";
 
 /**
  * The single account-CREATION surface, reached only from /auth/create-account (role picked before
@@ -20,8 +24,9 @@ import { useSearchParams } from "next/navigation";
  * guards that pinned its behaviour now pin the retirement itself
  * (`tests/unit/portal-auth-form-signup-timeout.test.ts`).
  */
-export function PortalAuthForm() {
+export function PortalAuthForm({ phoneSignup = false }: { phoneSignup?: boolean }) {
   const params = useSearchParams();
+  const [phoneOff, setPhoneOff] = useState(false);
   if (params.get("tour_inquiry")) return <AuthCard variant="blend"><EmailFirstSignup intent="tour" tourInquiryId={params.get("tour_inquiry") ?? undefined} initialEmail={params.get("email") ?? ""} /></AuthCard>;
   const intent = params.get("role") === "resident" ? "resident" : "generic";
   let oauthNextPath: string | undefined;
@@ -49,5 +54,17 @@ export function PortalAuthForm() {
       };
     }
   } catch { /* Invalid destinations are ignored. */ }
-  return <AuthCard variant="blend"><EmailFirstSignup intent={intent} listing={listing} oauthNextPath={oauthNextPath} initialEmail={params.get("email") ?? ""} /></AuthCard>;
+  // Resident sign-up leads with "Mobile number -> Text me a code -> Code" (the existing phone sign-in door, so the same
+  // proof, limits and refusals), then Google/Apple, then email. A number with no account yet gets a phone-only resident
+  // account (email optional later); a number that already has one signs that account in. The server can still answer
+  // "off" at the first send, which hides the phone box in place.
+  const phoneFirst = phoneSignup && !phoneOff && intent === "resident";
+  const social = phoneFirst ? (
+    <div className="space-y-3">
+      <PhoneAuthForm nextPath={oauthNextPath ?? ""} signupIntent="resident_signup" onPhoneOff={() => setPhoneOff(true)} />
+      <AuthDivider label="or" />
+      <OAuthSocialStack nextPath={oauthNextPath} intent="resident" />
+    </div>
+  ) : undefined;
+  return <AuthCard variant="blend"><EmailFirstSignup intent={intent} listing={listing} oauthNextPath={oauthNextPath} initialEmail={params.get("email") ?? ""} social={social} /></AuthCard>;
 }

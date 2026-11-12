@@ -13,7 +13,7 @@ import { CreateAccountRoleGateway } from "./create-account-role-gateway";
  * flows through CreateAccountRoleGateway so manager signup is always
  * ManagerTrialSignupForm + manager-register.
  */
-export default function CreateAccountRouter() {
+export default function CreateAccountRouter({ phoneSignup = false }: { phoneSignup?: boolean }) {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id")?.trim() ?? "";
   const axisId = searchParams.get("axis_id")?.trim() ?? "";
@@ -30,5 +30,5 @@ export default function CreateAccountRouter() {
     );
   }
 
-  return <CreateAccountRoleGateway />;
+  return <CreateAccountRoleGateway phoneSignup={phoneSignup} />;
 }

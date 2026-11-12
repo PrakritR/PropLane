@@ -24,6 +24,7 @@ import {
   type ViewAsPayload,
 } from "@/lib/auth/view-as-token";
 
+import { readManagedLockCached } from "@/lib/auth/managed-lock-cache";
 import {
   managedReadOnlyBlocks,
   managedReadOnlyCandidate,
@@ -73,15 +74,21 @@ async function viewAsGuard(request: NextRequest): Promise<{ payload: ViewAsPaylo
  * Managed (PropLane Service) workspaces are view-only for their client. For a write to /api/* that is
  * not on the allowlist, ask the database (`managed_read_only_owner_locked()`, with the caller's own
  * session so `auth.uid()` is the caller) whether she OWNS a locked service workspace. The lock is
- * account-wide: the workspace cookie is request input and never decides it. Nothing is cached across
- * requests. A failed lookup (including the function missing) refuses the write: fail closed.
+ * account-wide: the workspace cookie is request input and never decides it. The definite answer is kept in
+ * process, per user id, for at most 30 s (`managed-lock-cache.ts`); the session check is never cached.
+ * A failed lookup (including the function missing) refuses the write: fail closed.
  */
-async function managedReadOnlyGuard(supabase: ReturnType<typeof createServerClient>): Promise<NextResponse | null> {
+async function managedReadOnlyGuard(supabase: ReturnType<typeof createServerClient>, userId: string): Promise<NextResponse | null> {
   const headers = { "Cache-Control": "no-store" };
   try {
-    const { data, error } = await supabase.rpc("managed_read_only_owner_locked");
-    if (error) throw error;
-    if (managedReadOnlyBlocks(data === true)) {
+    // The answer is kept per user for a few seconds (`managed-lock-cache.ts`), so a burst of writes asks once. Only
+    // a definite true/false is kept; an error throws out of the loader, is never stored, and refuses the write.
+    const locked = await readManagedLockCached(userId, async () => {
+      const { data, error } = await supabase.rpc("managed_read_only_owner_locked");
+      if (error) throw error;
+      return data === true;
+    });
+    if (managedReadOnlyBlocks(locked)) {
       return NextResponse.json({ ...MANAGED_READ_ONLY_BODY }, { status: 403, headers });
     }
     return null;
@@ -262,7 +269,7 @@ export async function middleware(request: NextRequest) {
   }
 
   if (managedCandidate && user) {
-    const refusal = await managedReadOnlyGuard(supabase);
+    const refusal = await managedReadOnlyGuard(supabase, user.id);
     if (refusal) return stampCrawlPolicy(request, refusal);
   }
 

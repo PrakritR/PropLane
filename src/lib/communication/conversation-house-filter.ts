@@ -92,6 +92,7 @@ export function restrictThreadToHouses(
       rootHouseId: first.houseId,
       rootDelivery: first.delivery,
       rootAutomated: first.automated,
+      rootDeliveries: first.deliveries,
       ...rootEventFieldsFromTurn(first),
       attachments: first.attachments,
       messages: rest,

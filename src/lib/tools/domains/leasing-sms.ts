@@ -1320,6 +1320,45 @@ export const buildProspectLinksTool = defineTool({
 });
 
 /**
+ * `start_prospect_signup`: a prospect on the PropLane line asked to tour (or apply) and has no PropLane account, so the
+ * link they would be sent runs into a sign-in wall. This starts the existing reply-based sign-up by text
+ * (docs/agents/one-number.md § W26) for THIS texter's own phone, remembering the one live home they asked about; the
+ * account exists only after they text back the 6-digit code we send, and the sign-in link plus the tour page are texted
+ * by the sign-up flow itself, not by the model. A read tool in the `send_my_link` sense: it contacts no third party and
+ * moves no money; the phone is read from the verified turn, never from the model. Only the PropLane line (service
+ * catalog, SMS) runs the sign-up conversation ahead of this agent, so every other surface answers `unavailable` and the
+ * agent keeps sending the ordinary links.
+ */
+export const startProspectSignupTool = defineTool({
+  name: "start_prospect_signup",
+  description:
+    "Use when a prospect on SMS wants to tour or apply for a matched home and build_prospect_links shows they have no PropLane account yet, or when you are about to send a tour or apply link to someone who has not signed up. Starts the by-text sign-up for the phone that is texting. Send the returned reply text exactly as written (it asks their name) and nothing else; do NOT also send a tour or apply link. If it returns started:false (they already have an account, are mid sign-up, or sign-up is unavailable), carry on with the ordinary tour or apply link from build_prospect_links.",
+  kind: "read",
+  inputSchema: z
+    .object({ propertyId: z.string().min(1), listingRoomId: z.string().optional() })
+    .strict(),
+  handler: async (ctx, input) => {
+    const scope = ctx.leasingScope;
+    const phone = scope?.prospectPhoneE164 ?? "";
+    if (!scope || scope.channel !== "sms" || !isServiceCatalog(ctx) || !phone || scope.testActorUserId) {
+      return { ok: true, started: false, reason: "unavailable" };
+    }
+    // The destination is a live home this line serves, checked here; never an id the model made up.
+    const rec = await loadResolvableListing(ctx, input.propertyId);
+    if (!rec) return { ok: false, error: "listing_not_found" };
+    const { startTourSignup } = await import("@/lib/one-number/signup/flow.server");
+    const started = await startTourSignup(ctx.db, {
+      phoneE164: phone,
+      propertyId: rec.id,
+      listingRoomId: input.listingRoomId?.trim() || null,
+    });
+    return started.started
+      ? { ok: true, started: true, reply: started.reply }
+      : { ok: true, started: false, reason: started.reason };
+  },
+});
+
+/**
  * Canonical, origin-correct PropLane links for the general handoffs a prospect
  * asks about (browse all homes, start an application, book a tour, pricing,
  * resident portal to sign a lease). Pure URL builder — no DB, no scope — so the

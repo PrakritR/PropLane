@@ -506,6 +506,9 @@ async function deliverProjection(
     if (error) throw new Error(`Could not finalize action-event delivery: ${error.message}`);
     return "delivered";
   }
+  // The manager's saved channels for this event (Settings -> What PropLane sends) narrow what the
+  // recipient's own preferences and Reach by already allow; nothing saved narrows nothing.
+  const eventChannels = await savedEventChannels(db, input);
   const result = await deliverPortalInboxMessage(db, {
     senderUserId: input.senderUserId,
     senderEmail: input.senderEmail,
@@ -517,6 +520,7 @@ async function deliverProjection(
     toEmails: input.recipient.email ? [input.recipient.email] : undefined,
     eventCategory: input.category,
     automated: true,
+    ...(eventChannels ? { eventChannels } : {}),
     suppressSms: portalOnly || input.suppressSms,
     suppressEmail: input.retryMode === "sms",
     suppressInbox: Boolean(input.retryMode),
@@ -821,6 +825,22 @@ export async function emitActionEvent(
   }
   await db.from("action_events").update({ processed_at: now.toISOString() }).eq("id", eventRow.id);
   return { eventId: eventKey, duplicate, delivered, submitted, deferred, failed };
+}
+
+/** The `channels` the manager saved for this event and audience, or `undefined` (manager/team copies and system notices are never narrowed here). */
+async function savedEventChannels(
+  db: SupabaseClient,
+  input: { domain?: string; eventType?: string; managerUserId?: string | null; payload?: Record<string, unknown> | null; recipient: { audience: ActionEventAudience } },
+): Promise<{ email: boolean; sms: boolean } | undefined> {
+  const audience = input.recipient.audience;
+  if (audience === "manager" || audience === "team") return undefined;
+  if (!input.domain || !input.eventType || !input.managerUserId?.trim() || isSystemNoticePayload(input.payload)) return undefined;
+  try {
+    const settings = await loadAutomatedMessageSettings(db, input.managerUserId.trim());
+    return settings[`${input.domain}:${input.eventType}:${audience}`]?.channels;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Deliver due pending/failed/deferred projections. Deterministic message IDs make inbox

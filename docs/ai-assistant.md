@@ -761,3 +761,17 @@ The prospect leasing registry includes `get_nearby_transit`, a read-only,
 property-scoped OpenStreetMap lookup. Model input supplies only a listing id and
 fixed mode; the server owns coordinates, address geocoding, query radius, and
 provider request construction.
+
+## Resident handoff: "Resident asked for you" (Nov 10)
+
+`send_message_to_manager` from the in-app resident assistant (`ctx.channel === "portal"` only, never SMS, email or voice) writes, AFTER the message is
+delivered, a manager Needs-attention item through the existing manager-notice source: `recordResidentHandoff` (`resident-handoff.server.ts`) calls
+`notifyManagerFromAgent` once per distinct linked manager with `threadType: "resident_handoff"` (stamped `noticeType` on the message in the manager's
+PropLane Assistant thread, plus a push), idempotent per resident, manager, message and day. `buildManagerAttentionRows` shows "Resident asked for you"
+(`residentHandoffCount`, from `countResidentHandoffs` over the inbox mirror; counted while that thread is unread and back to the manager's own reply, so
+reading or replying clears it). The tool result says "They have been notified" and returns `managerNotified: true` only when a notice row was written; the
+resident system prompt allows the assistant to say the manager was notified only after that confirmed result. Tests: `resident-handoff.test.ts`.
+
+The resident phone bar has an **Ask** tab in the center slot (`residentBarWithAsk`; the fourth stage tab, Messages, moves into More, which sums its badge)
+and the dashboard has a desktop Ask PropLane card. Ask is the assistant, not a section, so it is in neither `RESIDENT_BOTTOM_NAV_PRIMARY` nor
+`STAGE_UNLOCKED_SECTIONS`; an unread dot reads the resident's own assistant thread. Tests: `resident-ask-nav.test.tsx`.

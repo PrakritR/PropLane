@@ -35,6 +35,7 @@ import {
 } from "@/lib/one-number/signup/state.server";
 import { extractArea, extractTrade } from "@/lib/one-number/onboarding/vendor-intake";
 import { isAllowedPhoneAuthDestination } from "@/lib/phone-e164";
+import { tourSchedulePath } from "@/lib/tour-schedule-link";
 import { rateLimit } from "@/lib/rate-limit";
 import { phoneKeyOf, phoneRateKey } from "@/lib/sms/phone-key";
 
@@ -117,6 +118,13 @@ export type SignupDeps = {
 };
 
 
+function tourAnswers(answers: SignupAnswers): Pick<SignupAnswers, "tourPropertyId" | "tourListingRoomId"> {
+  return {
+    ...(answers.tourPropertyId ? { tourPropertyId: answers.tourPropertyId } : {}),
+    ...(answers.tourListingRoomId ? { tourListingRoomId: answers.tourListingRoomId } : {}),
+  };
+}
+
 const say = (text: string): SignupTurn => ({ handled: true, reply: toGsm7(text) });
 
 const ORDER: Record<SignupRole, SignupStep[]> = {
@@ -132,6 +140,8 @@ export function nextStep(role: SignupRole, answers: SignupAnswers, after: Signup
   for (const step of order.slice(at + 1)) {
     if (step === "trade" && answers.trade) continue;
     if (step === "area" && answers.area) continue;
+    // A prospect signing up to tour is not asked which home they live in: the home they asked about is the destination.
+    if (step === "home" && answers.tourPropertyId) continue;
     return step;
   }
   return "code";
@@ -278,6 +288,52 @@ async function startSignup(db: SupabaseClient, turn: Turn, deps: SignupDeps): Pr
     : defaultWebLink(db, { role, phoneKey: turn.phoneKey, vendorLeadId: lead?.id }, deps.origin)
   ).catch(() => null);
   return say(introText(role, link));
+}
+
+export type TourSignupStart =
+  | { started: true; reply: string }
+  | { started: false; reason: "has_account" | "in_progress" | "busy" | "unavailable" };
+
+/**
+ * The leasing agent's way into the sign-up above, for a prospect on the PropLane line who asked to tour or apply and has
+ * no account. It starts the SAME reply-based conversation (name -> optional email -> code echo -> account) as a resident
+ * sign-up that remembers one live home; it creates nothing itself, so the proof of the phone is still the code the person
+ * texts back, and the same rate limits apply. A phone that already has an account, or is already mid-sign-up, is never
+ * started again (`has_account` / `in_progress`: the agent keeps sending the ordinary links). The caller has already
+ * checked that `propertyId` is a live home the line serves.
+ */
+export async function startTourSignup(
+  db: SupabaseClient,
+  input: { phoneE164: string; propertyId: string; listingRoomId?: string | null },
+  deps: Pick<SignupDeps, "now" | "findOwners"> = {},
+): Promise<TourSignupStart> {
+  const now = (deps.now ?? (() => new Date()))();
+  const phone = input.phoneE164;
+  const phoneKey = phoneKeyOf(phone);
+  if (!/^\d{10}$/.test(phoneKey) || !isAllowedPhoneAuthDestination(phone)) return { started: false, reason: "unavailable" };
+  const propertyId = String(input.propertyId ?? "").trim().slice(0, 200);
+  if (!propertyId) return { started: false, reason: "unavailable" };
+  const read = await readSignupSession(db, phoneKey);
+  if (!read.available) return { started: false, reason: "unavailable" };
+  if (read.session && read.session.step !== "done" && !signupSessionExpired(read.session, now)) return { started: false, reason: "in_progress" };
+
+  const owners = await (deps.findOwners ?? phoneOwners)(db, phone).catch(() => null);
+  if (owners === null) return { started: false, reason: "unavailable" };
+  if (owners.length > 0) return { started: false, reason: "has_account" };
+
+  const byPhone = await rateLimit(`sms-signup-start:${phoneRateKey(phone)}`, SIGNUP_STARTS_PER_PHONE_PER_HOUR, 60 * 60 * 1000);
+  const global = byPhone.ok ? await rateLimit("sms-signup-start-global", SIGNUP_STARTS_GLOBAL_PER_HOUR, 60 * 60 * 1000) : byPhone;
+  if (!global.ok) return { started: false, reason: "busy" };
+
+  const answers: SignupAnswers = {
+    source: "implicit",
+    tourPropertyId: propertyId,
+    ...(input.listingRoomId?.trim() ? { tourListingRoomId: input.listingRoomId.trim().slice(0, 200) } : {}),
+  };
+  await pruneStaleSessions(db, now);
+  const saved = await writeSignupSession(db, { phoneKey, phoneE164: phone, role: "resident", step: "name", answers, lastSid: null, lastKind: "tour_start", now });
+  if (!saved) return { started: false, reason: "unavailable" };
+  return { started: true, reply: toGsm7(`To book a tour I will set up your PropLane account right here by text. ${SIGNUP_COPY.askName} ${SIGNUP_COPY.stop}`) };
 }
 
 function introText(role: SignupRole, webLink: string | null): string {
@@ -476,7 +532,7 @@ async function codeStep(
   }
 
   // Done: keep who they became, drop what they typed.
-  await save({ step: "done", answers: { source: session.answers.source }, kind: "done", userId: result.userId, completedAt: now.toISOString() });
+  await save({ step: "done", answers: { source: session.answers.source, ...tourAnswers(session.answers) }, kind: "done", userId: result.userId, completedAt: now.toISOString() });
   await db.from("sms_setup_links").update({ revoked_at: now.toISOString() }).eq("phone_key", phoneKey).is("used_at", null).is("revoked_at", null).then(() => undefined, () => undefined);
 
   return welcomeReply(db, { phone, role: session.role, answers: session.answers, userId: result.userId }, deps);
@@ -491,6 +547,13 @@ async function welcomeReply(
   const origin = (deps.origin ?? resolveEmailLinkBaseUrl()).replace(/\/$/, "");
   const link = await (deps.signInLink ?? mintPhoneSignInLink)(db, { phoneE164: input.phone, userId: input.userId }).catch(() => null);
   const first = firstNameOf(input.answers.fullName ?? "");
+  if (input.role === "resident" && input.answers.tourPropertyId) {
+    // A prospect who asked to tour: the sign-in link opens the account (it carries no destination, `/auth/confirm` derives
+    // that from its type alone), and the tour page for the home they asked about is the next tap. Both are built here from
+    // the stored id, never typed by a model.
+    const tourUrl = `${origin}${tourSchedulePath({ propertyId: input.answers.tourPropertyId, roomParam: input.answers.tourListingRoomId })}`;
+    return say(`You're set${first ? `, ${first}` : ""}. ${link ? `Tap to sign in (no password needed): ${link} Then pick your tour time here: ${tourUrl}` : `Pick your tour time here and sign in with this number: ${tourUrl}`}`);
+  }
   const tail = input.role === "resident" ? " Your property manager will connect you to your home." : "";
   return say(`You're set${first ? `, ${first}` : ""}. Your PropLane account is ready. Manage everything right here by text, or open your portal: ${link ?? `${origin}/auth/sign-in`}${tail}`);
 }

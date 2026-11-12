@@ -42,8 +42,40 @@ export function newPhoneBrowserSecret(): string {
   return randomBytes(32).toString("base64url");
 }
 
+/**
+ * The SHARED-LINE verification gate (older switch): true only while `line_mode = shared`. It decides who must verify a
+ * phone before entering a portal (`needsPhoneVerification`) and which Settings/verify doors are open. It is NOT the
+ * sign-in switch: phone sign-in works in every line mode through `phoneSignInEnabled`, so turning phone sign-in on can
+ * never make email/Google accounts verify a phone.
+ */
 export async function phoneAuthEnabled(db = createSupabaseServiceRoleClient()): Promise<boolean> {
   return (await loadSharedLineConfig(db)).mode === "shared";
+}
+
+/** Kill switch: `PHONE_SIGN_IN_DISABLED=1` (or `true`) turns texted-code sign-in and sign-up off in every line mode. */
+function phoneSignInKillSwitch(): boolean {
+  const flag = process.env.PHONE_SIGN_IN_DISABLED?.trim().toLowerCase();
+  return flag === "1" || flag === "true";
+}
+
+/**
+ * Is phone sign-in (a texted code to someone with no session) available, in ANY line mode?
+ *  - Off when the kill switch is set.
+ *  - Shared line: on, texting from the shared number (unchanged).
+ *  - per_workspace / shadow: on only when a platform sender exists (`TWILIO_DEFAULT_FROM`, the number `sendPhoneAuthCode`
+ *    uses off the shared line), so the box is never drawn for a code that cannot be sent.
+ * An unreadable line config reads as per_workspace (`loadSharedLineConfig` fails closed), so it can only narrow this.
+ * Codes keep every existing limit (per-IP, endpoint-wide, per-number, 10-wrong-code lockout, +1 only), and an unreadable
+ * account still cannot sign in by code (`phoneCodeSignInDecision`).
+ */
+export async function phoneSignInEnabled(db = createSupabaseServiceRoleClient()): Promise<boolean> {
+  if (phoneSignInKillSwitch()) return false;
+  try {
+    if ((await loadSharedLineConfig(db)).mode === "shared") return true;
+  } catch {
+    // Unreadable config: fall through to the platform-sender check, which is the same answer per_workspace gives.
+  }
+  return Boolean(normalizeE164(process.env.TWILIO_DEFAULT_FROM));
 }
 
 export async function readPhoneIdentity(db: SupabaseClient, userId: string) {
@@ -63,7 +95,7 @@ export async function readPhoneIdentity(db: SupabaseClient, userId: string) {
 
 /**
  * Phone verification (codes for a SIGNED-IN account) is available on the shared line AND whenever `phone_required` is
- * on. Phone SIGN-IN (a code to someone with no session) stays shared-line only (`phoneAuthEnabled`).
+ * on. Phone SIGN-IN (a code to someone with no session) is `phoneSignInEnabled`, independent of the line mode.
  */
 export async function phoneVerificationEnabled(db = createSupabaseServiceRoleClient()): Promise<boolean> {
   return (await phoneAuthEnabled(db)) || (await loadPhoneRequired(db));
@@ -114,10 +146,13 @@ export async function startPhoneChallenge(input: {
   // Only the signed-out sign-in door names a failure (see `phone-auth-errors.ts`); every other purpose keeps the one
   // deliberately generic message.
   const refuse = (kind: PhoneAuthErrorKind) => (purpose === "sign_in" ? new PhoneAuthError(kind, PHONE_AUTH_ERROR) : new Error(PHONE_AUTH_ERROR));
-  // Sign-in by phone is shared-line only; verifying or changing a SIGNED-IN account's phone also works when phone_required is on.
-  // The Settings "Verify" flow (own phone, signed in) is the one door that does not wait for either switch.
-  if (!ownPhone && (purpose === "sign_in" || !(await phoneVerificationEnabled(db)))) {
-    if (!(await phoneAuthEnabled(db))) throw refuse("off");
+  // Sign-in by phone works in every line mode (`phoneSignInEnabled`); verifying or changing a SIGNED-IN account's phone
+  // follows the shared-line gate or phone_required. The Settings "Verify" flow (own phone, signed in) is the one door
+  // that does not wait for either switch.
+  if (purpose === "sign_in") {
+    if (!(await phoneSignInEnabled(db))) throw refuse("off");
+  } else if (!ownPhone && !(await phoneVerificationEnabled(db))) {
+    throw refuse("off");
   }
   if (purpose !== "sign_in" && !userId) throw new Error(PHONE_AUTH_ERROR);
   const current = userId ? await readPhoneIdentity(db, userId) : null;
@@ -320,8 +355,9 @@ export async function verifyPhoneChallenge(input: {
     // Signed in, and the challenge is that same user's own: never a sign-in code, never another user's.
     if (!userId || actor !== userId) throw new Error(PHONE_AUTH_ERROR);
     await assertOwnPhoneChallenge(db, challengeId, userId);
-  } else if (!(await phoneAuthEnabled(db)) && !(actor && (await loadPhoneRequired(db)))) {
-    // A code for someone with no session (sign-in) is shared-line only; a signed-in account's code also works under phone_required.
+  } else if (!actor ? !(await phoneSignInEnabled(db)) : !(await phoneVerificationEnabled(db))) {
+    // A code for someone with no session (sign-in) needs phone sign-in on (any line mode); a signed-in account's code
+    // follows the shared-line gate or phone_required.
     throw named("off");
   }
   const { data, error } = await db.rpc("phone_auth_consume", {

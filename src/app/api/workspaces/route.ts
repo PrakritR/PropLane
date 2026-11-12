@@ -3,12 +3,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { managedReadOnlyWorkspaceIds } from "@/lib/auth/managed-read-only.server";
 import { MANAGED_READ_ONLY_BODY } from "@/lib/auth/managed-read-only-policy";
 import { cookies } from "next/headers";
+import { createPhaseTimer, type PhaseTimer } from "@/lib/server-timing";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
-import { loadWorkspacePlan, loadWorkspaces } from "@/lib/workspaces/server";
+import { loadWorkspacePlan, loadWorkspaces, readWorkspacePlanInputs } from "@/lib/workspaces/server";
 import { workspacesForPortalPayload } from "@/lib/service/service-mode";
 import { loadServiceStaffIds } from "@/lib/service/service-mode.server";
 import { actorWorkspaceStanding, previewHouseMove } from "@/lib/workspaces/membership.server";
@@ -28,12 +29,13 @@ type WorkspaceActor =
   | { kind: "denied" }
   | null;
 
-async function actor(): Promise<WorkspaceActor> {
+async function actor(timer?: PhaseTimer): Promise<WorkspaceActor> {
+  const run = <T,>(name: string, work: () => Promise<T>) => (timer ? timer.timed(name, work) : work());
   const session = await createSupabaseServerClient();
-  const { data: { user } } = await session.auth.getUser();
+  const { data: { user } } = await run("auth", () => session.auth.getUser());
   if (!user) return null;
   const db = createSupabaseServiceRoleClient();
-  if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+  if ((await run("access", () => resolveAuthenticatedBusinessAccess(user.id, db))).kind === "denied") {
     return { kind: "denied" };
   }
   return { kind: "authorized", user, db };
@@ -56,19 +58,25 @@ async function managedReadOnlyWorkspaceIdsOrAll(db: SupabaseClient, userId: stri
 }
 
 export async function GET() {
+  const timer = createPhaseTimer();
   try {
-    const ctx = await actor();
+    const ctx = await actor(timer);
     const failure = actorFailureResponse(ctx);
     if (failure) return failure;
     if (!ctx || ctx.kind !== "authorized") return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    const workspaces = await loadWorkspaces(ctx.db, ctx.user.id);
-    const plan = await loadWorkspacePlan(ctx.db, ctx.user.id, workspaces);
+    // The access check in `actor()` has already passed. The workspace list and the plan's own reads depend only on
+    // the viewer, so they run together; either failing still fails the whole request (503), never a partial list.
+    const [workspaces, planReads] = await Promise.all([
+      timer.timed("workspaces", () => loadWorkspaces(ctx.db, ctx.user.id)),
+      timer.timed("plan", () => readWorkspacePlanInputs(ctx.db, ctx.user.id)),
+    ]);
+    const plan = await loadWorkspacePlan(ctx.db, ctx.user.id, workspaces, planReads);
     const selected = (await cookies()).get(WORKSPACE_COOKIE)?.value;
     // A PropLane Service workspace the viewer is staff of lives on the service rail, not in the Property portal's
     // list: left out here unless the portal is in service mode (then it is the active workspace). The list the
     // scope readers use (`loadWorkspaces`) is untouched. An ordinary manager has no staff seat: nothing changes.
     const staff = workspaces.some((w) => w.isService === true)
-      ? await loadServiceStaffIds(ctx.db, ctx.user.id)
+      ? await timer.timed("staff", () => loadServiceStaffIds(ctx.db, ctx.user.id))
       : { ids: new Set<string>(), failed: false };
     // A staff read that failed fails CLOSED: a service workspace the viewer does not own is left out
     // rather than drawn in the Property portal (`loadServiceStaffIds` logged the failure).
@@ -77,7 +85,7 @@ export async function GET() {
       workspaces: shown.workspaces,
       activeWorkspaceId: shown.activeWorkspaceId,
       plan,
-    }, { headers: { "Cache-Control": "private, no-store" } });
+    }, { headers: { "Cache-Control": "private, no-store", "Server-Timing": timer.header() } });
   } catch {
     return NextResponse.json({ error: "Could not load workspaces. Please retry." }, { status: 503 });
   }

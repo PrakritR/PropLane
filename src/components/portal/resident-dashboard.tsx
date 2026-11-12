@@ -1,5 +1,6 @@
 "use client";
 
+import { ResidentAskCard } from "@/components/portal/resident-ask-card";
 import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
@@ -800,6 +801,7 @@ export function ResidentDashboard({
         ) : (
         <>
         <ResidentJourneyBanner steps={journeySteps} action={journeyAction} />
+        <ResidentAskCard />
         {leaseSigned && showHouseDetails ? (
           <Link
             href={houseDetailsHref}

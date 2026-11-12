@@ -127,6 +127,7 @@ function inboxThreadBubbles(threads: PersistedInboxThread[]): InboxBubbleMessage
           message.delivery ??
           (direction === "outbound" ? ("sent" as const) : undefined),
         channel,
+        deliveries: message.deliveries,
         ...(fields.subject ? { subject: fields.subject } : {}),
         attachments: message.attachments,
       });

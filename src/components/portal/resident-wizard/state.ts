@@ -11,6 +11,9 @@
  * Nothing here touches the DOM or the network; the wizard component owns that.
  */
 
+import { PHONE_REQUIRED_MESSAGE, REACH_CHANNELS, normalizeReachBy, type ReachChannel } from "@/lib/recipient-channels";
+
+export { PHONE_REQUIRED_MESSAGE };
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import type { RentalCustomFieldAnswer, RentalWizardFormState } from "@/lib/rental-application/types";
 import { resolveManualResidentAssignment } from "@/lib/rental-application/placement-values";
@@ -143,6 +146,10 @@ export type AddPersonForm = {
   email: string;
   phone: string;
   preferredContact: "email" | "sms";
+  /** How they can be reached; the app is always on. Defaults to every channel. */
+  reachBy: ReachChannel[];
+  /** The manager says this person has no phone, so a blank Phone is a choice, not an omission. */
+  noPhone: boolean;
   // Home
   propertyId: string;
   roomId: string;
@@ -217,6 +224,8 @@ export function emptyAddPersonForm(kind: AddPersonKind = "resident"): AddPersonF
     email: "",
     phone: "",
     preferredContact: "email",
+    reachBy: [...REACH_CHANNELS],
+    noPhone: false,
     propertyId: "",
     roomId: "",
     bundleId: "",
@@ -328,6 +337,32 @@ export function customAnswersForRow(
   return out;
 }
 
+/** The phone is either given or explicitly "No phone": a blank is never left by accident. */
+export function phoneIsAnswered(form: Pick<AddPersonForm, "phone" | "noPhone">): boolean {
+  return Boolean(form.phone.trim()) || form.noPhone;
+}
+
+/**
+ * What the form writes onto `manualResidentDetails`: `reachBy` only when the manager narrowed it (every
+ * channel = "never chose", which narrows nothing), and `noPhone` only while the phone is actually blank.
+ */
+export function reachByDetails(form: Pick<AddPersonForm, "reachBy" | "noPhone" | "phone">): { reachBy?: ReachChannel[]; noPhone?: true } {
+  const hasPhone = Boolean(form.phone.trim());
+  const picked = normalizeReachBy(form.reachBy) ?? [...REACH_CHANNELS];
+  // No phone yet: Text cannot be chosen, so it is not read as "turned off" (adding a number later starts at every channel).
+  const effective = hasPhone ? picked : REACH_CHANNELS.filter((channel) => channel === "sms" || picked.includes(channel));
+  const narrowed = REACH_CHANNELS.some((channel) => !effective.includes(channel));
+  return {
+    ...(narrowed ? { reachBy: effective } : {}),
+    ...(form.noPhone && !hasPhone ? { noPhone: true as const } : {}),
+  };
+}
+
+/** The form's Reach by + No phone from a stored resident row (the edit pop-up hydrates with this). */
+export function reachByFormFields(details: { reachBy?: unknown; noPhone?: unknown } | null | undefined): Pick<AddPersonForm, "reachBy" | "noPhone"> {
+  return { reachBy: normalizeReachBy(details?.reachBy) ?? [...REACH_CHANNELS], noPhone: details?.noPhone === true };
+}
+
 /**
  * Build the application row for a current resident.
  *
@@ -341,6 +376,7 @@ export function buildManualResidentRow(
 ): BuildRowResult {
   if (!form.name.trim()) return { ok: false, error: "Enter the resident's name." };
   if (!form.email.trim()) return { ok: false, error: "Enter the resident's email." };
+  if (!phoneIsAnswered(form)) return { ok: false, error: PHONE_REQUIRED_MESSAGE };
   const rent = moneyOrNull(form.rent);
   const leaseFields = residentLeaseTermToApplicationFields(form.leaseTerm, form.leaseTermCustomMode, form.propertyId);
   const shortTerm = leaseFields.rentalType === "short_term";
@@ -427,6 +463,7 @@ export function buildManualResidentRow(
       notes: form.notes.trim() || undefined,
       ...(form.vehicles > 0 ? { vehicles: form.vehicles } : {}),
       ...(form.preferredContact === "sms" ? { preferredContact: "sms" as const } : {}),
+      ...reachByDetails(form),
       // ONLY an already-signed filing writes these — a draft parked here would
       // execute itself (see resolveResidentOnboardingStage).
       ...(onboarding.externallySignedLease
@@ -468,6 +505,7 @@ export function buildProspectRow(form: AddPersonForm, ctx: BuildRowContext): Bui
       roomNumber: placement.placementLabel?.trim() || undefined,
       notes: form.prospectNotes.trim() || undefined,
       ...(form.preferredContact === "sms" ? { preferredContact: "sms" as const } : {}),
+      ...reachByDetails(form),
       prospect: {
         ...(form.wantedMoveIn ? { wantedMoveIn: form.wantedMoveIn } : {}),
         ...(form.budget.trim() ? { budget: form.budget.trim() } : {}),
@@ -521,6 +559,7 @@ export function buildApplicationDraftRow(
       notes: form.notes.trim() || undefined,
       ...(form.vehicles > 0 ? { vehicles: form.vehicles } : {}),
       ...(form.preferredContact === "sms" ? { preferredContact: "sms" as const } : {}),
+      ...reachByDetails(form),
     },
     application: {
       propertyId: form.propertyId,
@@ -544,7 +583,7 @@ export function buildApplicationDraftRow(
 
 export type ThingToFinish = { step: string; label: string };
 
-export function thingsToFinish(form: AddPersonForm, mode: "person" | "tour" | "application" = "person"): ThingToFinish[] {
+export function thingsToFinish(form: AddPersonForm, mode: "person" | "tour" | "application" = "person", opts?: { editing?: boolean }): ThingToFinish[] {
   const out: ThingToFinish[] = [];
   if (mode === "application") {
     if (!form.name.trim()) out.push({ step: "contact", label: "Applicant's name" });
@@ -559,6 +598,7 @@ export function thingsToFinish(form: AddPersonForm, mode: "person" | "tour" | "a
     return out;
   }
   if (!form.email.trim()) out.push({ step: "contact", label: "Resident's email" });
+  if (!opts?.editing && !phoneIsAnswered(form)) out.push({ step: "contact", label: "A phone, or No phone" });
   if (!form.propertyId.trim()) out.push({ step: "home", label: "Property" });
   if (alsoCreates(form, "lease")) {
     const leaseFields = residentLeaseTermToApplicationFields(form.leaseTerm, form.leaseTermCustomMode, form.propertyId);

@@ -133,6 +133,16 @@ and the vendor record header open this modal on that vendor by text (a staged
 `vendorRecordId` prefill). Hidden with the rest of the SMS compose when
 `SMS_COMM_UI_ENABLED` is off.
 
+## Message a whole house
+
+A house recipient in New message ("⌂ <address> · everyone living there (N)") is ONE copy per person, never a
+group text: the sheet reads the people from `GET /api/portal/house-recipients` (the occupancy snapshot, the house
+re-checked against the workspace and the viewer's Communication grant, channel short-stay guests left out unless
+"Include short-stay guests") and sends each person through the existing `/api/portal/send-inbox-message`, three at
+a time, so every copy lands in that person's own conversation under the same authorization and a reply stays
+one-to-one. The tally (Text / Email / App "n of N", one amber line for who lacks a phone or real email) and the
+summary sheet come from `house-message-recipients.ts`; the in-app House chat is unchanged and stays in-app only.
+
 ## Tests
 
 A new send surface fails if it does not import the shared compose fields, or

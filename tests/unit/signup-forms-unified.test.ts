@@ -88,7 +88,7 @@ describe("the vendor register route accepts what its form now collects", () => {
     expect(
       readFileSync(join(process.cwd(), "src/app/auth/create-account/create-account-role-gateway.tsx"), "utf8"),
     ).toContain(
-      "<PortalAuthForm />",
+      "<PortalAuthForm phoneSignup={phoneSignup} />",
     );
   });
 });

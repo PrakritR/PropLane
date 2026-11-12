@@ -34,8 +34,8 @@ describe("one row per house", () => {
 
   it("offers each house once, with its headcount", () => {
     expect(houseBroadcastOptions(people)).toEqual([
-      { key: "house:p2", label: "Everyone at Ballard House (3)" },
-      { key: "house:p1", label: "Everyone at Brooklyn House (2)" },
+      { key: "house:p2", label: "\u2302 Ballard House \u00b7 everyone living there (3)" },
+      { key: "house:p1", label: "\u2302 Brooklyn House \u00b7 everyone living there (2)" },
     ]);
   });
 

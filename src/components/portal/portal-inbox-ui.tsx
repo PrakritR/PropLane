@@ -6,6 +6,14 @@ import { InboxEventCard } from "@/components/portal/inbox-event-card";
 import type { InboxEventCard as InboxEventCardData, InboxEventKind, InboxEventViewer } from "@/lib/inbox-event-card";
 import type { RecordRef } from "@/lib/portals/record-kinds";
 import { formatInboxListNarrowTime, formatInboxStamp, isCanonicalInboxStamp } from "@/lib/portal-inbox-storage";
+import {
+  deliveryStateLabel,
+  failedDeliveries,
+  NOT_A_REAL_MAILBOX,
+  overallDeliveryState,
+  type InboxDeliveryChannel,
+  type InboxMessageDelivery,
+} from "@/lib/inbox-delivery-status";
 
 import {
   Children,
@@ -36,7 +44,7 @@ import {
   type InboxBubbleClusterPosition,
 } from "@/lib/inbox-message-timeline";
 import { inboxDisplayName } from "@/lib/inbox-display-name";
-import { ChevronDown, ChevronLeft, ChevronRight, Check, CheckCheck, Clock, FileText, Info, Mail, Maximize2, MessageSquare, Minimize2, Paperclip, Pencil, Phone, Plus, Search, Send, House, X, Activity, MessageCircle } from "lucide-react";
+import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, Check, CheckCheck, Clock, FileText, Info, Mail, Maximize2, MessageSquare, Minimize2, Paperclip, Pencil, Phone, Plus, Search, Send, House, X, Activity, MessageCircle } from "lucide-react";
 import { pickInboxColumns, type InboxColumns } from "@/lib/inbox-columns";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalEmptyIcon, PortalEmptyState } from "@/components/portal/portal-empty-state";
@@ -632,6 +640,8 @@ export type InboxBubbleMessage = {
   status?: string;
   /** Optimistic send lifecycle for outbound bubbles. */
   delivery?: "sending" | "sent" | "failed";
+  /** Provider-confirmed status per channel (`InboxThreadMessage.deliveries`). Absent = the plain Sent tick as before. */
+  deliveries?: InboxMessageDelivery[];
   /** True when a later inbound turn or provider observation confirms read. */
   readByRecipient?: boolean;
   /** Channel this message travelled on. Omitted = unknown: no tag, never a guessed "Email". */
@@ -1060,6 +1070,7 @@ export function InboxConversationRow({
   preview,
   time,
   unread = false,
+  notDelivered = false,
   unreadCount,
   address,
   category,
@@ -1092,6 +1103,8 @@ export function InboxConversationRow({
   appearance?: "default" | "flat";
   /** Unread threads show an Instagram-style dot on the right. */
   unread?: boolean;
+  /** The latest outbound message did not arrive: a red "Not delivered" glyph fact before the preview (never a pill). */
+  notDelivered?: boolean;
   /**
    * Unread INBOUND turns, when the surface can derive one. Renders as a filled
    * count pill instead of the dot. Falsy (or 0) keeps the dot, which is the
@@ -1168,12 +1181,18 @@ export function InboxConversationRow({
                   ) : null}
                 </span>
               </div>
-              {preview.trim() ? (
+              {preview.trim() || notDelivered ? (
                 <p
                   className={`mt-0.5 min-w-0 truncate text-[13px] ${
                     isEmptyPreview ? "italic text-muted/70" : unread ? "text-foreground/80" : "text-muted"
                   }`}
                 >
+                  {notDelivered ? (
+                    <span className="mr-1.5 inline-flex items-center gap-0.5 font-medium text-rose-600" data-inbox-row-not-delivered>
+                      <AlertCircle className="size-3 shrink-0" strokeWidth={2.25} aria-hidden />
+                      Not delivered
+                    </span>
+                  ) : null}
                   {previewPrefix ?? ""}
                   {preview}
                 </p>
@@ -1476,15 +1495,71 @@ export function inboxMessageClock(at: string): string {
   return raw;
 }
 
-/** "via" line under a message: a phone or mail glyph and the channel's word. */
-function InboxViaLine({ channel }: { channel: InboxChannel }) {
+/**
+ * "via" line under a message: a phone or mail glyph and the channel's word. With a delivery status it also
+ * says what became of it on that channel: Delivered in green, Not delivered / Failed in red.
+ */
+function InboxViaLine({
+  channel,
+  delivery,
+}: {
+  channel: InboxChannel;
+  delivery?: Pick<InboxMessageDelivery, "channel" | "status">;
+}) {
   const Glyph = channel === "email" || channel === "gmail" ? Mail : channel === "sms" || channel === "whatsapp" ? Phone : MessageSquare;
   const label = channel === "sms" ? "Text" : INBOX_CHANNEL_LABEL[channel];
+  const tone =
+    delivery?.status === "delivered" ? "text-emerald-600" : delivery?.status === "failed" ? "font-medium text-rose-600" : "";
   return (
-    <span className="inline-flex items-center gap-1" data-inbox-via={channel}>
+    <span className={`inline-flex items-center gap-1 ${tone}`} data-inbox-via={channel} data-inbox-delivery-status={delivery?.status}>
       <Glyph className="size-3 shrink-0" strokeWidth={2} aria-hidden data-inbox-channel-glyph={channel} />
       <span>{label}</span>
+      {delivery ? <span>· {deliveryStateLabel(delivery)}</span> : null}
     </span>
+  );
+}
+
+/**
+ * What a failed-delivery strip can do. Provided by the surface that owns a composer (the manager inbox);
+ * without it the strip says what went wrong and offers nothing to click.
+ */
+export type InboxDeliveryActions = {
+  /** Put the message back in the composer on the channel it failed on. */
+  retry: (message: InboxBubbleMessage, channel: InboxDeliveryChannel) => void;
+  /** Put the message in the composer on the other channel. */
+  sendAnotherWay: (message: InboxBubbleMessage, channel: InboxDeliveryChannel) => void;
+  /** Whether this person can be reached on the channel right now. */
+  canSendVia: (channel: InboxDeliveryChannel) => boolean;
+};
+
+export const InboxDeliveryActionsContext = createContext<InboxDeliveryActions | null>(null);
+
+/** The compact red strip under a bubble that did not arrive: the plain reason, then what to do about it. */
+function InboxDeliveryFailureStrip({ message, failed }: { message: InboxBubbleMessage; failed: InboxMessageDelivery }) {
+  const actions = useContext(InboxDeliveryActionsContext);
+  const noun = failed.channel === "email" ? "Email" : "Text";
+  const other: InboxDeliveryChannel = failed.channel === "email" ? "sms" : "email";
+  const canRetry = Boolean(actions?.canSendVia(failed.channel)) && failed.error !== NOT_A_REAL_MAILBOX;
+  const canSwitch = Boolean(actions?.canSendVia(other));
+  const linkClass = "font-semibold text-rose-700 underline-offset-2 hover:underline";
+  return (
+    <div
+      className="mt-1 flex max-w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-rose-50 px-2.5 py-1.5 text-xs text-rose-700"
+      role="status"
+      data-inbox-delivery-failure={failed.channel}
+    >
+      <span className="min-w-0 break-words">{noun} not delivered{failed.error ? `: ${failed.error}` : ""}.</span>
+      {actions && canRetry ? (
+        <button type="button" className={linkClass} onClick={() => actions.retry(message, failed.channel)} data-inbox-delivery-retry>
+          Retry
+        </button>
+      ) : null}
+      {actions && canSwitch ? (
+        <button type="button" className={linkClass} onClick={() => actions.sendAnotherWay(message, other)} data-inbox-delivery-switch>
+          {other === "sms" ? "Send by text" : "Send by email"}
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -1565,11 +1640,20 @@ export function InboxBubble({
     (message.delivery === "sent" || message.delivery === undefined) &&
     (message.readByRecipient === true || (message.status?.toLowerCase().includes("read") ?? false));
 
+  // Provider-confirmed status per channel replaces the plain tick: each channel says what became of it.
+  const deliveries = outbound && !sending && !failed ? message.deliveries : undefined;
+  const hasDeliveries = Boolean(deliveries?.length);
+  const failedDelivery = hasDeliveries && overallDeliveryState(deliveries) === "failed" ? failedDeliveries(deliveries)[0] : undefined;
   const statusText = failed ? "Couldn't send" : sending ? "Sending…" : message.status || "";
-  const showDeliveryTick = outbound && !sending && !failed && (message.delivery === "sent" || message.delivery === undefined);
+  const showDeliveryTick =
+    outbound && !sending && !failed && !hasDeliveries && (message.delivery === "sent" || message.delivery === undefined);
   const showViaLine =
     showMeta &&
-    ((showChannel && channel != null) || Boolean(statusText) || showDeliveryTick || Boolean(message.senderDisplayName && !signedInHeader));
+    (hasDeliveries ||
+      (showChannel && channel != null) ||
+      Boolean(statusText) ||
+      showDeliveryTick ||
+      Boolean(message.senderDisplayName && !signedInHeader));
 
   return (
     <div className="flex w-full min-w-0 gap-2.5" title={startsRun ? undefined : message.at}>
@@ -1638,7 +1722,17 @@ export function InboxBubble({
             {message.senderDisplayName && !signedInHeader ? (
               <span data-inbox-sender-display-name>{message.senderDisplayName}</span>
             ) : null}
-            {showChannel && channel ? <InboxViaLine channel={channel} /> : null}
+            {hasDeliveries ? <span data-inbox-delivery-time>{clock}</span> : null}
+            {hasDeliveries
+              ? deliveries!.map((delivery) => (
+                  <InboxViaLine key={`${delivery.channel}:${delivery.providerId ?? ""}`} channel={delivery.channel} delivery={delivery} />
+                ))
+              : showChannel && channel
+                ? <InboxViaLine channel={channel} />
+                : null}
+            {hasDeliveries && readReceipt && !failedDelivery ? (
+              <span className="text-emerald-600" data-inbox-read>Read</span>
+            ) : null}
             {statusText ? (
               <span className={sending ? "italic" : failed ? "font-medium text-rose-600" : ""}>{statusText}</span>
             ) : null}
@@ -1651,6 +1745,7 @@ export function InboxBubble({
             ) : null}
           </span>
         ) : null}
+        {failedDelivery ? <InboxDeliveryFailureStrip message={message} failed={failedDelivery} /> : null}
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import { smsNoticeIdentity } from "@/lib/sms-inbox-identity";
+import type { InboxMessageDelivery } from "@/lib/inbox-delivery-status";
 import { sharedGet, writeThroughFetch } from "@/lib/shared-get-cache";
 
 /** The list route, as `sharedGet` keys it (every scope starts with this). */
@@ -48,6 +49,12 @@ export type InboxThreadMessage = {
   outbound?: boolean;
   /** Optimistic send lifecycle — cleared after server sync. */
   delivery?: "sending" | "sent" | "failed";
+  /**
+   * Provider-confirmed status per channel the turn went out on (text via Twilio, email via Resend). Stamped by the
+   * send path and advanced by the Twilio status callback and the Resend webhook. Absent on every row written before
+   * this existed: such a turn renders as it always did.
+   */
+  deliveries?: InboxMessageDelivery[];
   /** Image attachments served via /api/portal/inbox-attachments. */
   attachments?: { url: string; name?: string }[];
   /**
@@ -150,6 +157,8 @@ export type PersistedInboxThread = {
   rootSubject?: string;
   /** Root-turn stamp of `InboxThreadMessage.automated` — the root lives in `body`. */
   rootAutomated?: boolean;
+  /** Root-turn stamp of `InboxThreadMessage.deliveries` — the root lives in `body`. */
+  rootDeliveries?: InboxMessageDelivery[];
   /** Who wrote the root message when that is not the row's title (a projected text the assistant sent). */
   rootFrom?: string;
   /** Root-turn stamps of `InboxThreadMessage.eventKind` / `eventCard` / its own `recordRef` / `senderDisplayName`. */
@@ -1223,6 +1232,7 @@ export function inboxThreadMessages(thread: PersistedInboxThread): InboxThreadMe
     ...(thread.rootChannel ? { channel: thread.rootChannel } : {}),
     ...(thread.rootSubject ? { subject: thread.rootSubject } : {}),
     ...(thread.rootAutomated ? { automated: true } : {}),
+    ...(thread.rootDeliveries?.length ? { deliveries: thread.rootDeliveries } : {}),
     ...turnEventFieldsFromRoot(thread as unknown as Record<string, unknown>),
     ...(thread.rootHouseId ? { houseId: thread.rootHouseId } : {}),
     ...(thread.rootHouseLabel ? { houseLabel: thread.rootHouseLabel } : {}),

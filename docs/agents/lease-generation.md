@@ -788,6 +788,23 @@ shape existing-resident onboarding seeds, so every reader already understands it
 pipeline and posts the signed-lease charges. Tests:
 `tests/unit/lease-mark-signed-route.test.ts`, `tests/unit/lease-mark-signed-predicate.test.ts`.
 
+**Mark as signed needs the signed PDF (captain, 2026-11-10).** Never a flag alone: the route refuses with no stored
+or supplied document, and for a lease already sent for e-signature (`sentToResidentAt`) the stored PDF is the unsigned
+copy that went out, so the signed one must arrive in the request (`signed-pdf-required`); the modal keeps Move to
+Signed off until it is attached.
+
+# Landlord on leases, and who a lease can be sent to (captain, 2026-11-10)
+
+- **Landlord order, one decision (`pickLandlordLegalName`)**: the workspace setting "Landlord on leases" (Settings,
+  Workspace, Leases; `manager_automation_settings.row_data.landlordProfile` of the workspace OWNER), else the workspace
+  OWNER's `profiles.full_name`, else the placeholder that `leaseLandlordNameBlocker` refuses. On a PropLane-managed
+  workspace the owner is the client, never the signed-in staff member: `GET /api/portal/manager-application-settings`
+  reads it as the owner and the client cache (`fetchAndCacheLandlordLegalName(workspaceId)`) follows the active
+  workspace.
+- **A lease is never sent to an import placeholder address** (`@import.proplane.local`): `leaseRecipientEmailBlocker`
+  is in `leaseSendGateBlockerAmong` (UI, assistant tool) AND the route's send transition (409,
+  `blocked: "placeholder-email"`). The Leases UI opens Edit resident at Email instead and rows show "no real email".
+
 # Uploaded leases: parsed into PropLane format, held until a human confirms (Aug 2026)
 
 A manager-uploaded lease (`managerUploadLeasePdf` → `LeasePipelineRow.managerUploadedPdf`)

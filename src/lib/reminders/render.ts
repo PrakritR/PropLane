@@ -187,6 +187,61 @@ function templateContextFromPayload(
   };
 }
 
+const APPLICATION_NUDGE_KINDS: ReadonlySet<ReminderSubjectKind> = new Set<ReminderSubjectKind>([
+  "application",
+  "application_documents",
+  "cosigner",
+  "group_application",
+]);
+
+function sentenceCase(text: string): string {
+  return text ? `${text[0]!.toUpperCase()}${text.slice(1)}` : text;
+}
+
+/**
+ * The copy for an "after" reminder. The application nudge says where the person left off; every other
+ * kind says "{Noun} follow-up" and states how long it has been, without "upcoming", "starts" or "ago".
+ */
+function renderFollowUp(input: {
+  kind: ReminderSubjectKind;
+  leadMinutes: number;
+  recipientRole: "manager" | "counterparty";
+  noun: string;
+  property: string;
+  counterparty: string;
+  manager: string;
+  url: string;
+  notes: string;
+  payload: ReminderPayload;
+}): { subject: string; opening: string; link: string; linkLabel: string } {
+  const { kind, recipientRole, noun, property, counterparty, url, payload } = input;
+  const elapsed = formatMinutes(Math.abs(input.leadMinutes));
+  const at = property ? ` at ${property}` : "";
+  if (recipientRole === "counterparty") {
+    if (APPLICATION_NUDGE_KINDS.has(kind)) {
+      const link = (payload.resumeUrl ?? "").trim() || url;
+      return {
+        subject: `Your application${property ? ` for ${property}` : ""} isn't finished yet`,
+        opening: `Your application${property ? ` for ${property}` : ""} isn't finished yet. Pick up where you left off${link ? ":" : "."}`,
+        link,
+        linkLabel: "Continue",
+      };
+    }
+    return {
+      subject: `${sentenceCase(noun)} follow-up${property ? `: ${property}` : ""}`,
+      opening: `${sentenceCase(noun)} follow-up: your ${noun}${at} is still open. It has been ${elapsed} since it was set up.`,
+      link: url,
+      linkLabel: "View it here",
+    };
+  }
+  return {
+    subject: `${sentenceCase(noun)} follow-up${property ? `: ${property}` : ""}`,
+    opening: `${sentenceCase(noun)} follow-up: ${counterparty ? `${counterparty}'s` : "a"} ${noun}${at} has been open for ${elapsed}.`,
+    link: url,
+    linkLabel: "View it here",
+  };
+}
+
 export function renderReminder(input: {
   kind: ReminderSubjectKind;
   leadMinutes: number;
@@ -228,6 +283,27 @@ export function renderReminder(input: {
   const notes = (payload.notes ?? "").trim();
 
   const verb = isDeadline(kind) ? "due" : "starts";
+
+  // A negative lead is a FOLLOW-UP ("after" timing: an application nobody finished, a lease nobody
+  // signed). It reads in the past/present, never as "your upcoming X - it starts N ago". "Starts" and
+  // "in N" are only ever said of a lead in the future.
+  if (leadMinutes < 0 && !isDeadline(kind)) {
+    const followUp = renderFollowUp({ kind, leadMinutes, recipientRole, noun, property, counterparty, manager, url, notes, payload });
+    return {
+      subject: followUp.subject,
+      body: lines([
+        greeting(payload.recipientName),
+        "",
+        followUp.opening,
+        "",
+        followUp.link ? `${followUp.linkLabel}: ${followUp.link}` : null,
+        followUp.link ? "" : null,
+        recipientRole === "counterparty" ? manager : null,
+        "PropLane",
+      ]),
+    };
+  }
+
 
   const subject =
     recipientRole === "counterparty"

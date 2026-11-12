@@ -20,6 +20,9 @@ export type SignupAnswers = {
   /** A claim only. Stored unverified; never a login (docs/agents/one-number.md § W26). */
   email?: string;
   source?: "explicit" | "implicit" | "vendor_lead";
+  /** A prospect who asked to tour (or apply) on the PropLane line: the live home the sign-up ends at. Server-written, never typed. */
+  tourPropertyId?: string;
+  tourListingRoomId?: string;
 };
 
 export type SignupSession = {

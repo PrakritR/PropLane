@@ -42,7 +42,9 @@ import {
   type TaskAutomationPreferences,
 } from "@/lib/task-automation-preferences";
 import {
-  loadManagerLandlordLegalNameFromProfile,
+  resolveWorkspaceLandlordLegalName,
+  saveManagerLandlordProfile,
+  validateLandlordLegalName,
 } from "@/lib/manager-landlord-profile";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { resolveWaiverCodeScope } from "@/lib/application-fee-waiver-scope.server";
@@ -119,8 +121,9 @@ export async function GET(req: Request) {
       listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE),
     ]);
     const taskAutomation = await loadTaskAutomation(ctx.db, ownerUserId);
-    const landlordLegalName = await loadManagerLandlordLegalNameFromProfile(ctx.db, ownerUserId);
-    const landlord = { landlordLegalName };
+    // Read as the workspace OWNER: the setting, then the owner's full name (on a managed workspace the
+    // owner is the client, never the staff member signed in).
+    const landlord = await resolveWorkspaceLandlordLegalName(ctx.db, ownerUserId);
     // Non-persisted suggestion the modal pre-fills so the manager confirms an
     // explicit value the first time (never a silent bulk change to what their
     // existing listings charge).
@@ -245,6 +248,17 @@ export async function PATCH(req: Request) {
       });
     }
 
+    // "Landlord on leases": one name per workspace, written to the owner's row. Validated like any
+    // legal-name write; clearing it falls back to the owner's full name.
+    let landlord: Awaited<ReturnType<typeof resolveWorkspaceLandlordLegalName>> | undefined;
+    if ("landlordLegalName" in body) {
+      if (propertyId) return NextResponse.json({ error: "The landlord is set once for the workspace." }, { status: 400 });
+      const checked = validateLandlordLegalName(body.landlordLegalName);
+      if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
+      await saveManagerLandlordProfile(ctx.db, ownerUserId, { landlordLegalName: checked.landlordLegalName });
+      landlord = await resolveWorkspaceLandlordLegalName(ctx.db, ownerUserId);
+    }
+
     let taskAutomation: TaskAutomationPreferences | undefined;
     if ("taskAutomation" in body) {
       taskAutomation = await saveTaskAutomation(ctx.db, ownerUserId, body.taskAutomation);
@@ -283,6 +297,7 @@ export async function PATCH(req: Request) {
       ...(leasingPipeline ? { leasingPipeline } : {}),
       ...(automationSource ? { source: automationSource, scope: propertyId ? "property" : "workspace", inherited: false } : {}),
       ...(overriddenPropertyIds ? { overriddenPropertyIds } : {}),
+      ...(landlord ? { landlord } : {}),
     };
 
     const feePatchRequested =

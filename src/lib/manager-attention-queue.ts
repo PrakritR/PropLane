@@ -30,6 +30,10 @@ export type ManagerAttentionInput = {
   draftPropertyCount: number;
   draftsHref: string;
   unreadConversationCount: number;
+  /** Conversations whose latest outbound message failed on every channel (`latestOutboundDeliveryFailed`). */
+  undeliveredConversationCount?: number;
+  /** Residents who used the in-app assistant to ask for the manager and have not been read (`countResidentHandoffs`). */
+  residentHandoffCount?: number;
 };
 
 export const MANAGER_ATTENTION_MAX_ROWS = 6;
@@ -47,8 +51,19 @@ export function buildManagerAttentionRows(input: ManagerAttentionInput): Manager
     draftPropertyCount,
     draftsHref,
     unreadConversationCount,
+    undeliveredConversationCount = 0,
+    residentHandoffCount = 0,
   } = input;
   const rows: ManagerAttentionRow[] = [];
+  if (undeliveredConversationCount > 0) {
+    rows.push({
+      id: "undelivered",
+      title: `${undeliveredConversationCount} ${undeliveredConversationCount === 1 ? "message" : "messages"} didn't deliver`,
+      actionLabel: "Review",
+      href: `${BASE}/communication/active?filter=not-delivered`,
+      tone: "danger",
+    });
+  }
   if (overdueChargeCount > 0) {
     rows.push({
       id: "overdue",
@@ -82,6 +97,15 @@ export function buildManagerAttentionRows(input: ManagerAttentionInput): Manager
       title: `${pendingTourCount} tour ${pendingTourCount === 1 ? "request" : "requests"} to confirm`,
       actionLabel: "Confirm",
       href: `${BASE}/tours/pending`,
+      tone: "pending",
+    });
+  }
+  if (residentHandoffCount > 0) {
+    rows.push({
+      id: "resident-handoff",
+      title: residentHandoffCount === 1 ? "Resident asked for you" : `${residentHandoffCount} residents asked for you`,
+      actionLabel: "Reply",
+      href: `${BASE}/communication/active`,
       tone: "pending",
     });
   }

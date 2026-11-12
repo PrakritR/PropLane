@@ -43,48 +43,61 @@ import { resolvePortalServiceShell, type PortalServiceShell } from "@/lib/servic
 import { serviceTopBarLabel } from "@/lib/service/service-mode";
 import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
 import { getViewAsBannerState } from "@/lib/auth/view-as-banner.server";
+import { createPhaseTimer } from "@/lib/server-timing";
 
 export default async function PropertyPortalLayout({ children }: { children: React.ReactNode }) {
+  // Phase durations are logged in development only (`logInDevelopment`); production output is unchanged.
+  const timer = createPhaseTimer();
   // A production admin (founder/ops) identity must not cross into the property
   // portal even by typing the URL — hiding the switch is not access control.
-  await assertPropertyPortalAccess();
+  await timer.timed("access", () => assertPropertyPortalAccess());
 
   // Every account with manager access gets the one manager shell (black top bar, workspace rail, sidebar,
   // assistant rail). There is no separate owner chrome: an owner of a PropLane-managed workspace sees their
   // workspace here, view-only (`workspace.readOnly`, see ManagedReadOnlyStrip).
   const [session, sidebarCollapsed, assistantDockCollapsed] = await Promise.all([
-    getServerSessionProfile(),
+    timer.timed("session", () => getServerSessionProfile()),
     getSidebarCollapsed(),
     getAssistantDockCollapsed(),
   ]);
 
-  // The nav definition and the test-workspace classification are independent of each other, so they resolve together.
-  // `session` is already resolved (and request-cached), so `user` is known.
+  // The nav definition, the test-workspace classification, the "View as" banner state and the service-mode shell
+  // are independent reads (each needs only the already-resolved `session`), so they resolve together.
+  // Fail-closed ordering is unchanged: `assertPropertyPortalAccess` above still gates all of them, and the
+  // test-workspace refusal below still discards the rest (nothing the others read is rendered or returned
+  // when it refuses).
   const { profile, user } = session;
-  const [navBase, testWorkspace] = await Promise.all([
-    buildProPortalDefinition(),
-    user ? resolveTestWorkspaceClassification(user.id) : Promise.resolve({ kind: "normal" as const }),
-  ]);
-  if (testWorkspace.kind === "classified" && (testWorkspace.state !== "active" || !isTestWorkspaceFeatureEnabled())) {
-    return <TestAccountUnavailable state={testWorkspace.state} />;
-  }
-
-  // A "View as" support session: banner on top, assistant and its side panel off.
+  // A "View as" support session: banner on top, assistant and its side panel off. A cookie read plus the cached
+  // session, so it is ready before the shell read below needs it.
   const viewAs = await getViewAsBannerState();
-
   // Service mode: the active workspace is a PropLane Service workspace this account is staff of. The Property portal
   // is for managers who bought the software; PropLane's managed workspaces open in the admin-style shell instead
   // (same panels and routes, a different rail). Never during a View-as session, never for the client who owns one.
-  const isAdminViewer = hasAdminRole(await getPortalAccessContext());
-  const serviceShell: PortalServiceShell =
+  const serviceShellRead: Promise<PortalServiceShell> =
     user && !viewAs
-      ? await resolvePortalServiceShell(
-          createSupabaseServiceRoleClient(),
-          user.id,
-          (await cookies()).get(WORKSPACE_COOKIE)?.value,
-          isAdminViewer,
+      ? timer.timed("serviceShell", async () =>
+          resolvePortalServiceShell(
+            createSupabaseServiceRoleClient(),
+            user.id,
+            (await cookies()).get(WORKSPACE_COOKIE)?.value,
+            hasAdminRole(await getPortalAccessContext()),
+          ),
         )
-      : { mode: "property", staff: [] };
+      : Promise.resolve({ mode: "property", staff: [] });
+  // The shell read can reject only through a bug (`resolvePortalServiceShell` swallows its own read failures into
+  // the property shell); never leave it unhandled if the test-workspace refusal returns before it is awaited.
+  serviceShellRead.catch(() => undefined);
+  const [navBase, testWorkspace] = await Promise.all([
+    timer.timed("nav", () => buildProPortalDefinition()),
+    user ? timer.timed("testWorkspace", () => resolveTestWorkspaceClassification(user.id)) : Promise.resolve({ kind: "normal" as const }),
+  ]);
+  if (testWorkspace.kind === "classified" && (testWorkspace.state !== "active" || !isTestWorkspaceFeatureEnabled())) {
+    timer.logInDevelopment("portal/layout (test workspace unavailable)");
+    return <TestAccountUnavailable state={testWorkspace.state} />;
+  }
+  const isAdminViewer = hasAdminRole(await getPortalAccessContext());
+  const serviceShell = await serviceShellRead;
+  timer.logInDevelopment("portal/layout");
   const service = serviceShell.mode === "service" ? serviceShell : null;
   // Service mode is the service's own plan, not the viewer's: nav locks follow "paid", no upgrade banner, and the
   // sidebar badge names the service instead of the viewer's own tier.

@@ -1,5 +1,10 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// The crawl routes read the live occupancy (public snapshot, cached hourly); these tests read the stated figure.
+vi.mock("@/lib/marketing/track-record-live.server", () => ({
+  liveRoomOccupancy: async () => ({ roomsOccupied: 26, roomsTotal: 28 }),
+}));
 import { GET as getLlms } from "@/app/llms.txt/route";
 import { GET as getLlmsFull } from "@/app/llms-full.txt/route";
 import { BLOG_POSTS } from "@/lib/blog/posts";
@@ -9,7 +14,7 @@ const origin = llmsOrigin();
 
 describe("/llms.txt", () => {
   it("is cached text/plain with the llmstxt.org shape", async () => {
-    const res = getLlms();
+    const res = await getLlms();
     expect(res.headers.get("content-type")).toMatch(/^text\/plain/);
     expect(res.headers.get("cache-control")).toContain("max-age=3600");
     const body = await res.text();
@@ -20,7 +25,7 @@ describe("/llms.txt", () => {
   });
 
   it("links only absolute URLs under the canonical origin, including every post", async () => {
-    const body = await getLlms().text();
+    const body = await (await getLlms()).text();
     const urls = [...body.matchAll(/\]\(([^)]+)\)/g)].map((m) => m[1]!);
     expect(urls.length).toBeGreaterThan(10);
     for (const u of urls) expect(u.startsWith(`${origin}/`)).toBe(true);
@@ -29,7 +34,7 @@ describe("/llms.txt", () => {
   });
 
   it("states plan prices from the rate card", async () => {
-    const body = await getLlms().text();
+    const body = await (await getLlms()).text();
     expect(body).toMatch(/Free for 2 residents/);
     expect(body).toMatch(/Pro at \$\d+\/month/);
   });
@@ -37,7 +42,7 @@ describe("/llms.txt", () => {
 
 describe("/llms-full.txt", () => {
   it("carries every post as plain text with its source links", async () => {
-    const res = getLlmsFull();
+    const res = await getLlmsFull();
     expect(res.headers.get("content-type")).toMatch(/^text\/plain/);
     const body = await res.text();
     expect(body).not.toContain("undefined");

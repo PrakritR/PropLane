@@ -151,3 +151,21 @@ describe("loadWorkspacePlan add-on capacity", () => {
     expect(plan.teamLimit).toBeNull();
   });
 });
+
+describe("loadWorkspacePlan with its reads started beside the workspace list", () => {
+  it("builds the same plan from pre-read inputs as from its own reads", async () => {
+    const { readWorkspacePlanInputs } = await import("@/lib/workspaces/server");
+    const db = dbFor({ addonRows: [{ addon_id: "extra_workspace", quantity: 1 }] }) as never;
+    const reads = readWorkspacePlanInputs(db, OWNER);
+    const early = await loadWorkspacePlan(db, OWNER, workspaces, reads);
+    const own = await loadWorkspacePlan(db, OWNER, workspaces);
+    expect(early).toEqual(own);
+  });
+
+  it("a failed tier lookup rejects the plan read (fail closed), never a guessed tier", async () => {
+    const { readWorkspacePlanInputs } = await import("@/lib/workspaces/server");
+    mocks.getEffectiveManagerSkuTier.mockRejectedValue(new Error("tier lookup failed"));
+    await expect(readWorkspacePlanInputs(dbFor() as never, OWNER)).rejects.toThrow("tier lookup failed");
+    await expect(loadWorkspacePlan(dbFor() as never, OWNER, workspaces)).rejects.toThrow("tier lookup failed");
+  });
+});
