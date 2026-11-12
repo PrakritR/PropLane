@@ -1,9 +1,11 @@
 {
-  "sha256": "ca752fbed849d584e793581c8451c3940458ae4e4e5ac2de3ed535df140e0479",
+  "sha256": "bb25ad024165f0dba0c48e75dfa904f3ff0e1e1853d9dc2f52720a58c06d8c5f",
   "selection": "SQL migrations containing account_recovery_, resident_move_in_forms, CREATE/DROP/ALTER TABLE and admin_team_atomic_revoke; plus purge manifest and recovery policy",
   "missing_dev_catalog": [
     "applicant_preapply_checks",
     "application_adverse_actions",
+    "channel_finance_mail",
+    "channel_payout_records",
     "payment_reminder_occurrences",
     "phone_required_skips",
     "resident_ratings",
@@ -11,9 +13,9 @@
   ],
   "reviewed_change": {
     "date": "2026-11-12",
-    "reason": "Adds applicant_preapply_checks, application_adverse_actions (20261112140000) and resident_ratings (20261112160000): service-role-only tables (RLS on, no client grants) classified in the account purge manifest (phase 1; ratings detach the rater). Auth-owner rows are purged with the account, not recoverable-guarded; they are absent from the historical dev catalog snapshot, which is unchanged. Also adds the prospect spine (20261112200000: prospect_contexts, sms_reply_handles, sms_listing_flows; sms_phone_contacts.email detached on purge) and stay_message_sends (20261112200100): service-role-only, RLS on, no client grants, classified in ACCOUNT_PURGE_RETAINED.",
-    "selected_source_paths": 345,
-    "previous_sha256": "ab92d6074eb39330992f44ba9d142c48fd7596968d0cd13f62e302bed179868b",
+    "reason": "Managed-workspace ownership release: adds channel_payout_records and channel_finance_mail (20261112220000; Airbnb/Booking.com payout evidence and forwarded finance mail) and managed_workspace_ownership_moves (20261112230000; mover audit, single-apply marker, undo record). All service-role-only (RLS on, no client grants); the two channel tables are classified in the account purge manifest (phase 2, manager_user_id purged with the account) and absent from the historical dev catalog snapshot, which is unchanged; the move audit is in ACCOUNT_PURGE_RETAINED (ids only, deletion guarded by managed-account-deletion-guard.server.ts). Earlier 2026-11-12 additions (preapply checks, adverse actions, ratings, prospect spine, stay_message_sends) stand.",
+    "selected_source_paths": 347,
+    "previous_sha256": "ca752fbed849d584e793581c8451c3940458ae4e4e5ac2de3ed535df140e0479",
     "migration_sha256": "438938c21431149de015faae9ec1c9a488502cc0922a2da3fe21dc475ed7dc4b"
   }
 }

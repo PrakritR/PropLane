@@ -122,14 +122,14 @@ describe("create and open", () => {
 describe("attach", () => {
   const CLIENT_WS = "cccccccc-1111-4111-8111-cccccccccccc";
 
-  it("attaches a client's workspace without moving it, then Open works for the attaching admin", async () => {
+  it("attaches a client's workspace to the service owner (the client keeps the houses' manager id), then Open works for the attaching admin", async () => {
     db.tables.portal_workspaces.push({ id: CLIENT_WS, owner_user_id: MANAGER, name: "Ambika Homes", is_default: true, is_service: false });
     db.tables.manager_property_records.push({ id: "h1", manager_user_id: MANAGER, workspace_id: CLIENT_WS });
     db.tables.audit_log = [];
     const attached = await post({ action: "attach", workspaceId: CLIENT_WS, city: "Seattle", label: "Ambika", reason: "Client asked" });
     expect(attached.status).toBe(201);
-    expect(db.tables.portal_workspaces[0]).toMatchObject({ owner_user_id: MANAGER, is_service: true, name: "Ambika" });
-    expect(db.tables.manager_property_records).toEqual([{ id: "h1", manager_user_id: MANAGER, workspace_id: CLIENT_WS }]);
+    expect(db.tables.portal_workspaces[0]).toMatchObject({ owner_user_id: OWNER, is_service: true, name: "Ambika" });
+    expect(db.tables.manager_property_records).toEqual([{ id: "h1", manager_user_id: OWNER, workspace_id: CLIENT_WS }]);
     const opened = await post({ action: "open", id: CLIENT_WS });
     expect(opened.status).toBe(200);
     expect(opened.headers.get("set-cookie")).toContain(`proplane-workspace=${CLIENT_WS}`);

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- CommonJS preload for dev-only tsx scripts (node -r). */
 // Dev-script preload: `server-only` throws outside Next's react-server build, and running scripts under the
 // `react-server` condition breaks React. Resolve the marker packages to an empty module, exactly as vitest does.
 const Module = require("node:module");

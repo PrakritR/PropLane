@@ -147,7 +147,9 @@ describe("what a text can reach (registry guard)", () => {
 
   it("a delegated seat only gets the tools its grants scope, so a seat cannot edit what it was not granted", () => {
     const delegated = buildManagerSmsRegistry({ mode: "delegated", workNumberOwnerId: "o", actorUserId: "a", dataOwnerIds: ["o"], assignedPropertyIds: ["p1"] } as never);
-    expect(delegated.has("update_listing_details")).toBe(false);
+    // The three listing edits are present but gated per house on Properties at edit (tests/unit/delegated-listing-edit-scope.test.ts).
+    expect(delegated.has("update_listing_details")).toBe(true);
+    expect(delegated.has("update_lease_terms")).toBe(false);
     expect(delegated.has("create_listing_draft_by_text")).toBe(false);
   });
 });

@@ -155,12 +155,12 @@ describe("a client who still OWNS an attached service workspace and is its owner
     expect(grants).toHaveLength(1);
     expect(grants[0]).toMatchObject({ managerUserId: AMBIKA });
     expect(grants[0]!.houses.map((h) => h.propertyId).sort()).toEqual(["h1", "h2"]);
-    expect(grants[0]!.houses.every((h) => h.performance && h.statements && h.documents && !h.messages)).toBe(true);
+    expect(grants[0]!.houses.every((h) => h.performance && h.statements && h.documents && h.messages)).toBe(true);
   });
 
   it("is owner-only even with a plan row, because PropLane Service runs the workspace", async () => {
     const db = makeFakeDb(tablesFor() as never);
-    expect(await ownerAccessStateFor(db, AMBIKA)).toMatchObject({ hasOwnerAccess: true, ownerOnly: true, messagesOn: false });
+    expect(await ownerAccessStateFor(db, AMBIKA)).toMatchObject({ hasOwnerAccess: true, ownerOnly: true, messagesOn: true });
   });
 
   it("keeps the manager portal when she also runs houses outside the service, holds a team seat elsewhere, or is a platform admin", async () => {

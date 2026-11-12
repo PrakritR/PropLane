@@ -279,6 +279,9 @@ export const DELETE_ORDER = [
   "payout_destination_cache_refreshes",
   // Guest names typed for channel stays; cascades from the connection below (no ownership column of its own).
   "channel_stay_details",
+  // Channel income: the mail row references its payout record (set null), so it goes first.
+  "channel_finance_mail",
+  "channel_payout_records",
   "external_calendar_connections",
   "account_link_invites",
   // Before `manager_invite_links` below, which it references.

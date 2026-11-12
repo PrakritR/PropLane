@@ -61,6 +61,7 @@ const REVIEWED: Record<string, string> = {
   "lib/auth/team-seat-manager-role.server.ts": "asks whether any accepted seat still justifies the manager role; a property_owner seat never does",
   "lib/service/service-alert-targets.server.ts": "asks which accepted seats are STAFF and skips property_owner explicitly (staffSeatUserIds): an owner seat is never alerted as staff",
   "lib/service/service-workspaces.server.ts": "admin-only: the Service tab lists every live member, the owner of record included, on purpose",
+  "lib/auth/managed-account-deletion-guard.server.ts": "reads property_owner seats on purpose, only to REFUSE an account deletion that would orphan a managed workspace's owner of record; returns a blocker string, never a row, grants nothing",
   "app/api/admin/managed-workspaces/[workspaceId]/policies/route.ts": "admin-only: lists every accepted member so an owner of record can be picked",
 };
 
