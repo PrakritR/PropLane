@@ -5,6 +5,13 @@
 export const CHANNEL_CALENDAR_PROVIDERS = ["airbnb", "booking_com", "vrbo", "ical"] as const;
 export type ChannelCalendarProvider = (typeof CHANNEL_CALENDAR_PROVIDERS)[number];
 
+/**
+ * Houses one "Sync all" request may name. More than this is not one manager syncing their houses in
+ * one function invocation: the route refuses the request and the client sends sequential batches of
+ * this size, so a portfolio larger than the cap still syncs.
+ */
+export const MAX_SYNC_ALL_PROPERTY_IDS = 50;
+
 /** How much of a feed event's DESCRIPTION an imported range keeps. */
 export const CHANNEL_IMPORTED_DESCRIPTION_MAX = 500;
 export const CHANNEL_CALENDAR_IMPORTED_RANGE_PREFIX = "channel-import";

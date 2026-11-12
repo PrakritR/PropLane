@@ -39,7 +39,7 @@ import {
   recordSmsAttempt,
   type InboxMessageTarget,
 } from "@/lib/inbox-delivery-status.server";
-import { isPlaceholderMailbox, type InboxMessageDelivery } from "@/lib/inbox-delivery-status";
+import { deliveryBlocksResend, isPlaceholderMailbox, type InboxMessageDelivery } from "@/lib/inbox-delivery-status";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -1083,6 +1083,10 @@ export async function POST(req: Request) {
           for (const delivery of await readMessageDeliveries(db, sentTargets.get(recipientLower))) {
             const channel = delivery.channel === "sms" ? "sms" : delivery.channel === "email" ? "email" : null;
             if (!channel) continue;
+            // A FAILED attempt is not a delivery: pressing Send again is how a channel whose provider
+            // call failed gets its second chance. Only something the provider took suppresses this
+            // channel, so nobody is charged or texted twice.
+            if (!deliveryBlocksResend(delivery)) continue;
             alreadyDelivered[channel].add(recipientLower);
             priorDeliveries.push(delivery);
           }

@@ -1045,8 +1045,12 @@ export function reminderPersonRef(input: { userId?: string | null; email?: strin
   return `subject:${input.subjectId.trim()}`;
 }
 
-/** Key prefix of a row written with the person + anchor-date identity. */
-export const REMINDER_DEDUPE_KEY_VERSION = "v2|";
+/**
+ * Key prefix of a row written with the person + anchor-date identity. Bumped whenever the key FORMAT
+ * changes, so `supersedeStaleReminders` cancels every row queued under the older format instead of
+ * leaving it scheduled beside the new one (two reminders, same person, same anchor, both firing).
+ */
+export const REMINDER_DEDUPE_KEY_VERSION = "v3|";
 
 /**
  * Stable identity for one reminder.
@@ -1056,7 +1060,7 @@ export const REMINDER_DEDUPE_KEY_VERSION = "v2|";
  * Recipient is part of the key because the manager and the guest each get their
  * own copy of the same reminder.
  *
- * Given `anchorIso` (the queue always does), the key is the v2 identity: kind + who it is about (a person-keyed
+ * Given `anchorIso` (the queue always does), the key is the versioned identity: kind + who it is about (a person-keyed
  * kind is scoped to the workspace owner, `manager:<id>|<person>`) + the
  * anchor DATE (Pacific) + lead + recipient role. For a person-keyed kind the person replaces both the
  * subject row and the address, so two rows of the same person collapse to one reminder; a moved anchor

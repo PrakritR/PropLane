@@ -121,7 +121,8 @@ describe("follow-up copy for 'after' reminders", () => {
 });
 
 describe("reminder dedupe on the person", () => {
-  const base = { kind: "application" as const, leadMinutes: -1440, recipientRole: "counterparty", anchorIso: "2026-11-10T17:00:00.000Z" };
+  // Person dedupe is scoped to the workspace owner, so the manager id is part of every person key.
+  const base = { kind: "application" as const, leadMinutes: -1440, recipientRole: "counterparty", anchorIso: "2026-11-10T17:00:00.000Z", managerUserId: "mgr-1" };
 
   it("collapses two rows of the same person (same user, different address and row)", () => {
     const a = reminderDedupeKey({ ...base, subjectId: "app-1", recipient: "jane@x.com", recipientUserId: "u-1" });
@@ -134,6 +135,12 @@ describe("reminder dedupe on the person", () => {
     const b = reminderDedupeKey({ ...base, subjectId: "app-2", recipient: "jane@x.com" });
     expect(a).toBe(b);
     expect(reminderDedupeKey({ ...base, subjectId: "app-3", recipient: "bob@x.com" })).not.toBe(a);
+  });
+
+  it("never collapses two workspaces' copies for the same person", () => {
+    const a = reminderDedupeKey({ ...base, subjectId: "app-1", recipient: "jane@x.com", recipientUserId: "u-1" });
+    const b = reminderDedupeKey({ ...base, subjectId: "app-2", recipient: "jane@x.com", recipientUserId: "u-1", managerUserId: "mgr-2" });
+    expect(a).not.toBe(b);
   });
 
   it("falls back to the phone, then the subject, for a placeholder email", () => {
@@ -232,11 +239,15 @@ describe("loading Reach by from the resident record", () => {
 describe("a moved anchor re-queues", () => {
   it("cancels still-future rows on another anchor date or under the old key, and keeps the same date's rows", async () => {
     const { supersedeStaleReminders } = await import("@/lib/reminders/queue.server");
+    const { REMINDER_DEDUPE_KEY_VERSION } = await import("@/lib/reminders/rules");
     const now = new Date("2026-11-10T18:00:00.000Z");
     const rows = [
-      { id: "same-date", dedupe_key: "v2|lease|x", send_at: "2026-11-12T18:00:00.000Z", payload: { anchorIso: "2026-11-14T17:00:00.000Z" } },
-      { id: "moved", dedupe_key: "v2|lease|y", send_at: "2026-11-12T18:00:00.000Z", payload: { anchorIso: "2026-11-20T17:00:00.000Z" } },
+      { id: "same-date", dedupe_key: `${REMINDER_DEDUPE_KEY_VERSION}lease|x`, send_at: "2026-11-12T18:00:00.000Z", payload: { anchorIso: "2026-11-14T17:00:00.000Z" } },
+      { id: "moved", dedupe_key: `${REMINDER_DEDUPE_KEY_VERSION}lease|y`, send_at: "2026-11-12T18:00:00.000Z", payload: { anchorIso: "2026-11-20T17:00:00.000Z" } },
       { id: "legacy", dedupe_key: "lease:s-1:-1440:a@x.com", send_at: "2026-11-12T18:00:00.000Z", payload: {} },
+      // Queued under the PREVIOUS key format on the very same anchor date: superseded, or it fires
+      // beside the row the new format writes.
+      { id: "older-format", dedupe_key: "v2|lease|x", send_at: "2026-11-12T18:00:00.000Z", payload: { anchorIso: "2026-11-14T17:00:00.000Z" } },
       { id: "due-now", dedupe_key: "lease:s-1:-4320:a@x.com", send_at: "2026-11-10T17:00:00.000Z", payload: {} },
     ];
     let cancelled: string[] = [];
@@ -247,7 +258,7 @@ describe("a moved anchor re-queues", () => {
       }),
     };
     const count = await supersedeStaleReminders(db as never, "lease", "s-1", "2026-11-14T20:00:00.000Z", now);
-    expect(count).toBe(2);
-    expect(cancelled.sort()).toEqual(["legacy", "moved"]);
+    expect(count).toBe(3);
+    expect(cancelled.sort()).toEqual(["legacy", "moved", "older-format"]);
   });
 });

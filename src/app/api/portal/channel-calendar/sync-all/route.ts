@@ -1,15 +1,13 @@
 import { NextResponse } from "next/server";
 
 import { syncChannelCalendarConnectionIds } from "@/lib/channel-calendar/sync.server";
+import { MAX_SYNC_ALL_PROPERTY_IDS } from "@/lib/channel-calendar/types";
 import { managerCanWriteCalendarForProperties } from "@/lib/auth/manager-lease-scope";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
-
-/** More than this is not one manager syncing their houses; refuse rather than fan out the whole request. */
-const MAX_SYNC_ALL_PROPERTY_IDS = 50;
 
 export async function POST(req: Request) {
   // The platform kills this function `maxDuration` after the REQUEST started, not after the pool does, so the

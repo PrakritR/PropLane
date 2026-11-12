@@ -49,7 +49,8 @@ import {
   type SharedRoomLeaseDefault,
 } from "@/lib/leasing-pipeline-preferences";
 import { cacheLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-cache";
-import { cacheLandlordLegalName } from "@/lib/manager-landlord-profile";
+import { cacheLandlordLegalName, fetchAndCacheLandlordLegalName } from "@/lib/manager-landlord-profile";
+import { selectedWorkspaceId } from "@/lib/workspaces/selection";
 
 const ON_OFF_OPTIONS = [
   { value: "off", label: "Off" },
@@ -182,8 +183,12 @@ export function WorkspaceApplicationsLeasesSettings() {
         const data = await patchSettings({ landlordLegalName: next });
         setLandlordSaved(data.landlord?.setting ?? next);
         setLandlordName(data.landlord?.setting ?? next);
-        // The lease generator reads the name from a client cache; refresh it from the server's answer.
-        cacheLandlordLegalName(data.landlord?.landlordLegalName ?? next);
+        // The lease generator reads the name from a per-workspace client cache. The server's answer
+        // is this SCOPE's resolution, so it only caches when the scope being edited is the active
+        // workspace; editing another (or the account rung) re-reads the active one instead.
+        const active = selectedWorkspaceId() ?? "";
+        if ((workspaceId ?? "") === active) cacheLandlordLegalName(data.landlord?.landlordLegalName ?? next, active);
+        else void fetchAndCacheLandlordLegalName(active || null);
       } catch (e) {
         setLandlordName(landlordSaved);
         throw e;

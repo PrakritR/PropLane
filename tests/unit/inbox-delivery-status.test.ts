@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  deliveryBlocksResend,
   latestOutboundDeliveryFailed,
   mapResendEvent,
   mapTwilioStatus,
@@ -100,6 +101,25 @@ describe("status mapping", () => {
     expect(mergeDelivery(delivered, { channel: "sms", providerId: "SM1", status: "sent", at: "t3" })).toBe(delivered);
     expect(mergeDelivery(delivered, { channel: "sms", providerId: "SM1", status: "failed", error: "x", at: "t3" })).toBe(delivered);
     expect(mergeDelivery(delivered, { channel: "sms", providerId: "SM1", status: "delivered", at: "t4" })).toBe(delivered);
+  });
+
+  it("lets a retry replace a failure the provider never took, and never one it did", () => {
+    const unsent: InboxMessageDelivery = { channel: "email", status: "failed", error: "Email couldn't be sent", at: "t1" };
+    const retried = mergeDelivery([unsent], { channel: "email", providerId: "re_2", status: "sent", at: "t2" });
+    expect(retried[0]).toEqual({ channel: "email", providerId: "re_2", status: "sent", at: "t2" });
+    expect(retried).toHaveLength(1);
+
+    const bounced: InboxMessageDelivery = { channel: "email", providerId: "re_1", status: "failed", error: "Email bounced", at: "t1" };
+    expect(mergeDelivery([bounced], { channel: "email", providerId: "re_1", status: "sent", at: "t2" })[0]).toEqual(bounced);
+  });
+});
+
+describe("a retry of the same send", () => {
+  it("skips a channel the provider took and re-attempts one that failed", () => {
+    expect(deliveryBlocksResend({ status: "sent" })).toBe(true);
+    expect(deliveryBlocksResend({ status: "sending" })).toBe(true);
+    expect(deliveryBlocksResend({ status: "delivered" })).toBe(true);
+    expect(deliveryBlocksResend({ status: "failed" })).toBe(false);
   });
 });
 

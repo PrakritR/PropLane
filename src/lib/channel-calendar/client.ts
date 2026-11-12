@@ -1,6 +1,7 @@
 "use client";
 
 import { PORTAL_READ_TIMEOUT_MS, fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
+import { MAX_SYNC_ALL_PROPERTY_IDS } from "@/lib/channel-calendar/types";
 import type {
   ChannelCalendarConnectionPublic,
   ChannelCalendarProvider,
@@ -111,22 +112,43 @@ export async function deleteChannelCalendarConnection(connectionId: string): Pro
   if (!res.ok) throw new Error(data.error ?? "Could not remove connection.");
 }
 
-/**
- * `force` (the manager's own Sync all now) also brings back a removed reservation the channel still lists.
- */
-export async function syncAllChannelCalendarConnections(
+async function postSyncAll(
   propertyIds: string[],
-  options: { force?: boolean } = {},
+  force: boolean,
 ): Promise<{ synced: number; failed: number; skipped: number }> {
   const res = await fetch(`/api/portal/channel-calendar/sync-all`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ propertyIds, ...(options.force ? { force: true } : {}) }),
+    body: JSON.stringify({ propertyIds, ...(force ? { force: true } : {}) }),
   });
   const data = (await res.json()) as { synced?: number; failed?: number; skipped?: number; error?: string };
   if (!res.ok) throw new Error(data.error ?? "Sync failed.");
   return { synced: data.synced ?? 0, failed: data.failed ?? 0, skipped: data.skipped ?? 0 };
+}
+
+/**
+ * `force` (the manager's own Sync all now) also brings back a removed reservation the channel still lists.
+ *
+ * A portfolio larger than one request's house cap goes out as sequential batches whose counts are
+ * merged — one at a time, because each batch is itself a pool of feed fetches on the server.
+ */
+export async function syncAllChannelCalendarConnections(
+  propertyIds: string[],
+  options: { force?: boolean } = {},
+): Promise<{ synced: number; failed: number; skipped: number }> {
+  const ids = propertyIds.map((id) => String(id).trim()).filter(Boolean);
+  const force = options.force === true;
+  // No ids at all means "every connection I own", which the route answers in one request.
+  if (ids.length <= MAX_SYNC_ALL_PROPERTY_IDS) return postSyncAll(ids, force);
+  const total = { synced: 0, failed: 0, skipped: 0 };
+  for (let start = 0; start < ids.length; start += MAX_SYNC_ALL_PROPERTY_IDS) {
+    const batch = await postSyncAll(ids.slice(start, start + MAX_SYNC_ALL_PROPERTY_IDS), force);
+    total.synced += batch.synced;
+    total.failed += batch.failed;
+    total.skipped += batch.skipped;
+  }
+  return total;
 }
 
 export async function syncChannelCalendarConnection(

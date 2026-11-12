@@ -98,6 +98,10 @@ const RANK: Readonly<Record<InboxDeliveryState, number>> = { sending: 0, sent: 1
  * provider id is keyed on the channel alone. A callback may only advance: a terminal outcome
  * (delivered / failed) is never replaced by a different one, and a late "sent" never undoes "delivered".
  * Idempotent: the same observation twice yields an identical list.
+ *
+ * One exception: a `failed` entry with NO provider id is a send the provider never took, so a later
+ * attempt on that channel (a retry of the same send) replaces it with its own outcome. Anything the
+ * provider accepted keeps its terminal outcome, which is what makes out-of-order callbacks safe.
  */
 export function mergeDelivery(
   existing: readonly InboxMessageDelivery[] | undefined,
@@ -118,8 +122,12 @@ export function mergeDelivery(
   ) {
     return existing as InboxMessageDelivery[];
   }
-  if (RANK[next.status] < RANK[current.status]) return existing as InboxMessageDelivery[];
-  if (RANK[current.status] === 2 && current.status !== next.status) return existing as InboxMessageDelivery[];
+  const retryOverUnsentFailure =
+    current.status === "failed" && !current.providerId && next.status !== "failed";
+  if (!retryOverUnsentFailure) {
+    if (RANK[next.status] < RANK[current.status]) return existing as InboxMessageDelivery[];
+    if (RANK[current.status] === 2 && current.status !== next.status) return existing as InboxMessageDelivery[];
+  }
   const merged: InboxMessageDelivery = {
     ...current,
     ...next,
@@ -129,6 +137,16 @@ export function mergeDelivery(
   if (next.status !== "failed") delete merged.error;
   list[index] = merged;
   return list;
+}
+
+/**
+ * Does a recorded delivery mean a retry of the SAME send (one `sendId`, one `messageId`) must skip
+ * this channel? Only an attempt the provider took. A `failed` entry never reached the recipient, so
+ * the retry is its second chance — otherwise a channel that failed once could never be re-attempted,
+ * and the retry would just re-report the old failure.
+ */
+export function deliveryBlocksResend(delivery: Pick<InboxMessageDelivery, "status">): boolean {
+  return delivery.status !== "failed";
 }
 
 /** A placeholder import address is recorded as failed at send time; nothing is ever handed to Resend. */

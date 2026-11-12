@@ -70,8 +70,9 @@ async function updateMessageDeliveries(
 
 /**
  * What a message already recorded, per channel. Used by a retry of the SAME send (one `sendId`, so one
- * `messageId`): a channel that already reported an attempt must not be charged and delivered twice, while a
- * channel with nothing recorded — a first attempt that died before its provider call — still goes out.
+ * `messageId`): a channel the provider already took must not be charged and delivered twice, while a
+ * channel with nothing recorded — a first attempt that died before its provider call — still goes out,
+ * and so does one whose recorded attempt is `failed`. The caller decides which statuses suppress it.
  * A thread or message that is gone reads as nothing recorded.
  */
 export async function readMessageDeliveries(

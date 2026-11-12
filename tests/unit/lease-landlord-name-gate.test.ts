@@ -21,10 +21,13 @@ import {
   LEASE_LANDLORD_PLACEHOLDER,
   MAX_LANDLORD_LEGAL_NAME_LENGTH,
   cacheLandlordLegalName,
+  cachedLandlordLegalName,
   landlordLegalNameFromAccountFullName,
   normalizeManagerLandlordProfile,
   validateLandlordLegalName,
 } from "@/lib/manager-landlord-profile";
+import { setWorkspaceSelection } from "@/lib/workspaces/selection";
+import type { WorkspacePayload } from "@/lib/workspaces/types";
 
 const row = (over: Record<string, unknown> = {}) =>
   ({ id: "lease-1", residentEmail: "a@b.com", ...over }) as never;
@@ -76,6 +79,38 @@ describe("landlord-name send gate", () => {
   it("ignores a row with no generated document", () => {
     expect(leaseLandlordNameBlocker(row())).toBeNull();
     expect(leaseLandlordNameBlocker(row({ managerUploadedPdf: { dataUrl: "data:..." } }))).toBeNull();
+  });
+});
+
+describe("the cached landlord name belongs to ONE workspace", () => {
+  const payload = (activeWorkspaceId: string): WorkspacePayload =>
+    ({ workspaces: [], activeWorkspaceId }) as unknown as WorkspacePayload;
+
+  afterEach(() => {
+    setWorkspaceSelection(null);
+    cacheLandlordLegalName("");
+  });
+
+  it("reads back the active workspace's own name", () => {
+    setWorkspaceSelection(payload("ws-a"));
+    cacheLandlordLegalName("Alpha Holdings LLC");
+    expect(cachedLandlordLegalName()).toBe("Alpha Holdings LLC");
+  });
+
+  it("is a MISS from another workspace, so the gate refuses instead of printing the wrong party", () => {
+    setWorkspaceSelection(payload("ws-a"));
+    cacheLandlordLegalName("Alpha Holdings LLC");
+    setWorkspaceSelection(payload("ws-b"));
+    expect(cachedLandlordLegalName()).toBe("");
+    expect(leaseLandlordNameBlocker(row({ generatedHtml: partiesHtml("Alpha Holdings LLC") }))).toMatch(/Settings/i);
+  });
+
+  it("caches the workspace a name was READ for, not whichever is active", () => {
+    setWorkspaceSelection(payload("ws-a"));
+    cacheLandlordLegalName("Beta Homes LLC", "ws-b");
+    expect(cachedLandlordLegalName()).toBe("");
+    setWorkspaceSelection(payload("ws-b"));
+    expect(cachedLandlordLegalName()).toBe("Beta Homes LLC");
   });
 });
 

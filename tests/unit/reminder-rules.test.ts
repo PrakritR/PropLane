@@ -14,6 +14,7 @@ import {
   MAX_LEADS_PER_RULE,
   MAX_LEAD_MINUTES,
   MIN_LEAD_MINUTES,
+  REMINDER_DEDUPE_KEY_VERSION,
   REMINDER_SUBJECT_KINDS,
   applyQuietHours,
   clampLeadMinutes,
@@ -369,6 +370,10 @@ describe("reminderDedupeKey: person-deduped counterparty copies are scoped to th
     const a = reminderDedupeKey({ ...base, subjectId: "app-1", managerUserId: "mgr-a" });
     const b = reminderDedupeKey({ ...base, subjectId: "app-2", managerUserId: "mgr-a" });
     expect(a).toBe(b);
+  });
+
+  it("carries the current key-format version, so a row written under an older format is superseded", () => {
+    expect(reminderDedupeKey({ ...base, subjectId: "app-1", managerUserId: "mgr-a" }).startsWith(REMINDER_DEDUPE_KEY_VERSION)).toBe(true);
   });
 
   it("never collapses across workspaces when no manager is known", () => {

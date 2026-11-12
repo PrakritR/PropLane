@@ -50,3 +50,39 @@ describe("POST channel-calendar/sync-all", () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe("Sync all now from a portfolio larger than the cap", () => {
+  it("sends sequential batches of at most the cap and merges their counts", async () => {
+    const { syncAllChannelCalendarConnections } = await import("@/lib/channel-calendar/client");
+    const { MAX_SYNC_ALL_PROPERTY_IDS } = await import("@/lib/channel-calendar/types");
+    const batches: string[][] = [];
+    const fetchMock = vi.fn(async (_url: string, init?: { body?: string }) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { propertyIds: string[]; force?: boolean };
+      batches.push(body.propertyIds);
+      expect(body.force).toBe(true);
+      return { ok: true, json: async () => ({ synced: 2, failed: 1, skipped: 3 }) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const ids = Array.from({ length: MAX_SYNC_ALL_PROPERTY_IDS * 2 + 1 }, (_, i) => `p${i}`);
+      const total = await syncAllChannelCalendarConnections(ids, { force: true });
+      expect(batches.map((b) => b.length)).toEqual([MAX_SYNC_ALL_PROPERTY_IDS, MAX_SYNC_ALL_PROPERTY_IDS, 1]);
+      expect(batches.flat()).toEqual(ids);
+      expect(total).toEqual({ synced: 6, failed: 3, skipped: 9 });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("still asks once, with no ids, for every connection the manager owns", async () => {
+    const { syncAllChannelCalendarConnections } = await import("@/lib/channel-calendar/client");
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ synced: 1, failed: 0, skipped: 0 }) }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      expect(await syncAllChannelCalendarConnections([])).toEqual({ synced: 1, failed: 0, skipped: 0 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

@@ -14,6 +14,7 @@
  * refuses to send that document.
  */
 import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
+import { selectedWorkspaceId } from "@/lib/workspaces/selection";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** What the lease template prints when it has no landlord name to use. */
@@ -200,37 +201,63 @@ export async function ensureSandboxManagerLandlordProfile(
  * This is a CACHE of the server value, never the source of truth: a miss produces a lease that
  * still carries the placeholder, and `leaseLandlordNameBlocker` refuses to send that — so a stale
  * or empty cache costs a regenerate, never a wrong party on a signed document.
+ *
+ * The name belongs to ONE workspace, so the entry carries the workspace it was read for and a read
+ * from a different workspace is a MISS. Without that, switching workspace printed the previous
+ * workspace's landlord party until the refetch landed — and a wrong-but-present name is exactly what
+ * `leaseLandlordNameBlocker` cannot catch.
  */
 const LANDLORD_NAME_CACHE_KEY = "axis:landlord-legal-name";
-let memoryLandlordLegalName = "";
+let memoryLandlordLegalName: { scope: string; name: string } = { scope: "", name: "" };
 
-export function cacheLandlordLegalName(name: string): void {
+/** The workspace a cache entry belongs to. "" is "no workspace selected yet", which is its own scope. */
+function landlordCacheScope(workspaceId?: string | null): string {
+  return (workspaceId === undefined ? selectedWorkspaceId() : workspaceId)?.trim() ?? "";
+}
+
+/**
+ * Remember the name the server resolved for a workspace. `workspaceId` is the workspace it was read
+ * for; omit it only when that is the active one.
+ */
+export function cacheLandlordLegalName(name: string, workspaceId?: string | null): void {
   const clean = normalizeManagerLandlordProfile({ landlordLegalName: name }).landlordLegalName;
-  memoryLandlordLegalName = clean;
+  const scope = landlordCacheScope(workspaceId);
+  memoryLandlordLegalName = { scope, name: clean };
   if (typeof window === "undefined") return;
   try {
-    if (clean) window.localStorage.setItem(LANDLORD_NAME_CACHE_KEY, clean);
+    if (clean) window.localStorage.setItem(LANDLORD_NAME_CACHE_KEY, JSON.stringify({ workspaceId: scope, name: clean }));
     else window.localStorage.removeItem(LANDLORD_NAME_CACHE_KEY);
   } catch {
     /* a full or blocked localStorage just means the generator falls back */
   }
 }
 
+/** The cached name for the ACTIVE workspace, or "" when the cache holds another workspace's (or nothing). */
 export function cachedLandlordLegalName(): string {
+  const scope = landlordCacheScope();
   if (typeof window !== "undefined") {
     try {
-      const stored = window.localStorage.getItem(LANDLORD_NAME_CACHE_KEY)?.trim() ?? "";
-      if (stored) return stored;
+      const raw = window.localStorage.getItem(LANDLORD_NAME_CACHE_KEY)?.trim() ?? "";
+      if (raw) {
+        // A pre-scope entry was a bare name with no workspace on it: unusable, so it reads as a miss.
+        const parsed = raw.startsWith("{") ? (JSON.parse(raw) as { workspaceId?: unknown; name?: unknown }) : null;
+        const storedScope = typeof parsed?.workspaceId === "string" ? parsed.workspaceId.trim() : null;
+        const storedName = typeof parsed?.name === "string" ? parsed.name.trim() : "";
+        if (storedScope !== null && storedScope === scope && storedName) return storedName;
+        if (storedScope !== null) return "";
+      }
     } catch {
       /* fall through */
     }
   }
-  return memoryLandlordLegalName;
+  return memoryLandlordLegalName.scope === scope ? memoryLandlordLegalName.name : "";
 }
 
 /**
  * Load the workspace's landlord name from the server and refresh the generator cache. Read as the
- * workspace OWNER (setting, then the owner's full name), never the signed-in user's own name.
+ * workspace OWNER (setting, then the owner's full name), never the signed-in user's own name. The
+ * entry is scoped to the workspace it was read for, so a switch mid-flight never leaves the other
+ * workspace's name where the generator can print it.
  */
 export async function fetchAndCacheLandlordLegalName(workspaceId?: string | null): Promise<string> {
   if (typeof window === "undefined") return "";
@@ -242,7 +269,7 @@ export async function fetchAndCacheLandlordLegalName(workspaceId?: string | null
     if (!res.ok) return cachedLandlordLegalName();
     const data = (await res.json().catch(() => ({}))) as { landlord?: { landlordLegalName?: string | null } };
     const saved = normalizeManagerLandlordProfile({ landlordLegalName: data.landlord?.landlordLegalName }).landlordLegalName;
-    cacheLandlordLegalName(saved);
+    cacheLandlordLegalName(saved, workspaceId ?? null);
     return saved;
   } catch {
     return cachedLandlordLegalName();
