@@ -79,6 +79,7 @@ beforeEach(() => {
     isApplicationCollected: true,
   });
   submitIdentity.mockResolvedValue({ ok: true, status: "pending", fallbackToEmbedded: false });
+  stripe.accounts.retrieve.mockResolvedValue({ individual: { first_name: "Test", last_name: "Owner" } });
   payout.payoutOwnerUserId = "owner-1";
   payout.isCoManagerForPayout = false;
   callerId = "owner-1";

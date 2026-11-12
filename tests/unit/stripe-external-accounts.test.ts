@@ -87,8 +87,11 @@ function makeFakeDb() {
 
 function makeFakeStripe(overrides: Partial<Stripe> = {}): Stripe {
   return {
+    tokens: {
+      retrieve: vi.fn(async (t: string) => (t.startsWith("btok") ? { bank_account: { account_holder_name: "Test Owner" } } : { card: {} })),
+    },
     accounts: {
-      retrieve: vi.fn(),
+      retrieve: vi.fn(async () => ({ individual: { first_name: "Test", last_name: "Owner" } })),
       createExternalAccount: vi.fn(),
       updateExternalAccount: vi.fn(),
       deleteExternalAccount: vi.fn().mockResolvedValue({ deleted: true }),
@@ -164,6 +167,14 @@ describe("addPayoutDestination", () => {
     const result = await addPayoutDestination(stripe, "acct_1", { token: "btok_123" });
     expect(result).toMatchObject({ ok: true, destination: { kind: "bank", last4: "4321" } });
     expect(stripe.accounts.createExternalAccount).toHaveBeenCalledWith("acct_1", { external_account: "btok_123" });
+  });
+
+  it("refuses a bank in another person's name before attaching it", async () => {
+    const stripe = makeFakeStripe();
+    (stripe.tokens.retrieve as ReturnType<typeof vi.fn>).mockResolvedValue({ bank_account: { account_holder_name: "Someone Else" } });
+    const result = await addPayoutDestination(stripe, "acct_1", { token: "btok_other" });
+    expect(result).toMatchObject({ ok: false, status: 422 });
+    expect(stripe.accounts.createExternalAccount).not.toHaveBeenCalled();
   });
 
   it("adds a debit card", async () => {

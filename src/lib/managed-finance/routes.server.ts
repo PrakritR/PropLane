@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 import { getStripe } from "@/lib/stripe";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveRouteSessionUser } from "@/lib/auth/route-actor.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 import { LedgerError } from "@/lib/managed-finance/ledger.server";
@@ -24,11 +24,16 @@ export type ManagedOwnerContext = {
  * PropLane's own rate, never an agreement the owner is asked to accept.
  */
 export async function requireManagedOwner(): Promise<ManagedOwnerContext | NextResponse> {
-  const auth = await createSupabaseServerClient();
-  const { data: { user } } = await auth.auth.getUser();
-  if (!user?.id) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  // A failed READ of the session is a retryable 503, never a 401 that signs the owner out (route-actor.server.ts).
+  const session = await resolveRouteSessionUser({ route: "owner-finances" });
+  if (!session.ok) return NextResponse.json({ error: session.error }, { status: session.status });
+  const user = session.user;
   const db = createSupabaseServiceRoleClient();
-  if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  try {
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  } catch {
+    return NextResponse.json({ error: "PropLane could not check your sign-in. Try again." }, { status: 503 });
+  }
   let workspaces: OwnedManagedWorkspace[];
   try {
     workspaces = await listManagedWorkspacesForOwner(db, user.id);

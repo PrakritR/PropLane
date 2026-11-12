@@ -86,7 +86,7 @@ function BankRowMenu({ rowId, label, children }: { rowId: string; label: string;
  * receives the workspace's money; its default bank gets every automatic payout
  * and Withdraw to picks among the others.
  */
-export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPortalKind }) {
+function PortalPayoutsSettingsPageInner({ portal }: { portal: PortalPayoutsPortalKind }) {
   const { showToast } = useAppUi();
   const workspace = useWorkspaces()?.active;
   const scopeKey = `${portal}:${workspace?.id ?? "owner"}`;
@@ -489,4 +489,86 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
       />
     </div>
   );
+}
+
+type OwnerPayoutStatusBody = {
+  staff?: boolean;
+  workspaceId?: string;
+  workspaceName?: string;
+  state?: "no_owner" | "not_set_up" | "pending" | "active";
+  ownerName?: string | null;
+  bank?: { bankName: string | null; last4: string | null; status: string | null } | null;
+  error?: string;
+};
+
+const OWNER_STATE_LABEL: Record<string, string> = {
+  no_owner: "No owner of record",
+  not_set_up: "Not set up",
+  pending: "Pending",
+  active: "Active",
+};
+
+/**
+ * PropLane staff in a managed workspace see the OWNER's payout status (read from Stripe) and a Send setup link action;
+ * they never onboard or add a bank as the owner. Everyone else gets the ordinary page.
+ */
+export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPortalKind }) {
+  const { showToast } = useAppUi();
+  const workspaceId = useWorkspaces()?.active?.id ?? null;
+  const [status, setStatus] = useState<OwnerPayoutStatusBody | null | "loading">(portal === "manager" ? "loading" : null);
+  const [sending, setSending] = useState(false);
+  const load = useCallback(async () => {
+    if (portal !== "manager") return;
+    try {
+      const res = await fetch(`/api/portal/managed-payout-status${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`, { credentials: "include" });
+      const body = (await res.json().catch(() => ({}))) as OwnerPayoutStatusBody;
+      // A refusal never hides the ordinary page: the payout routes still refuse a staff write on their own.
+      setStatus(res.ok && body.staff ? body : res.ok ? null : body.error ? { staff: true, error: body.error } : null);
+    } catch {
+      setStatus(null);
+    }
+  }, [portal, workspaceId]);
+  useEffect(() => {
+    setStatus(portal === "manager" ? "loading" : null);
+    void load();
+  }, [load, portal]);
+  async function sendLink() {
+    if (!workspaceId) return;
+    setSending(true);
+    try {
+      const res = await fetch("/api/portal/managed-payout-status/send-link", {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workspaceId }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string; alreadySentToday?: boolean };
+      showToast(res.ok ? (body.alreadySentToday ? "Link already sent today." : "Setup link sent to the owner.") : (body.error ?? "Could not send the link."));
+    } catch {
+      showToast("Could not send the link.");
+    } finally {
+      setSending(false);
+    }
+  }
+  if (status === "loading") return <PortalRecordListSurface loading dataAttr="payouts-owner-status-loading" />;
+  if (status && status.staff) {
+    if (status.error && !status.state) {
+      return <PortalRecordListSurface loadError={status.error} onRetry={() => { setStatus("loading"); void load(); }} dataAttr="payouts-owner-status-error" />;
+    }
+    const bank = status.bank;
+    return (
+      <PortalSettingsSection
+        title="Owner payouts"
+        action={status.state && status.state !== "no_owner" && status.state !== "active" ? (
+          <Button type="button" onClick={() => sendLink()} disabled={sending} data-attr="owner-payout-send-link">Send setup link</Button>
+        ) : undefined}
+      >
+        <PortalSettingsGroup>
+          <PortalSettingsRow label="Owner">{status.ownerName ?? "None yet"}</PortalSettingsRow>
+          <PortalSettingsRow label="Payout status">{OWNER_STATE_LABEL[status.state ?? "not_set_up"]}</PortalSettingsRow>
+          <PortalSettingsRow label="Bank account">
+            {bank ? [bank.bankName, bank.last4 ? `····${bank.last4}` : null, bank.status ? bank.status.charAt(0).toUpperCase() + bank.status.slice(1) : null].filter(Boolean).join(" · ") : "No bank account yet"}
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+    );
+  }
+  return <PortalPayoutsSettingsPageInner portal={portal} />;
 }

@@ -342,3 +342,15 @@ Enforced at three points, so an `is_service` workspace's money can never reach a
 
 Not covered: a house with no `workspace_id` is self-serve by definition, and application-fee holds are guarded at credit time only
 (release cannot map their source id to a house).
+
+## Owner payout setup (staff never act as the owner)
+
+Payout setup in a managed workspace is the OWNER's: their own Express account, their own identity and bank, signed in as themselves.
+`resolveStripePayoutContext` returns `unresolvedReason: "staff_managed_workspace"` (403, `stripePayoutContextStatus`) for PropLane
+staff in a managed workspace, so every `/api/stripe/connect/*` and `/api/stripe/payouts/*` route refuses them before any account is
+created or touched (`managed-finance/payout-setup.server.ts`). Staff's Balance & payouts shows the owner's status read from Stripe
+(`GET /api/portal/managed-payout-status`: not set up / pending / active, bank name + last4 + status, nothing stored) and a Send setup
+link action (`POST .../send-link`: recipient derived from the workspace's active policy, email only, one per workspace per day; the
+link carries no credential). A bank token's holder name must match the verified name on the Stripe account
+(`holderNamesMatch`, checked server-side in `addPayoutDestination`); the sheet's Account holder field is read-only. Payout routes
+return Stripe's real error message and code (`stripePayoutErrorResponse`), never a generic screen.

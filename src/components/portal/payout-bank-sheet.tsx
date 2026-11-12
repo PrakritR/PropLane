@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CardElement, Elements, useElements, useStripe } from "@stripe/react-stripe-js";
 import { getStripe } from "@/lib/stripe-browser";
 import { CreditCard, Landmark } from "lucide-react";
@@ -113,7 +113,17 @@ function BankSheetContent({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Locked to the verified name on the Stripe account (read from Stripe), never typed.
   const [accountHolderName, setAccountHolderName] = useState("");
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    void fetch(`${apiBase}/identity`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b: { holderName?: string | null } | null) => { if (live && b?.holderName) setAccountHolderName(b.holderName); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [open, apiBase]);
   const [routingNumber, setRoutingNumber] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
   const [accountType, setAccountType] = useState<"checking" | "savings">("checking");
@@ -231,7 +241,8 @@ function BankSheetContent({
             <input
               id="bank-holder-name"
               value={accountHolderName}
-              onChange={(e) => setAccountHolderName(e.target.value)}
+              readOnly
+              aria-readonly="true"
               data-attr="bank-holder-name"
               className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm text-foreground outline-none"
             />

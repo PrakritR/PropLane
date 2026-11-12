@@ -115,9 +115,13 @@ export async function saveQuickAddResident(
   }
 
   const email = await postJson("/api/portal/onboard-existing-resident", { applicationId, sendWelcomeEmail: true, viaEmail: true, viaSms: false, viaInbox: true });
-  if (!email.ok) problems.push(`Email link: ${email.error ?? "not sent"}`);
+  const emailSent = email.ok && email.data.welcomeEmailSent === true;
+  if (!emailSent) {
+    const why = email.error ?? (email.data.communicationBlocked ? "this plan has no Communication yet" : typeof email.data.welcomeError === "string" ? email.data.welcomeError : "not sent");
+    problems.push(`Email link: ${why}`);
+  }
   const text = await postJson("/api/portal/resident-onboarding-link", { applicationId });
   if (!text.ok) problems.push(`Text link: ${text.error ?? "not sent"}`);
 
-  return { ok: problems.length === 0, applicationId, problems, emailed: email.ok, texted: text.ok };
+  return { ok: problems.length === 0, applicationId, problems, emailed: emailSent, texted: text.ok };
 }

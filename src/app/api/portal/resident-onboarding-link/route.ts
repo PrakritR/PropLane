@@ -53,7 +53,7 @@ export async function POST(request: Request) {
   const result = await sendOnboardingLink(ctx.db, { workspaceId: ctx.workspace.id, kind, id, actorUserId: ctx.userId }, { facts: async () => loaded });
   if (!result.ok) {
     const r = REFUSALS[result.reason] ?? REFUSALS.send_failed!;
-    return NextResponse.json({ error: r.error }, { status: r.status });
+    return NextResponse.json({ error: r.error, reason: result.reason, ...(result.detail ? { detail: String(result.detail).slice(0, 80) } : {}) }, { status: r.status });
   }
   return NextResponse.json({ ok: true });
 }

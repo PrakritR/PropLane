@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { assertCoManagerBankAccountAccess } from "@/lib/auth/co-manager-bank-account-access";
 import {
   resolveStripePayoutContext,
+  stripePayoutContextStatus,
   stripePayoutContextError,
 } from "@/lib/auth/manager-stripe-payout-access.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -35,7 +36,7 @@ async function resolveManagerBankContext(level: "read" | "edit"): Promise<Manage
   if (!payout.payoutOwnerUserId) {
     return {
       ok: false,
-      status: payout.unresolvedReason === "ambiguous_owner" ? 409 : 500,
+      status: stripePayoutContextStatus(payout.unresolvedReason),
       error: stripePayoutContextError(payout.unresolvedReason),
     };
   }

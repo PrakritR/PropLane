@@ -70,7 +70,7 @@ function stubFetch() {
 
 beforeEach(() => {
   fetchCalls = [];
-  fetchResponses = {};
+  fetchResponses = { "/identity": { holderName: "Prakrit Ramachandran" } };
   fakeStripe.createToken.mockReset();
   fakeElements.getElement.mockReturnValue({ __cardElementMarker: true });
   stubFetch();
@@ -100,7 +100,7 @@ describe("PayoutBankSheet", () => {
     render(<PayoutBankSheet open apiBase="/api/stripe/connect" onClose={onClose} onAdded={onAdded} />);
 
     fireEvent.click(screen.getByText("Enter routing and account number"));
-    fireEvent.change(screen.getByLabelText("Account holder"), { target: { value: "Prakrit Ramachandran" } });
+    await waitFor(() => expect(screen.getByLabelText("Account holder")).toHaveValue("Prakrit Ramachandran"));
     fireEvent.change(screen.getByLabelText("Routing number"), { target: { value: "325070760" } });
     fireEvent.change(screen.getByLabelText("Account number"), { target: { value: "0009876543210" } });
 
@@ -159,13 +159,13 @@ describe("PayoutBankSheet", () => {
     fetchResponses["/bank-accounts"] = { destination: { id: "ba_vendor", kind: "bank", label: "Chase",
       last4: "1487", status: "new", payable: true, instantEligible: false, default: true } };
     render(<PayoutBankSheet open apiBase="/api/vendor/stripe-connect" onClose={vi.fn()} onAdded={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText("Account holder"), { target: { value: "Vendor" } });
+    await waitFor(() => expect(screen.getByLabelText("Account holder")).toHaveValue("Prakrit Ramachandran"));
     fireEvent.change(screen.getByLabelText("Routing number"), { target: { value: "325070760" } });
     fireEvent.change(screen.getByLabelText("Account number"), { target: { value: "0009876543210" } });
     fireEvent.click(screen.getByRole("button", { name: "Add account" }));
 
-    await waitFor(() => expect(fetchCalls.length).toBeGreaterThan(0));
-    expect(fetchCalls[0]!.url).toContain("/api/vendor/stripe-connect/bank-accounts");
-    expect(fetchCalls[0]!.body).toEqual({ token: "btok_vendor" });
+    await waitFor(() => expect(fetchCalls.some((c) => c.url.endsWith("/bank-accounts"))).toBe(true));
+    expect(fetchCalls.every((c) => c.url.startsWith("/api/vendor/stripe-connect/"))).toBe(true);
+    expect(fetchCalls.find((c) => c.url.endsWith("/bank-accounts"))!.body).toEqual({ token: "btok_vendor" });
   });
 });

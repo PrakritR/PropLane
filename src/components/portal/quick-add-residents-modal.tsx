@@ -192,7 +192,7 @@ export function QuickAddResidentsModal({
     who: resident,
     ok: outcome.applicationId !== null,
     messages: outcome.applicationId
-      ? [`Link ${[outcome.emailed ? "emailed" : "", outcome.texted ? "texted" : ""].filter(Boolean).join(" and ") || "not sent"}`, ...outcome.problems]
+      ? [outcome.emailed || outcome.texted ? `Link ${[outcome.emailed ? "emailed" : "", outcome.texted ? "texted" : ""].filter(Boolean).join(" and ")}` : "Added. No link went out. Resend it from Setup progress.", ...outcome.problems]
       : outcome.problems,
   });
 
@@ -206,7 +206,7 @@ export function QuickAddResidentsModal({
       const line = lines(checked.value.name, outcome);
       if (outcome.applicationId) onAdded();
       if (outcome.applicationId && outcome.problems.length === 0) {
-        showToast(`${checked.value.name} added. ${line.messages[0]}.`);
+        showToast(`${checked.value.name} added. ${line.messages[0]}${line.messages[0]!.endsWith(".") ? "" : "."}`);
         onClose();
         return;
       }
@@ -401,11 +401,13 @@ export function QuickAddResidentsModal({
                 />
                 {leaseSource === "signed" || leaseSource === "draft" ? (
                   <div className="mt-2">
+                    <span className="mb-[5px] block text-[13px] font-semibold text-foreground">Lease PDF</span>
                     <WorkspaceFileCard accept="application/pdf" label="Lease PDF" fileName={leaseFile?.name ?? null} onPick={(f) => void pickLease(f)} dataAttr="residents-quick-add-lease-upload" inputDataAttr="residents-quick-add-lease-input" />
                     {touched && leaseNeedsFile ? <span className="mt-1 block text-xs text-red-700">Attach the lease PDF.</span> : null}
                   </div>
                 ) : null}
                 <div className="mt-3">
+                  <span className="mb-[5px] block text-[13px] font-semibold text-foreground">ID and other documents</span>
                   <WorkspaceFileCard accept={DOCUMENT_ACCEPT} label="ID and other documents" onPick={() => undefined} onPickMany={addFiles} dataAttr="residents-quick-add-docs-upload" inputDataAttr="residents-quick-add-docs-input" />
                 </div>
                 {files.map((entry) => (

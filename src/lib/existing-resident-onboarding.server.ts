@@ -34,6 +34,8 @@ export type ExistingResidentOnboardingResult =
       ok: true;
       leaseId: string;
       welcomeEmailSent: boolean;
+      /** Why the welcome did not go out, when it was asked for and did not (never swallowed). */
+      welcomeError?: string;
       axisId: string;
       row: DemoApplicantRow;
     }
@@ -157,6 +159,7 @@ export async function runExistingResidentOnboarding(
   }
 
   let welcomeEmailSent = false;
+  let welcomeError: string | undefined;
   let nextRow = row;
   if (sendWelcomeEmail) {
     try {
@@ -171,6 +174,7 @@ export async function runExistingResidentOnboarding(
           undefined,
         channels: opts?.channels,
       });
+      if (!welcome.ok) welcomeError = welcome.error;
       if (welcome.ok) {
         welcomeEmailSent = !welcome.skipped || welcome.smsSent === true;
         nextRow = {
@@ -197,8 +201,9 @@ export async function runExistingResidentOnboarding(
     } catch {
       // The resident and lease stub already exist. A Resend/network throw must
       // not roll the add back — the client still generates and sends the lease.
+      welcomeError = "The welcome email could not be sent.";
     }
   }
 
-  return { ok: true, leaseId, welcomeEmailSent, axisId, row: nextRow };
+  return { ok: true, leaseId, welcomeEmailSent, ...(welcomeError ? { welcomeError } : {}), axisId, row: nextRow };
 }
