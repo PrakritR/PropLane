@@ -19,6 +19,7 @@ import {
 import { residentServiceFeeBreakdown, type ResidentAxisPaymentMethod } from "@/lib/payment-policy";
 import { creditVerifiedHouseholdAutopaySource } from "@/lib/household-captured-source.server";
 import { creditOrFileHouseholdSourceReview } from "@/lib/household-source-review.server";
+import { fundingModelProblem } from "@/lib/managed-finance/funding-model.server";
 import { managedCartProblem } from "@/lib/managed-finance/resolve.server";
 import { serviceSetupPendingProblem } from "@/lib/managed-finance/unpolicied-service.server";
 import { getStripe } from "@/lib/stripe";
@@ -473,6 +474,11 @@ export async function chargeAutopay(
   // management fee and could not be given one. `serviceSetupPendingProblem` gives it the automatic fee and proceeds; only if
   // that fails does it refuse (and flag), leaving the enrollment untouched so the next run charges.
   const propertyIds = loaded.map((row) => row.charge.propertyId);
+  const fundingProblem = await fundingModelProblem(db, propertyIds);
+  if (fundingProblem) {
+    await fail(fundingProblem);
+    return { ok: false, reason: fundingProblem };
+  }
   const managedProblem = await managedCartProblem(db, propertyIds);
   if (managedProblem) {
     await fail(managedProblem);

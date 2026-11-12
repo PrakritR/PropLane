@@ -29,6 +29,7 @@ import {
 } from "@/lib/stripe-connect";
 import { householdChargeAmountCents, HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE } from "@/lib/stripe-household-charge";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+import { fundingModelProblem } from "@/lib/managed-finance/funding-model.server";
 import { managedCartProblem } from "@/lib/managed-finance/resolve.server";
 import { serviceSetupPendingProblem } from "@/lib/managed-finance/unpolicied-service.server";
 import { assertResidentCheckoutAttemptTerms, assertResidentCheckoutSession,
@@ -351,6 +352,9 @@ export async function createHouseholdChargeCheckout(
 
     // One Checkout is one payee. A cart that mixes a PropLane-managed workspace's charges with another workspace's (or a
     // house with no workspace) would need two allocations, so it is refused before any money moves.
+    // The funding decision is read first and fails closed: an unreadable `is_service` flag refuses the charge.
+    const fundingProblem = await fundingModelProblem(db, loaded.map((row) => row.charge.propertyId));
+    if (fundingProblem) return { ok: false, status: 503, code: "FUNDING_MODEL_UNREADABLE", error: fundingProblem };
     const managedProblem = await managedCartProblem(db, loaded.map((row) => row.charge.propertyId));
     if (managedProblem) return { ok: false, status: 422, code: "MIXED_PAYMENT_SETUP", error: managedProblem };
     // A PropLane Service workspace with no management fee is not managed yet: its rent must not be captured for the manager of

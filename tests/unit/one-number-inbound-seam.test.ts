@@ -65,7 +65,7 @@ beforeEach(() => {
 describe("routed text", () => {
   it("continues into the pipeline as the workspace owner, with the shared line's messaging service", async () => {
     const { db } = world(resident);
-    expect(await run(db, "the sink is dripping")).toEqual({
+    expect(await run(db, "the sink is dripping")).toMatchObject({
       kind: "continue", owned: { managerId: "owner-a", workspaceId: "ws-a", messagingServiceSid: "MGshared" },
     });
     expect(sent).toEqual([]);

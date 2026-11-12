@@ -181,6 +181,8 @@ branch, and `db:push` applies it only once merged):
 | 20261112100000 | `autopay_consent` | Adds the autopay consent columns (`consent_at`, `consent_payment_method_id`, `consent_version`) to `resident_autopay_settings`; already-enabled rows are backfilled once as `legacy-enrollment` for their current method; additive and idempotent |
 | 20261112140000 | `preapply_checks_and_adverse_action` | New service-role-only tables `applicant_preapply_checks` (the Checkr order an applicant placed before applying) and `application_adverse_actions` (the FCRA decision / pre-adverse / final notice trail); RLS on with no policy, no client grants; additive and idempotent |
 | 20261112160000 | `resident_ratings` | New service-role-only table `resident_ratings` (a manager's 1-5 star rating and review of a resident they housed, plus the resident's one response and dispute); RLS on, every client privilege revoked; additive and idempotent |
+| 20261112200000 | `prospect_spine` | `sms_phone_contacts` gains `email`, `verified_at`, `first_source`, `linked_at`; new service-role-only tables `prospect_contexts`, `sms_reply_handles`, `sms_listing_flows` (RLS on, every client privilege revoked); `merge_inbox_thread_row_data` (atomic thread row_data merge); `phone_bound_links.purpose` gains `account` and `phone_otp_challenges.purpose` gains `listing_message` (union of the live lists, never narrowed); additive and idempotent |
+| 20261112200100 | `stay_messages_and_platform` | New service-role-only table `stay_message_sends` (the check-in / check-out send ledger, one row per stay and kind; RLS on, every client privilege revoked); additive and idempotent |
 
 Check after the push (SQL editor, read-only):
 

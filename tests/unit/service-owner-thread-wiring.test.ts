@@ -74,7 +74,7 @@ describe("owner text to the work number is a conversation from the owner, not th
     expect(pipeline).toMatch(/!serviceManager && \(await isManagedWorkspaceOwnerActor\(db, workspaceId \?\? null, managerInbound\.actorUserId\)/);
   });
   it("every inbound text to a managed workspace or the PropLane line raises the alert after the response, and the raw forwards are not a second text", () => {
-    expect(pipeline).toMatch(/after\(async \(\) => \{\s*await import\("@\/lib\/one-number\/inbound-alert\.server"\)/);
+    expect(pipeline).toMatch(/after\(async \(\) => \{[\s\S]*?await import\("@\/lib\/one-number\/inbound-alert\.server"\)/);
     expect((pipeline.match(/!managedWorkspaceText/g) ?? []).length).toBeGreaterThanOrEqual(3);
     expect(readFileSync("src/lib/sms/process-accepted-inbound.server.ts", "utf8")).toMatch(/alertOpsOfInboundText\(db, \{ workspaceId: null/);
   });

@@ -74,7 +74,7 @@ describe("role inference on the first text", () => {
     const f = leadFakeDb({}, { constraints: LEAD_CONSTRAINTS });
     const turn = await run(f.db, "I do cleaning in Seattle");
     expect(lead).not.toHaveBeenCalled();
-    expect(turn.reply).toBe(`${VENDOR_COPY.welcome} ${VENDOR_COPY.rates}`);
+    expect(turn.reply).toBe(VENDOR_COPY.rates);
     expect(f.rows.sms_vendor_leads![0]).toMatchObject({ phone_key: PHONE, status: "collecting" });
     expect(f.rows.sms_unassigned_leads ?? []).toEqual([]);
   });
@@ -165,7 +165,7 @@ describe("ask once", () => {
     await run(f.db, "hello");
     await run(f.db, "hmm");
     const turn = await run(f.db, "vendor");
-    expect(turn.reply).toBe(`${VENDOR_COPY.welcome} ${VENDOR_COPY.trade}`);
+    expect(turn.reply).toBe(VENDOR_COPY.trade);
   });
 
   it("a phone with a lead already open is a searcher and is not asked", async () => {
@@ -288,7 +288,7 @@ describe("vendor intake", () => {
   });
 
   it("every vendor line is one GSM-7 segment", () => {
-    for (const line of Object.values(VENDOR_COPY)) {
+    for (const line of Object.values(VENDOR_COPY).filter(Boolean)) {
       expect(line.length).toBeLessThanOrEqual(160);
       expect(line).toMatch(/^[\x20-\x7E]+$/);
     }
@@ -349,5 +349,15 @@ describe("MessageSid claim (a retry during a slow turn)", () => {
     const turn = await handleUnknownSenderInbound(f.db, { ...text("Is Room 3 available?"), messageSid: "SM-dead" }, deps);
     expect(turn.reply).toBe("LEAD: budget?");
     expect(lead).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("vendor welcome copy carries no opener and no STOP footer (captain, Nov 12)", () => {
+  it("the welcome constants are empty and the first reply starts with the question", async () => {
+    const { VENDOR_COPY: intro } = await import("@/lib/one-number/onboarding/vendor-intake");
+    const { VENDOR_LINE_COPY } = await import("@/lib/one-number/vendor-jobs/reply");
+    expect(intro.welcome).toBe("");
+    expect(VENDOR_LINE_COPY.welcome).toBe("");
+    for (const text of Object.values(intro)) expect(text).not.toMatch(/this is PropLane|Reply STOP/i);
   });
 });

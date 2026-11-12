@@ -45,7 +45,7 @@ describe("an unknown number asking for work on the shared PropLane line", () => 
     const f = leadFakeDb({}, { constraints: LEAD_CONSTRAINTS });
     const turn = await handleUnknownSenderInbound(f.db, text("hey is there any available jobs in the area to do"), deps);
     expect(lead).not.toHaveBeenCalled();
-    expect(turn.reply).toContain("Hi, this is PropLane. Reply STOP to opt out.");
+    expect(turn.reply).not.toMatch(/this is PropLane|Reply STOP/);
     expect(turn.reply).toContain("1. Plumbing, Ravenna, Roosevelt and Wedgwood, Up to $250");
     expect(turn.reply).toContain("https://proplane.ai/start/");
     expect(turn.reply).not.toContain(VENDOR_COPY.trade);
@@ -67,6 +67,6 @@ describe("an unknown number asking for work on the shared PropLane line", () => 
   it("a vendor describing themselves still gets the intake questions", async () => {
     const f = leadFakeDb({}, { constraints: LEAD_CONSTRAINTS });
     const turn = await handleUnknownSenderInbound(f.db, text("I do cleaning in Seattle"), deps);
-    expect(turn.reply).toBe(`${VENDOR_COPY.welcome} ${VENDOR_COPY.rates}`);
+    expect(turn.reply).toBe(VENDOR_COPY.rates);
   });
 });

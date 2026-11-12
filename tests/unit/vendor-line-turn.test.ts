@@ -58,7 +58,7 @@ describe("an unknown vendor on the PropLane line", () => {
     const turn = await say("hey is there any available jobs in the area to do");
     expect(turn.handled).toBe(true);
     const reply = turn.reply!;
-    expect(reply).toContain("Hi, this is PropLane. Reply STOP to opt out.");
+    expect(reply).not.toMatch(/this is PropLane|Reply STOP/);
     expect(reply).toContain("Open jobs right now. Text me your neighborhood or zip to narrow them:");
     expect(reply).toMatch(/1\. (Plumbing|Cleaning)/);
     expect(reply).toContain("Create your free vendor account to request jobs: https://proplane.ai/start/");
@@ -256,8 +256,8 @@ describe("the chat history", () => {
     const messages = fake.tables.agent_messages!;
     expect(messages.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"]);
     expect(messages[0]!.content).toBe("any jobs available");
-    // The second text carried the first's welcome only once.
-    expect(String(messages[1]!.content)).toContain("Reply STOP");
+    // No opener or STOP footer on any text (captain, Nov 12).
+    expect(String(messages[1]!.content)).not.toContain("Reply STOP");
     expect(String(messages[3]!.content)).not.toContain("Reply STOP");
   });
 

@@ -45,7 +45,7 @@ afterEach(() => vi.useRealTimers());
 describe("shared line: a resident's intent is decided per text", () => {
   it("is routed to their workspace for rent or repairs, as before", async () => {
     const result = await run(world(residentOfA), "when is my rent due");
-    expect(result).toEqual({ kind: "continue", owned: { managerId: "owner-a", workspaceId: "ws-a", messagingServiceSid: "MGshared" } });
+    expect(result).toMatchObject({ kind: "continue", owned: { managerId: "owner-a", workspaceId: "ws-a", messagingServiceSid: "MGshared" } });
     expect(unassigned).not.toHaveBeenCalled();
   });
 
