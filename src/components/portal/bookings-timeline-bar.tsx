@@ -53,7 +53,7 @@ function channelGlyph(entry: PropertyBookingEntry) {
   if (channel === "airbnb") return <BookingsAirbnbIcon aria-label="Airbnb" role="img" className="h-3.5 w-3.5 shrink-0" strokeWidth={1.7} />;
   if (channel === "booking_com" || channel === "padsplit") {
     const label = channel === "booking_com" ? "Booking.com" : "PadSplit";
-    return <span role="img" aria-label={label} data-attr="bookings-bar-channel-mark" className={`inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] bg-white text-[10px] font-bold leading-none ${channel === "booking_com" ? "text-[#003b95]" : "text-[#6b3fa0]"}`}>{channel === "booking_com" ? "B" : "P"}</span>;
+    return <span role="img" aria-label={label} data-attr="bookings-bar-channel-mark" className={`inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center self-center rounded-[3px] bg-white text-[10px] font-extrabold leading-none [text-box:trim-both_cap_alphabetic] ${channel === "booking_com" ? "text-[#003b95]" : "text-[#6b3fa0]"}`}>{channel === "booking_com" ? "B" : "P"}</span>;
   }
   return null;
 }

@@ -34,9 +34,12 @@ export function ResidentRatingSheet({
   useEffect(() => {
     if (!open || !applicationId) return;
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setRefusal(null);
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setLoading(true);
+      setError(null);
+      setRefusal(null);
+    });
     void (async () => {
       try {
         const response = await fetch(url, { cache: "no-store" });

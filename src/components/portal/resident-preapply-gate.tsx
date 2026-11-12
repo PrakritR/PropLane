@@ -63,7 +63,9 @@ export function ResidentPreApplyGate({ propertyId, children }: { propertyId?: st
       if (res.status >= 500) return setState((prev) => (prev.kind === "ready" ? prev : { kind: "unavailable" }));
       // Signed out, not a resident account, or a listing the server cannot resolve: the form decides, the server enforces.
       if (!res.ok) return setState({ kind: "ready", view: { required: false, satisfied: true } as PreApplyApiView });
-      setState({ kind: "ready", view: (await res.json()) as PreApplyApiView });
+      const next = (await res.json()) as PreApplyApiView;
+      if (next.satisfied) setPassed(true);
+      setState({ kind: "ready", view: next });
     } catch {
       setState((prev) => (prev.kind === "ready" ? prev : { kind: "unavailable" }));
     }
@@ -102,10 +104,6 @@ export function ResidentPreApplyGate({ propertyId, children }: { propertyId?: st
       window.removeEventListener("focus", onFocus);
     };
   }, [waiting, personaPending, load]);
-
-  useEffect(() => {
-    if (state.kind === "ready" && state.view.satisfied) setPassed(true);
-  }, [state]);
 
   if (!property || demo) return <>{children}</>;
   if (passed) return <>{children}</>;

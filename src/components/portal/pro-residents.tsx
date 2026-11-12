@@ -1919,6 +1919,22 @@ export function ManagerResidents({
     }
   }
 
+  /** "Text link": ONE text with the one-time-code onboarding link, to the phone on this resident's approved application. */
+  async function textOnboardingLink(res: ActiveResident) {
+    try {
+      const response = await fetch("/api/portal/resident-onboarding-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ applicationId: res.axisId }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      showToast(response.ok && data.ok ? "Onboarding link texted." : (data.error ?? "Could not text the link."));
+    } catch {
+      showToast("Could not text the link.");
+    }
+  }
+
   async function sendResidentAccountEmail(
     res: ActiveResident,
     opts?: {
@@ -4461,6 +4477,19 @@ export function ManagerResidents({
               }}
             >
               Send setup
+            </Button>
+            ) : null}
+            {singleListSelectedNeedsSetup && singleListSelectedResident ? (
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="residents-bulk-text-onboarding"
+              onClick={() => {
+                void textOnboardingLink(singleListSelectedResident);
+              }}
+            >
+              Text link
             </Button>
             ) : null}
             <Button

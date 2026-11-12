@@ -121,7 +121,7 @@ export type OperationsNamespace =
   /**
    * Which applicant checks this listing offers (`ApplicantScreeningSettings`, `screening/applicant-screening.ts`):
    * the ID check and the applicant-paid background check, separately. Property override, then workspace row, then
-   * the built-in default (ON for a PropLane-managed workspace, OFF for self-serve).
+   * the built-in default (OFF for every workspace).
    */
   | "applicantScreening";
 

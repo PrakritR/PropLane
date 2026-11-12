@@ -161,7 +161,7 @@ export function AdminTeamSheet({
         />
         {editing ? null : (
           <Input
-            aria-label="Mobile (optional)"
+            aria-label="Mobile"
             placeholder="Mobile (optional)"
             type="tel"
             value={phone}

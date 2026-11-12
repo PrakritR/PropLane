@@ -1,6 +1,6 @@
 /**
  * Which applicant checks a listing offers: the ID check and the applicant-paid background check, as two separate
- * settings. Property override, then workspace, then the default (ON for a PropLane-managed workspace, OFF for
+ * settings. Property override, then workspace, then the default (OFF for every workspace until the manager turns it on;
  * self-serve). Scope and authority are re-derived from the session (`assertSettingsScopeOwned`), never from a
  * body id. Applications, leases and tours stay free either way.
  */

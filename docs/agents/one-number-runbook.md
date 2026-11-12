@@ -179,6 +179,8 @@ branch, and `db:push` applies it only once merged):
 | 20261111120000 | `rate_limit_cost` | Adds `consume_rate_limit_cost`: an all-or-nothing multi-token consume on the same bucket as `consume_rate_limit` (typed new-contact budget); additive, the three-argument function is unchanged |
 | 20261111130000 | `profiles_email_lower` | Adds the stored generated column `profiles.email_lower` plus its index, so the recipient-account lookup is an index read instead of a sequential scan per chunk; additive, derived, no grant or policy change |
 | 20261112100000 | `autopay_consent` | Adds the autopay consent columns (`consent_at`, `consent_payment_method_id`, `consent_version`) to `resident_autopay_settings`; already-enabled rows are backfilled once as `legacy-enrollment` for their current method; additive and idempotent |
+| 20261112140000 | `preapply_checks_and_adverse_action` | New service-role-only tables `applicant_preapply_checks` (the Checkr order an applicant placed before applying) and `application_adverse_actions` (the FCRA decision / pre-adverse / final notice trail); RLS on with no policy, no client grants; additive and idempotent |
+| 20261112160000 | `resident_ratings` | New service-role-only table `resident_ratings` (a manager's 1-5 star rating and review of a resident they housed, plus the resident's one response and dispute); RLS on, every client privilege revoked; additive and idempotent |
 
 Check after the push (SQL editor, read-only):
 

@@ -4,11 +4,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { appendHouseLine } from "@/lib/house-chat/store.server";
 import { groupPreferenceCommand } from "@/lib/house-groups/ra-policy";
 import type { GroupWebhookMessage } from "@/lib/house-groups/ra.server";
-import { recordOptOut } from "@/lib/house-groups/store.server";
+import { loadPreferences, recordOptOut } from "@/lib/house-groups/store.server";
 import { PROPLANE_IDENTITY } from "@/lib/house-groups/types";
 import { parseHouseThreadId } from "@/lib/house-thread-id";
 import { redactSensitiveNumbers } from "@/lib/one-number/redact";
-import { normalizeConsentPhone } from "@/lib/sms-consent";
+import { isPhoneOptedOut, normalizeConsentPhone } from "@/lib/sms-consent";
 import { inboundLineId, readSmsGroupState, smsAuthorLabel } from "./model";
 import { postToHouseSmsGroup } from "./post.server";
 import { findThreadByConversationSid } from "./store.server";
@@ -60,8 +60,7 @@ export async function handleHouseSmsGroupInbound(
 
   if (member.kind === "resident") {
     // Re-derived from occupancy on every text: a resident who moved out, left or texted STOP is no longer a member.
-    // An unreadable occupancy read drops the text (and bridges nothing) rather than guessing a member.
-    let live = false;
+    let live: boolean | null = null;
     try {
       const candidates = deps.loadCandidates
         ? await deps.loadCandidates(parsed.propertyId)
@@ -73,11 +72,18 @@ export async function handleHouseSmsGroupInbound(
           });
       live = candidates.some((c) => c.phoneKey === authorKey && c.longTerm && !c.optedOut && !c.stopped);
     } catch {
-      return { handled: true, action: "not_current_resident" };
+      live = null;
     }
-    if (!live) {
+    if (live === false) {
       await sync().catch(() => undefined);
       return { handled: true, action: "not_current_resident" };
+    }
+    if (live === null) {
+      // Occupancy could not be read just now: the stored list stands, but a phone that left the group or texted
+      // STOP is dropped on the two ledgers that never depend on it.
+      const prefs = await loadPreferences(db, parsed.workspaceId, [authorKey]).catch(() => new Map());
+      const stopped = await isPhoneOptedOut(db, member.phoneE164, { userId: member.userId }).catch(() => true);
+      if (prefs.get(authorKey)?.optedOut || stopped) return { handled: true, action: "not_current_resident" };
     }
   }
 

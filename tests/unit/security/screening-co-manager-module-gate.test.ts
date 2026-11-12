@@ -102,6 +102,7 @@ vi.mock("@/lib/stripe", () => ({
 vi.mock("@/lib/stripe-screening", () => ({
   SCREENING_CHECKOUT_PURPOSE: "screening",
   isScreeningCheckoutSession: () => true,
+  screeningOrderOptionsFromSession: () => ({}),
 }));
 vi.mock("@/lib/test-workspaces/effects.server", () => ({
   assertTestWorkspaceProviderEffectAllowed: vi.fn().mockResolvedValue(undefined),

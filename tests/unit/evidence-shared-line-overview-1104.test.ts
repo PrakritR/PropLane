@@ -118,7 +118,9 @@ describe("a question about what is open is answered with the open homes", () => 
     printTurn("Hi, is there availability?", first);
 
     const bodies = (first.bubbles ?? []).map((b) => b.body);
-    expect(bodies[0]!.startsWith("Hi, this is PropLane. Reply STOP to opt out.")).toBe(true);
+    // The "Hi, this is PropLane. Reply STOP" opener is gone (captain, Nov 12): the homes lead the first text.
+    expect(bodies[0]!.startsWith("1) 4000 15th Ave NE")).toBe(true);
+    expect(bodies[0]).not.toContain("Reply STOP");
     // The homes come first, drawn from the public catalog: price, availability, listing page, tour page.
     const all = bodies.join("\n");
     expect(all).toContain("from $900/mo");

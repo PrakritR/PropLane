@@ -106,8 +106,8 @@ describe("URL builders stay derived from the module", () => {
 });
 
 describe("/rent/tour", () => {
-  it("is a permanent redirect to /rent/tours-contact", () => {
+  it("is a temporary redirect to /rent/tours-contact (never cached as a 308)", () => {
     const config = readFileSync(join(process.cwd(), "next.config.ts"), "utf8");
-    expect(config).toMatch(/source:\s*"\/rent\/tour",\s*destination:\s*"\/rent\/tours-contact",\s*permanent:\s*true/);
+    expect(config).toMatch(/source:\s*"\/rent\/tour",\s*destination:\s*"\/rent\/tours-contact",\s*permanent:\s*false/);
   });
 });

@@ -210,6 +210,11 @@ export const DELETE_ORDER = [
   // link rows reference the requests, so they clear first.
   "resident_account_links",
   "application_form_requests",
+  // Pre-apply Checkr order, FCRA adverse-action trail and resident ratings (ratings are only deleted for the
+  // rated resident: `rater_user_id` is not an ownership column here, matching the manifest's detach).
+  "applicant_preapply_checks",
+  "application_adverse_actions",
+  "resident_ratings",
   // 2. the account's own rows
   "manager_property_access",
   "manager_property_owners",

@@ -9,13 +9,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * the real ones (`ratings.server.ts`), with the authorization primitives mocked at their module seam.
  */
 
-const admin = vi.hoisted(() => ({ isAdminUser: vi.fn(async (_id: string) => false) }));
+const admin = vi.hoisted(() => ({ isAdminUser: vi.fn(async () => false) }));
 const access = vi.hoisted(() => ({ managerCanAccessApplicationRecord: vi.fn(async () => true) }));
 const scope = vi.hoisted(() => ({
-  managerHasCoManagerPermissionForProperty: vi.fn(async (..._args: unknown[]) => true),
+  managerHasCoManagerPermissionForProperty: vi.fn(async (...args: unknown[]) => args.length >= 0),
 }));
 const inbox = vi.hoisted(() => ({
-  deliverPortalMessageToAdminSharedInbox: vi.fn(async (..._args: unknown[]) => ({ threadId: "admin_portal_x", created: true })),
+  deliverPortalMessageToAdminSharedInbox: vi.fn(async (...args: unknown[]) => ({ threadId: `admin_portal_${args.length}`, created: true })),
 }));
 
 vi.mock("@/lib/auth/admin-preview", () => admin);

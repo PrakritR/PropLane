@@ -193,21 +193,26 @@ export async function applyPreApplyCheckReport(
   orderId: string,
   report: Pick<CheckrReport, "status" | "result" | "reportSnapshot" | "reportResourceId">,
 ): Promise<boolean> {
-  const { data, error } = await db
-    .from("applicant_preapply_checks")
-    .select("id, resident_user_id, property_id, manager_user_id, check_data")
-    .eq("check_data->>reportId", orderId)
-    .maybeSingle();
-  if (error || !data?.check_data) return false;
-  const merged = mergeReportIntoCheck(data.check_data as ApplicationBackgroundCheck, report);
-  if (!merged) return true;
-  await savePreApplyRecord(db, {
-    userId: String(data.resident_user_id),
-    propertyId: String(data.property_id),
-    managerUserId: String(data.manager_user_id ?? ""),
-    check: merged,
-  });
-  return true;
+  try {
+    const { data, error } = await db
+      .from("applicant_preapply_checks")
+      .select("id, resident_user_id, property_id, manager_user_id, check_data")
+      .eq("check_data->>reportId", orderId)
+      .maybeSingle();
+    if (error || !data?.check_data) return false;
+    const merged = mergeReportIntoCheck(data.check_data as ApplicationBackgroundCheck, report);
+    if (!merged) return true;
+    await savePreApplyRecord(db, {
+      userId: String(data.resident_user_id),
+      propertyId: String(data.property_id),
+      managerUserId: String(data.manager_user_id ?? ""),
+      check: merged,
+    });
+    return true;
+  } catch {
+    // A pre-apply lookup that fails must never fail the webhook for an ordinary application's order.
+    return false;
+  }
 }
 
 async function personaVerified(db: SupabaseClient, userId: string): Promise<boolean> {
@@ -502,8 +507,13 @@ export type PreApplySubmitGate =
   | { ok: true; row: DemoApplicantRow }
   | { ok: false; status: number; body: Record<string, unknown> };
 
-function rowPropertyId(row: DemoApplicantRow): string {
-  return row.assignedPropertyId?.trim() || row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
+/**
+ * The listings an application names, as the APPLICANT wrote them. `assignedPropertyId` is deliberately not read: it is
+ * the manager's placement, and an applicant's body must never choose which listing's requirements apply to them. A row
+ * that names two different listings must satisfy both.
+ */
+function rowPropertyIds(row: DemoApplicantRow): string[] {
+  return [...new Set([row.propertyId, row.application?.propertyId].map((id) => id?.trim() ?? "").filter(Boolean))];
 }
 
 function blockedBody(state: PreApplyState): Record<string, unknown> {
@@ -535,27 +545,29 @@ export async function preApplySubmitGate(
   user: { id: string; email?: string | null },
   row: DemoApplicantRow,
 ): Promise<PreApplySubmitGate> {
-  const propertyId = rowPropertyId(row);
-  if (!propertyId) return { ok: true, row };
-  // The caller already authorized the write itself (a resident, or a non-resident login applying elsewhere).
-  const ctx = await loadPreApplyContext(db, user, propertyId, { requireResident: false });
-  if (!ctx.ok) {
-    // A listing that cannot be found has no requirement to enforce; the other validators refuse it.
-    if (ctx.status === 404) return { ok: true, row };
-    return { ok: false, status: ctx.status === 403 ? 403 : 503, body: { error: ctx.error, blocked: "preapply_unavailable" } };
+  let stamp: { record: PreApplyRecord; managerUserId: string } | null = null;
+  for (const propertyId of rowPropertyIds(row)) {
+    // The caller already authorized the write itself (a resident, or a non-resident login applying elsewhere).
+    const ctx = await loadPreApplyContext(db, user, propertyId, { requireResident: false });
+    if (!ctx.ok) {
+      // A listing that cannot be found has no requirement to enforce; the other validators refuse it.
+      if (ctx.status === 404) continue;
+      return { ok: false, status: ctx.status === 403 ? 403 : 503, body: { error: ctx.error, blocked: "preapply_unavailable" } };
+    }
+    const resolved = await resolvePreApplyView(db, ctx);
+    if (!resolved.ok) return { ok: false, status: resolved.status, body: { error: resolved.error, blocked: "preapply_unavailable" } };
+    const { state, record } = resolved.view;
+    if (!state.required) continue;
+    if (!state.satisfied) return { ok: false, status: 403, body: blockedBody(state) };
+    if (record && !stamp) stamp = { record, managerUserId: ctx.managerUserId };
   }
-  const resolved = await resolvePreApplyView(db, ctx);
-  if (!resolved.ok) return { ok: false, status: resolved.status, body: { error: resolved.error, blocked: "preapply_unavailable" } };
-  const { state, record } = resolved.view;
-  if (!state.required) return { ok: true, row };
-  if (!state.satisfied) return { ok: false, status: 403, body: blockedBody(state) };
-  if (!record || row.backgroundCheck) return { ok: true, row };
+  if (!stamp || row.backgroundCheck) return { ok: true, row };
 
   // Stamp the check on the application and point the order trail at it (best effort; the row stays correct either way).
-  const check = record.check;
+  const check = stamp.record.check;
   try {
-    await db.from("applicant_preapply_checks").update({ application_id: row.id, updated_at: new Date().toISOString() }).eq("id", record.id);
-    await upsertPreApplyOrder(db, { applicationId: row.id, managerUserId: ctx.managerUserId, check });
+    await db.from("applicant_preapply_checks").update({ application_id: row.id, updated_at: new Date().toISOString() }).eq("id", stamp.record.id);
+    await upsertPreApplyOrder(db, { applicationId: row.id, managerUserId: stamp.managerUserId, check });
   } catch {
     console.error("pre-apply screening: could not link the check to the application", { applicationId: row.id });
   }
@@ -573,21 +585,22 @@ export async function preApplyGuestGate(
   db: SupabaseClient,
   row: DemoApplicantRow,
 ): Promise<{ ok: true } | { ok: false; status: number; body: Record<string, unknown> }> {
-  const propertyId = rowPropertyId(row);
-  if (!propertyId) return { ok: true };
-  const loaded = await loadPreApplyPlan(db, propertyId);
-  if (!loaded.ok) {
-    if (loaded.status === 404) return { ok: true };
-    return { ok: false, status: 503, body: { error: loaded.error, blocked: "preapply_unavailable" } };
+  for (const propertyId of rowPropertyIds(row)) {
+    const loaded = await loadPreApplyPlan(db, propertyId);
+    if (!loaded.ok) {
+      if (loaded.status === 404) continue;
+      return { ok: false, status: 503, body: { error: loaded.error, blocked: "preapply_unavailable" } };
+    }
+    if (!loaded.plan.verifyId.required && !loaded.plan.backgroundCheck.required) continue;
+    return {
+      ok: false,
+      status: 403,
+      body: {
+        error: "Sign in to your resident account and complete the required steps before you apply.",
+        blocked: "preapply",
+        step: loaded.plan.verifyId.required ? "verify_id" : "background_check",
+      },
+    };
   }
-  if (!loaded.plan.verifyId.required && !loaded.plan.backgroundCheck.required) return { ok: true };
-  return {
-    ok: false,
-    status: 403,
-    body: {
-      error: "Sign in to your resident account and complete the required steps before you apply.",
-      blocked: "preapply",
-      step: loaded.plan.verifyId.required ? "verify_id" : "background_check",
-    },
-  };
+  return { ok: true };
 }

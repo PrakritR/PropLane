@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { LinkCodeGate, LinkExpiredView, LinkMessageView, RentLinkCard } from "@/components/public/phone-bound-link-ui";
+import { ResidentOnboardingForm } from "@/components/public/resident-onboarding-form";
 import { resolveLinkDestination } from "@/lib/one-number/link-destinations.server";
 import {
   linkSessionCookieName,
@@ -9,6 +10,7 @@ import {
   resolvePhoneBoundLink,
   verifyLinkSession,
 } from "@/lib/one-number/links.server";
+import { openOnboarding } from "@/lib/resident-onboarding-link/complete.server";
 import { createRealIdentitySupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -74,6 +76,11 @@ export default async function PhoneBoundLinkPage({
     // is payable again and this is the only link the resident has.
     case "processing":
       return <LinkMessageView title="Payment processing" line="Your bank transfer is still clearing. We will text you when it settles." />;
+    case "onboard": {
+      // The record behind the link, re-read now that the code is proven; nothing of it was read before.
+      const opened = await openOnboarding(db, link);
+      return opened.ok ? <ResidentOnboardingForm token={token} prefill={opened.prefill} /> : <LinkExpiredView />;
+    }
     case "phone_changed":
       return <LinkMessageView title="This link is for a different number" line="Text us for a new link." />;
     default:

@@ -131,6 +131,19 @@ describe("server refusal: the application submit gate", () => {
     expect(calls.some((c) => c.table === "screening_orders" && c.op === "upsert")).toBe(true);
   });
 
+  it("an applicant's body cannot pick which listing's requirements apply: assignedPropertyId is ignored, and two named listings must both pass", async () => {
+    h.settings.mockImplementation(async (_db: unknown, input: { propertyId?: string | null }) => ({
+      settings: input.propertyId === "prop-free" ? { idCheck: false, backgroundCheck: false, idUnlock: "clear" } : { idCheck: true, backgroundCheck: true, idUnlock: "clear" },
+    }));
+    const db = fakeDb({ ...property, applicant_preapply_checks: { data: null } });
+    // The requirement is on prop-1; the applicant claims the free listing as the manager's placement.
+    const forged = await preApplySubmitGate(db, user, row({ assignedPropertyId: "prop-free" }));
+    expect(forged).toMatchObject({ ok: false, status: 403, body: { blocked: "preapply" } });
+    // Naming the free listing in one field and the required one in the other still needs the required one.
+    const split = await preApplySubmitGate(db, user, row({ propertyId: "prop-free", application: { propertyId: "prop-1" } as DemoApplicantRow["application"] }));
+    expect(split).toMatchObject({ ok: false, status: 403 });
+  });
+
   it("fails closed when the requirement cannot be read", async () => {
     const gate = await preApplySubmitGate(fakeDb({ manager_property_records: { data: null, error: { message: "down" } } }), user, row());
     expect(gate).toMatchObject({ ok: false, status: 503, body: { blocked: "preapply_unavailable" } });

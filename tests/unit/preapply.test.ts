@@ -38,8 +38,12 @@ describe("pre-apply plan: the manager's choice", () => {
     expect(state).toMatchObject({ required: false, satisfied: true, next: "application", steps: [] });
   });
 
-  it("requires both for a PropLane-managed workspace by default, as one Starter + ID order", () => {
-    const plan = resolvePreApplyPlan({ settings: defaultApplicantScreeningSettings(true), env: checkrEnv });
+  it("requires nothing by default, even for a PropLane-managed workspace", () => {
+    expect(resolvePreApplyPlan({ settings: defaultApplicantScreeningSettings(true), env: checkrEnv }).verifyId.required).toBe(false);
+  });
+
+  it("both checks chosen are one Starter + ID order", () => {
+    const plan = resolvePreApplyPlan({ settings: { idCheck: true, backgroundCheck: true, idUnlock: "clear" }, env: checkrEnv });
     expect(plan.verifyId.required && plan.backgroundCheck.required).toBe(true);
     expect(plan.order?.includeIdCheck).toBe(true);
     expect(plan.order?.quote.totalCents).toBe(2794);

@@ -17,11 +17,11 @@ function fakeDb(tables: Record<string, Record<string, unknown> | null>) {
 }
 
 describe("applicant screening settings resolution", () => {
-  it("defaults ON for a PropLane-managed workspace", async () => {
+  it("defaults OFF even for a PropLane-managed workspace", async () => {
     const db = fakeDb({ portal_workspaces: { is_service: true }, workspace_automation_settings: null });
     const result = await resolveApplicantScreeningSettings(db, { managerUserId: "m", workspaceId: "ws-1" });
     expect(result.managed).toBe(true);
-    expect(result.settings).toEqual({ idCheck: true, backgroundCheck: true, idUnlock: "clear" });
+    expect(result.settings).toEqual({ idCheck: false, backgroundCheck: false, idUnlock: "clear" });
   });
 
   it("defaults OFF for a self-serve workspace and when nothing can be read", async () => {
@@ -31,8 +31,8 @@ describe("applicant screening settings resolution", () => {
     expect((await resolveApplicantScreeningSettings(noWorkspace, { managerUserId: "m" })).settings).toEqual({ idCheck: false, backgroundCheck: false, idUnlock: "clear" });
   });
 
-  it("a workspace's saved choice beats the managed default, per check", async () => {
-    const db = fakeDb({ portal_workspaces: { is_service: true }, workspace_automation_settings: { row_data: { applicantScreening: { idCheck: false } } } });
+  it("a workspace's saved choice beats the default, per check", async () => {
+    const db = fakeDb({ portal_workspaces: { is_service: true }, workspace_automation_settings: { row_data: { applicantScreening: { idCheck: false, backgroundCheck: true } } } });
     const result = await resolveApplicantScreeningSettings(db, { managerUserId: "m", workspaceId: "ws-1" });
     expect(result.source).toBe("workspace");
     expect(result.settings).toEqual({ idCheck: false, backgroundCheck: true, idUnlock: "clear" });

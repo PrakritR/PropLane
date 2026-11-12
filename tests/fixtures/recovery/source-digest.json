@@ -1,16 +1,19 @@
 {
-  "sha256": "1c6c194dddd6ebbc245ef4d1827fbbea6413368571c7ed8905bfd5299c755eab",
+  "sha256": "ab92d6074eb39330992f44ba9d142c48fd7596968d0cd13f62e302bed179868b",
   "selection": "SQL migrations containing account_recovery_, resident_move_in_forms, CREATE/DROP/ALTER TABLE and admin_team_atomic_revoke; plus purge manifest and recovery policy",
   "missing_dev_catalog": [
+    "applicant_preapply_checks",
+    "application_adverse_actions",
     "payment_reminder_occurrences",
     "phone_required_skips",
+    "resident_ratings",
     "scheduled_inbox_channel_deliveries"
   ],
   "reviewed_change": {
-    "date": "2026-11-11",
-    "reason": "Adds inbox_message_provider_refs: service-role-only delivery-status lookup (provider id -> inbox message), no Auth owner column, child of portal_inbox_thread_records with ON DELETE CASCADE; classified in ACCOUNT_PURGE_RETAINED as a cascade child, so no recovery guard is needed. Historical dev snapshot unchanged.",
-    "selected_source_paths": 338,
-    "previous_sha256": "9cab537b342247ee76dae38cd982ff1eedd2bbf4680c82b047c20e27260653b3",
+    "date": "2026-11-12",
+    "reason": "Adds applicant_preapply_checks, application_adverse_actions (20261112140000) and resident_ratings (20261112160000): service-role-only tables (RLS on, no client grants) classified in the account purge manifest (phase 1; ratings detach the rater). Auth-owner rows are purged with the account, not recoverable-guarded; they are absent from the historical dev catalog snapshot, which is unchanged.",
+    "selected_source_paths": 342,
+    "previous_sha256": "1c6c194dddd6ebbc245ef4d1827fbbea6413368571c7ed8905bfd5299c755eab",
     "migration_sha256": "438938c21431149de015faae9ec1c9a488502cc0922a2da3fe21dc475ed7dc4b"
   }
 }

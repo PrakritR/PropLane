@@ -44,11 +44,17 @@ describe("Integrations → Messages", () => {
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/manager/messaging-number?workspaceId=w1", "/api/manager/assistant-email?workspaceId=w1"]);
   });
 
-  it("says Not set up for a channel the workspace does not have, and an email that cannot carry mail", async () => {
+  it("says Not set up for a channel the workspace does not have, and still shows an address that cannot carry mail today", async () => {
+    // An address that exists is shown whether or not the plan may send from it (Communication says why not).
     stubFetch(null, emailStatus("x@mail.proplane.ai", false));
     render(<ManagerMessageChannelsPanel />);
     await waitFor(() => expect(document.querySelector('[data-attr="settings-messages-number"]')?.textContent).toBe("Not set up"));
-    expect(document.querySelector('[data-attr="settings-messages-email"]')?.textContent).toBe("Not set up");
+    expect(document.querySelector('[data-attr="settings-messages-email"]')?.textContent).toBe("x@mail.proplane.ai");
+    cleanup();
+    resetSharedGets();
+    stubFetch(null, emailStatus(null, false));
+    render(<ManagerMessageChannelsPanel />);
+    await waitFor(() => expect(document.querySelector('[data-attr="settings-messages-email"]')?.textContent).toBe("Not set up"));
   });
 
   it("is read-only: Manage on either row opens Communication settings, and nothing else is editable", async () => {

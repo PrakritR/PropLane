@@ -36,6 +36,8 @@ export type LinkDestination =
   | { kind: "processing" }
   /** The resident's verified phone is no longer the one this link was sent to. */
   | { kind: "phone_changed" }
+  /** The text onboarding link (`resident-onboarding-link`): the page draws the one-or-two-screen form for the record the link names. */
+  | { kind: "onboard" }
   | { kind: "gone" };
 
 const GONE: LinkDestination = { kind: "gone" };
@@ -254,6 +256,8 @@ export async function resolveLinkDestination(db: SupabaseClient, link: PhoneBoun
     case "lease":
       return residentPortalDestination(link, "/resident/lease");
     case "move_in":
+      // A text onboarding link names a record (`application:<id>` / `booking:<id>`), not an account: no account exists yet.
+      if (link.targetType === "onboarding") return { kind: "onboard" };
       return residentPortalDestination(link, "/resident/move-in");
     case "payouts":
       return {

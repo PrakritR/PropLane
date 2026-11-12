@@ -53,13 +53,13 @@ describe("manager upgrade pricing", () => {
 });
 
 describe("per-listing defaults", () => {
-  it("is ON for PropLane-managed workspaces and OFF for self-serve", () => {
-    expect(defaultApplicantScreeningSettings(true)).toEqual({ idCheck: true, backgroundCheck: true, idUnlock: "clear" });
+  it("is OFF for every workspace until the manager turns it on", () => {
+    expect(defaultApplicantScreeningSettings(true)).toEqual({ idCheck: false, backgroundCheck: false, idUnlock: "clear" });
     expect(defaultApplicantScreeningSettings(false)).toEqual({ idCheck: false, backgroundCheck: false, idUnlock: "clear" });
   });
 
   it("a saved choice beats the default, per check, and garbage falls back", () => {
-    const managed = defaultApplicantScreeningSettings(true);
+    const managed = { idCheck: true, backgroundCheck: true, idUnlock: "clear" as const };
     expect(normalizeApplicantScreeningSettings({ idCheck: false }, managed)).toEqual({ idCheck: false, backgroundCheck: true, idUnlock: "clear" });
     expect(normalizeApplicantScreeningSettings({ backgroundCheck: true }, defaultApplicantScreeningSettings(false))).toEqual({
       idCheck: false,

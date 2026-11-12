@@ -80,6 +80,8 @@ vi.mock("@/components/portal/pro-applications", () => ({
 }));
 vi.mock("@/components/portal/resident-application-editor", () => ({ ResidentApplicationEditor: () => null }));
 vi.mock("@/components/marketing/rental-application-finish-panel", () => ({ GroupShareCallout: () => <div data-testid="group-share" /> }));
+// The pre-apply gate is its own concern (resident-preapply-gate.test.tsx); here the wizard is what is under test.
+vi.mock("@/components/portal/resident-preapply-gate", () => ({ ResidentPreApplyGate: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/components/marketing/rental-application-wizard", () => ({
   RentalApplicationWizard: () => <div data-testid="rental-wizard" />,
 }));

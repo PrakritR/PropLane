@@ -18,7 +18,6 @@ import {
   toResidentFacingRating,
   type ManagerRatingsView,
   type RatingApplicationFacts,
-  type RatingSummary,
   type ResidentFacingRating,
   type ResidentRatingRow,
 } from "@/lib/resident-ratings/ratings";

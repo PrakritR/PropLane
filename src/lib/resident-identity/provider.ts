@@ -3,8 +3,9 @@
  *
  * - `checkr` (DEFAULT): Checkr's ID-verification add-on (government ID + live selfie, billed with the
  *   screening order). Checkr is a consumer reporting agency, so the FCRA disclosure and authorization
- *   the applicant gives before the order apply to it. The ID check rides the screening order; there is
- *   no pre-application gate for it (`resolveBaselineResidentIdentity` answers "disabled" for it).
+ *   the applicant gives before the order apply to it. The ID check rides the screening order and is a
+ *   PRE-APPLY requirement the manager chooses per listing (`screening/preapply.ts`); the global baseline
+ *   gate (`resolveBaselineResidentIdentity`) answers "disabled" for it.
  * - `persona`: the existing Persona inquiry flow (`persona.server.ts`), only when its keys exist.
  *
  * Stripe Identity is deliberately NOT a provider. Its activation terms bar using it "to determine

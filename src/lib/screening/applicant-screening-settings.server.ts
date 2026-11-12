@@ -43,7 +43,7 @@ async function managedWorkspaceFor(
 
 /**
  * The applicant checks one listing offers: this property's own choice, else the workspace's, else the default
- * (ON for a PropLane-managed workspace, OFF for self-serve). `managerUserId` is the listing OWNER, derived by the
+ * (OFF for every workspace until the manager turns it on). `managerUserId` is the listing OWNER, derived by the
  * caller from the stored application/property, never from a request.
  */
 export async function resolveApplicantScreeningSettings(

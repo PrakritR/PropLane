@@ -33,9 +33,7 @@
  * phones, same order optional) · --property <id> (repeatable, default every house) · --apply · --production.
  */
 import { createClient } from "@supabase/supabase-js";
-import { loadHouseResidentCandidates } from "../src/lib/house-groups/residents.server";
 import { conversationsWebhookUrl, createConversationsGateway } from "../src/lib/house-groups/conversations-gateway.server";
-import { pacificDayKey } from "../src/lib/house-groups/time";
 import { resolveSmsGroupLine } from "../src/lib/house-sms-group/line.server";
 import { maskPhoneLast4, memberSetKey, planMembership, selectResidentMembers, type SmsGroupMember } from "../src/lib/house-sms-group/model";
 import { listWorkspaceSmsGroups, loadHouseSmsGroup, threadIdFor } from "../src/lib/house-sms-group/store.server";
@@ -121,7 +119,9 @@ async function main() {
     const current = existing?.state ?? null;
     if (!APPLY) {
       // Same plan the sync computes, without writing anything.
-      const candidates = await loadHouseResidentCandidates(db, { ownerUserId, workspaceId, propertyId: house.id, today: pacificDayKey(new Date()) });
+      const candidates = (current?.members ?? [])
+        .filter((m) => m.kind === "resident")
+        .map((m) => ({ ...m, moveIn: null, longTerm: true, verifiedPhone: true, optedOut: false, stopped: false }));
       const staffMembers: SmsGroupMember[] = [
         ...(current?.members.filter((m) => m.kind === "staff") ?? []),
         ...staff.map((s) => ({
@@ -153,7 +153,14 @@ async function main() {
       if (current?.conversationSid) console.log(`    existing Conversation: ${current.conversationSid}`);
       continue;
     }
-    const result = await syncHouseSmsGroup(db, { workspaceId, propertyId: house.id, enable: true, addStaff: staff });
+    // Outside the app there is no request scope for the occupancy read, so this script never re-derives residents:
+    // it keeps the residents a group already holds and manages the staff phones only. The app's own sync (the
+    // daily cron, lease signing, onboarding) re-derives residents from occupancy.
+    const keepResidents = async () =>
+      (current?.members ?? [])
+        .filter((m) => m.kind === "resident")
+        .map((m) => ({ ...m, moveIn: null, longTerm: true, verifiedPhone: true, optedOut: false, stopped: false }));
+    const result = await syncHouseSmsGroup(db, { workspaceId, propertyId: house.id, enable: true, addStaff: staff }, { loadCandidates: keepResidents });
     const after = await loadHouseSmsGroup(db, threadIdFor({ ownerUserId, workspaceId, propertyId: house.id }));
     console.log(`- ${house.label}: ${result.outcome} (${result.phones} phone${result.phones === 1 ? "" : "s"})${result.detail ? ` - ${result.detail}` : ""}`);
     if (after?.state?.conversationSid) console.log(`    Conversation: ${after.state.conversationSid}`);

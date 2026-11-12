@@ -53,9 +53,13 @@ export type ApplicantScreeningSettings = {
   idUnlock: ApplicantIdUnlock;
 };
 
-/** ON for PropLane-managed (`is_service`) workspaces, OFF for self-serve, unless the manager saved a choice. */
-export function defaultApplicantScreeningSettings(managedWorkspace: boolean): ApplicantScreeningSettings {
-  return { idCheck: managedWorkspace, backgroundCheck: managedWorkspace, idUnlock: "clear" };
+/**
+ * OFF for every workspace until the manager turns a check on (captain, Nov 12: the manager chooses what an applicant
+ * completes before applying; a requirement nobody chose must never block applications). `managedWorkspace` is kept so
+ * callers need not change.
+ */
+export function defaultApplicantScreeningSettings(_managedWorkspace: boolean): ApplicantScreeningSettings {
+  return { idCheck: false, backgroundCheck: false, idUnlock: "clear" };
 }
 
 export function normalizeApplicantScreeningSettings(
