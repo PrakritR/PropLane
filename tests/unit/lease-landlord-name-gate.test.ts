@@ -12,7 +12,7 @@
  * field would have blocked every send with no way out, which is why these assert the escape hatch
  * as carefully as the block.
  */
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import {
   leaseLandlordNameBlocker,
   leaseLandlordPartyNameFromHtml,
@@ -22,6 +22,7 @@ import {
   MAX_LANDLORD_LEGAL_NAME_LENGTH,
   cacheLandlordLegalName,
   cachedLandlordLegalName,
+  fetchAndCacheLandlordLegalName,
   landlordLegalNameFromAccountFullName,
   normalizeManagerLandlordProfile,
   validateLandlordLegalName,
@@ -35,13 +36,19 @@ const row = (over: Record<string, unknown> = {}) =>
 const partiesHtml = (landlordName: string) =>
   `<table><tr><th>Landlord / Operator</th><td><strong>${landlordName}</strong><br/>Mailing address: 1 Main</td></tr></table>`;
 
+const workspacePayload = (activeWorkspaceId: string): WorkspacePayload =>
+  ({ workspaces: [], activeWorkspaceId }) as unknown as WorkspacePayload;
+
 describe("landlord-name send gate", () => {
   beforeEach(() => {
+    // The cache only answers for a named workspace, so the gate's fixtures need one selected.
+    setWorkspaceSelection(workspacePayload("ws-gate"));
     cacheLandlordLegalName("Doe Property Holdings LLC");
   });
 
   afterEach(() => {
     cacheLandlordLegalName("");
+    setWorkspaceSelection(null);
   });
 
   it("blocks a lease that still names the placeholder", () => {
@@ -83,8 +90,7 @@ describe("landlord-name send gate", () => {
 });
 
 describe("the cached landlord name belongs to ONE workspace", () => {
-  const payload = (activeWorkspaceId: string): WorkspacePayload =>
-    ({ workspaces: [], activeWorkspaceId }) as unknown as WorkspacePayload;
+  const payload = workspacePayload;
 
   afterEach(() => {
     setWorkspaceSelection(null);
@@ -111,6 +117,40 @@ describe("the cached landlord name belongs to ONE workspace", () => {
     expect(cachedLandlordLegalName()).toBe("");
     setWorkspaceSelection(payload("ws-b"));
     expect(cachedLandlordLegalName()).toBe("Beta Homes LLC");
+  });
+
+  it("holds nothing before a workspace is selected, so the gate refuses the account rung's name", () => {
+    setWorkspaceSelection(null);
+    cacheLandlordLegalName("Account Rung Holdings LLC");
+    expect(cachedLandlordLegalName()).toBe("");
+    setWorkspaceSelection(payload("ws-a"));
+    expect(cachedLandlordLegalName()).toBe("");
+    expect(leaseLandlordNameBlocker(row({ generatedHtml: partiesHtml("Account Rung Holdings LLC") }))).toMatch(
+      /Settings/i,
+    );
+  });
+
+  it("never reads the server unqualified: no workspace, no fetch and no cache", async () => {
+    setWorkspaceSelection(payload("ws-a"));
+    cacheLandlordLegalName("Alpha Holdings LLC");
+    const store = new Map<string, string>();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => void store.set(key, value),
+        removeItem: (key: string) => void store.delete(key),
+      },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      expect(await fetchAndCacheLandlordLegalName(null)).toBe("");
+      expect(await fetchAndCacheLandlordLegalName("   ")).toBe("");
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(cachedLandlordLegalName()).toBe("Alpha Holdings LLC");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

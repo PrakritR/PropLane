@@ -68,7 +68,45 @@ describe("Sync all now from a portfolio larger than the cap", () => {
       const total = await syncAllChannelCalendarConnections(ids, { force: true });
       expect(batches.map((b) => b.length)).toEqual([MAX_SYNC_ALL_PROPERTY_IDS, MAX_SYNC_ALL_PROPERTY_IDS, 1]);
       expect(batches.flat()).toEqual(ids);
-      expect(total).toEqual({ synced: 6, failed: 3, skipped: 9 });
+      expect(total).toEqual({ synced: 6, failed: 3, skipped: 9, unsynced: 0 });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps the houses that did sync when one batch is refused, and says how many did not", async () => {
+    const { syncAllChannelCalendarConnections } = await import("@/lib/channel-calendar/client");
+    const { MAX_SYNC_ALL_PROPERTY_IDS } = await import("@/lib/channel-calendar/types");
+    let call = 0;
+    const fetchMock = vi.fn(async () => {
+      call += 1;
+      if (call === 2) return { ok: false, json: async () => ({ error: "Too many syncs. Try again in a minute." }) };
+      return { ok: true, json: async () => ({ synced: 4, failed: 0, skipped: 0 }) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const ids = Array.from({ length: MAX_SYNC_ALL_PROPERTY_IDS * 2 + 5 }, (_, i) => `p${i}`);
+      expect(await syncAllChannelCalendarConnections(ids, { force: true })).toEqual({
+        synced: 8,
+        failed: 0,
+        skipped: 0,
+        unsynced: MAX_SYNC_ALL_PROPERTY_IDS,
+        error: "Too many syncs. Try again in a minute.",
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("throws only when nothing answered at all", async () => {
+    const { syncAllChannelCalendarConnections } = await import("@/lib/channel-calendar/client");
+    const { MAX_SYNC_ALL_PROPERTY_IDS } = await import("@/lib/channel-calendar/types");
+    const fetchMock = vi.fn(async () => ({ ok: false, json: async () => ({ error: "Sync is temporarily unavailable." }) }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const ids = Array.from({ length: MAX_SYNC_ALL_PROPERTY_IDS + 1 }, (_, i) => `p${i}`);
+      await expect(syncAllChannelCalendarConnections(ids)).rejects.toThrow("Sync is temporarily unavailable.");
     } finally {
       vi.unstubAllGlobals();
     }
@@ -79,7 +117,7 @@ describe("Sync all now from a portfolio larger than the cap", () => {
     const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ synced: 1, failed: 0, skipped: 0 }) }));
     vi.stubGlobal("fetch", fetchMock);
     try {
-      expect(await syncAllChannelCalendarConnections([])).toEqual({ synced: 1, failed: 0, skipped: 0 });
+      expect(await syncAllChannelCalendarConnections([])).toEqual({ synced: 1, failed: 0, skipped: 0, unsynced: 0 });
       expect(fetchMock).toHaveBeenCalledTimes(1);
     } finally {
       vi.unstubAllGlobals();

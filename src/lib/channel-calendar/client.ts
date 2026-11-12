@@ -127,28 +127,56 @@ async function postSyncAll(
   return { synced: data.synced ?? 0, failed: data.failed ?? 0, skipped: data.skipped ?? 0 };
 }
 
+export type SyncAllChannelCalendarsResult = {
+  synced: number;
+  failed: number;
+  skipped: number;
+  /** Houses whose own request never answered (a 429, a 500, a dropped connection). */
+  unsynced: number;
+  /** Why those houses went unanswered. Absent when every batch answered. */
+  error?: string;
+};
+
 /**
  * `force` (the manager's own Sync all now) also brings back a removed reservation the channel still lists.
  *
  * A portfolio larger than one request's house cap goes out as sequential batches whose counts are
- * merged — one at a time, because each batch is itself a pool of feed fetches on the server.
+ * merged — one at a time, because each batch is itself a pool of feed fetches on the server. A batch
+ * that fails (the shared `channel-sync` rate limit is the likely one) costs only its own houses: the
+ * counts the other batches earned are kept and reported beside `unsynced`, since those houses really
+ * did sync. Only a run where NOTHING answered throws, which is the one case that is a total failure.
  */
 export async function syncAllChannelCalendarConnections(
   propertyIds: string[],
   options: { force?: boolean } = {},
-): Promise<{ synced: number; failed: number; skipped: number }> {
+): Promise<SyncAllChannelCalendarsResult> {
   const ids = propertyIds.map((id) => String(id).trim()).filter(Boolean);
   const force = options.force === true;
   // No ids at all means "every connection I own", which the route answers in one request.
-  if (ids.length <= MAX_SYNC_ALL_PROPERTY_IDS) return postSyncAll(ids, force);
-  const total = { synced: 0, failed: 0, skipped: 0 };
-  for (let start = 0; start < ids.length; start += MAX_SYNC_ALL_PROPERTY_IDS) {
-    const batch = await postSyncAll(ids.slice(start, start + MAX_SYNC_ALL_PROPERTY_IDS), force);
-    total.synced += batch.synced;
-    total.failed += batch.failed;
-    total.skipped += batch.skipped;
+  const batches: string[][] = [];
+  if (ids.length <= MAX_SYNC_ALL_PROPERTY_IDS) batches.push(ids);
+  else {
+    for (let start = 0; start < ids.length; start += MAX_SYNC_ALL_PROPERTY_IDS) {
+      batches.push(ids.slice(start, start + MAX_SYNC_ALL_PROPERTY_IDS));
+    }
   }
-  return total;
+  const total: SyncAllChannelCalendarsResult = { synced: 0, failed: 0, skipped: 0, unsynced: 0 };
+  let answered = 0;
+  let firstError: string | null = null;
+  for (const batch of batches) {
+    try {
+      const result = await postSyncAll(batch, force);
+      total.synced += result.synced;
+      total.failed += result.failed;
+      total.skipped += result.skipped;
+      answered += 1;
+    } catch (e) {
+      total.unsynced += batch.length;
+      firstError ??= e instanceof Error ? e.message : "Sync failed.";
+    }
+  }
+  if (answered === 0) throw new Error(firstError ?? "Sync failed.");
+  return firstError ? { ...total, error: firstError } : total;
 }
 
 export async function syncChannelCalendarConnection(

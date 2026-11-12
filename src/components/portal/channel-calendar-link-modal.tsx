@@ -270,10 +270,20 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
   };
   const syncAll = () => run(async () => {
     try {
-      const { synced, failed, skipped } = await syncAllChannelCalendarConnections(scopeKey ? scopeKey.split("\n") : [], { force: true });
+      const { synced, failed, skipped, unsynced, error } = await syncAllChannelCalendarConnections(
+        scopeKey ? scopeKey.split("\n") : [],
+        { force: true },
+      );
+      const notes = [
+        failed ? `${failed} failed` : "",
+        skipped ? `${skipped} left, sync again` : "",
+        error
+          ? `${unsynced ? `${unsynced} ${unsynced === 1 ? "house" : "houses"}` : "some houses"} could not sync, try again`
+          : "",
+      ].filter(Boolean);
       showToast(
-        failed || skipped
-          ? `Synced ${synced}${failed ? ` · ${failed} failed` : ""}${skipped ? ` · ${skipped} left, sync again` : ""}`
+        notes.length
+          ? `Synced ${synced} · ${notes.join(" · ")}`
           : `Synced ${synced} ${synced === 1 ? "calendar" : "calendars"}.`,
       );
     } finally { await refresh(); }
