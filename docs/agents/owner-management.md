@@ -316,3 +316,29 @@ after. Without that pass the transfer would sit in a manual-schedule recipient's
 
 Two endpoints (platform events and connected-account events), two signing secrets, one route; and a 15-minute backstop cron
 `/api/cron/release-ready-holds`. See `docs/stripe-go-live.md` section 5.
+
+
+## Funding decision (one answer, fail closed)
+
+`src/lib/managed-finance/funding-model.server.ts` is the one place that answers "where does this workspace's resident money go?":
+`resolveWorkspaceFundingModel(db, workspaceId)` / `resolveFundingModelForProperties` -> `managed_platform` when
+`portal_workspaces.is_service`, else `connect_destination` (self-serve, unchanged). A failed read throws
+`FundingModelUnreadableError`; an unreadable flag is never read as self-serve. (This is not the `fundingModel: "platform_ledger"`
+checkout option, which credits a manager's PropLane balance; a managed capture is the platform-hold checkout plus
+`credit_managed_capture`, the rail every resident payment already uses.)
+
+Enforced at three points, so an `is_service` workspace's money can never reach a manager's own Connect account:
+
+1. **Checkout / autopay creation** (`fundingModelProblem`, household checkout 503 `FUNDING_MODEL_UNREADABLE`, autopay run fails): refuse
+   when the flag cannot be read. Application-fee and linked-form-fee checkouts already fail closed through
+   `platformCaptureRequiredForProperty`.
+2. **Hold credit** (`assertHoldAllowedForProperties`): the household checkout and autopay source credits and
+   `creditHoldFromPaidSession` / `creditHoldFromPaymentIntent` throw instead of crediting a manager hold when the house is in an
+   `is_service` workspace (or the flag is unreadable). Stripe redelivers; the money stays on the platform balance. A hold that
+   already exists is left to the release guard.
+3. **Hold release** (`holdIsServiceWorkspaceMoney` in `platform-hold-release.server.ts`): a NEW manager hold release is frozen
+   (stays held, visible) when its charge rows sit in an `is_service` workspace or the read fails. Previously only a workspace
+   with NO active fee policy froze a release.
+
+Not covered: a house with no `workspace_id` is self-serve by definition, and application-fee holds are guarded at credit time only
+(release cannot map their source id to a house).

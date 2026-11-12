@@ -149,9 +149,9 @@ describe("list order: the PropLane agent is pinned first", () => {
     { threadId: "house-b", sortMs: 400, kind: "house" },
   ];
 
-  it("puts the agent first even when it is the oldest, then house chats, then conversations by recency", () => {
+  it("puts the agent first even when it is the oldest, then every other conversation, house chats included, by recency", () => {
     const ordered = orderResidentConversationRows(rows, (row) => row.kind);
-    expect(ordered.map((row) => row.threadId)).toEqual(["agent", "chat", "my-number", "house-b", "house-a"]);
+    expect(ordered.map((row) => row.threadId)).toEqual(["agent", "my-number", "house-b", "house-a", "chat"]);
   });
 
   it("is stable and does not reorder within a group that is already newest-first", () => {

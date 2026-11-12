@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
+vi.mock("@/lib/stripe", () => ({ getStripe: vi.fn() }));
 
 import {
   FundingModelUnreadableError,
@@ -85,5 +87,29 @@ describe("workspace funding model", () => {
     expect(await holdIsServiceWorkspaceMoney(fakeDb(rows), hold("cs_self"))).toBe(false);
     expect(await holdIsServiceWorkspaceMoney(fakeDb(rows), { ...hold("cs_managed"), source: "vendor_invoice" })).toBe(false);
     await expect(holdIsServiceWorkspaceMoney(fakeDb(rows, ["portal_household_charge_records"]), hold("cs_self"))).rejects.toBeInstanceOf(FundingModelUnreadableError);
+  });
+});
+
+describe("hold credit refuses a managed workspace (no manager hold, so no Connect release)", () => {
+  const session = (property_id: string) => ({
+    id: "cs_1", status: "complete", payment_status: "paid",
+    metadata: { platform_hold: "1", purpose: "household_charge", manager_user_id: "mgr", hold_amount_cents: "36200", property_id },
+  });
+
+  it("creditHoldFromPaidSession throws for an is_service house and inserts nothing", async () => {
+    const { creditHoldFromPaidSession } = await import("@/lib/stripe-platform-hold.server");
+    const inserted: unknown[] = [];
+    const base = fakeDb({ ...rows, platform_payment_holds: [] });
+    const db = { from: (t: string) => (t === "platform_payment_holds"
+      ? { ...((base.from(t) as unknown) as object), insert: (r: unknown) => { inserted.push(r); return { select: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }; } }
+      : base.from(t)) } as unknown as SupabaseClient;
+    await expect(creditHoldFromPaidSession(db, session("p-managed") as never)).rejects.toBeInstanceOf(ServiceWorkspaceHoldRefusedError);
+    expect(inserted).toEqual([]);
+  });
+
+  it("an unreadable flag also refuses the hold credit", async () => {
+    const { creditHoldFromPaidSession } = await import("@/lib/stripe-platform-hold.server");
+    const db = fakeDb({ ...rows, platform_payment_holds: [] }, ["portal_workspaces"]);
+    await expect(creditHoldFromPaidSession(db, session("p-self") as never)).rejects.toBeInstanceOf(FundingModelUnreadableError);
   });
 });

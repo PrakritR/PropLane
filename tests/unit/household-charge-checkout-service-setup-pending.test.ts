@@ -5,6 +5,7 @@ const pending = vi.hoisted(() => vi.fn());
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/stripe", () => ({ getStripe }));
 vi.mock("@/lib/managed-finance/resolve.server", () => ({ managedCartProblem: async () => null }));
+vi.mock("@/lib/managed-finance/funding-model.server", () => ({ fundingModelProblem: async () => null, assertHoldAllowedForProperties: async () => undefined, propertyIdForHouseholdCharge: async () => null }));
 vi.mock("@/lib/managed-finance/unpolicied-service.server", () => ({ serviceSetupPendingProblem: pending }));
 vi.mock("@/lib/test-workspaces/effects.server", () => ({ captureTestWorkspaceEffectForUser: async () => ({ captured: false }) }));
 

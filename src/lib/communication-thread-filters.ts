@@ -2,6 +2,8 @@ import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { PRIMARY_AXIS_ADMIN_EMAIL, PRIMARY_AXIS_ADMIN_LABEL } from "@/data/inbox-scoped-directory";
 import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
 import { trimmedText } from "@/lib/trimmed-text";
+import type { CommunicationFromFilter, CommunicationFromGroup } from "@/lib/communication-from-filter";
+import { passesFromFilter } from "@/lib/communication-from-filter";
 import { RECORD_KINDS, type RecordKind } from "@/lib/portals/record-kinds";
 
 export type CommunicationFilterRole = "resident" | "management" | "admin" | "vendor";
@@ -21,6 +23,8 @@ export type CommunicationThreadFilters = {
   recordRefs?: { kind: RecordKind; id: string }[];
   /** Narrow to threads whose `recordRef.kind` is one of these — the inbox's "About" filter. */
   recordKinds?: RecordKind[];
+  /** The "From" filter: one counterparty group (Residents, Vendors, Managers, Prospects). Unset / `all` = no narrowing. */
+  from?: CommunicationFromFilter;
 };
 
 export const EMPTY_COMMUNICATION_THREAD_FILTERS: CommunicationThreadFilters = {
@@ -57,7 +61,8 @@ export function communicationFiltersActive(filters: CommunicationThreadFilters):
     filters.roles.length > 0 ||
     filters.contactIds.length > 0 ||
     (filters.recordRefs?.length ?? 0) > 0 ||
-    (filters.recordKinds?.length ?? 0) > 0
+    (filters.recordKinds?.length ?? 0) > 0 ||
+    Boolean(filters.from && filters.from !== "all")
   );
 }
 
@@ -129,9 +134,13 @@ export function threadPassesCommunicationFilters(args: {
   counterpartyRole?: SmsCounterpartyRole;
   /** The thread's stamped `recordRef`, when it has one. Absent/null never matches a recordRefs/recordKinds filter. */
   recordRef?: { kind: RecordKind; id: string } | null;
+  /** The thread's From group (`fromGroupForThread` / `fromGroupForCounterpartyRole`); null = unknown, shown only under All. */
+  fromGroup?: CommunicationFromGroup | null;
 }): boolean {
   const { filters } = args;
   if (!communicationFiltersActive(filters)) return true;
+
+  if (!passesFromFilter(filters.from, args.fromGroup ?? null)) return false;
 
   // Record dimensions are pure narrowing: a thread with no ref fails outright
   // rather than falling through to the property/role/person checks below, and

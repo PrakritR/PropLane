@@ -9,6 +9,7 @@ import { useSearchParams } from "next/navigation";
 import { consumeComposeQueryParam } from "@/lib/portals/compose-query";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
+import { useCommunicationFromFilter } from "@/hooks/use-communication-from-filter";
 import { CommunicationFilterSortFields } from "@/components/portal/communication-filter-sort-fields";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { ManagerUnifiedInbox } from "@/components/portal/pro-unified-inbox";
@@ -72,6 +73,7 @@ export function communicationFilterTouches(
   if (filters.propertyIds.length > 0) n += 1;
   if (filters.roles.length > 0) n += 1;
   if (filters.contactIds.length > 0) n += 1;
+  if (filters.from && filters.from !== "all") n += 1;
   if (listSort !== "recent") n += 1;
   return n;
 }
@@ -122,6 +124,7 @@ export function ManagerCommunication({
     ...EMPTY_COMMUNICATION_THREAD_FILTERS,
     status: listSegmentProp === "unread" ? "unread" : wantsNotDelivered ? "notDelivered" : "active",
   });
+  useCommunicationFromFilter(filters, setFilters);
   useEffect(() => {
     setFilters((current) => {
       if (listSegment === "unread") {
@@ -347,6 +350,8 @@ export function ManagerCommunication({
       listSort={listSort}
       onListSortChange={setListSort}
       hideArchived
+      hideRole
+      showFrom
       showScheduled={isPhone}
     />
   );

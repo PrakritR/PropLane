@@ -236,14 +236,13 @@ export function residentHouseStarters(
 const KIND_ORDER: Record<ResidentConversationKind, number> = {
   proplane_agent: 0,
   house_chat: 1,
-  house: 2,
-  my_agent: 2,
+  house: 1,
+  my_agent: 1,
 };
 
 /**
- * The list order: the PropLane agent first, ALWAYS; then the house chats as a group; then every house and
- * number conversation by recency. A stable partition over rows that are already newest-first, so within a group
- * nothing moves. `kindOf` reads a row's kind from its thread id.
+ * The list order: the PropLane agent first, ALWAYS; then every other conversation (house chats included) strictly
+ * by last activity, newest first (`sortMs` is the real timestamp, never the display label). Ties keep input order. `kindOf` reads a row's kind from its thread id.
  */
 export function orderResidentConversationRows<T extends { threadId: string; sortMs: number }>(
   rows: readonly T[],
@@ -251,7 +250,7 @@ export function orderResidentConversationRows<T extends { threadId: string; sort
 ): T[] {
   return rows
     .map((row, index) => ({ row, index, rank: KIND_ORDER[kindOf(row)] }))
-    .sort((a, b) => a.rank - b.rank || (a.rank === 2 ? b.row.sortMs - a.row.sortMs : 0) || a.index - b.index)
+    .sort((a, b) => a.rank - b.rank || (b.row.sortMs - a.row.sortMs) || a.index - b.index)
     .map((entry) => entry.row);
 }
 

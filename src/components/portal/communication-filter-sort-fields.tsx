@@ -11,6 +11,7 @@ import {
   filterSingleSelectSummary,
 } from "@/components/portal/filter-field-lists";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { COMMUNICATION_FROM_OPTIONS, type CommunicationFromFilter } from "@/lib/communication-from-filter";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
 import {
   RECORD_KIND_FILTER_OPTIONS,
@@ -65,6 +66,7 @@ export function CommunicationFilterSortFields({
   hideHouse = false,
   hideRole = false,
   hideAbout = false,
+  showFrom = false,
   showScheduled = false,
   workspaceOptions,
   workspaceValue = "",
@@ -83,6 +85,8 @@ export function CommunicationFilterSortFields({
   hideRole?: boolean;
   /** A surface whose conversations carry no record link drops the About filter. */
   hideAbout?: boolean;
+  /** Manager / admin Communication: the single-select From filter (Residents, Vendors, Managers, Prospects). */
+  showFrom?: boolean;
   /** Phone-only Scheduled list view in the Status filter. */
   showScheduled?: boolean;
   /** Admin only: the PropLane Service workspaces a text can be routed to (the Workspace filter). Absent = no such field. */
@@ -111,6 +115,14 @@ export function CommunicationFilterSortFields({
       {workspaceOptions && onWorkspaceChange ? (
         <WorkspaceFilterSection options={workspaceOptions} value={workspaceValue} onChange={onWorkspaceChange} />
       ) : null}
+      {showFrom ? <FieldSingleSelect
+        label="From"
+        value={draftFilters.from ?? "all"}
+        onChange={(next) => setDraftFilters({ ...draftFilters, from: next as CommunicationFromFilter })}
+        options={COMMUNICATION_FROM_OPTIONS}
+        placeholder="All"
+        dataAttr="communication-filter-from"
+      /> : null}
       {hideHouse ? null : <FilterCollapsibleSection
         sectionId="house"
         label="House"

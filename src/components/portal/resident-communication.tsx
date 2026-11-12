@@ -448,10 +448,10 @@ function ResidentUnifiedInbox({
         }
       }
 
-      // The PropLane agent first, always; then the house chats; then every house conversation by recency.
+      // The PropLane agent first, always; then every conversation (house chats included) strictly by last activity.
       const ordered = orderResidentConversationRows(
         [
-          ...mergeUnifiedInboxItems(houseItems, "recent"),
+          ...houseItems,
           ...mergeUnifiedInboxItems(
             [...filteredEmailItems, ...foldTextRowIntoSoleWorkspace(filteredEmailItems, smsItems)],
             "recent",

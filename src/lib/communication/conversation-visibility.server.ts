@@ -168,8 +168,11 @@ export function conversationVisible(scope: CommunicationScope, input: Visibility
     if (scope.activeWorkspaceId && scope.activeWorkspaceId !== team.workspaceId) return false;
     if (ownerId === scope.viewerId) return true;
     const membership = scope.teamWorkspacesByOwner?.get(ownerId)?.get(team.workspaceId);
-    if (!membership) return false;
-    return scope.level === "read" || membership.canPost;
+    // PropLane staff who run this service workspace (`staffWorkspaceOwners`, already re-derived from their seat)
+    // are in its Team chat even when the membership read found no row for them.
+    const staffRuns = scope.staffWorkspaceOwners?.get(team.workspaceId) === ownerId;
+    if (!membership && !staffRuns) return false;
+    return scope.level === "read" || (membership ? membership.canPost : staffRuns);
   }
   const isAssistant =
     input.threadType === "agent_notice" || (threadId.length > 0 && threadId.startsWith(AGENT_NOTICE_PREFIX));

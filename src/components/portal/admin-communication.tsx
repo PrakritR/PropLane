@@ -15,6 +15,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MessageSquarePlus } from "lucide-react";
+import { useCommunicationFromFilter } from "@/hooks/use-communication-from-filter";
 import { CommunicationFilterSortFields } from "@/components/portal/communication-filter-sort-fields";
 import { createAdminInboxAdapter } from "@/components/portal/communication-adapters/admin-inbox-adapter";
 import { AdminComposeModal, type AdminComposeRecipient } from "@/components/portal/admin-compose-modal";
@@ -77,6 +78,7 @@ export function AdminCommunication({
     ...EMPTY_COMMUNICATION_THREAD_FILTERS,
     status: listSegmentProp === "unread" ? "unread" : "active",
   });
+  useCommunicationFromFilter(filters, setFilters);
   useEffect(() => {
     setFilters((current) => {
       if (listSegment === "unread") {
@@ -135,7 +137,7 @@ export function AdminCommunication({
   }, [composeOpen, recipientsLoaded]);
 
   const filterTouchCount =
-    (filters.status && filters.status !== "active" ? 1 : 0) + (listSort !== "recent" ? 1 : 0) + (workspaceFilter ? 1 : 0);
+    (filters.status && filters.status !== "active" ? 1 : 0) + (filters.from && filters.from !== "all" ? 1 : 0) + (listSort !== "recent" ? 1 : 0) + (workspaceFilter ? 1 : 0);
 
   const activeFilterChips = useMemo((): PortalActiveFilterChip[] => {
     const chips: PortalActiveFilterChip[] = [];
@@ -169,7 +171,7 @@ export function AdminCommunication({
     <PortalFilterSortSheet
       activeCount={filterTouchCount}
       compactPanel
-      filterFieldCount={3}
+      filterFieldCount={4}
       constrainDropdownToTitleBand={false}
       commandStripTrigger
       mobileFlushBody
@@ -191,6 +193,7 @@ export function AdminCommunication({
         hideHouse
         hideRole
         hideAbout
+        showFrom
         workspaceOptions={smsUiEnabled ? workspaceOptions : undefined}
         workspaceValue={workspaceFilter}
         onWorkspaceChange={setWorkspaceFilter}

@@ -26,6 +26,7 @@ vi.mock("@/lib/managed-finance/resolve.server", () => ({
   managedCartProblem: (...args: unknown[]) => managedCartProblem(...args),
 }));
 const serviceSetupPendingProblem = vi.fn().mockResolvedValue(null);
+vi.mock("@/lib/managed-finance/funding-model.server", () => ({ fundingModelProblem: async () => null, assertHoldAllowedForProperties: async () => undefined, propertyIdForHouseholdCharge: async () => null }));
 vi.mock("@/lib/managed-finance/unpolicied-service.server", () => ({
   serviceSetupPendingProblem: (...args: unknown[]) => serviceSetupPendingProblem(...args),
 }));

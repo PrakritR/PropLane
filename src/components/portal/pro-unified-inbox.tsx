@@ -41,6 +41,7 @@ import {
   type CommunicationDetailsRecord,
 } from "@/components/portal/communication-details-pane";
 import { counterpartyRoleLabel } from "@/lib/sms-conversation-identity";
+import { fromGroupForCounterpartyRole, fromGroupForThread } from "@/lib/communication-from-filter";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { recordRoutePath } from "@/lib/portals/record-kinds";
 import {
@@ -782,7 +783,11 @@ export function ManagerUnifiedInbox({
     // The contacts directory only gates the property/role/person dimensions
     // (they need it to resolve a match); a record-only filter has everything
     // it needs on the thread itself and must not wait on that fetch.
-    const hasRecordFilter = Boolean(threadFilters?.recordRefs?.length || threadFilters?.recordKinds?.length);
+    const hasRecordFilter = Boolean(
+      threadFilters?.recordRefs?.length ||
+      threadFilters?.recordKinds?.length ||
+      (threadFilters?.from && threadFilters.from !== "all"),
+    );
     if (!threadFilters || (!filterContacts && !hasRecordFilter)) return withAssistant;
     return withAssistant.filter((t) =>
       isPropLaneAssistantInboxThread(t) ||
@@ -791,6 +796,7 @@ export function ManagerUnifiedInbox({
         contacts: filterContacts ?? [],
         counterpartyEmail: t.email,
         recordRef: t.recordRef,
+        fromGroup: fromGroupForThread(t, filterContacts ?? []),
       }),
     );
   }, [adapter, assistantWorkspace, emailThreads, threadFilters, filterContacts, smsUiEnabled, viewerId]);
@@ -922,6 +928,7 @@ export function ManagerUnifiedInbox({
             counterpartyEmail: resident.residentEmail,
             propertyLabel: resident.propertyLabel,
             counterpartyRole: resident.counterpartyRole,
+            fromGroup: fromGroupForCounterpartyRole(resident.counterpartyRole),
           }),
         );
 
