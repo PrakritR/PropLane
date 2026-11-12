@@ -124,14 +124,16 @@ describe("the sheet's list of the account's workspaces", () => {
 describe("Choose workspaces: the existing attach, once per workspace", () => {
   const base = { accountUserId: CLIENT, mode: "pick", city: "Seattle" };
 
-  it("one workspace: flags it, audits first, labels it, keeps the owner and writes no house row", async () => {
-    const before = JSON.stringify(db.tables.manager_property_records);
+  it("one workspace: flags it, audits first, labels it, moves ownership to the admin and rewrites no listing content", async () => {
+    const content = JSON.stringify(db.tables.manager_property_records.map((h) => ({ ...h, manager_user_id: undefined })));
     const res = await managed.manageAccountByProplane(client(), ADMIN_A, { ...base, workspaceIds: [WS_A], label: "Marc - Seattle" });
     expect(res).toMatchObject({ ok: true, attached: [WS_A], moved: [], archived: [] });
-    expect(wsRow(WS_A)).toMatchObject({ owner_user_id: CLIENT, is_service: true, city: "Seattle", name: "Marc - Seattle" });
+    expect(wsRow(WS_A)).toMatchObject({ owner_user_id: OWNER, is_service: true, city: "Seattle", name: "Marc - Seattle" });
     expect(wsRow(WS_B).is_service).toBe(false);
-    expect(JSON.stringify(db.tables.manager_property_records)).toBe(before);
-    expect(db.rpcCalls).toEqual([]);
+    expect(JSON.stringify(db.tables.manager_property_records.map((h) => ({ ...h, manager_user_id: undefined })))).toBe(content);
+    expect(db.rpcCalls.map((c) => c.fn)).toEqual(["move_managed_workspace_to_service_owner"]);
+    // The client is seated as the Property owner of record (view-only), under the admin who owns it now.
+    expect(db.tables.account_link_invites.find((l) => l.workspace_id === WS_A && l.invitee_user_id === CLIENT)).toMatchObject({ inviter_user_id: OWNER, team_role: "property_owner", is_owner_of_record: true });
     expect(auditActions()).toEqual(["admin_service_attach"]);
     expect(db.tables.audit_log[0]).toMatchObject({ actor_user_id: ADMIN_A, landlord_id: CLIENT });
   });
@@ -191,16 +193,18 @@ describe("Combine all into one", () => {
     // Only workspace_id changed, on exactly the others' houses; owner, row data and the lease field are as they were.
     for (const after of db.tables.manager_property_records) {
       const was = before.find((h) => h.id === after.id)!;
-      const { workspace_id: nowWs, ...rest } = after;
-      const { workspace_id: wasWs, ...wasRest } = was;
-      expect(rest).toEqual(wasRest);
+      const { workspace_id: nowWs, manager_user_id: nowOwner, ...rest } = after;
+      const { workspace_id: wasWs, manager_user_id: wasOwner, ...wasRest } = was;
+      expect(rest).toEqual(wasRest); // row data and the lease field are as they were
+      // The mover (after the combine) hands the attached workspace's houses to the admin; every other house keeps its owner.
+      expect(nowOwner).toBe(nowWs === WS_B ? OWNER : wasOwner);
       if (["house-a1", "house-a2", "house-c1", "house-b1"].includes(String(after.id))) expect(nowWs).toBe(WS_B);
       else expect(nowWs).toBe(wasWs);
     }
     expect(houseRow("house-o1").workspace_id).toBe(WS_OTHER);
 
     // The target is managed and still the owner's; the emptied ones are archived (not deleted); the owner never moved.
-    expect(wsRow(WS_B)).toMatchObject({ owner_user_id: CLIENT, is_service: true });
+    expect(wsRow(WS_B)).toMatchObject({ owner_user_id: OWNER, is_service: true });
     expect(wsRow(WS_C).archived_at).toBeTruthy();
     expect(wsRow(WS_A).archived_at).toBeFalsy();
     expect(db.tables.portal_workspaces).toHaveLength(4);
@@ -211,7 +215,7 @@ describe("Combine all into one", () => {
     expect(moves.map((m) => (m.input_summary as { fromWorkspaceId: string }).fromWorkspaceId)).toEqual([WS_A, WS_C]);
     expect(moves[0]!.input_summary).toMatchObject({ toWorkspaceId: WS_B, ownerUserId: CLIENT, houseIds: ["house-a1", "house-a2"] });
     expect(moves.every((m) => (m.result_summary as { applied: boolean }).applied === true)).toBe(true);
-    expect(db.rpcCalls.map((c) => c.fn)).toEqual(["combine_portal_workspaces"]);
+    expect(db.rpcCalls.map((c) => c.fn)).toEqual(["combine_portal_workspaces", "move_managed_workspace_to_service_owner"]);
   });
 
   it("is a single call that re-checks ownership itself: a target or source from another owner is refused by the database", async () => {

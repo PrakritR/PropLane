@@ -237,6 +237,18 @@ async function isManagerPersonalPhone(fromE164: string, managerUserId: string): 
   return Boolean(personal && personal === fromE164 && verified);
 }
 
+/** The workspace a delivery issue belongs to: the one the turn named, else the owner's resolved workspace, so the issue lands on the thread and not only in the admin's Assistant. */
+async function resolveIssueWorkspaceId(db: ReturnType<typeof createSupabaseServiceRoleClient>, ownerUserId: string, workspaceId: string | null | undefined): Promise<string | null> {
+  const named = workspaceId?.trim();
+  if (named) return named;
+  try {
+    const { resolveWorkspaceContext } = await import("@/lib/communication/conversation-key.server");
+    return (await resolveWorkspaceContext(db, ownerUserId, { propertyId: null }))?.workspaceId ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * A prospect reply the normal send refused. On a PropLane-MANAGED workspace PropLane sends it itself (`resolveSmsPayer`: the
  * service owner pays, never the client's wallet); either way the outcome is never silent: a failure is stamped on the thread
@@ -261,9 +273,10 @@ async function retryProspectReplyAsPropLane(args: {
     if (fallback.attempted && fallback.ok) return { ok: true, channel: "twilio" };
     const { recordDeliveryIssue } = await import("@/lib/prospect-spine/delivery-issue.server");
     const { locateThreadId } = await import("@/lib/prospect-spine/locate.server");
-    const threadId = args.workspaceId ? await locateThreadId(db, { ownerUserId: args.ownerUserId, workspaceId: args.workspaceId, phoneE164: args.to }).catch(() => null) : null;
+    const issueWorkspaceId = await resolveIssueWorkspaceId(db, args.ownerUserId, args.workspaceId);
+    const threadId = issueWorkspaceId ? await locateThreadId(db, { ownerUserId: args.ownerUserId, workspaceId: issueWorkspaceId, phoneE164: args.to }).catch(() => null) : null;
     await recordDeliveryIssue(db, {
-      threadId, workspaceId: args.workspaceId, direction: "outbound",
+      threadId, workspaceId: issueWorkspaceId, direction: "outbound",
       reason: `The reply to a prospect was not sent (${(fallback.reason ?? args.refusal ?? "refused").replace(/_/g, " ")}).`,
       eventId: `reply:${args.claimKey ?? args.to}`,
     });
@@ -1690,9 +1703,10 @@ export async function handleClawLeasingInbound(args: {
       const db = createSupabaseServiceRoleClient();
       const { recordDeliveryIssue } = await import("@/lib/prospect-spine/delivery-issue.server");
       const { locateThreadId } = await import("@/lib/prospect-spine/locate.server");
-      const threadId = args.workspaceId ? await locateThreadId(db, { ownerUserId: landlordId, workspaceId: args.workspaceId, phoneE164: from }).catch(() => null) : null;
+      const issueWorkspaceId = await resolveIssueWorkspaceId(db, landlordId, args.workspaceId);
+      const threadId = issueWorkspaceId ? await locateThreadId(db, { ownerUserId: landlordId, workspaceId: issueWorkspaceId, phoneE164: from }).catch(() => null) : null;
       await recordDeliveryIssue(db, {
-        threadId, workspaceId: args.workspaceId ?? null, direction: "outbound",
+        threadId, workspaceId: issueWorkspaceId, direction: "outbound",
         reason: "The assistant did not produce a reply to this text. A person should answer it.",
         eventId: `no-outcome:${args.prospectBurst?.burstId ?? messageId}:${args.prospectBurst?.revision ?? 0}`,
       });

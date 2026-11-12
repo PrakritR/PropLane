@@ -149,7 +149,14 @@ export async function ingestPlatformLead(deps: LeadIngestDeps, input: LeadIngest
   let threadId = recorded.threadId;
   if (lead.phoneInBody) {
     const stitched = await deps.spine.stitchByPhone({ contextId: recorded.contextId, phoneE164: lead.phoneInBody });
-    if (stitched.ok) threadId = stitched.threadId;
+    if (stitched.ok) {
+      threadId = stitched.threadId;
+      // The phone already texts the line: the prospect is on text, so this platform mail is stored and never answered there.
+      if (stitched.moved) {
+        await deps.notify(`They moved to text · ${lead.senderName} wrote again on ${label} · ${tag}`, `platform-moved:${msgKey}`, match?.propertyId ?? null);
+        return { handled: true, replied: false, role: "channel", held: ["They moved to text"], threadId, contextId: recorded.contextId, mode: "moved" };
+      }
+    }
   }
   const code = await deps.spine.mintStitchCode(recorded.contextId);
   await deps.stampThread(threadId, { platformState: { site, state: "active", stitchCode: code }, platformLead: { site, siteLabel: label, senderName: lead.senderName, tag, via: lead.via } });

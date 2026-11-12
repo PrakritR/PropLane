@@ -21,6 +21,12 @@ That design is gone: no destination, no application fee, none of its plumbing is
 | **PropLane-managed** (has an active `managed_workspace_fee_policies` row; one workspace per signed owner / client / city) | Resident money is captured on PropLane's platform Stripe balance (central capture, unchanged) and **never** credited to a manager hold. It is allocated in the **party ledger**: owner payable, PropLane fee revenue, vendor payables. Owners and vendors withdraw their available balance to their own Express account. |
 | **Self-serve software workspace** (no policy) | Byte for byte today's per-workspace Stripe Connect flow (hold credited to the manager, manual payouts, vendors paid from the workspace's own balance). Nothing in this doc touches it. |
 
+A managed workspace is OWNED by the platform service owner (the admin); the client is its Property owner and the payee
+(`resolveManagedPayee`: the owner seat, the signed policy's owner before the prod move). The statement and tax-package headers name
+the Property owner of record (`propertyOwner`), never the workspace row's owner. The ledger is keyed on the policy's owner party
+(`owner:<client id>`) and is never re-keyed by the ownership move. TODO(managed-workspaces-to-admin-20261112): drop the
+"policy owner" fallback in the payee after the one-shot's read-back.
+
 Managed-ness is read from the database at the moment money is credited (the property's `workspace_id` -> active policy), never
 from a request. A workspace with no policy is not managed.
 
@@ -200,8 +206,8 @@ A workspace is PropLane-managed only while an ACTIVE `managed_workspace_fee_poli
 workspace that row is created automatically, with no signature: `ensureServiceFeePolicy` (`src/lib/owner-management/policies.server.ts`)
 is idempotent and makes an admin-attested policy (note "Automatic PropLane management fee", PropLane keeps 10%, appliesTo `rent`,
 no leasing fee or minimum) on attach, on create, and lazily wherever a service workspace is found without one (checkout, autopay,
-platform-capture decision, hold release; `unpolicied-service.server.ts`). The owner of record is the workspace's owner when a client
-owns it (attached), or its flagged owner-of-record member when the platform service owner owns it. `resolveOwnerOfRecord` fails
+platform-capture decision, hold release; `unpolicied-service.server.ts`). The owner of record is its flagged owner-of-record member (the Property owner seat; the workspace owner is the platform service
+owner). TODO(managed-workspaces-to-admin-20261112): before the one-shot an attached workspace's client OWNS it and is the owner of record. `resolveOwnerOfRecord` fails
 closed: with no `platform_service_settings` row there is no way to tell a client's workspace from PropLane's own, so the answer is
 "none" and nothing is created - PropLane is never named as the owner of record of its own workspace.
 
@@ -354,3 +360,14 @@ link action (`POST .../send-link`: recipient derived from the workspace's active
 link carries no credential). A bank token's holder name must match the verified name on the Stripe account
 (`holderNamesMatch`, checked server-side in `addPayoutDestination`); the sheet's Account holder field is read-only. Payout routes
 return Stripe's real error message and code (`stripePayoutErrorResponse`), never a generic screen.
+
+## Owner of record = the Property owner seat (Nov 12)
+
+Every managed workspace is owned by the service owner (the admin); its client is an accepted `property_owner` seat flagged
+`is_owner_of_record` (view-only: Performance, Statements, Documents, Messages). The payee is `resolveManagedPayee`
+(`managed-finance/payee.server.ts`), never the workspace row's owner; `requireManagedOwner` lets a person into
+`/api/owner/finances/*` only for workspaces whose payee they are. The fee policy, the owner party ledger (`owner:<client>`), holds, payout
+status and statements are keyed on the client and are never re-keyed by the ownership mover (KEEP class). Deleting the client's account is
+refused while they are the payee of a managed workspace with a policy or a non-zero owner payable
+(`auth/managed-account-deletion-guard.server.ts`). `resolveOwnerOfRecord` keeps one transitional arm for a client-owned workspace attached
+before the mover ran; it is dead once the mover has run for every managed workspace.

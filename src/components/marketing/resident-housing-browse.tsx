@@ -143,7 +143,7 @@ function HousingBrowseCard({ card }: { card: PropertyBrowseCard }) {
             {rangeMax ? `–${rangeMax}` : ""} <small>{periodSuffix(card)}</small>
           </p>
           <p className="ps-bcard-title">{card.headlineAddress}</p>
-          <p className="ps-bcard-line">{card.neighborhood.trim() || " "}</p>
+          <p className="ps-bcard-line">{(card.neighborhood ?? "").trim() || " "}</p>
           <p className="ps-bcard-line" data-attr="resident-browse-card-facts">
             {facts.join(" · ")}
           </p>
@@ -596,7 +596,7 @@ export function ResidentHousingBrowse({
       sort: "neighborhood",
       filters: { propertyIds: scopedIds },
     });
-    return Array.from(new Set(all.map((c) => c.neighborhood.trim()).filter(Boolean)));
+    return Array.from(new Set(all.map((c) => (c.neighborhood ?? "").trim()).filter(Boolean)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listings, scopedIds, occupancyReady]);
 

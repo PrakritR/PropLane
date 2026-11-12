@@ -33,6 +33,7 @@ let seq = 0;
 const newId = () => `00000000-0000-4000-8000-${String(++seq).padStart(12, "0")}`;
 
 export function makeServiceFakeDb(initial: Record<string, Row[]> = {}): ServiceFakeDb {
+  const moves: Record<string, { from: unknown; wasDefault: unknown; seats: Record<string, unknown>[] }> = {};
   const db: ServiceFakeDb = {
     tables: Object.fromEntries(Object.entries(initial).map(([k, v]) => [k, v.map((r) => ({ ...r }))])),
     rpcCalls: [],
@@ -146,6 +147,46 @@ export function makeServiceFakeDb(initial: Record<string, Row[]> = {}): ServiceF
           }
         }
         return { data: { moved, archived, kept: found.filter((w) => !w.archived_at).map((w) => String(w.id)) }, error: null };
+      }
+      if (fn === "move_managed_workspace_to_service_owner") {
+        // The real one is a single transaction (SQL: 20261112230000_managed_workspace_mover.sql). The fake mirrors the
+        // ownership, house and seat steps the service layer depends on; the per-table counts are proven against dev.
+        const to = (db.tables.platform_service_settings ?? [])[0]?.owner_user_id;
+        const ws = (db.tables.portal_workspaces ??= []).find((w) => w.id === args.p_workspace);
+        if (!ws || !to || ws.is_service !== true || ws.owner_user_id !== args.p_expected_from) {
+          return { data: null, error: { code: "P0001", message: "managed move refused, nothing written: owner_is_not_expected_from" } };
+        }
+        const from = String(args.p_expected_from);
+        const seats = (db.tables.account_link_invites ??= []);
+        if (seats.some((l) => l.workspace_id === ws.id && l.is_owner_of_record === true && l.invitee_user_id !== from)) {
+          return { data: null, error: { code: "P0001", message: "managed move refused, nothing written: another_owner_of_record_seated" } };
+        }
+        const houseIds = (db.tables.manager_property_records ??= []).filter((h) => h.workspace_id === ws.id).map((h) => String(h.id));
+        (moves[String(ws.id)] ??= { from, wasDefault: ws.is_default, seats: JSON.parse(JSON.stringify(seats.filter((l) => l.workspace_id === ws.id))) });
+        ws.owner_user_id = to;
+        ws.is_default = false;
+        for (const h of db.tables.manager_property_records) if (h.workspace_id === ws.id) h.manager_user_id = to;
+        db.tables.account_link_invites = seats.filter((l) => !(l.workspace_id === ws.id && l.inviter_user_id === from && l.invitee_user_id === to));
+        for (const l of db.tables.account_link_invites) if (l.workspace_id === ws.id && l.inviter_user_id === from) l.inviter_user_id = to;
+        const keys = { read: true, notification: true };
+        const perms = { ownerPerformance: keys, ownerStatements: keys, ownerDocuments: keys, ownerMessages: keys };
+        db.tables.account_link_invites.push({
+          id: `seat-${from}-${String(ws.id)}`, inviter_user_id: to, invitee_user_id: from, workspace_id: ws.id, team_role: "property_owner",
+          house_scope: "selected", assigned_property_ids: houseIds, co_manager_permissions: perms,
+          property_co_manager_permissions: Object.fromEntries(houseIds.map((id) => [id, perms])), status: "accepted", is_owner_of_record: true, is_service_seat: false,
+        });
+        return { data: { status: "moved", houses: houseIds.length }, error: null };
+      }
+      if (fn === "undo_managed_workspace_move") {
+        const m = moves[String(args.p_workspace)];
+        const ws = (db.tables.portal_workspaces ?? []).find((w) => w.id === args.p_workspace);
+        if (!m || !ws) return { data: null, error: { code: "P0002", message: "No live ownership move to undo for this workspace." } };
+        ws.owner_user_id = m.from;
+        ws.is_default = m.wasDefault;
+        for (const h of db.tables.manager_property_records ?? []) if (h.workspace_id === ws.id) h.manager_user_id = m.from;
+        db.tables.account_link_invites = (db.tables.account_link_invites ?? []).filter((l) => l.workspace_id !== ws.id).concat(m.seats);
+        delete moves[String(ws.id)];
+        return { data: { status: "undone" }, error: null };
       }
       if (fn === "create_portal_service_workspace") {
         const settings = (db.tables.platform_service_settings ?? [])[0];

@@ -313,8 +313,25 @@ export async function recordInboundWithExtras(
     // A row this call just created holds the turn as its root: that is the write, not a replay.
     const duplicate = !ensured.created && snapshot ? threadHasMessage(snapshot.rowData, messageId) : false;
 
+    // A later turn that names no house never downgrades the thread's context: the house, room and label it already holds
+    // stay (never null, never a masked phone). A turn that DOES name a house adds that context (its own prospect_contexts
+    // row) and becomes the thread's latest.
+    const held = !ensured.created && snapshot && snapshot.rowData.prospectContext && typeof snapshot.rowData.prospectContext === "object"
+      ? (snapshot.rowData.prospectContext as Row)
+      : null;
+    const keepHeld = !propertyId && held !== null && Boolean(str(held.propertyId));
+    const ctxPropertyId = keepHeld ? str(held!.propertyId) : propertyId;
+    const ctxRoomId = keepHeld ? str(held!.roomId) || null : roomId;
+    const ctxRoomLabel = keepHeld ? str(held!.roomLabel) || null : roomLabel;
+    const ctxTag = keepHeld ? str(held!.label) || tag : tag;
+    const ctxPropertyLabel = keepHeld ? str(held!.propertyLabel) || null : houseOk?.label || null;
+    const ctxLabel = keepHeld ? ctxTag : label;
+    const latestContext = keepHeld
+      ? { ...prospectContext, propertyId: ctxPropertyId, propertyLabel: ctxPropertyLabel, roomId: ctxRoomId, roomLabel: ctxRoomLabel, label: ctxLabel }
+      : prospectContext;
+
     const contextId = await upsertContext(db, {
-      phoneKey, contactHandle, workspaceId, propertyId, roomId, roomLabel, source,
+      phoneKey, contactHandle, workspaceId, propertyId: ctxPropertyId, roomId: ctxRoomId, roomLabel: ctxRoomLabel, source,
       sourceRef: clean(requested.sourceRef), threadId, occurredAt: at.toISOString(), bump: !duplicate,
     }).catch((e) => {
       console.error("prospect context not written", e instanceof Error ? e.message : "unknown");
@@ -327,9 +344,9 @@ export async function recordInboundWithExtras(
         : [];
       const turn: Row = {
         id: messageId, from: fromLabel, body, at: stamp, outbound: false, channel,
-        ...(propertyId ? { houseId: propertyId } : {}),
-        ...(roomId ? { roomId } : {}),
-        ...(roomLabel ? { roomLabel } : {}),
+        ...(ctxPropertyId ? { houseId: ctxPropertyId } : {}),
+        ...(ctxRoomId ? { roomId: ctxRoomId } : {}),
+        ...(ctxRoomLabel ? { roomLabel: ctxRoomLabel } : {}),
         source,
         ...(extras.originalSmsEvent ? { originalSmsEvent: extras.originalSmsEvent } : {}),
       };
@@ -349,17 +366,17 @@ export async function recordInboundWithExtras(
       // The row-level stamps: newest context, the person's key. One atomic merge, never a read-modify-write of the turns.
       await mergeThreadRowData(db, {
         threadId, ownerUserId,
-        patch: { prospectContext, ...(phoneKey ? { prospectPhoneKey: phoneKey } : {}), workspaceId },
+        patch: { prospectContext: latestContext, ...(phoneKey ? { prospectPhoneKey: phoneKey } : {}), workspaceId },
       });
     }
 
-    if (propertyId && phoneE164 && !duplicate) {
+    if (ctxPropertyId && phoneE164 && !duplicate) {
       const { tagConversationHouse } = await import("@/lib/sms/conversation-houses.server");
       const role = extras.counterpartyRole ?? "prospect";
       await tagConversationHouse(db, {
         managerUserId: ownerUserId,
         conversationKey: buildConversationKey({ ownerManagerUserId: ownerUserId, role, counterpartyUserId: null, counterpartyPhone: phoneE164 }),
-        propertyId,
+        propertyId: ctxPropertyId,
         source: role === "resident" ? "residency" : "leasing",
       }).catch(() => false);
     }
@@ -378,7 +395,7 @@ export async function recordInboundWithExtras(
           senderName: phoneE164 ? null : fromLabel,
           body, messageSid: input.eventId,
           onPropLaneLine: false,
-          propertyId, houseLabel: tag || null,
+          propertyId: ctxPropertyId, houseLabel: ctxTag || null,
           channelLabel: channel === "sms" ? null : (sourceLabel ?? (channel === "email" ? "Email" : "Message")),
           threadId,
         });
@@ -387,7 +404,7 @@ export async function recordInboundWithExtras(
       }
     }
 
-    return { ok: true, threadId, messageId, contextId: contextId ?? "", created: ensured.created, duplicate, label };
+    return { ok: true, threadId, messageId, contextId: contextId ?? "", created: ensured.created, duplicate, label: ctxLabel };
   } catch (error) {
     console.error("prospect spine inbound failed", error instanceof Error ? error.message : "unknown");
     await recordDeliveryIssue(db, {

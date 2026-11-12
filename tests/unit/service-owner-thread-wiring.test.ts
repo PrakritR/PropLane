@@ -82,8 +82,8 @@ describe("owner text to the work number is a conversation from the owner, not th
 
 describe("the owner is not a conversation until she texts", () => {
   it("a routine system notice to a managed owner writes no one-on-one thread and no text; an urgent one texts but opens no thread", () => {
-    expect(bus).toMatch(/recipientIsManagedWorkspaceOwner\(db, input\.managerUserId\.trim\(\), input\.propertyId \?\? null\)/);
-    expect(bus).toMatch(/!input\.urgent &&\s*\(await recipientIsManagedWorkspaceOwner/);
+    expect(bus).toMatch(/recipientOwnsManagedWorkspace\(db, input\.managerUserId\.trim\(\), input\.propertyId \?\? null\)/);
+    expect(bus).toMatch(/!input\.urgent &&\s*\(await recipientOwnsManagedWorkspace/);
     expect(bus).toMatch(/\{ suppressInbox: true \}/);
   });
   it("the Communication list hides (never deletes) system-only owner threads, email and SMS", () => {

@@ -12,6 +12,7 @@ import { removePortalAccess, type PortalRole } from "@/lib/auth/remove-portal-ac
 import { isAdminManagedManagerPurchase } from "@/lib/manager-admin-purchase";
 import { getStripe } from "@/lib/stripe";
 import { cancelNumberSubscriptionForAccount } from "@/lib/number-subscription/cancel.server";
+import { assertManagedAccountDeletable } from "@/lib/auth/managed-account-deletion-guard.server";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 type ServiceDb = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -231,6 +232,7 @@ async function purgeAndDeletePortalAccount(db: ServiceDb, userId: string, opts: 
 
 /** Admin-only: purge all portal data and remove the auth user entirely. */
 export async function deletePortalAccountCompletely(db: ServiceDb, userId: string) {
+  await assertManagedAccountDeletable(db, userId);
   return purgeAndDeletePortalAccount(db, userId);
 }
 
@@ -257,6 +259,8 @@ export async function deleteAdminPortalAccount(db: ServiceDb, userId: string) {
 export async function deleteOwnAccount(db: ServiceDb, userId: string) {
   const trimmedId = userId.trim();
   if (!trimmedId) throw new Error("User id is required.");
+  // The service owner, an owner of managed workspaces and a managed workspace's property owner are refused before anything is touched.
+  await assertManagedAccountDeletable(db, trimmedId);
 
   // Stop billing before manager_purchases is purged inside purgeManagerPortalData.
   await cancelActiveManagerSubscription(db, trimmedId);
@@ -283,6 +287,7 @@ export async function deleteOwnAccount(db: ServiceDb, userId: string) {
  * would keep being billed for an account that no longer exists.
  */
 export async function deleteManagerAccount(db: ServiceDb, managerUserId: string) {
+  await assertManagedAccountDeletable(db, managerUserId);
   await cancelActiveManagerSubscription(db, managerUserId);
   const roles = await normalizedRolesForUser(db, managerUserId);
   await purgeManagerPortalData(db, managerUserId, !roles.some(role => !["manager", "owner", "pro"].includes(role)), await authAccountEmail(db, managerUserId));
@@ -348,6 +353,7 @@ export async function deleteOwnPortalAccount(
       break;
     }
     case "admin": {
+      await assertManagedAccountDeletable(db, trimmedId);
       const result = await removePortalAccess(db, trimmedId, "admin");
       mode = result.mode;
       break;

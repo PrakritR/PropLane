@@ -21,6 +21,7 @@ const {
 }));
 
 // PropLane Number billing is stopped before any purge removes its rows (cancel.server.ts is tested on its own).
+vi.mock("@/lib/auth/managed-account-deletion-guard.server", () => ({ assertManagedAccountDeletable: vi.fn(async () => undefined) }));
 vi.mock("@/lib/number-subscription/cancel.server", () => ({ cancelNumberSubscriptionForAccount: cancelNumberSubscription }));
 
 vi.mock("@/lib/auth/purge-portal-account-data", () => ({

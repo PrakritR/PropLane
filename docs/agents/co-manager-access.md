@@ -838,6 +838,18 @@ gate and stamps `is_service_seat` / `is_owner_of_record`, otherwise nothing abou
 
 ## The owner of record of a PropLane Service workspace reads the whole workspace, view only
 
+Managed workspaces are the ADMIN's (Nov 12): the workspace owner is the platform service owner and the client is the Property owner
+seat below, never the owner by ownership. TODO(managed-workspaces-to-admin-20261112): until the prod one-shot moves "1. Ambika" and
+"2. Vinod", an attached workspace is still client-owned and `ownedServiceWorkspaceIds` / `loadOwnServiceWorkspaceGrants` still
+serve that owner (Messages now ON, to match the seat); delete both after the read-back.
+
+**Who hears a managed workspace's notices.** The workspace owner (the admin) and staff hear them as before (routine = the Team chat
+line). The Property owner is a SECOND recipient, resolved by `resolveManagedPayee` from the seat, never from the owner column:
+payments and financials notices (gated by `ownerStatements`), anything urgent (`ownerPerformance`), and the monthly statement;
+nothing else (`managedClientNoticeOwnerKey`, `notifyPropertyScopedManagersFromAgent`). They never appear as a teammate
+(`withoutOwnerLinks`) and their one-on-one thread is hidden from staff unless they text in (`loadManagedOwnerIdentity` names the seat).
+Coverage: `tests/unit/managed-client-notices.test.ts`, `tests/unit/managed-owner-identity.test.ts`.
+
 Decision 4 of `service-owner-1025`. An accepted `property_owner` seat flagged `is_owner_of_record` on an `is_service`
 workspace sees every house and every module of that workspace at **view** (never edit or delete). The reach is
 **derived at read time** by `src/lib/property-owner/service-owner-seat.server.ts` (`loadServiceOwnerSeats`) from the seat

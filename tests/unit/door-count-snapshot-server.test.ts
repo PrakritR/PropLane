@@ -6,6 +6,14 @@
  * one row, not a duplicate, even as the underlying listings change.
  */
 import { describe, expect, it } from "vitest";
+import { vi } from "vitest";
+
+// Plan isolation reads `portal_workspaces`; this file's fake db only models the property table, so the account owns no
+// managed workspace here (the exclusion itself is proven in managed-plan-isolation.test.ts).
+vi.mock("@/lib/service/managed-plan-isolation.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/service/managed-plan-isolation.server")>()),
+  managedWorkspaceIdsOwnedBy: async () => [],
+}));
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { takeManagerDoorCountSnapshot } from "@/lib/billing/door-count-snapshot.server";
 

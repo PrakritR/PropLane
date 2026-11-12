@@ -5,6 +5,7 @@ import {
   type ManagerPropertyRecordStatus,
 } from "@/lib/persisted-property-records";
 import { doorCountForListing, type DoorCountBasis } from "@/lib/billing/door-count";
+import { managedWorkspaceIdsOwnedBy, notInManagedWorkspacesFilter } from "@/lib/service/managed-plan-isolation.server";
 
 /**
  * Server-side door count for one manager account — the portfolio total AND a
@@ -82,11 +83,20 @@ export async function loadManagerDoorCount(
   const trimmed = managerUserId.trim();
   if (!trimmed) return { ok: false, error: "managerUserId is required" };
 
-  const { data, error } = await db
+  // Plan isolation: houses in PropLane-managed workspaces are PropLane's own operation and never bill the owner's plan.
+  let managedFilter: string | null;
+  try {
+    managedFilter = notInManagedWorkspacesFilter(await managedWorkspaceIdsOwnedBy(db, trimmed));
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Could not read managed workspaces." };
+  }
+  let query = db
     .from("manager_property_records")
     .select("id, status, row_data, property_data")
     .eq("manager_user_id", trimmed)
     .in("status", [...LISTING_SLOT_PROPERTY_STATUSES]);
+  if (managedFilter) query = query.or(managedFilter);
+  const { data, error } = await query;
 
   // A failed read must never be read as "zero doors" — that would silently
   // undercharge (or refuse a bill) on exactly the transient error this ought

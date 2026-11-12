@@ -124,9 +124,11 @@ let resolvedOwnerId = "owner-1";
 let forcedProviderOwnerId: string | null = null;
 function makeFakeStripe(externalAccounts: Stripe.ExternalAccount[] = [bankAccount()]) {
   return {
+    tokens: { retrieve: vi.fn().mockResolvedValue({ bank_account: { account_holder_name: "Test Owner" } }) },
     accounts: {
       retrieve: vi.fn().mockImplementation(async () => ({ id: "acct_owner",
         metadata: { axis_user_id: forcedProviderOwnerId ?? resolvedOwnerId },
+        individual: { first_name: "Test", last_name: "Owner" },
         external_accounts: { data: externalAccounts } })),
       createExternalAccount: vi.fn().mockResolvedValue(bankAccount({ id: "ba_new" })),
       updateExternalAccount: vi.fn().mockResolvedValue(bankAccount({ default_for_currency: true })),

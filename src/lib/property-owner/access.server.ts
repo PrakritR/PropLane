@@ -44,6 +44,10 @@ const KEY_BY_FIELD: Record<Exclude<keyof OwnerHouseGrant, "propertyId">, OwnerPe
 };
 
 /**
+ * LEGACY shape. TODO(managed-workspaces-to-admin-20261112): delete this reader (and `loadOwnServiceWorkspaceGrants`) after the
+ * prod one-shot has moved every attached workspace to the service owner; the client is then a `property_owner` seat and
+ * the seat path above serves them (houses read by the seat's inviter = the admin, `ownerMessages` on).
+ *
  * The PropLane Service workspaces `userId` still OWNS as a client (admin Service tab, "attach"): the owner of an
  * `is_service` workspace that is not the service owner's own IS its owner of record, so the owner portal reads their
  * workspace's books with no membership row. Read tolerantly: before the migration that adds `is_service` the read
@@ -145,8 +149,8 @@ export async function loadOwnerGrants(db: SupabaseClient, userId: string): Promi
 
 /**
  * One grant per PropLane Service workspace the user owns as its owner of record: every house of that workspace on
- * the owner defaults (Performance, Statements, Documents; Messages off - the owner is the manager of record there,
- * there is no thread to open). Resolved from the workspace row and the authenticated user id, never a request.
+ * the owner defaults (Performance, Statements, Documents) plus Messages ON, matching the seat the client holds once the
+ * workspace is the admin's: the client writes to PropLane from the owner portal (design D3). Resolved from the workspace row and the authenticated user id, never a request.
  */
 async function loadOwnServiceWorkspaceGrants(db: SupabaseClient, uid: string): Promise<OwnerGrant[]> {
   const workspaceIds = await ownedServiceWorkspaceIds(db, uid);
@@ -159,7 +163,7 @@ async function loadOwnServiceWorkspaceGrants(db: SupabaseClient, uid: string): P
       linkId: `workspace:${workspaceId}`,
       workspaceId,
       managerUserId: uid,
-      houses: (data ?? []).map((r) => ({ propertyId: String(r.id), performance: true, statements: true, documents: true, messages: false })),
+      houses: (data ?? []).map((r) => ({ propertyId: String(r.id), performance: true, statements: true, documents: true, messages: true })),
     });
   }
   return grants;

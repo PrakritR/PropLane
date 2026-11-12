@@ -270,11 +270,15 @@ export async function recordEmailAttempt(
       ...(result.resendId ? { providerId: result.resendId } : {}),
     });
   } else {
-    return recordInboxMessageDelivery(db, target, {
+    const failed = await recordInboxMessageDelivery(db, target, {
       channel: "email",
       status: "failed",
       error: "Email couldn't be sent",
     });
+    if (target?.threadId) {
+      await syncThreadDeliveryIssue(db, { threadId: target.threadId, messageId: target.messageId, status: "failed", reason: "Email couldn't be sent" });
+    }
+    return failed;
   }
 }
 

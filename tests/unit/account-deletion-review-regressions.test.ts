@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { deleteOwnPortalAccount, deleteAdminPortalAccount } from "@/lib/auth/delete-portal-account";
 import { purgeResidentPortalData } from "@/lib/auth/purge-portal-account-data";
 
+vi.mock("@/lib/auth/managed-account-deletion-guard.server", () => ({ assertManagedAccountDeletable: vi.fn(async () => undefined) }));
 vi.mock("@/lib/auth/purge-orphaned-co-manager-links", () => ({ purgeCoManagerReferencesToUser: vi.fn() }));
 vi.mock("@/lib/sms-relay.server", () => ({ closeRelayThreadsForUser: vi.fn(async () => undefined) }));
 

@@ -74,7 +74,7 @@ suite("prospect spine on the dev project", () => {
     await db.from("manager_tour_followup_controls").delete().eq("manager_user_id", ownerId);
     await db.from("manager_sms_conversation_houses").delete().eq("manager_user_id", ownerId);
     await db.from("account_link_invites").delete().eq("workspace_id", workspaceId);
-    await db.from("manager_property_records").delete().eq("id", propertyId);
+    await db.from("manager_property_records").delete().like("id", `spine-${tag}%`);
     await db.from("portal_workspaces").delete().eq("id", workspaceId);
     for (const id of created.users) {
       await db.from("profiles").delete().eq("id", id);
@@ -193,5 +193,62 @@ suite("prospect spine on the dev project", () => {
     expect(contact.data).toMatchObject({ verified_at: null, user_id: null });
     const ctx = await db.from("prospect_contexts").select("channel_state").eq("id", lead.contextId).single();
     expect(ctx.data.channel_state).toBe("moved");
+  });
+  it("a phone written in a platform inquiry merges the thread but the lead stays ACTIVE; the text then moves it", async () => {
+    const { recordInbound, stitchByPhone } = await import("@/lib/prospect-spine/index.server");
+    const { moveClaimedContextsOnText } = await import("@/lib/prospect-spine/stitch.server");
+    const phone = `+1206${String(Math.floor(2000000 + Math.random() * 7000000))}`;
+    created.phones.push(phone);
+    const lead = await recordInbound(db, {
+      workspaceId, ownerUserId: ownerId,
+      identity: { kind: "handle", contactHandle: `h2-${tag}`, site: "spareroom", displayName: "Noor" },
+      context: { propertyId, roomId: "r4", source: "spareroom" }, body: `Call me at ${phone}`, channel: "email",
+      eventId: `mail2:${tag}`, occurredAt: new Date().toISOString(), notify: false,
+    });
+    expect(lead.ok).toBe(true);
+    if (!lead.ok) return;
+    const stitched = await stitchByPhone(db, { contextId: lead.contextId, phoneE164: phone });
+    expect(stitched).toMatchObject({ ok: true, moved: false });
+    const key = phone.slice(-10);
+    const before = await db.from("portal_inbox_thread_records").select("row_data").eq("owner_user_id", ownerId).eq("row_data->>prospectPhoneKey", key);
+    expect(before.data).toHaveLength(1);
+    expect(before.data[0].row_data.platformState).toMatchObject({ state: "active" });
+    expect((await db.from("prospect_contexts").select("channel_state").eq("id", lead.contextId).single()).data.channel_state).toBe("active");
+    expect(await moveClaimedContextsOnText(db, phone)).toBe(1);
+    const after = await db.from("portal_inbox_thread_records").select("row_data").eq("owner_user_id", ownerId).eq("row_data->>prospectPhoneKey", key);
+    expect(after.data[0].row_data.platformState).toMatchObject({ state: "moved" });
+    expect((await db.from("prospect_contexts").select("channel_state").eq("id", lead.contextId).single()).data.channel_state).toBe("moved");
+    expect(await moveClaimedContextsOnText(db, phone)).toBe(0);
+  });
+
+  it("a later text with no resolved house keeps the thread's house, room and label; a text about another house adds a context", async () => {
+    const { recordInbound } = await import("@/lib/prospect-spine/index.server");
+    const phone = `+1206${String(Math.floor(2000000 + Math.random() * 7000000))}`;
+    created.phones.push(phone);
+    const base = (eventId: string, ctx: { propertyId: string | null; roomId: string | null }, body: string) => ({
+      workspaceId, ownerUserId: ownerId, identity: { kind: "phone" as const, phoneE164: phone, verified: false },
+      context: { ...ctx, source: "sms" as const }, body, channel: "sms" as const, eventId, occurredAt: new Date().toISOString(), notify: false,
+    });
+    const first = await recordInbound(db, base(`SM${tag}c1`, { propertyId, roomId: "r4" }, "is room 4 open?"));
+    const second = await recordInbound(db, base(`SM${tag}c2`, { propertyId: null, roomId: null }, "thanks, can I tour?"));
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    expect(second.threadId).toBe(first.threadId);
+    expect(second.label).toBe("5259 Spine Ave NE · Room 4");
+    const row = (await db.from("portal_inbox_thread_records").select("row_data").eq("id", first.threadId).single()).data.row_data;
+    expect(row.prospectContext).toMatchObject({ propertyId, roomLabel: "Room 4", label: "5259 Spine Ave NE · Room 4" });
+    expect(row.prospectContext.label).not.toMatch(/\*{3}/);
+    expect((await db.from("prospect_contexts").select("id").eq("workspace_id", workspaceId).like("phone_key", `%${phone.slice(-10)}`)).data).toHaveLength(1);
+    const otherId = `spine-${tag}-b`;
+    const prop = await db.from("manager_property_records").insert({
+      id: otherId, status: "live", manager_user_id: ownerId, workspace_id: workspaceId,
+      row_data: { buildingName: "77 Other St", listingSubmission: { rooms: [{ id: "r1", name: "Room 1" }] } },
+    });
+    if (prop.error) throw prop.error;
+    const third = await recordInbound(db, base(`SM${tag}c3`, { propertyId: otherId, roomId: "r1" }, "what about 77 Other St?"));
+    expect(third.ok).toBe(true);
+    const row3 = (await db.from("portal_inbox_thread_records").select("row_data").eq("id", first.threadId).single()).data.row_data;
+    expect(row3.prospectContext).toMatchObject({ propertyId: otherId });
+    expect((await db.from("prospect_contexts").select("property_id").eq("workspace_id", workspaceId).like("phone_key", `%${phone.slice(-10)}`)).data).toHaveLength(2);
   });
 });

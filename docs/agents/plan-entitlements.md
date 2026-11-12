@@ -638,3 +638,7 @@ restricting one to some plans is the coupon's `applies_to` products
 Coverage: `tests/unit/admin-revenue.test.ts`, `admin-subscribers.test.ts`,
 `admin-promo-codes.test.ts`, `admin-promo-codes-route.test.ts`,
 `admin-portal-sections.test.ts`.
+
+## Managed houses and the admin's own plan (Nov 12)
+
+Houses, seats and residents of PropLane-managed (`is_service`) workspaces are owned by the admin but are never part of the admin's plan: not the listing-slot or Free door count, not the door count that bills, not the plan card's usage, and not the Communication trial gate. One helper, `src/lib/service/managed-plan-isolation.server.ts`; a failed read refuses, never "no managed houses". Test: `tests/unit/managed-plan-isolation.test.ts`.

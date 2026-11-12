@@ -21,6 +21,7 @@ function walk(dir: string, out: string[] = []): string[] {
 
 /** Reads that cannot hand an owner teammate-style reach, and why. */
 const REVIEWED: Record<string, string> = {
+  "lib/managed-finance/payee.server.ts": "reads the Property owner seat on purpose: it IS the payee resolver, scoped to one workspace",
   // Membership management: these ARE the owner-aware code (or act on rows they were handed).
   "app/api/pro/account-links/route.ts": "membership CRUD; owner role gets no members right and stores owner keys only",
   "app/api/pro/account-links/[inviteId]/route.ts": "membership CRUD; role writes strip foreign keys",

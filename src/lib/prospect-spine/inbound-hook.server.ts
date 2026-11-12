@@ -14,6 +14,19 @@ const str = (v: unknown): string => (typeof v === "string" ? v.trim() : v == nul
  * is ambiguous and ignored. Never throws; `false` = nothing stitched.
  */
 export async function applyStitchCodeFromText(db: SupabaseClient, input: { fromPhone: string; body: string }): Promise<boolean> {
+  const stitched = await stitchQuotedCode(db, input);
+  if (stitched) return true;
+  // No code, but this phone was written in a platform inquiry (merged under the phone key, still "active"): their text IS the move.
+  try {
+    const { moveClaimedContextsOnText } = await import("@/lib/prospect-spine/stitch.server");
+    await moveClaimedContextsOnText(db, input.fromPhone);
+  } catch {
+    /* advisory */
+  }
+  return false;
+}
+
+async function stitchQuotedCode(db: SupabaseClient, input: { fromPhone: string; body: string }): Promise<boolean> {
   try {
     const phone = normalizeE164(input.fromPhone);
     if (!phone) return false;

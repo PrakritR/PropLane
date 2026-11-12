@@ -9,6 +9,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 import { LedgerError } from "@/lib/managed-finance/ledger.server";
 import { PolicyError, listManagedWorkspacesForOwner, type OwnedManagedWorkspace } from "@/lib/owner-management/policies.server";
+import { resolveManagedPayee } from "@/lib/managed-finance/payee.server";
 
 export type ManagedOwnerContext = {
   db: SupabaseClient;
@@ -19,8 +20,8 @@ export type ManagedOwnerContext = {
 
 /**
  * The one gate for `/api/owner/finances/*`. The person is the session. What they may touch is exactly the managed workspaces
- * where they are the owner of record: read fresh on every call, so a person who is no longer the owner of record is refused on
- * the very next request. Nothing in a request names an owner, and nothing here is a signing surface - a fee policy is
+ * whose payee they are (`resolveManagedPayee`: the accepted Property owner seat, never the workspace row's owner, which is the
+ * admin): read fresh on every call, so a person who is no longer the payee is refused on the very next request. Nothing in a request names an owner, and nothing here is a signing surface - a fee policy is
  * PropLane's own rate, never an agreement the owner is asked to accept.
  */
 export async function requireManagedOwner(): Promise<ManagedOwnerContext | NextResponse> {
@@ -36,7 +37,9 @@ export async function requireManagedOwner(): Promise<ManagedOwnerContext | NextR
   }
   let workspaces: OwnedManagedWorkspace[];
   try {
-    workspaces = await listManagedWorkspacesForOwner(db, user.id);
+    const signed = await listManagedWorkspacesForOwner(db, user.id);
+    const verdicts = await Promise.all(signed.map(async (w) => ((await resolveManagedPayee(db, w.workspaceId)) === user.id ? w : null)));
+    workspaces = verdicts.filter((w): w is OwnedManagedWorkspace => w !== null);
   } catch {
     return NextResponse.json({ error: "Could not load your finances." }, { status: 500 });
   }

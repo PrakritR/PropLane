@@ -239,3 +239,28 @@ describe("acceptance 7: the stitch code moves the conversation to text", () => {
     expect(h.calls.notices.at(-1)).toContain("They moved to text");
   });
 });
+
+describe("moved is set only when the prospect is on the text line", () => {
+  it("a fresh inquiry (even one that carries a phone) is ACTIVE and answered on the platform; only the stitching text moves it", async () => {
+    const h = harness();
+    const result = await ingestPlatformLead(h.deps, mail(SPAREROOM_INQUIRY, { messageIdHeader: "<f1>" }), { enabledParsers: ON });
+    expect(result).toMatchObject({ replied: true, mode: "email_relay" });
+    const ctx = [...h.spine.contexts.values()][0]!;
+    expect(ctx.state).toBe("active");
+    const thread = [...h.spine.threads.values()][0]!;
+    expect((thread.row.platformState as { state?: string } | undefined)?.state).toBe("active");
+    await h.spine.inboundText("+14255550188", `Hi, Aiko here. ${ctx.code}`);
+    expect([...h.spine.contexts.values()][0]!.state).toBe("moved");
+    expect(([...h.spine.threads.values()][0]!.row.platformState as { state?: string }).state).toBe("moved");
+  });
+
+  it("a phone that ALREADY has an SMS thread is moved at once: stored, alerted, never answered on the platform", async () => {
+    const h = harness();
+    h.deps.spine.stitchByPhone = async ({ contextId, phoneE164 }) => ({ ok: true, threadId: [...h.spine.threads.values()][0]!.id, movedContextIds: [contextId], moved: true, ...(phoneE164 ? {} : {}) });
+    const result = await ingestPlatformLead(h.deps, mail(SPAREROOM_INQUIRY, { messageIdHeader: "<f2>" }), { enabledParsers: ON });
+    expect(result).toMatchObject({ replied: false, mode: "moved", held: ["They moved to text"] });
+    expect(h.calls.relay).toHaveLength(0);
+    expect(h.calls.generated).toBe(0);
+    expect(h.calls.notices.at(-1)).toContain("They moved to text");
+  });
+});

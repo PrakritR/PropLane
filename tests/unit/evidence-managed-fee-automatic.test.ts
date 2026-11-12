@@ -65,7 +65,7 @@ function world(extra: Record<string, FakeRow[]> = {}) {
         { id: "ws-ownerless", owner_user_id: PLATFORM, name: "Ballard Row", is_service: true },
       ],
       platform_service_settings: [{ singleton: true, owner_user_id: PLATFORM }],
-      account_link_invites: [{ id: "i1", workspace_id: WS, invitee_user_id: OWNER, status: "accepted", is_owner_of_record: true }],
+      account_link_invites: [{ id: "i1", workspace_id: WS, invitee_user_id: OWNER, status: "accepted", team_role: "property_owner", is_owner_of_record: true }],
       profiles: [{ id: OWNER, email: "dana@example.test" }],
       manager_property_records: [
         { id: "house-1", manager_user_id: "mgr-1", workspace_id: WS },

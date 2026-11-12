@@ -7,9 +7,14 @@ import type { PortalWorkspace } from "@/lib/workspaces/types";
  * Two portals, one rule:
  *   * Property portal = managers who bought the software and run their own properties. A workspace flagged
  *     `is_service` that the viewer is STAFF of never appears in it.
- *   * Admin / service mode = the workspaces PropLane manages. Staff is a platform admin or the platform service owner
- *     (a member / owner of the workspace) or an accepted non-owner team seat on it. The client who owns an attached
- *     workspace is NOT staff: they keep the view-only Property portal.
+ *   * Admin / service mode = the workspaces PropLane manages. Every managed workspace is OWNED by the platform service
+ *     owner (the primary admin): the owner and the seats it granted are staff, and the rail and switcher list the
+ *     workspace for the admin in the service shell only, never in the admin's own self-serve Property portal. The client
+ *     is the workspace's Property owner (an accepted `property_owner` seat): NOT staff, they keep the view-only
+ *     Property portal.
+ *   * TODO(managed-workspaces-to-admin-20261112): until the prod one-shot has moved "1. Ambika" and "2. Vinod", an
+ *     ATTACHED workspace is still owned by its client. Both shapes resolve here; delete the attached arms (the
+ *     `platform_person_only` verdict, the client-owns-it branches) after the prod read-back passes.
  */
 
 /** One tile on the service rail. */
@@ -56,9 +61,11 @@ export type ServiceSeat = {
  *     operator role (admin / full) on a workspace PropLane CREATED (the service owner owns it, so the client grants
  *     nothing there). A Viewer / Custom seat WITHOUT the provenance is `no` on either kind of workspace (it keeps
  *     only its per-house grants);
- *   * `platform_person_only` - an operator seat on an attached workspace with no provenance marker (written before the
- *     column, or granted by the client herself). It counts only for a PropLane person, which keeps a client
- *     from minting staff by inviting a second account of her own.
+ *   * `platform_person_only` - LEGACY (attached, client-owned workspace): an operator seat with no provenance marker
+ *     (written before the column, or granted by the client herself). It counts only for a PropLane person, which keeps a
+ *     client from minting staff by inviting a second account of her own.
+ *     TODO(managed-workspaces-to-admin-20261112): unreachable once every managed workspace is owned by the service
+ *     owner; delete this verdict after the prod move's read-back passes.
  */
 export type ServiceSeatVerdict = "staff" | "platform_person_only" | "no";
 
@@ -142,8 +149,10 @@ export function serviceStaffScope(
  * out (the portal is scoped to that workspace and the client needs it). A client owner's workspace always stays.
  *
  * `staffUnreadable` is the fail-closed answer for a staff read that threw: the portal is never claimed to be in service
- * mode on a guess, and every service workspace the viewer does not OWN is left out (it would otherwise be drawn in
- * Property chrome). The client owner's own managed workspace stays - it is view-only, not hidden.
+ * mode on a guess. Only a service workspace the viewer sees VIEW-ONLY (`readOnly`: the client's own Property owner seat,
+ * or the legacy client who owns an attached workspace under the managed lock) stays. An OWNED service workspace with no
+ * `readOnly` is the platform service owner's (the admin): it belongs in the service shell, and on a failed staff read it
+ * must stay OUT of the admin's self-serve Property portal rather than be drawn in Property chrome.
  */
 export function workspacesForPortalPayload(
   workspaces: PortalWorkspace[],
@@ -152,7 +161,7 @@ export function workspacesForPortalPayload(
   opts: { staffUnreadable?: boolean } = {},
 ): { workspaces: PortalWorkspace[]; activeWorkspaceId: string | null } {
   if (opts.staffUnreadable === true) {
-    const own = workspaces.filter((w) => !(w.isService === true && w.owned !== true));
+    const own = workspaces.filter((w) => w.isService !== true || w.readOnly === true);
     return { workspaces: own, activeWorkspaceId: resolveActiveWorkspace(own, cookieId)?.id ?? null };
   }
   const decision = decideServiceMode(workspaces, staffIds, cookieId);

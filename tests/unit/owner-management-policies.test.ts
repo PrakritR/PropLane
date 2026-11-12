@@ -106,7 +106,7 @@ function seed(extra: Record<string, FakeRow[]> = {}, rpc: Record<string, (args: 
     {
       portal_workspaces: [{ id: WS, owner_user_id: PL, name: "Seattle Homes", is_service: true }],
       platform_service_settings: [{ singleton: true, owner_user_id: PL }],
-      account_link_invites: [{ id: "i1", workspace_id: WS, invitee_user_id: OWNER, status: "accepted" }],
+      account_link_invites: [{ id: "i1", workspace_id: WS, invitee_user_id: OWNER, status: "accepted", team_role: "property_owner" }],
       profiles: [{ id: OWNER, email: "o@x.test", phone: "+12065550100", phone_verified_at: "2026-01-01" }],
       managed_workspace_fee_policies: [],
       ...extra,
@@ -191,10 +191,10 @@ describe("the automatic management fee", () => {
   });
 
   it("a service-owner-owned workspace uses its flagged owner-of-record member, and says no_owner without one", async () => {
-    const none = seed();
+    const none = seed({ account_link_invites: [] });
     expect(await ensureServiceFeePolicy(none.db, WS)).toEqual({ status: "unavailable", reason: "no_owner" });
     expect(none.rows.managed_workspace_fee_policies).toHaveLength(0);
-    const f = seed({ account_link_invites: [{ id: "i1", workspace_id: WS, invitee_user_id: OWNER, status: "accepted", is_owner_of_record: true }] });
+    const f = seed({ account_link_invites: [{ id: "i1", workspace_id: WS, invitee_user_id: OWNER, status: "accepted", team_role: "property_owner", is_owner_of_record: true }] });
     const r = await ensureServiceFeePolicy(f.db, WS);
     expect(r).toMatchObject({ status: "created", policy: { ownerUserId: OWNER } });
   });
@@ -251,7 +251,7 @@ describe("the automatic management fee", () => {
 
   // Every failure reaches an operator in Admin > Finances > Flags, with the cause - never only a console line.
   it("raises the attention item with the cause on every failure, not just a log line", async () => {
-    const none = seed();
+    const none = seed({ account_link_invites: [] });
     expect(await ensureServiceFeePolicy(none.db, WS)).toEqual({ status: "unavailable", reason: "no_owner" });
     expect((none.rows.owner_ledger_flags ?? [])[0]).toMatchObject({ check_name: "fee_agreement_unsigned", subject: WS });
     expect(((none.rows.owner_ledger_flags ?? [])[0]!.detail as { cause: string }).cause).toBe("no_owner");
@@ -275,7 +275,7 @@ describe("the automatic management fee", () => {
   // Review fix, Oct 20: the day's attention item is UPDATED, so the last writer's context lands on it instead of
   // being dropped as a duplicate - `fee_unavailable` from the ensure call, then where the refusal was actually felt.
   it("keeps one attention item a day and lets the money path name where the refusal was felt", async () => {
-    const f = seed();
+    const f = seed({ account_link_invites: [] });
     await ensureServiceFeePolicy(f.db, WS);
     expect(f.rows.owner_ledger_flags).toHaveLength(1);
     expect((f.rows.owner_ledger_flags![0]!.detail as { reason: string }).reason).toBe("fee_unavailable");

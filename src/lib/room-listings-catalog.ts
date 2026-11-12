@@ -157,7 +157,7 @@ export function formatRoomListingSubtitle(opts: {
 }): string {
   const floorFromRoom = opts.room.modal.floorLine?.trim();
   const floor = floorFromRoom ? titleCaseWords(floorFromRoom) : humanizeFloorLabel(opts.floorLabel);
-  const neighborhood = opts.neighborhood.trim();
+  const neighborhood = (opts.neighborhood ?? "").trim();
 
   let lead: string;
   if (floor) {
@@ -485,7 +485,7 @@ export function filterRoomListings(
     if (
       opts.neighborhood &&
       opts.neighborhood !== "any" &&
-      p.neighborhood.trim().toLowerCase() !== opts.neighborhood.trim().toLowerCase()
+      (p.neighborhood ?? "").trim().toLowerCase() !== (opts.neighborhood ?? "").trim().toLowerCase()
     ) {
       continue;
     }

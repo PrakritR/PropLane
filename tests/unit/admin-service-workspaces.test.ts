@@ -596,7 +596,7 @@ describe("one workspace per owner client (per city, owner of record, invite)", (
   });
 });
 
-describe("attaching an existing workspace to PropLane Service (a flag plus memberships, not ownership)", () => {
+describe("attaching an existing workspace to PropLane Service (ownership moves to the admin, the client is the Property owner)", () => {
   const CLIENT_WS = "cccccccc-1111-4111-8111-cccccccccccc";
 
   function seedClientWorkspace() {
@@ -609,25 +609,24 @@ describe("attaching an existing workspace to PropLane Service (a flag plus membe
   }
   const snapshotRows = () => JSON.stringify([db.tables.manager_property_records]);
 
-  it("flags the workspace, seats the service owner and the operator as accepted Admins, flags the owner as owner of record, and changes nothing else", async () => {
+  it("flags the workspace, moves ownership to the service owner, seats the client as Property owner of record and the operator as Admin", async () => {
     seedClientWorkspace();
-    const before = snapshotRows();
     const res = await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS, city: "Seattle", label: "Ambika - Seattle", reason: "Client asked for service" });
     expect(res).toEqual({ ok: true, id: CLIENT_WS });
 
     const ws = db.tables.portal_workspaces.find((w) => w.id === CLIENT_WS)!;
-    // Owner and default flag are exactly as they were; the label is the workspace's name now.
-    expect(ws).toMatchObject({ owner_user_id: CLIENT, name: "Ambika - Seattle", is_default: true, is_service: true, city: "Seattle" });
-    // No property (or lease / charge) row was written, and no workspace was created or moved.
-    expect(snapshotRows()).toBe(before);
-    expect(db.rpcCalls).toEqual([]);
+    // The admin owns it now; the label is the workspace's name. Houses follow through the one mover, listing content untouched.
+    expect(ws).toMatchObject({ owner_user_id: OWNER, name: "Ambika - Seattle", is_service: true, city: "Seattle" });
+    expect(db.rpcCalls.map((c) => c.fn)).toEqual(["move_managed_workspace_to_service_owner"]);
+    expect(db.rpcCalls[0]!.args).toMatchObject({ p_workspace: CLIENT_WS, p_expected_from: CLIENT, p_dry_run: false });
+    expect(db.tables.manager_property_records.map((h) => [h.id, h.manager_user_id, h.row_data])).toEqual([["house-1", OWNER, { rent: 1 }], ["house-2", OWNER, { rent: 2 }]]);
     expect(db.tables.portal_workspaces).toHaveLength(1);
 
     const links = db.tables.account_link_invites.filter((l) => l.workspace_id === CLIENT_WS);
-    expect(links.map((l) => l.invitee_user_id).sort()).toEqual([OWNER, ADMIN_A].sort());
-    for (const l of links) {
-      expect(l).toMatchObject({ inviter_user_id: CLIENT, team_role: "admin", house_scope: "all", status: "accepted", is_owner_of_record: false });
-    }
+    expect(links.map((l) => l.invitee_user_id).sort()).toEqual([CLIENT, ADMIN_A].sort());
+    expect(links.find((l) => l.invitee_user_id === CLIENT)).toMatchObject({ inviter_user_id: OWNER, team_role: "property_owner", house_scope: "selected", is_owner_of_record: true, is_service_seat: false });
+    expect(links.find((l) => l.invitee_user_id === CLIENT)!.co_manager_permissions).toMatchObject({ ownerMessages: { read: true } });
+    expect(links.find((l) => l.invitee_user_id === ADMIN_A)).toMatchObject({ inviter_user_id: OWNER, team_role: "admin", house_scope: "all", status: "accepted", is_owner_of_record: false });
     // Audited, with the operator as the actor and the workspace owner as the subject, and stamped applied.
     expect(db.tables.audit_log).toHaveLength(1);
     expect(db.tables.audit_log[0]).toMatchObject({ actor_user_id: ADMIN_A, landlord_id: CLIENT, action: "admin_service_attach" });
@@ -652,11 +651,11 @@ describe("attaching an existing workspace to PropLane Service (a flag plus membe
     expect(await svc.authorizeOpenServiceWorkspace(client(), ADMIN_A, CLIENT_WS)).toEqual({ ok: true, id: CLIENT_WS });
   });
 
-  it("rename changes the workspace's name and city and never its owner", async () => {
+  it("rename changes the workspace's name and city and never its owner (the admin)", async () => {
     seedClientWorkspace();
     await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS, city: "Seattle", label: "Ambika - Seattle", reason: "Client asked for service" });
     expect(await svc.renameServiceWorkspace(client(), ADMIN_A, { id: CLIENT_WS, name: "Ambika Portland", city: "Portland" })).toEqual({ ok: true });
-    expect(db.tables.portal_workspaces.find((w) => w.id === CLIENT_WS)).toMatchObject({ name: "Ambika Portland", city: "Portland", owner_user_id: CLIENT });
+    expect(db.tables.portal_workspaces.find((w) => w.id === CLIENT_WS)).toMatchObject({ name: "Ambika Portland", city: "Portland", owner_user_id: OWNER });
   });
 
   it("the owner of an attached workspace is its owner of record, so no member can also be", async () => {
@@ -702,7 +701,7 @@ describe("attaching an existing workspace to PropLane Service (a flag plus membe
     expect(db.tables.account_link_invites).toHaveLength(0);
   });
 
-  it("rolls the flag and any seat it added back when a member cannot be seated", async () => {
+  it("rolls the flag and the ownership move back when the operator cannot be seated", async () => {
     seedClientWorkspace();
     db.failInsertOn.add("account_link_invites");
     expect(await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS, city: "Seattle", label: "X", reason: "Client asked for service" })).toMatchObject({ ok: false });
@@ -710,11 +709,20 @@ describe("attaching an existing workspace to PropLane Service (a flag plus membe
     expect(db.tables.audit_log[0]!.result_summary).toMatchObject({ applied: false });
   });
 
-  it("refuses to seat a service owner who is already on the team with a weaker role", async () => {
+  it("refuses to seat an operator who is already on the team with a weaker role, and undoes the move", async () => {
     seedClientWorkspace();
-    db.tables.account_link_invites.push({ id: "vv", inviter_user_id: CLIENT, invitee_user_id: OWNER, workspace_id: CLIENT_WS, team_role: "viewer", status: "accepted" });
+    db.tables.account_link_invites.push({ id: "vv", inviter_user_id: OWNER, invitee_user_id: ADMIN_A, workspace_id: CLIENT_WS, team_role: "viewer", status: "accepted" });
     expect(await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS, city: null, label: null, reason: "Client asked for service" })).toMatchObject({ ok: false, status: 409 });
     expect(db.tables.portal_workspaces.find((w) => w.id === CLIENT_WS)!.is_service).toBe(false);
+    expect(db.rpcCalls.map((c) => c.fn)).toEqual(["move_managed_workspace_to_service_owner", "undo_managed_workspace_move"]);
+  });
+
+  it("a mover stop (open checkout, unclassified table...) refuses the attach with the reason and writes nothing", async () => {
+    seedClientWorkspace();
+    db.failRpc.add("move_managed_workspace_to_service_owner");
+    expect(await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS, city: null, label: null, reason: "Client asked for service" })).toMatchObject({ ok: false });
+    expect(db.tables.portal_workspaces.find((w) => w.id === CLIENT_WS)).toMatchObject({ is_service: false, owner_user_id: CLIENT });
+    expect(db.tables.account_link_invites).toHaveLength(0);
   });
 
   it("attaching a workspace the service owner already owns seats only the operator", async () => {

@@ -1,17 +1,28 @@
 # Admin > Service (PropLane Service workspaces)
 
-PropLane Service is a FLAG on a workspace plus memberships, never ownership.
+PropLane Service is a FLAG on a workspace, and **every `is_service` workspace is the admin's workspace** (captain, Nov 12:
+"if it is managed by PropLane it is admin's workspace with the client as property owner"). `portal_workspaces.owner_user_id` is the
+platform service owner, who IS the primary admin; the houses (`manager_property_records.manager_user_id`) are the service owner's; the
+client is the workspace's **Property owner**: an accepted `property_owner` seat flagged `is_owner_of_record` (view-only, owner keys
+Performance / Statements / Documents / Messages), the payee of the money (`resolveManagedPayee`). Staff are teammates of the admin's
+workspace. Ownership moves through ONE audited function (`move_managed_workspace_to_service_owner`, service-role only), used by the
+prod one-shot, the dev rehearsal and `attachWorkspaceToService`; the one-shot is `scripts/one-shot/managed-workspaces-to-admin-20261112.mts`.
+
+**Transition (until the one-shot's read-back passes in prod).** "1. Ambika" and "2. Vinod" are still ATTACHED: client-owned. Every reader
+serves BOTH shapes, and each attached-only branch carries `TODO(managed-workspaces-to-admin-20261112)` naming the one-shot; delete
+them after the move.
 
 - `portal_workspaces.is_service` / `city` / `owner_of_record_name` mark a workspace as PropLane Service; the admin
   Service tab (`/admin/service`) lists every flagged workspace, whoever owns it.
-- `platform_service_settings` (singleton) names the service owner. It owns the workspaces PropLane creates itself
-  (the `+`) and is exempt from the 10-workspace ceiling (DB trigger only).
-- Attach (admin-only, audit row written first) flags an existing workspace, sets city and label, and seats the
-  service owner and the operator as accepted Admin members. It never changes `owner_user_id` and writes no property,
-  lease or charge row.
-- The owner of record is the person who owns an attached workspace (no membership needed) or the member flagged
-  `account_link_invites.is_owner_of_record` (a Property owner). `src/lib/property-owner/access.server.ts` gives them
-  owner access; sign-in and "Property portal" land in the Property portal, view-only (`workspace.readOnly`).
+- `platform_service_settings` (singleton) names the service owner (= the primary admin). It owns every managed workspace
+  (the `+`, and every attached one once moved) and is exempt from the 10-workspace ceiling (DB trigger only).
+- Attach (admin-only, audit row written first) flags an existing workspace, sets city and label, then moves its ownership to the
+  service owner through the one mover and seats the client as the Property owner. TODO(managed-workspaces-to-admin-20261112):
+  before the one-shot, the old attach never changed `owner_user_id` and seated the service owner and operator as Admin members.
+- The owner of record is the member flagged `account_link_invites.is_owner_of_record` (a Property owner seat);
+  TODO(managed-workspaces-to-admin-20261112): a client who still OWNS an attached workspace is its owner of record by ownership
+  until the move. `src/lib/property-owner/access.server.ts` gives them owner access; sign-in and "Property portal" land in the
+  Property portal, view-only (`workspace.readOnly`).
 - **A service workspace texts on the PropLane line (206), always (Oct 25).** Every `is_service` workspace sends from the PropLane
   line in BOTH line modes, even an attached client workspace that still holds a live number of its own (Ambika's +1 (814) 679-3694,
   Vinod's). The decision is `resolveServiceLine` (`src/lib/one-number/service-line.server.ts`); the dispatcher's readiness check, the
@@ -68,14 +79,22 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
   workspace (admins). There is no Property portal row: service mode is still the admin portal and PropLane is the way
   back to the admin home. It shares the rail's open/create/switch logic (`useServiceWorkspaceOpen`); the server authorizes every
   open. The menu takes the slot that held the section title, so the label stays as an `sr-only` `h1` beside it.
+- **Plan isolation.** A managed house, seat or resident never counts against, is never limited by and is never billed to the admin's
+  own plan: `src/lib/service/managed-plan-isolation.server.ts` feeds the listing-slot count, the Free door cap, the door count that
+  bills, the plan card's usage (`loadWorkspacePlan`) and the Communication gate (`assertManagerCommunicationAllowedForWorkspace`:
+  PropLane pays for a managed workspace, `sendAsPropLaneAfterRefusal`). Coverage: `tests/unit/managed-plan-isolation.test.ts`.
 - **Who is staff** (`loadServiceStaffWorkspaces`, decided per seat by `serviceSeatVerdict`): the platform service owner
-  for the workspaces they own, or an accepted team seat at an OPERATOR role (Admin / Full), granted by the workspace's
+  for the workspaces they own (every managed workspace; an unreadable service owner is a failed read for a viewer who owns one, so
+  the admin's workspaces never fall into the Property portal), or an accepted team seat at an OPERATOR role (Admin / Full), granted by the workspace's
   own owner. A Viewer / Custom / Property manager seat the CLIENT wrote (no `is_service_seat`) is never staff - on a workspace
   PropLane created or an attached one, and being a platform admin does not change that; such a seat keeps only its per-house
   grants. A seat PropLane issued (`is_service_seat`, the Admin team below) of ANY non-owner role is staff of the shell: the shell
   only decides which workspaces the holder sees, what they read and change inside stays the seat's own houses and module
   levels. On an attached workspace an operator seat also needs PropLane's own provenance (`is_service_seat`) unless the
-  holder is a PropLane person. The client who owns an attached workspace is **not** staff: they keep the view-only Property portal.
+  holder is a PropLane person (TODO(managed-workspaces-to-admin-20261112): attached-workspace arm, dead after the move). The client
+  (the `property_owner` seat, or until the move the owner of an attached workspace) is **not** staff: they keep the view-only
+  Property portal. `workspacesForPortalPayload` keeps an admin-owned managed workspace out of the admin's own Property portal, and on
+  a failed staff read keeps only workspaces the viewer sees view-only (`readOnly`).
 - **The gate** (`decideServiceMode`, used by the `/portal` layout and `GET /api/workspaces`): service mode iff the
   ACTIVE workspace (the cookie's, else the first, exactly what the scope readers narrow to) is a service workspace the
   viewer is staff of. The top bar reads `Admin · <workspace>`, the sidebar subtitle `PropLane Service`, the plan banner
@@ -240,8 +259,9 @@ workspaces, no PropLane logo, no `+`); `/admin` pages redirect them there and th
 Accounts > Managers > row ⋯ has **Managed by PropLane...** between Copy PropLane ID and Disable (hidden when the account has no
 owned workspace left that is neither `is_service` nor archived: `unmanagedWorkspaceCount`). It opens
 `ManagedByProplaneSheet` (the Add-property pop-up frame): the account's workspaces, City, Management fee, and the owner's role
-fixed at **Property owner (view-only)** (the owner owns the workspace, so they are its owner of record by ownership and no
-membership row is written for them). A workspace row on the account record opens the same sheet on that one workspace
+fixed at **Property owner (view-only)**: a real `property_owner` + `is_owner_of_record` seat, written by the attach after ownership
+moves to the service owner (TODO(managed-workspaces-to-admin-20261112): before the move the owner owned the workspace and no
+membership row was written). A workspace row on the account record opens the same sheet on that one workspace
 (`initialWorkspaceId`, ignored when it is not one of the account's unmanaged workspaces —
 [`admin-accounts.md`](admin-accounts.md) § Money actions and workspace rows).
 
@@ -249,7 +269,7 @@ membership row is written for them). A workspace row on the account record opens
   `src/lib/service/managed-by-proplane.server.ts`). A body id only NAMES a row: the account's workspaces and houses are re-read
   from the database, each id must be one of that account's own active, unmanaged workspaces, and any failed read refuses with
   nothing written. The service owner's own account is refused.
-- **Choose workspaces** = `attachWorkspaceToService` once per workspace (audit first, never moves `owner_user_id`), then the fee
+- **Choose workspaces** = `attachWorkspaceToService` once per workspace (audit first, then the ownership move), then the fee
   through `setServiceWorkspaceFee` (audited). It stops at the first refusal and says how many were attached before it.
 - **Combine all into one** = the OTHER workspaces' houses move into the chosen target through the
   `combine_portal_workspaces` RPC (`20261027030000_portal_workspaces_archived_combine.sql`), ONE transaction that changes only
@@ -272,3 +292,32 @@ membership row is written for them). A workspace row on the account record opens
 
 ## Staff seats and route guards (Nov 12)
 `resolveManagerRouteActor` (`src/lib/auth/route-actor.server.ts`) answers a failed auth or role READ as 503, never 401/403; a PropLane-issued seat holder or admin passes without a `manager` role row. `serviceStaffSettingsAccess` reports `unavailable` on a thrown read (503 from `resolveSettingsScope`). An unpinned seat (`workspace_id` null) reaches the owner's one workspace. `scripts/backfill-staff-manager-role.mts` is the dry-run backfill.
+
+## The ownership mover (Nov 12): classification, stops, undo
+
+`move_managed_workspace_to_service_owner(workspace, expected_from, dry_run)` (migration `20261112230000_managed_workspace_mover.sql`) is
+the only door that changes a managed workspace's owner. `p_to` is never a parameter (it is `platform_service_settings.owner_user_id`),
+it runs in one transaction under the account-lifecycle advisory lock, and it never writes `property_data` / `row_data`.
+
+- **Allowlist.** `managed_move_classification()` names every public table with a manager identity column: **move** (house/workspace
+  scoped; a row naming neither moves only when the client has no other live workspace), **account** (no scope column; moves only for
+  a client with no other live workspace, otherwise the run stops), **keep** (the client's own money, identity and pre-management
+  history: fee policy, party/hold/payout/GL/statement tables, billing; asserted, never written) or **special** (workspace, houses,
+  numbers, emails, seats: dedicated steps). A table with an identity column that is not on the list and holds rows for the client
+  STOPS the run; `tests/unit/managed-move-classification.test.ts` fails a new one.
+- **Stops** (reported on a dry run, raised before anything is written on a real one): service owner lacks the admin role, owner is not
+  the expected client, a house not owned by the client, open checkout attempts (24 h) or reserved/unknown withdrawals, another owner of
+  record or a non-owner seat of the client, unclassified rows, account-level rows with another live workspace.
+- **Seats.** The service owner's own seat is deleted; every live seat answers to the service owner; the client gets one accepted
+  `property_owner` + `is_owner_of_record` seat, house scope `selected`, the four owner keys including Messages (D3). Numbers, work
+  emails and aliases follow the workspace; holds that would cross owners are dropped.
+- **Undo.** Every moved row's primary key is stored in `managed_workspace_ownership_moves` (also the single-apply marker). `undo_managed_workspace_move`
+  restores exactly those rows, only inside 2 hours and only once; after new activity lands, forward-fix instead.
+- **Team chat / House chat ids (D2).** Not renamed: the old `team-thread:<client>:…` / `house-thread:<client>:…` ids are referenced by at
+  least twelve other tables (`portal_inbox_thread_aliases`, `agent_sessions.inbox_thread_id`, `prospect_contexts`, `sms_*`), so the moved
+  rows keep their ids and the readers resolve them through the workspace.
+- **Deletion.** `managed-account-deletion-guard.server.ts`: the service owner and any account owning an `is_service` workspace cannot be
+  deleted; a client who is the payee of a managed workspace with a fee policy or a non-zero owner payable cannot be deleted until an
+  admin replaces the owner of record. An unreadable check refuses.
+- **Attach.** `attachWorkspaceToService` = audit row, flag, the mover (a stop refuses the attach and unflags), the operator's Admin seat,
+  the automatic fee, the work email. Old `--mode attach` of `scripts/one-number/move-houses-to-service.mjs` is refused.

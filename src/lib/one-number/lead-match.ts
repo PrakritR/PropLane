@@ -225,7 +225,7 @@ export function offerFromRow(row: RoomListingRow, n: number, tier?: LineTier): L
     n,
     propertyId: row.propertyId,
     roomId: row.roomId,
-    label: row.headlineAddress.trim() || row.neighborhood.trim() || "this house",
+    label: (row.headlineAddress ?? "").trim() || (row.neighborhood ?? "").trim() || "this house",
     rent: row.rentNumeric !== null ? Math.round(row.rentNumeric) : null,
     availability: availabilityPhrase(row.availabilityRaw),
   };

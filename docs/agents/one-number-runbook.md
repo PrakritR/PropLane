@@ -185,6 +185,7 @@ branch, and `db:push` applies it only once merged):
 | 20261112200100 | `stay_messages_and_platform` | New service-role-only table `stay_message_sends` (the check-in / check-out send ledger, one row per stay and kind; RLS on, every client privilege revoked); additive and idempotent |
 | 20261112210000 | `personal_email_proofs` | New service-role-only table `personal_email_proofs` (SHA-256 of a single-use mailbox-proof token bound to one user and one email, 24 h expiry; RLS on, every client privilege revoked); additive and idempotent |
 | 20261112220000 | `channel_payout_records` | Two new service-role-only tables, `channel_payout_records` (Airbnb / Booking.com reservation and payout reporting rows, unique on platform + confirmation code + kind) and `channel_finance_mail` (last forwarded mail and review queue). Additive, RLS on, no client grant; never a resident charge or party-ledger row |
+| 20261112230000 | `managed_workspace_mover` | New service-role-only table `managed_workspace_ownership_moves` (single-apply marker + undo record) and the functions `managed_move_classification`, `managed_move_pk_columns`, `managed_move_scope_predicate`, `move_managed_workspace_to_service_owner`, `undo_managed_workspace_move` (service_role execute only). Writes nothing by itself: the move runs only from `scripts/one-shot/managed-workspaces-to-admin-20261112.mts` or Admin > Service > Attach. Additive and idempotent |
 
 Check after the push (SQL editor, read-only):
 

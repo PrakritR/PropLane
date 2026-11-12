@@ -371,3 +371,37 @@ describe("the /portal layout's service-mode gate", () => {
     });
   });
 });
+
+describe("managed workspaces are the admin's (ownership moved to the service owner)", () => {
+  const adminOwned = (id: string, name: string) => ws(id, name, { isService: true, owned: true, ownerUserId: OWNER });
+
+  it("the service owner's rail lists every managed workspace they own, and the Property payload never does", async () => {
+    // OWNER owns Ambika and Vinod and holds no seat on either: the owner arm alone makes them staff.
+    expect((await mode.loadServiceStaffWorkspaces(db as never, OWNER)).map((w) => w.id)).toEqual([AMBIKA, VINOD]);
+    const mine = ws(MINE, "My homes", { owned: true, isDefault: true, ownerUserId: OWNER });
+    const out = workspacesForPortalPayload([mine, adminOwned(AMBIKA, "Ambika"), adminOwned(VINOD, "Vinod")], new Set([AMBIKA, VINOD]), MINE);
+    expect(out.workspaces.map((w) => w.id)).toEqual([MINE]);
+    expect(firstPropertyWorkspaceId([mine, adminOwned(AMBIKA, "Ambika")])).toBe(MINE);
+  });
+
+  it("a failed staff read keeps the admin's owned managed workspace OUT of the Property portal; the client's view-only one stays", () => {
+    const mine = ws(MINE, "My homes", { owned: true, isDefault: true, ownerUserId: OWNER });
+    const clientSeat = ws(AMBIKA, "Ambika", { isService: true, owned: false, readOnly: true });
+    const out = workspacesForPortalPayload([mine, adminOwned(VINOD, "Vinod"), clientSeat], new Set(), AMBIKA, { staffUnreadable: true });
+    expect(out.workspaces.map((w) => w.id)).toEqual([MINE, AMBIKA]);
+  });
+
+  it("the client's Property-owner seat is not staff and is never the rail's", async () => {
+    expect((await mode.loadServiceStaffWorkspaces(db as never, CLIENT)).map((w) => w.id)).toEqual([]);
+    const out = workspacesForPortalPayload([ws(AMBIKA, "Ambika", { isService: true, readOnly: true })], new Set(), AMBIKA);
+    expect(out.workspaces.map((w) => w.id)).toEqual([AMBIKA]);
+  });
+
+  it("an unreadable service owner is a failed read for a viewer who owns managed workspaces, never 'not staff'", async () => {
+    db.tables.platform_service_settings = [];
+    await expect(mode.loadServiceStaffWorkspaces(db as never, OWNER)).rejects.toThrow();
+    expect(await mode.loadServiceStaffIds(db as never, OWNER)).toMatchObject({ failed: true });
+    // A manager who owns no managed workspace is unaffected.
+    await expect(mode.loadServiceStaffWorkspaces(db as never, PLAIN)).resolves.toEqual([]);
+  });
+});

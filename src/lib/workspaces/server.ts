@@ -348,6 +348,33 @@ export async function readWorkspacePlanInputs(db: SupabaseClient, userId: string
   return { tierResult, links, vendors, addons, residents };
 }
 
+/**
+ * What the plan's account-wide counts include for the owner's managed workspaces: the seats they granted there and the
+ * approved residents of their houses. `null` = unreadable (the plan is then reported unknown, never undercounted as zero).
+ */
+async function readManagedUsageToSubtract(
+  db: SupabaseClient,
+  userId: string,
+  managed: PortalWorkspace[],
+): Promise<{ seats: number; residents: number } | null> {
+  if (managed.length === 0) return { seats: 0, residents: 0 };
+  const workspaceIds = managed.map((w) => w.id);
+  const houseIds = [...new Set(managed.flatMap((w) => w.propertyIds))];
+  const [seats, residents] = await Promise.all([
+    db.from("account_link_invites").select("id", { count: "exact", head: true }).eq("inviter_user_id", userId).eq("status", "accepted").in("workspace_id", workspaceIds),
+    houseIds.length === 0
+      ? Promise.resolve({ count: 0, error: null })
+      : db
+          .from("manager_application_records")
+          .select("id", { count: "exact", head: true })
+          .eq("manager_user_id", userId)
+          .or(`property_id.in.(${houseIds.join(",")}),assigned_property_id.in.(${houseIds.join(",")})`)
+          .or("row_data->>bucket.eq.approved,row_data->>manuallyAdded.eq.true"),
+  ]);
+  if (seats.error || residents.error) return null;
+  return { seats: seats.count ?? 0, residents: residents.count ?? 0 };
+}
+
 /** The plan's workspace / property / team caps beside what the account already uses. */
 export async function loadWorkspacePlan(
   db: SupabaseClient,
@@ -359,10 +386,15 @@ export async function loadWorkspacePlan(
   const { tierResult, links, vendors, addons, residents } = await (reads ?? readWorkspacePlanInputs(db, userId));
   const tier = tierResult.ok ? tierResult.tier : null;
   const entitlements = tier ? WORKSPACE_PLAN_ENTITLEMENTS[tier] : null;
-  const owned = workspaces.filter((w) => w.owned);
+  // Plan isolation (R4): a PropLane-managed (`is_service`) workspace is PropLane's own operation, owned by the admin. It
+  // never counts against the owner's plan - not as a workspace, not its houses, seats or residents - and a plan cap
+  // never strands it. A client who still owns an attached one (before the prod move) is likewise not charged for it.
+  const managed = workspaces.filter((w) => w.owned && w.isService === true);
+  const owned = workspaces.filter((w) => w.owned && w.isService !== true);
+  const managedSeatsAndResidents = await readManagedUsageToSubtract(db, userId, managed);
   // A failed add-on read is an unknown plan. Treating it as zero would reject
   // a manager who already pays for capacity, so callers must fail closed.
-  const unknown = !tierResult.ok || !addons.ok;
+  const unknown = !tierResult.ok || !addons.ok || managedSeatsAndResidents === null;
   const extra = addons.ok ? addons.quantities : EMPTY_PLAN_ADDON_QUANTITIES;
   // A legacy account with no committed plan keeps the database ceiling.
   const computedWorkspaceLimit = entitlements
@@ -382,9 +414,9 @@ export async function loadWorkspacePlan(
     usage: {
       workspaces: owned.length,
       properties: owned.reduce((sum, w) => sum + w.propertyIds.length, 0),
-      team: links.count ?? 0,
+      team: Math.max(0, (links.count ?? 0) - (managedSeatsAndResidents?.seats ?? 0)),
       vendors: vendors.count ?? 0,
-      residents: residents.count ?? 0,
+      residents: Math.max(0, (residents.count ?? 0) - (managedSeatsAndResidents?.residents ?? 0)),
     },
   };
 }

@@ -1,6 +1,7 @@
 import "server-only";
 
 import type Stripe from "stripe";
+import { ownerOfRecordName } from "@/lib/managed-finance/owner-of-record-name.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadManagerReportDisplayContext } from "@/lib/reports/display-context";
 import {
@@ -31,6 +32,8 @@ export type WithdrawalView = { id: string; amountCents: number; status: string; 
 
 export type OwnerFinancesView = {
   workspace: { id: string; name: string };
+  /** The statement header's owner: the Property owner of record (the signed policy's owner), never the workspace row's owner (the admin). */
+  propertyOwner: { name: string };
   policy: { id: string; status: PolicyRow["status"]; feeLine: string; terms: ManagedFeeTerms; signedAt: string | null };
   month: string;
   balance: FinanceBalance;
@@ -91,7 +94,10 @@ export async function loadOwnerFinances(
   ]);
   const ws = (wsRow.data ?? {}) as { name?: string; owner_user_id?: string };
   const statement = buildOwnerStatement(toStatementLines(lines), fromIso, toIso);
+  // The houses' labels come from whoever the houses belong to (the workspace owner: the admin once ownership moves, the
+  // client before it); the statement HEADER names the property owner of record.
   const display = ws.owner_user_id ? await loadManagerReportDisplayContext(db, ws.owner_user_id).catch(() => null) : null;
+  const propertyOwnerName = await ownerOfRecordName(db, input.ownerUserId);
   const rows = statement.rows.map((r) => ({ ...r, propertyLabel: r.propertyId ? display?.propertyLabel(r.propertyId) ?? null : null }));
   const reserve = current.status === "active" ? current.terms.reserveTargetCents : 0;
   let payoutReady: boolean | null = null;
@@ -102,6 +108,7 @@ export async function loadOwnerFinances(
   const occupancy = await workspaceOccupancy(db, input.workspaceId, month);
   return {
     workspace: { id: input.workspaceId, name: ws.name ?? "Your workspace" },
+    propertyOwner: { name: propertyOwnerName },
     policy: { id: current.id, status: current.status, feeLine: describeManagedFee(current.terms), terms: current.terms, signedAt: current.signedAt },
     month,
     balance: { balanceCents: balance.owedCents, availableCents: availableToWithdraw(balance, reserve), pendingCents: balance.pendingCents, reserveCents: reserve },

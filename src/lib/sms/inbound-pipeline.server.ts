@@ -1109,14 +1109,17 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         if (command.handled) {
           mark("manager-command");
           if (command.reply) {
-            await deliverManagerSmsReply({
+            // Never silent: a refused reply on a managed workspace goes out through PropLane, and one that still cannot
+            // be texted lands in the manager's Assistant thread with the reason.
+            const { deliverManagerCommandReply } = await import("@/lib/manager-sms-commands/deliver-reply.server");
+            await deliverManagerCommandReply(db, {
               managerUserId: managerInbound.workNumberOwnerId,
               actorUserId: managerInbound.actorUserId,
               toPhone: fromPhone,
               text: stripLongDashes(command.reply),
               workNumber,
               inboundMessageSid: messageSid,
-              workspaceId: workspaceId ?? null,
+              workspaceId: workspaceId ?? commandWorkspaces[0] ?? null,
             }).catch((error: unknown) => console.error("manager command reply not delivered", error instanceof Error ? error.message : "unknown"));
           }
           if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {

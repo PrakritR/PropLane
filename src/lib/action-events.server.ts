@@ -237,8 +237,14 @@ export function teammateNoticeText(text: string, actorName?: string | null): str
   return text.replace(/^You (?=[a-z])/, `${name} `).replace(/\bwaiting on your\b/g, "waiting on the");
 }
 
-/** Is `ownerUserId` the client owner of the PropLane-managed workspace this house sits in? False for anything unreadable. */
-async function recipientIsManagedWorkspaceOwner(db: SupabaseClient, ownerUserId: string, propertyId: string | null): Promise<boolean> {
+/**
+ * Does `ownerUserId` OWN the PropLane-managed (`is_service`) workspace this house sits in? False for anything unreadable.
+ * Since managed workspaces are the admin's, the owner here is the admin (PropLane's own account), not the client: the
+ * client hears the allowlisted notices as a SECOND recipient (`co-manager-notification-recipients.server.ts`, through
+ * `resolveManagedPayee`). The effect is unchanged: the workspace owner is never written a routine one-on-one thread.
+ * (Before the prod one-shot an attached workspace is still client-owned; the same test covers both shapes.)
+ */
+async function recipientOwnsManagedWorkspace(db: SupabaseClient, ownerUserId: string, propertyId: string | null): Promise<boolean> {
   try {
     const { resolveManagerAssistantWorkspace } = await import("@/lib/communication/manager-assistant-workspace.server");
     const { isManagedWorkspaceId } = await import("@/lib/service/service-alert-targets.server");
@@ -519,7 +525,7 @@ async function deliverProjection(
     if (error) throw new Error(`Could not finalize action-event delivery: ${error.message}`);
     return "delivered";
   }
-  // The OWNER of a PropLane-managed (`is_service`) workspace is a client of PropLane, not one of its team. A routine system
+  // The OWNER of a PropLane-managed (`is_service`) workspace is PropLane's own account (the admin; before the prod move, the client). A routine system
   // notice ("You approved ...") written to them as a one-on-one conversation made an "owner" thread in the staff's
   // Communication list, and texted them about work PropLane did. The staff hear it from the Team chat line posted above; the
   // owner hears financials in the monthly statement and anything urgent here. A conversation with the owner exists only when
@@ -531,7 +537,7 @@ async function deliverProjection(
     input.recipient.userId === input.managerUserId.trim() &&
     input.senderUserId !== input.recipient.userId &&
     !input.urgent &&
-    (await recipientIsManagedWorkspaceOwner(db, input.managerUserId.trim(), input.propertyId ?? null))
+    (await recipientOwnsManagedWorkspace(db, input.managerUserId.trim(), input.propertyId ?? null))
   ) {
     const updatedAt = input.now.toISOString();
     const { error } = await db.from("action_event_deliveries").update({
@@ -585,7 +591,7 @@ async function deliverProjection(
     // An urgent notice to a managed workspace's owner still texts / emails them, but never opens a one-on-one thread.
     ...(input.recipient.audience === "manager" && input.recipient.userId && input.recipient.userId === input.managerUserId?.trim()
       && input.senderUserId !== input.recipient.userId && input.urgent && !input.retryMode
-      && (await recipientIsManagedWorkspaceOwner(db, input.recipient.userId, input.propertyId ?? null))
+      && (await recipientOwnsManagedWorkspace(db, input.recipient.userId, input.propertyId ?? null))
       ? { suppressInbox: true } : {}),
     ...(input.recordRef ? { recordRef: input.recordRef } : {}),
     // A resident's copy of a card-worthy event wears the event card in the stay chat. Built from the stored

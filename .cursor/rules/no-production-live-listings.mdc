@@ -85,3 +85,8 @@ ships, every PropLane-managed (`is_service`) workspace — "1. Ambika" and "2. V
 and the client (Ambika Mago; Vinod) is seated as that workspace's Property owner. Scope: ONE apply of
 `scripts/one-shot/managed-workspaces-to-admin-20261112.mts` (backup first, writes only ownership/membership columns and
 the owner-party mapping, reads back). Listing content (pricing, rooms, photos, move-in, fees) is not edited. Do not re-run.
+
+Build note (Nov 12): the one-shot calls the SQL mover `move_managed_workspace_to_service_owner`
+(`supabase/migrations/20261112230000_managed_workspace_mover.sql`): dry run by default, a SHA-256 journaled backup, Vinod then Ambika
+each in one transaction, a read-back (houses' `property_data` byte-identical, payee and owner payable unchanged), a single-apply
+marker, and an undo valid for 2 hours. Production dry-run output: the captain approves the counts before any `--apply`.

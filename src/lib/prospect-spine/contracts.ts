@@ -61,5 +61,6 @@ export type ProspectRecordView = {
     threadId: string | null; firstMessageAt: string; lastMessageAt: string; messageCount: number }>;
 };
 export type StitchResult =
-  | { ok: true; threadId: string; movedContextIds: string[] }
+  /** `moved` is true only when the prospect is on the text line (a quoted code, or a phone that already has an SMS thread); a phone merely written in a platform message merges the thread but stays on the platform. */
+  | { ok: true; threadId: string; movedContextIds: string[]; moved?: boolean }
   | { ok: false; reason: "unknown_code" | "ambiguous" | "store_unavailable" };

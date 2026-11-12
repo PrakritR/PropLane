@@ -66,6 +66,7 @@ import {
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 import { bubbleEventFields } from "@/lib/inbox-event-card";
+import type { InboxMessageDelivery } from "@/lib/inbox-delivery-status";
 import { HouseSmsGroupAction } from "@/components/portal/house-sms-group-action";
 import { isHouseInboxThread, parseHouseThreadId } from "@/lib/house-thread-id";
 import { InboxStayCard } from "@/components/portal/inbox-stay-card";
@@ -1136,8 +1137,37 @@ export const ManagerInbox = forwardRef<
         }
 
         if (!emailOk && !smsOk && !proplaneOk) {
-          rollbackReply();
-          throw new InboxSendRefusal(failureMessage || null);
+          const failedChannel: "sms" | "email" | null = smsAllowed ? "sms" : emailAllowed ? "email" : null;
+          if (smsUnknown || !failedChannel) {
+            rollbackReply();
+            throw new InboxSendRefusal(failureMessage || null);
+          }
+          // A refused or failed send is never silent: the bubble STAYS, red, with the reason and Retry, and the
+          // server has already stamped the thread's delivery issue. The composer keeps the text for another try.
+          const failedEntry: InboxMessageDelivery = {
+            channel: failedChannel,
+            status: "failed",
+            error: failureMessage.trim().replace(/[.\s]+$/, "") || (failedChannel === "email" ? "Email couldn't be sent" : "Text couldn't be sent"),
+            at: new Date().toISOString(),
+          };
+          const failedRows = localRef.current.map((row) =>
+            row.id === thread.id
+              ? {
+                  ...row,
+                  messages: (row.messages ?? []).map((message) =>
+                    message.id === replyId ? { ...message, delivery: undefined, deliveries: [failedEntry] } : message,
+                  ),
+                  unread: true,
+                }
+              : row,
+          );
+          setLocal(failedRows as InboxThread[]);
+          const failedThread = failedRows.find((row) => row.id === thread.id);
+          if (failedThread) {
+            await upsertPersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, [failedThread as PersistedInboxThread], failedRows as PersistedInboxThread[]).catch(() => false);
+          }
+          void syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY, { force: true }).catch(() => {});
+          throw new InboxSendRefusal(failedEntry.error ? `${failedEntry.error}.` : null);
         }
 
         const currentRows = localRef.current;

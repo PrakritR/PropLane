@@ -1449,6 +1449,7 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
  * entry here as a decision; an unlisted table is a gap.
  */
 export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
+  managed_workspace_ownership_moves: "Audit of who owned a PropLane-managed workspace before the ownership mover ran (single-apply marker + undo record); ids only, no profile data, service role only. The service owner and a managed workspace's property owner cannot be deleted while the workspace stands (managed-account-deletion-guard.server.ts).",
   personal_email_proofs: "Hashed single-use email proofs for a personal account link; child of auth.users and removed by cascade when the account is deleted; service role only.",
   prospect_contexts: "Prospect context keyed on a phone or platform handle; no account column; cascades with the workspace.",
   sms_reply_handles: "Short reply handles keyed on a staff phone; expire in hours; cascade with the workspace.",
