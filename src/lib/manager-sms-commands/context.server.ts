@@ -65,7 +65,13 @@ export async function buildCommandContext(
     if (!ws || !actorUserId) return null;
     const ref = { id: ws.id, name: ws.name, ownerUserId: ws.ownerUserId, isDefault: ws.isDefault };
     if (ws.ownerUserId === actorUserId) {
-      if (ws.isService) return null;
+      if (ws.isService) {
+        // Managed workspaces are owned by the service owner (an admin): that actor runs it with the full owner-mode context.
+        // TODO(managed-workspaces-to-admin-20261112): an attached workspace still owned by its CLIENT is view-only (null).
+        if (!(await holdsAdminRole(db, actorUserId))) return null;
+        const built = await buildServiceManagerAgentContext(db, { serviceOwnerId: actorUserId, workspace: ref });
+        return built.ok ? built.ctx : null;
+      }
       const built = await resolveManagerSmsAgentContext(db, { managerUserId: actorUserId, actorUserId, workspaceId: ws.id });
       return built.ok ? built.ctx : null;
     }

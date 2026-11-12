@@ -803,6 +803,9 @@ export function aggregateRoomRowsToPropertyCards(
     card.leaseTypes = LEASE_TYPES.filter((t) => rows.some((r) => r.leaseTypes.includes(t.id))).map((t) => t.id);
     card.photoUrls = [...seen];
     if (!card.imageUrl && card.photoUrls[0]) card.imageUrl = card.photoUrls[0];
+    // A listing saved without a neighborhood or headline must never crash browse (sort, filter, card line).
+    card.neighborhood = card.neighborhood ?? "";
+    card.headlineAddress = card.headlineAddress ?? "";
   }
 
   return [...byProperty.values()];
@@ -812,7 +815,7 @@ export function sortPropertyBrowseCards(cards: PropertyBrowseCard[], sort: Brows
   const sorted = [...cards];
   sorted.sort((a, b) => {
     if (sort === "neighborhood") {
-      const hood = a.neighborhood.localeCompare(b.neighborhood);
+      const hood = (a.neighborhood ?? "").localeCompare(b.neighborhood ?? "");
       if (hood !== 0) return hood;
       return compareBrowseCardsByPrice(a, b);
     }

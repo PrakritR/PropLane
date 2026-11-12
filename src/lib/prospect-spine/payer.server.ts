@@ -63,8 +63,10 @@ export async function sendAsPropLaneAfterRefusal(
   try {
     const code = (input.refusalCode ?? "").trim();
     if (!isPropLaneFallbackRefusalCode(code)) return { attempted: false, ok: false, reason: "refusal_not_eligible" };
-    const payer = await resolveSmsPayer(db, { ownerUserId: input.ownerUserId, workspaceId: input.workspaceId });
-    if (payer === input.ownerUserId.trim()) return { attempted: false, ok: false, reason: "not_managed" };
+    // Managed = the workspace's `is_service` flag, never "the payer differs from the owner": a managed workspace may be owned
+    // BY the service owner (payer === owner). An unreadable flag or a missing workspace fails closed (not managed).
+    const { isManagedWorkspaceId } = await import("@/lib/service/service-alert-targets.server");
+    if (!(await isManagedWorkspaceId(db, input.workspaceId).catch(() => false))) return { attempted: false, ok: false, reason: "not_managed" };
     const { rateLimit } = await import("@/lib/rate-limit");
     const claim = await rateLimit(`proplane-fallback-send:${input.claimKey}`.slice(0, 160), 1, 24 * 60 * 60_000);
     // A key already claimed means an earlier attempt of THIS reply ran: never a second text, and never assumed delivered.

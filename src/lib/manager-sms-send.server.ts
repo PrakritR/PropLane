@@ -256,6 +256,7 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
     toPhone: matchedPhone,
     text,
     claimKey: dedupeKey,
+    actorUserId: args.actorUserId,
   });
   if (sent.status === 200 || sent.status === 202) {
     // One-number learning loop: an answer to an escalation, or an edited AI draft, becomes a
@@ -282,7 +283,7 @@ type EnqueueResult = Awaited<ReturnType<typeof enqueueOwnerSms>>;
 export async function settleRefusedConversationSend(
   db: SupabaseClient,
   sent: SendResult,
-  input: { ownerManagerUserId: string; workspaceId: string | null; propertyId: string | null; toPhone: string; text: string; claimKey: string | null },
+  input: { ownerManagerUserId: string; workspaceId: string | null; propertyId: string | null; toPhone: string; text: string; claimKey: string | null; actorUserId?: string; actorName?: string },
 ): Promise<SendResult> {
   if (sent.status >= 200 && sent.status < 300) return sent;
   try {
@@ -308,11 +309,28 @@ export async function settleRefusedConversationSend(
         refusalCode: code,
       });
       if (fallback.attempted && fallback.ok) {
-        if (threadId) {
+        // PropLane really texted it (a provider send). The reply must show in the thread, and only a recorded reply clears
+        // an earlier issue: never report "sent" with nothing in the conversation.
+        let recorded = false;
+        if (threadId && workspaceId) {
+          const { recordOutbound } = await import("@/lib/prospect-spine/index.server");
+          recorded = (
+            await recordOutbound(db, {
+              workspaceId,
+              ownerUserId: input.ownerManagerUserId,
+              threadId,
+              body: input.text,
+              channel: "sms",
+              author: { kind: "staff", userId: input.actorUserId ?? input.ownerManagerUserId, name: input.actorName?.trim() || "PropLane team" },
+              eventId: `manager-send:${input.claimKey}`,
+            }).catch(() => ({ ok: false }))
+          ).ok;
+        }
+        if (recorded && threadId) {
           const { clearDeliveryIssue } = await import("@/lib/prospect-spine/delivery-issue.server");
           await clearDeliveryIssue(db, threadId);
         }
-        return response({ ok: true, status: "submitted", viaPropLane: true }, { status: 200 });
+        return response({ ok: true, status: "submitted", viaPropLane: true, recorded }, { status: 200 });
       }
       if (fallback.attempted) fallbackReason = fallback.reason ?? null;
     }

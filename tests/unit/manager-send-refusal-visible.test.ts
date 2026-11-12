@@ -6,7 +6,9 @@ const mocks = vi.hoisted(() => ({
   clearDeliveryIssue: vi.fn(),
   locateThreadId: vi.fn(),
   resolveWorkspaceContext: vi.fn(),
+  recordOutbound: vi.fn(),
 }));
+vi.mock("@/lib/prospect-spine/index.server", () => ({ recordOutbound: mocks.recordOutbound }));
 
 vi.mock("@/lib/prospect-spine/payer.server", () => ({ sendAsPropLaneAfterRefusal: mocks.sendAsPropLaneAfterRefusal }));
 vi.mock("@/lib/prospect-spine/delivery-issue.server", () => ({ recordDeliveryIssue: mocks.recordDeliveryIssue, clearDeliveryIssue: mocks.clearDeliveryIssue }));
@@ -35,6 +37,7 @@ const db = {} as never;
 beforeEach(() => {
   for (const fn of Object.values(mocks)) fn.mockReset();
   mocks.locateThreadId.mockResolvedValue("sms_notice_1");
+  mocks.recordOutbound.mockResolvedValue({ ok: true, messageId: "out_1" });
   mocks.resolveWorkspaceContext.mockResolvedValue({ workspaceId: "ws-1" });
 });
 
@@ -54,14 +57,34 @@ describe("a refused inbox text is never silent", () => {
     expect(mocks.sendAsPropLaneAfterRefusal).toHaveBeenCalledWith(db, expect.objectContaining({
       ownerUserId: "owner-1", workspaceId: "ws-1", to: "+12065550151", body: "Hi there", refusalCode: "comms_billing_allowance_exhausted",
     }));
+    expect(mocks.recordOutbound).toHaveBeenCalledWith(db, expect.objectContaining({ threadId: "sms_notice_1", workspaceId: "ws-1", body: "Hi there", channel: "sms" }));
     expect(mocks.clearDeliveryIssue).toHaveBeenCalledWith(db, "sms_notice_1");
     expect(mocks.recordDeliveryIssue).not.toHaveBeenCalled();
+  });
+
+  it("fallback sent but the thread could not be appended: reads sent, but the earlier issue is NOT cleared", async () => {
+    mocks.sendAsPropLaneAfterRefusal.mockResolvedValue({ attempted: true, ok: true });
+    mocks.recordOutbound.mockResolvedValue({ ok: false });
+    const out = await settleRefusedConversationSend(db, refused, input);
+    expect(out.body).toMatchObject({ viaPropLane: true, recorded: false });
+    expect(mocks.clearDeliveryIssue).not.toHaveBeenCalled();
+  });
+
+  it("already_attempted (attempted, not ok): refused, issue recorded, never stored, never cleared", async () => {
+    mocks.sendAsPropLaneAfterRefusal.mockResolvedValue({ attempted: true, ok: false, reason: "already_attempted" });
+    const out = await settleRefusedConversationSend(db, refused, input);
+    expect(out).toBe(refused);
+    expect(mocks.recordOutbound).not.toHaveBeenCalled();
+    expect(mocks.clearDeliveryIssue).not.toHaveBeenCalled();
+    expect(mocks.recordDeliveryIssue).toHaveBeenCalledWith(db, expect.objectContaining({ reason: expect.stringContaining("already attempted") }));
   });
 
   it("self-serve workspace (fallback not attempted): the refusal stays, with a delivery issue and its human reason on the thread", async () => {
     mocks.sendAsPropLaneAfterRefusal.mockResolvedValue({ attempted: false, ok: false, reason: "not_managed" });
     const out = await settleRefusedConversationSend(db, refused, input);
     expect(out).toBe(refused);
+    expect(mocks.recordOutbound).not.toHaveBeenCalled();
+    expect(mocks.clearDeliveryIssue).not.toHaveBeenCalled();
     expect(mocks.recordDeliveryIssue).toHaveBeenCalledWith(db, expect.objectContaining({
       threadId: "sms_notice_1", direction: "outbound", reason: "Could not queue SMS.",
     }));

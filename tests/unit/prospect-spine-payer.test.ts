@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let managed = true;
 vi.mock("@/lib/service/service-alert-targets.server", () => ({
-  isManagedWorkspaceId: async () => managed,
+  isManagedWorkspaceId: async (_db: unknown, ws: string | null) => managed && !!ws,
   serviceAlertPayerUserId: async () => "svc-owner",
 }));
 const platformSend = vi.fn(async (..._a: unknown[]) => ({ ok: true as const, sid: "SM1" }) as { ok: true; sid: string } | { ok: false; reason: string });
@@ -49,6 +49,17 @@ describe("sendAsPropLaneAfterRefusal", () => {
   it.each(NEVER)("code %j never falls back, even on a managed workspace", async (refusalCode) => {
     const r = await sendAsPropLaneAfterRefusal(db, { ...input, refusalCode: refusalCode as string | null | undefined });
     expect(r).toMatchObject({ attempted: false, ok: false });
+    expect(platformSend).not.toHaveBeenCalled();
+  });
+  it("admin-owned managed workspace (owner === service owner) still falls back: managed is the is_service flag, not payer!=owner", async () => {
+    expect(await sendAsPropLaneAfterRefusal(db, { ...input, ownerUserId: "svc-owner", refusalCode: "comms_billing_allowance_exhausted" })).toEqual({ attempted: true, ok: true });
+    expect(platformSend).toHaveBeenCalledTimes(1);
+  });
+  it("self-serve workspace owned by anyone (even the service owner id) never falls back; a missing workspace fails closed", async () => {
+    managed = false;
+    expect(await sendAsPropLaneAfterRefusal(db, { ...input, ownerUserId: "svc-owner", refusalCode: "credit_unavailable" })).toMatchObject({ attempted: false, reason: "not_managed" });
+    managed = true;
+    expect(await sendAsPropLaneAfterRefusal(db, { ...input, workspaceId: null, refusalCode: "credit_unavailable" })).toMatchObject({ attempted: false });
     expect(platformSend).not.toHaveBeenCalled();
   });
   it("a retried reply never texts twice and is never reported as sent", async () => {

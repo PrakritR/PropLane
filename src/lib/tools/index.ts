@@ -15,7 +15,7 @@ import { reviewInspectionDepositTool, disposeInspectionDepositTool } from "./dom
 import { suggestStatementMatchesTool } from "./domains/statement-matching";
 import { buildRegistry, type ToolRegistry } from "./registry";
 import type { AgentContext } from "./context";
-import { CO_MANAGER_SCOPED_TOOLS, scopeManagerTool } from "./manager-co-manager-tool-scope";
+import { CO_MANAGER_SCOPED_TOOLS, DELEGATED_LISTING_EDIT_TOOLS, scopeManagerTool } from "./manager-co-manager-tool-scope";
 import {
   delegatedSmsWithholdsTool,
   type ManagerSmsAccess,
@@ -393,7 +393,7 @@ export function buildManagerSmsRegistry(
     ));
   }
   return forAccess(buildRegistry(
-    [...managerSmsRegistry.values()].filter((tool) => CO_MANAGER_SCOPED_TOOLS.has(tool.name) && !delegatedSmsWithholdsTool(tool.name)),
+    [...managerSmsRegistry.values()].filter((tool) => (CO_MANAGER_SCOPED_TOOLS.has(tool.name) || DELEGATED_LISTING_EDIT_TOOLS.has(tool.name)) && !delegatedSmsWithholdsTool(tool.name)),
   ));
 }
 

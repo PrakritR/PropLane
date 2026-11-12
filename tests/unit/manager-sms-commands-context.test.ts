@@ -81,6 +81,20 @@ describe("buildCommandContext", () => {
     expect(mocks.resolveManagerSmsAgentContext).not.toHaveBeenCalled();
   });
 
+  it("admin-owned managed workspace (owner IS the service owner): that admin runs it in owner mode, never null", async () => {
+    db = workspaces({ is_service: true, owner_user_id: "admin-1" });
+    mocks.holdsAdminRole.mockResolvedValue(true);
+    mocks.buildServiceManagerAgentContext.mockResolvedValue({ ok: true, ctx: ctx("admin-1") });
+    expect(await buildCommandContext(db as never, { actorUserId: "admin-1", workspaceId: "ws-1" })).toEqual(ctx("admin-1"));
+    expect(mocks.buildServiceManagerAgentContext.mock.calls[0]![1]).toMatchObject({ serviceOwnerId: "admin-1", workspace: { id: "ws-1", ownerUserId: "admin-1" } });
+  });
+
+  it("a non-admin owner of a managed workspace stays view-only", async () => {
+    db = workspaces({ is_service: true, owner_user_id: "client-1" });
+    mocks.holdsAdminRole.mockResolvedValue(false);
+    expect(await buildCommandContext(db as never, { actorUserId: "client-1", workspaceId: "ws-1" })).toBeNull();
+  });
+
   it("an admin runs a managed workspace; a seat holder gets their own seat's context; a stranger gets nothing", async () => {
     db = workspaces({ is_service: true });
     mocks.holdsAdminRole.mockResolvedValueOnce(true);
