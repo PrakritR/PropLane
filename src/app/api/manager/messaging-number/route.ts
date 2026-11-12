@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { track } from "@/lib/analytics/posthog";
 import { rateLimit } from "@/lib/rate-limit";
-import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
+import { resolveManagerRouteActor } from "@/lib/auth/route-actor.server";
 import { getManagerPortalNavSubscriptionTier } from "@/lib/manager-access-server";
 import {
   managerCarrierRegistrationNeedsAttention,
@@ -500,9 +500,9 @@ function publicProvisioningError(error: string): string {
 
 /** Read-only manager messaging status. Never seeds a row or contacts a provider. */
 export async function GET(req: Request) {
-  const actor = await requireManagerRouteUser();
-  if (!actor)
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  const actor = await resolveManagerRouteActor({ route: "manager/messaging-number" });
+  if (!actor.ok)
+    return NextResponse.json({ error: actor.error }, { status: actor.status });
 
   let workspace: ActiveWorkspace;
   try {
@@ -522,9 +522,9 @@ export async function GET(req: Request) {
  * with either kill switch off, this route never reaches provider provisioning.
  */
 export async function POST(req: Request) {
-  const actor = await requireManagerRouteUser();
-  if (!actor)
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  const actor = await resolveManagerRouteActor({ route: "manager/messaging-number" });
+  if (!actor.ok)
+    return NextResponse.json({ error: actor.error }, { status: actor.status });
 
   const parsedBody = await req.json().catch(() => ({}) as unknown);
   if (
@@ -725,9 +725,9 @@ export async function POST(req: Request) {
  * the request body never grants authority on its own.
  */
 export async function PATCH(req: Request) {
-  const actor = await requireManagerRouteUser();
-  if (!actor)
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  const actor = await resolveManagerRouteActor({ route: "manager/messaging-number" });
+  if (!actor.ok)
+    return NextResponse.json({ error: actor.error }, { status: actor.status });
 
   const parsedBody = await req.json().catch(() => ({}) as unknown);
   if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) {

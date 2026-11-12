@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { LinkCodeGate, LinkExpiredView, LinkMessageView, RentLinkCard } from "@/components/public/phone-bound-link-ui";
+import { PersonalAccountForm } from "@/components/public/personal-account-form";
 import { ResidentOnboardingForm } from "@/components/public/resident-onboarding-form";
 import { resolveLinkDestination } from "@/lib/one-number/link-destinations.server";
 import {
@@ -81,6 +82,8 @@ export default async function PhoneBoundLinkPage({
       const opened = await openOnboarding(db, link);
       return opened.ok ? <ResidentOnboardingForm token={token} prefill={opened.prefill} /> : <LinkExpiredView />;
     }
+    case "account":
+      return <PersonalAccountForm token={token} prefill={destination.prefill} />;
     case "phone_changed":
       return <LinkMessageView title="This link is for a different number" line="Text us for a new link." />;
     default:

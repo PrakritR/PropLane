@@ -149,6 +149,8 @@ export type InboundPayload = {
   runtime: string;
   /** The text arrived on the one-number shared line, so a HUMAN pause for (phone, workspace) applies. */
   sharedLine?: boolean;
+  /** The house the shared-line router matched (home lock / entry code / residency): the thread is tagged with it. */
+  propertyId?: string | null;
 };
 
 export function inboundRuntime(): string {
@@ -773,9 +775,24 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
   if (managedWorkspaceText || textedPropLaneLine) {
     // Best-effort: `after` throws outside a request scope, and an alert must never fail the inbound it follows.
     try {
+      const routedPropertyId = saved?.propertyId ?? input.propertyId ?? null;
       after(async () => {
+        // The alert names the house AND the room: the router's property, a house the text names, or the sender's residency
+        // (property + room). A failed lookup alerts without the tag, never not at all.
+        let propertyId: string | null = null;
+        let houseLabel: string | null = null;
+        if (workspaceId) {
+          try {
+            const spineContext = await import("@/lib/prospect-spine/context.server");
+            const resolved = await spineContext.resolveInboundContext(db, { workspaceId, ownerUserId: managerId, phoneE164: fromPhone, body, payloadPropertyId: routedPropertyId });
+            propertyId = resolved.propertyId;
+            houseLabel = await spineContext.contextTag(db, resolved);
+          } catch {
+            /* untagged alert */
+          }
+        }
         await import("@/lib/one-number/inbound-alert.server")
-          .then((m) => m.alertOpsOfInboundText(db, { workspaceId: workspaceId ?? null, managerId, fromPhone, body, messageSid, onPropLaneLine: textedPropLaneLine }))
+          .then((m) => m.alertOpsOfInboundText(db, { workspaceId: workspaceId ?? null, managerId, fromPhone, body, messageSid, onPropLaneLine: textedPropLaneLine, propertyId, houseLabel }))
           .catch(() => undefined);
       });
     } catch {
@@ -1069,6 +1086,50 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
       }
       return twimlOk();
+    }
+    // Manage-by-text (Package C): a reply to a prospect by handle ("K7 yes Dec 1"), a guided listing, a price or photo
+    // command, from a VERIFIED staff phone only (`managerInbound` is the identity gate; the body never decides who anyone is).
+    // Guarded: the module may not be deployed yet and a failure in it must never fail the inbound. Not handled = fall through
+    // to the Team chat / Assistant exactly as before.
+    try {
+      const { handleManagerSmsCommand } = await import("@/lib/manager-sms-commands/index.server");
+      const commandWorkspaces = serviceManager
+        ? ((await listServiceWorkspacesFor(db, serviceManager).catch(() => null)) ?? []).map((ws) => ws.id)
+        : workspaceId ? [workspaceId] : [];
+      if (commandWorkspaces.length > 0) {
+        const command = await handleManagerSmsCommand(db, {
+          staffPhoneE164: normalizeE164(fromPhone) ?? fromPhone,
+          actorUserId: managerInbound.actorUserId,
+          workspaceIds: commandWorkspaces,
+          body,
+          messageSid,
+          mediaCount: Number(media.NumMedia) || 0,
+          onPropLaneLine,
+        });
+        if (command.handled) {
+          mark("manager-command");
+          if (command.reply) {
+            await deliverManagerSmsReply({
+              managerUserId: managerInbound.workNumberOwnerId,
+              actorUserId: managerInbound.actorUserId,
+              toPhone: fromPhone,
+              text: stripLongDashes(command.reply),
+              workNumber,
+              inboundMessageSid: messageSid,
+              workspaceId: workspaceId ?? null,
+            }).catch((error: unknown) => console.error("manager command reply not delivered", error instanceof Error ? error.message : "unknown"));
+          }
+          if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+            return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
+          }
+          return twimlOk();
+        }
+      }
+    } catch (error) {
+      // "not built" (or any failure in the command module) is "not handled".
+      if (!(error instanceof Error) || !/not built|Cannot find module|Failed to resolve/i.test(error.message)) {
+        console.error("manager command skipped", error instanceof Error ? error.name : "unknown");
+      }
     }
     // A member texting the work number is talking to the team unless the text
     // is addressed to the Assistant ("@assistant ...") or the workspace has one
@@ -2023,6 +2084,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       receivedAt: originalReceivedAt,
       managerUserId: workspace.ownerUserId,
       workspaceId: workspaceId ?? null,
+      routedPropertyId: saved?.propertyId ?? input.propertyId ?? null,
       workNumber,
       service: "SMS",
       durablyClaimed: true,
@@ -2042,11 +2104,25 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     });
   } catch (e) {
     console.error("twilio inbound leasing handler failed", managerId, e);
+    await import("@/lib/prospect-spine/delivery-issue.server")
+      .then((m) => m.recordDeliveryIssue(db, {
+        threadId: null, workspaceId: workspaceId ?? null, direction: "inbound",
+        reason: "A text arrived but the leasing assistant failed while handling it. It will be retried.",
+        eventId: `leasing-handler:${messageSid}`,
+      }))
+      .catch(() => undefined);
     await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
     return NextResponse.json({ error: "Inbound processing failed." }, { status: 503 });
   }
   mark("leasing-done");
   if (!handled.ok) {
+    await import("@/lib/prospect-spine/delivery-issue.server")
+      .then((m) => m.recordDeliveryIssue(db, {
+        threadId: null, workspaceId: workspaceId ?? null, direction: "inbound",
+        reason: "A text arrived but could not be handled by the leasing assistant. It will be retried.",
+        eventId: `leasing-not-ok:${messageSid}`,
+      }))
+      .catch(() => undefined);
     await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
     return NextResponse.json({ error: handled.error ?? "Inbound processing failed." }, { status: 503 });
   }

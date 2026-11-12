@@ -10,6 +10,14 @@ vi.mock("@/lib/auth/portal-access", () => ({
   hasRole: () => true,
   hasAdminRole: () => false,
 }));
+vi.mock("@/lib/auth/route-actor.server", () => ({
+  resolveManagerRouteActor: async () => {
+    const ctx = await mocks.getPortalAccessContext();
+    return ctx?.user
+      ? { ok: true, userId: ctx.user.id, db: (await import("@/lib/supabase/service")).createSupabaseServiceRoleClient() }
+      : { ok: false, status: 401, error: "Sign in again." };
+  },
+}));
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({ rpc: mocks.rpc }),
 }));

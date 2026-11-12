@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { submissionToDraftAdminRow } from "@/lib/demo-admin-property-inventory";
+import { draftIdFor } from "@/lib/one-number/onboarding/house-draft.server";
+import { submissionFromImportedProperty } from "@/lib/property-import/to-submission";
 import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
 import { writeAuditLog, updateAuditResult, auditDayBucket } from "../audit";
@@ -222,6 +225,110 @@ export const updateListingDraftTool = defineWriteTool({
     return {
       reply: `Updated the draft listing "${submission.buildingName}". Continue in Properties when ready to publish.`,
       resultSummary: { propertyId: input.draftPropertyId },
+    };
+  },
+});
+
+/**
+ * The guided create-a-listing-by-text flow's one write (design-1112 section 3.3): address, room count, rent and an
+ * optional detail become a DRAFT. `status: "draft"` on the ordinary record, never public and never a plan slot; photos
+ * arrive later by MMS and publishing stays a portal action. The id is deterministic per (owner, flow), so a retried
+ * confirmation updates the same row instead of making a second draft. Unlike `create_listing_draft` it needs no photo.
+ */
+export const createListingDraftByTextTool = defineWriteTool({
+  name: "create_listing_draft_by_text",
+  description:
+    "Save a listing DRAFT from facts a manager texted step by step: street address, number of rooms and the rent (one amount for every room, or one per room). Never publishes. Photos are added afterwards.",
+  inputSchema: z
+    .object({
+      flowId: z.string().min(8).max(64).regex(/^[A-Za-z0-9_-]+$/).describe("Opaque id of the text conversation; makes a retry idempotent."),
+      address: z.string().trim().min(3).max(200).describe("Street address."),
+      roomCount: z.number().int().min(1).max(20).describe("Number of rentable rooms."),
+      rentsUsd: z.array(z.number().positive().max(100000)).min(1).max(20).describe("One monthly rent for every room, or one per room."),
+      details: z.string().trim().max(1200).optional().describe("A line of description for the listing."),
+    })
+    .strict()
+    .refine((v) => v.rentsUsd.length === 1 || v.rentsUsd.length === v.roomCount, { message: "Give one rent, or one rent per room." }),
+  preview: async (_ctx, input) => ({
+    kind: "create_listing_draft_by_text",
+    title: "Save listing draft",
+    summary: `Save a draft for ${input.address}.`,
+    fields: [
+      { label: "Address", value: input.address },
+      { label: "Rooms", value: String(input.roomCount) },
+      {
+        label: "Rent",
+        value: input.rentsUsd.length === 1
+          ? `$${Math.round(input.rentsUsd[0]!)}/mo each`
+          : input.rentsUsd.map((r, i) => `Room ${i + 1} $${Math.round(r)}`).join(", "),
+      },
+      ...(input.details ? [{ label: "Details", value: input.details }] : []),
+      { label: "Saved as", value: "Draft, not public" },
+    ],
+    confirmLabel: "Save draft",
+  }),
+  handler: async (ctx, input) => {
+    const propertyId = draftIdFor(ctx.landlordId, input.flowId);
+    const dedupeKey = `create_listing_draft_by_text:${ctx.landlordId}:${input.flowId}`;
+    const audit = await writeAuditLog(ctx, {
+      action: "create_listing_draft_by_text",
+      toolName: "create_listing_draft_by_text",
+      inputSummary: { roomCount: input.roomCount },
+      dedupeKey,
+    });
+    if (!audit.recorded && !audit.duplicate) throw new Error("Could not record the action; no draft was saved.");
+    const roomCount = input.roomCount;
+    const rentFor = (index: number) => Math.round(input.rentsUsd.length === 1 ? input.rentsUsd[0]! : input.rentsUsd[index]!);
+    const submission = submissionFromImportedProperty({
+      key: "text-listing",
+      name: input.address,
+      address: input.address,
+      city: "",
+      state: "",
+      zip: "",
+      propertyType: "house",
+      rentByRoom: roomCount > 1,
+      bedrooms: roomCount,
+      bathrooms: null,
+      monthlyRent: roomCount > 1 ? null : rentFor(0),
+      deposit: null,
+      rooms: roomCount > 1 ? Array.from({ length: roomCount }, (_, i) => ({ label: `Room ${i + 1}`, rent: rentFor(i), deposit: null, sourceRow: null })) : [],
+      sourceSheet: "",
+      sourceRows: [],
+      needsLook: [],
+      confidence: "medium",
+    });
+    if (input.details) submission.houseOverview = input.details;
+    const row = {
+      ...submissionToDraftAdminRow(submission, ctx.landlordId, propertyId, {}),
+      source: "text_setup" as const,
+      importedAt: new Date().toISOString(),
+    };
+    const { data: existing } = await ctx.db.from("manager_property_records").select("manager_user_id, status").eq("id", propertyId).maybeSingle();
+    if (existing && (String(existing.manager_user_id) !== ctx.landlordId || existing.status !== "draft")) {
+      throw new Error("That draft was already changed in PropLane, so I left it alone.");
+    }
+    const workspaceId = ctx.workspace?.id?.trim();
+    const { error } = await ctx.db.from("manager_property_records").upsert(
+      {
+        id: propertyId,
+        manager_user_id: ctx.landlordId,
+        status: "draft",
+        row_data: row,
+        property_data: null,
+        ...(workspaceId ? { workspace_id: workspaceId } : {}),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "id" },
+    );
+    if (error) {
+      await updateAuditResult(ctx, dedupeKey, { error: "save_failed" }, { clearDedupeKey: true });
+      throw new Error(error.message.includes("10 property records") ? "This workspace is at its 10 listing limit, so I could not save another draft." : "The draft could not be saved.");
+    }
+    await updateAuditResult(ctx, dedupeKey, { propertyId });
+    return {
+      reply: `Saved a draft for ${input.address}. Finish it under Properties in PropLane. Text photos now to add them.`,
+      resultSummary: { propertyId, status: "draft" },
     };
   },
 });

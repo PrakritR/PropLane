@@ -4,14 +4,9 @@ import {
   fetchManagerSmsConversations,
   resolveSmsScopeManagerIds,
 } from "@/lib/manager-sms-messages.server";
-import {
-  getPortalAccessContext,
-  hasAdminRole,
-  hasRole,
-} from "@/lib/auth/portal-access";
+import { resolveManagerRouteActor } from "@/lib/auth/route-actor.server";
 import { sendManagerConversationSms } from "@/lib/manager-sms-send.server";
 import { ensureVendorForOutboundText } from "@/lib/sms/inbound-text-routing.server";
-import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { normalizeE164 } from "@/lib/twilio";
 import { decodeSmsProjectionCursor, fetchManagerSmsProjectionDetail, fetchManagerSmsProjectionPage } from "@/lib/sms/sms-projection-inbox.server";
 import type { ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
@@ -19,22 +14,9 @@ import type { ManagerSmsResidentConversation } from "@/lib/manager-sms-messages"
 export const runtime = "nodejs";
 
 async function requireManager() {
-  const ctx = await getPortalAccessContext();
-  const user = ctx.user;
-  if (!user)
-    return {
-      error: NextResponse.json({ error: "Unauthorized." }, { status: 401 }),
-    };
-  if (!hasRole(ctx, "manager") && !hasAdminRole(ctx)) {
-    return {
-      error: NextResponse.json(
-        { error: "Manager access required." },
-        { status: 403 },
-      ),
-    };
-  }
-  const db = createSupabaseServiceRoleClient();
-  return { user, db, profile: ctx.profile };
+  const actor = await resolveManagerRouteActor({ route: "manager/sms-conversations" });
+  if (!actor.ok) return { error: NextResponse.json({ error: actor.error }, { status: actor.status }) };
+  return { user: { id: actor.userId }, db: actor.db };
 }
 
 /** Manager Communication → SMS: work number + per-resident inbound/outbound texts. */

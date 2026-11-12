@@ -53,13 +53,17 @@ export async function upsertManagerInboxNotice(
     counterpartyPhone?: string;
     messageId?: string;
     originalSmsEvent?: OriginalSmsNoticeEvent;
+    /** The person's EXISTING thread (a keyed row the prospect spine wrote under another id): append there, never mint a second. */
+    threadIdOverride?: string;
   },
 ): Promise<{ threadId: string; messageId: string }> {
   const phone = smsNoticePhone(args.counterpartyPhone || args.from);
   const messageId = args.messageId || randomUUID();
-  const threadId = phone
-    ? smsNoticeThreadId(args.managerUserId, phone)
-    : `${args.idPrefix}_${Date.now()}_${randomUUID()}`;
+  const threadId = args.threadIdOverride?.trim()
+    ? args.threadIdOverride.trim()
+    : phone
+      ? smsNoticeThreadId(args.managerUserId, phone)
+      : `${args.idPrefix}_${Date.now()}_${randomUUID()}`;
   const now = new Date();
   const stamp = formatInboxStamp(now);
   // The notice stays its own compatibility row (its id, archive controls and
@@ -149,19 +153,45 @@ export async function recordAutoReplyOnSmsNotice(
     text: string;
     /** The inbound text this answers (Twilio SID); makes the append idempotent. */
     inboundMessageId?: string | null;
+    /** The workspace the conversation lives in; names the person's one thread when it is not the legacy notice row. */
+    workspaceId?: string | null;
   },
 ): Promise<boolean> {
   try {
     const phone = smsNoticePhone(args.counterpartyPhone);
     const text = args.text.trim();
     if (!phone || !text || !args.managerUserId.trim()) return false;
-    const threadId = smsNoticeThreadId(args.managerUserId, phone);
-    const { data: existing } = await db
+    // The person's ONE thread: the keyed row in the workspace when there is one, else the legacy notice row on the
+    // deterministic id. Looked up by conversation key, never by `smsNoticeThreadId` alone (the spine may have created
+    // the row under another id).
+    let threadId = smsNoticeThreadId(args.managerUserId, phone);
+    const workspaceId = args.workspaceId?.trim() || "";
+    if (workspaceId) {
+      const { locateThreadId } = await import("@/lib/prospect-spine/locate.server");
+      threadId = await locateThreadId(db, { ownerUserId: args.managerUserId, workspaceId, phoneE164: phone });
+    }
+    let { data: existing } = await db
       .from("portal_inbox_thread_records")
       .select("id, thread_type")
       .eq("id", threadId)
       .eq("owner_user_id", args.managerUserId)
       .maybeSingle();
+    if (!existing && !workspaceId) {
+      // No workspace named: the person's newest SMS thread for this owner, by the phone the row carries.
+      const { data: byPhone } = await db
+        .from("portal_inbox_thread_records")
+        .select("id, thread_type")
+        .eq("owner_user_id", args.managerUserId)
+        .eq("scope", MANAGER_INBOX_SCOPE)
+        .eq("row_data->>smsNoticePhone", phone)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (byPhone) {
+        existing = byPhone;
+        threadId = String((byPhone as { id?: unknown }).id);
+      }
+    }
     if (!existing) return false;
     const inboundId = args.inboundMessageId?.trim();
     await upsertManagerInboxNotice(db, {
@@ -182,6 +212,7 @@ export async function recordAutoReplyOnSmsNotice(
       body: text,
       unread: false,
       messageId: inboundId ? `auto_reply_${inboundId}` : undefined,
+      threadIdOverride: threadId,
     });
     return true;
   } catch (error) {

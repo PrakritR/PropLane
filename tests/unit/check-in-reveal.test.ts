@@ -1,23 +1,24 @@
 /**
- * `checkInReveal` (checkin-1028, decision D1): the ONE rule for when the door codes appear. 24 hours
+ * `checkInReveal` (checkin-1028, decision D1): the ONE rule for when the door codes appear. 10:00 local the day before (design-1112)
  * before check-in / move-in; a long-term resident also needs a signed lease; a short-stay guest a
  * confirmed stay; a finished stay closes again. Before the moment: masked, with the unlock time.
  */
 import { describe, expect, it } from "vitest";
-import { CHECK_IN_REVEAL_LEAD_MS, checkInReveal, formatRevealLabel } from "@/lib/check-in-reveal";
+import { checkInReveal, checkInRevealAtMs, formatRevealLabel } from "@/lib/check-in-reveal";
 
 // Thu Oct 30 2026, 15:00 Pacific (PDT, UTC-7).
 const MOVE_IN = "2026-10-30T22:00:00.000Z";
-const REVEAL_AT = "2026-10-29T22:00:00.000Z";
+// design-1112 §5 item 4: 10:00 local the DAY BEFORE (Oct 29, 10:00 PDT = 17:00Z), replacing the old 24-hour lead.
+const REVEAL_AT = "2026-10-29T17:00:00.000Z";
 
 describe("long-term resident (tenancy)", () => {
-  it("is masked before the 24 hour mark, with the unlock moment named", () => {
-    const result = checkInReveal({ kind: "tenancy", moveInAtIso: MOVE_IN, leaseSigned: true }, new Date("2026-10-29T21:59:59.000Z"));
+  it("is masked before 10:00 the day before, with the unlock moment named", () => {
+    const result = checkInReveal({ kind: "tenancy", moveInAtIso: MOVE_IN, leaseSigned: true }, new Date("2026-10-29T16:59:59.000Z"));
     expect(result).toEqual({ revealed: false, reason: "too_early", revealAtIso: REVEAL_AT });
-    expect(formatRevealLabel(result.revealAtIso)).toBe("Thu 3:00 PM");
+    expect(formatRevealLabel(result.revealAtIso)).toBe("Thu 10:00 AM");
   });
 
-  it("reveals at exactly 24 hours before, and stays revealed after move-in", () => {
+  it("reveals at exactly 10:00 the day before, and stays revealed after move-in", () => {
     expect(checkInReveal({ kind: "tenancy", moveInAtIso: MOVE_IN, leaseSigned: true }, new Date(REVEAL_AT)).revealed).toBe(true);
     expect(checkInReveal({ kind: "tenancy", moveInAtIso: MOVE_IN, leaseSigned: true }, new Date("2026-11-20T12:00:00.000Z")).revealed).toBe(true);
   });
@@ -48,9 +49,9 @@ describe("short-stay guest (stay)", () => {
     ...over,
   });
 
-  it("is masked until 24 hours before check-in, then reveals", () => {
-    expect(checkInReveal(stay(), new Date("2026-10-29T21:00:00.000Z"))).toEqual({ revealed: false, reason: "too_early", revealAtIso: REVEAL_AT });
-    expect(checkInReveal(stay(), new Date("2026-10-30T09:00:00.000Z")).revealed).toBe(true);
+  it("is masked until 10:00 the day before check-in, then reveals", () => {
+    expect(checkInReveal(stay(), new Date("2026-10-29T16:00:00.000Z"))).toEqual({ revealed: false, reason: "too_early", revealAtIso: REVEAL_AT });
+    expect(checkInReveal(stay(), new Date("2026-10-29T17:00:00.000Z")).revealed).toBe(true);
   });
 
   it("only a CONFIRMED stay reveals: a hold or a cancelled stay never does", () => {
@@ -71,8 +72,18 @@ describe("short-stay guest (stay)", () => {
   });
 });
 
-it("the lead is 24 hours", () => {
-  expect(CHECK_IN_REVEAL_LEAD_MS).toBe(24 * 60 * 60 * 1000);
+describe("the reveal moment is 10:00 local the day before, whatever the hour of check-in", () => {
+  it("is the same moment for a 3 pm and a 9 am check-in", () => {
+    expect(new Date(checkInRevealAtMs(Date.parse("2026-10-30T22:00:00.000Z"))!).toISOString()).toBe(REVEAL_AT);
+    expect(new Date(checkInRevealAtMs(Date.parse("2026-10-30T16:00:00.000Z"))!).toISOString()).toBe(REVEAL_AT);
+  });
+  it("is DST-safe: 10:00 PST (UTC-8) once clocks have fallen back", () => {
+    // check-in Nov 2 2026 (PST): the day before is Nov 1, the day clocks fall back, 10:00 PST = 18:00Z.
+    expect(new Date(checkInRevealAtMs(Date.parse("2026-11-02T23:00:00.000Z"))!).toISOString()).toBe("2026-11-01T18:00:00.000Z");
+  });
+  it("honours the property's own zone", () => {
+    expect(new Date(checkInRevealAtMs(Date.parse("2026-10-30T22:00:00.000Z"), "America/New_York")!).toISOString()).toBe("2026-10-29T14:00:00.000Z");
+  });
 });
 
 describe("formatRevealLabel", () => {

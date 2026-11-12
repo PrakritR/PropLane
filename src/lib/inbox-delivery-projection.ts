@@ -8,6 +8,7 @@ export function withoutDeliveryReceipts<T extends Record<string, unknown>>(row: 
   const next: Record<string, unknown> = { ...row };
   delete next.rootDeliveries;
   delete next.deliveries;
+  delete next.deliveryIssue;
   if (Array.isArray(next.messages)) {
     next.messages = (next.messages as unknown[]).map((message) => {
       if (!message || typeof message !== "object" || Array.isArray(message)) return message;

@@ -164,13 +164,27 @@ describe("public page dock", () => {
     expect(document.querySelector(".ps-dock")).toBeNull();
   });
 
-  it("draws no Text us in the dock, even with the PropLane line configured: /rent is the web channel", () => {
+  it("draws Message and Text us in the dock, Text us only to the PropLane line and never the listing's own work number (design-1112 §5.1)", () => {
     render(
       <PublicTextingProvider value={{ phone: "+12066781909", smsHref: "sms:+12066781909" }}>
         <ListingDetailSections property={property({ phone: WORK_NUMBER })} rich={rich} phoneDock />
       </PublicTextingProvider>,
     );
-    expect(document.querySelector('[data-dock]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="listing-text-tour-dock"], [data-dock] a[href^="sms:"]')).toBeNull();
+    const dock = document.querySelector("[data-dock]") as HTMLElement;
+    expect(dock).not.toBeNull();
+    expect(dock.querySelector('[data-attr="listing-message"]')).not.toBeNull();
+    const sms = [...dock.querySelectorAll('a[href^="sms:"]')];
+    expect(sms).toHaveLength(1);
+    expect(sms[0]!.getAttribute("data-attr")).toBe("listing-text-us");
+    expect(sms[0]!.getAttribute("href")!.startsWith("sms:+12066781909?&body=")).toBe(true);
+    expect(document.body.innerHTML).not.toContain("2064420188");
+    expect(document.querySelector('[data-attr="listing-text-tour-dock"], a[href^="tel:"]')).toBeNull();
+  });
+
+  it("draws no Text us in the dock when no line is configured, only Message", () => {
+    render(<ListingDetailSections property={property({ phone: WORK_NUMBER })} rich={rich} phoneDock />);
+    const dock = document.querySelector("[data-dock]") as HTMLElement;
+    expect(dock.querySelector('[data-attr="listing-message"]')).not.toBeNull();
+    expect(dock.querySelector('a[href^="sms:"], a[href^="tel:"]')).toBeNull();
   });
 });

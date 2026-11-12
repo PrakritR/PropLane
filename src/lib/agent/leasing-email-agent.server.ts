@@ -71,6 +71,8 @@ export type LeasingEmailTurn = {
 /** A guest message from a booking site (Airbnb, Booking.com, PadSplit, SpareRoom) rather than a prospect's own email. */
 export type LeasingEmailChannel = {
   site: ChannelSite;
+  /** The site's name as the guest knows it, when `site` is only the policy a platform lead borrows (a Zillow lead runs under SpareRoom's rules). */
+  siteLabel?: string;
   guestName: string;
   /** "5257 Brooklyn Ave, Room 6" when the listing was matched to a room. */
   listingLine: string | null;
@@ -226,7 +228,7 @@ export async function runLeasingEmailAgentTurn(
       (args.channel
         ? channelAgentInstructions({
             site: args.channel.site,
-            siteLabel: CHANNEL_SITE_LABEL[args.channel.site],
+            siteLabel: args.channel.siteLabel?.trim() || CHANNEL_SITE_LABEL[args.channel.site],
             guestName: args.channel.guestName,
             listingLine: args.channel.listingLine,
             holdReason: args.channel.holdReason,

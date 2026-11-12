@@ -81,6 +81,7 @@ import {
   createPropertyTool,
   updatePropertyTool,
   updateRoomRentTool,
+  updateListingDetailsTool,
   updatePropertyLeaseConfigTool,
   listPropertyLeaseTemplateSectionsTool,
   proposePropertyLeaseTemplateSectionEditTool,
@@ -90,6 +91,7 @@ import {
 import {
   getListingCreationChecklistTool,
   createListingDraftTool,
+  createListingDraftByTextTool,
   updateListingDraftTool,
 } from "./domains/listing-draft";
 import { applyListingPhotosTool, getListingMediaInventoryTool } from "./domains/listing-media";
@@ -260,10 +262,12 @@ export const agentRegistry = buildRegistry([
   inviteVendorTool,
   createPropertyTool,
   createListingDraftTool,
+  createListingDraftByTextTool,
   updateListingDraftTool,
   applyListingPhotosTool,
   updatePropertyTool,
   updateRoomRentTool,
+  updateListingDetailsTool,
   updatePropertyLeaseConfigTool,
   listPropertyLeaseTemplateSectionsTool,
   proposePropertyLeaseTemplateSectionEditTool,

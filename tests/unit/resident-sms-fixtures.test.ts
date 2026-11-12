@@ -67,12 +67,12 @@ describe("the door and room code: only through the one reveal decision", () => {
   const moveIn = "2026-12-01T22:00:00.000Z"; // the move-in date at check-in time
 
   it("'door code?' before the window gets no code, and the unlock time instead", () => {
-    const early = checkInReveal({ kind: "tenancy", moveInAtIso: moveIn, leaseSigned: true }, new Date("2026-11-30T20:00:00.000Z"));
-    expect(early).toMatchObject({ revealed: false, reason: "too_early", revealAtIso: "2026-11-30T22:00:00.000Z" });
+    const early = checkInReveal({ kind: "tenancy", moveInAtIso: moveIn, leaseSigned: true }, new Date("2026-11-30T17:00:00.000Z"));
+    expect(early).toMatchObject({ revealed: false, reason: "too_early", revealAtIso: "2026-11-30T18:00:00.000Z" });
   });
 
-  it("'door code?' once the 24-hour window opens, with a signed lease, gets the code", () => {
-    expect(checkInReveal({ kind: "tenancy", moveInAtIso: moveIn, leaseSigned: true }, new Date("2026-11-30T22:00:01.000Z"))).toMatchObject({ revealed: true });
+  it("'door code?' once the window opens (10:00 the day before), with a signed lease, gets the code", () => {
+    expect(checkInReveal({ kind: "tenancy", moveInAtIso: moveIn, leaseSigned: true }, new Date("2026-11-30T18:00:01.000Z"))).toMatchObject({ revealed: true });
   });
 
   it("an unsigned lease never reveals, even after the window", () => {

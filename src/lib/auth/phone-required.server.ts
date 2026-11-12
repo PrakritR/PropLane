@@ -115,7 +115,26 @@ export async function phoneSkipActive(db: SupabaseClient, userId: string): Promi
 export const PHONE_SKIP_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 export const PHONE_SKIP_LIFETIME_MAX = 3;
 
-export type PhoneSkipAllowance = { allowed: boolean; reason?: "cooldown" | "lifetime" | "unavailable"; outage?: true };
+/**
+ * Accounts created on or after this instant may NEVER skip the phone step (captain, Nov 12 2026: account creation requires a
+ * phone verified by an SMS code, so a prospect record on that number can link to the account). Older accounts keep the capped
+ * skip. Only a platform-wide send outage lifts it, so a provider failure can never lock anyone out.
+ */
+export const PHONE_MANDATORY_FROM = "2026-11-12T00:00:00.000Z";
+
+export type PhoneSkipAllowance = { allowed: boolean; reason?: "cooldown" | "lifetime" | "unavailable" | "required"; outage?: true };
+
+/** Was this account created on or after `PHONE_MANDATORY_FROM`? An unreadable account is "no": the cap below still applies. */
+export async function accountRequiresVerifiedPhone(db: SupabaseClient, userId: string): Promise<boolean> {
+  try {
+    const { data, error } = await db.auth.admin.getUserById(userId);
+    const created = Date.parse(String(data?.user?.created_at ?? ""));
+    if (error || !Number.isFinite(created)) return false;
+    return created >= Date.parse(PHONE_MANDATORY_FROM);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * May this account skip the phone step again?
@@ -132,6 +151,8 @@ export async function phoneSkipAllowance(db: SupabaseClient, userId: string, now
   } catch {
     // Unreadable switch: fall through to the cap below.
   }
+  // A new account (created on or after the mandatory date) never skips: it proves its phone or it does not enter.
+  if (await accountRequiresVerifiedPhone(db, userId)) return { allowed: false, reason: "required" };
   const { data, error } = await db
     .from("phone_required_skips")
     .select("created_at")

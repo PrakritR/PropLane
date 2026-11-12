@@ -220,7 +220,35 @@ export async function applyProviderDeliveryStatus(
     { threadId: ref.thread_record_id, messageId: ref.message_id },
     (current) => mergeDelivery(current, entry),
   );
+  // The thread-level "Delivery issues" state follows the provider: a failed text raises it with the reason, a delivered one
+  // on the thread clears it. Best effort: never fails the callback.
+  await syncThreadDeliveryIssue(db, {
+    threadId: ref.thread_record_id,
+    messageId: ref.message_id,
+    status: args.status,
+    reason: args.status === "failed" ? smsSendErrorText(args.error) : null,
+  });
   return { updated };
+}
+
+async function syncThreadDeliveryIssue(
+  db: SupabaseClient,
+  input: { threadId: string; messageId: string; status: InboxDeliveryState; reason: string | null },
+): Promise<void> {
+  try {
+    const issues = await import("@/lib/prospect-spine/delivery-issue.server");
+    if (input.status === "failed") {
+      await issues.recordDeliveryIssue(db, {
+        threadId: input.threadId, workspaceId: null, direction: "outbound",
+        reason: input.reason || "A message could not be delivered.", messageId: input.messageId,
+        eventId: `status:${input.threadId}:${input.messageId}`,
+      });
+    } else if (input.status === "delivered") {
+      await issues.clearDeliveryIssue(db, input.threadId);
+    }
+  } catch {
+    /* advisory */
+  }
 }
 
 /** Outcome of one email attempt, as `sendPortalConversationEmails` reports it. */
@@ -285,11 +313,15 @@ export async function recordSmsAttempt(
     }
     return recordInboxMessageDelivery(db, target, { channel: "sms", status: "sending" });
   } else {
-    return recordInboxMessageDelivery(db, target, {
+    const failed = await recordInboxMessageDelivery(db, target, {
       channel: "sms",
       status: "failed",
       error: smsSendErrorText(result?.error),
     });
+    if (target?.threadId) {
+      await syncThreadDeliveryIssue(db, { threadId: target.threadId, messageId: target.messageId, status: "failed", reason: smsSendErrorText(result?.error) });
+    }
+    return failed;
   }
 }
 

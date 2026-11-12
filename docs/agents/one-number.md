@@ -1429,3 +1429,6 @@ the two disagree (read-only GETs, no credentials; exit 1 = mismatches). Tests: `
   (A2P/CTIA needs it only on the first business-initiated text). STOP / START / HELP handling is unchanged. The unclear-first-text reply is "Which house are you asking about,
   <houses read from the live catalog>?" with each home's page (`holdReplyFor`). The 24h / 72h "still looking?" nudges are OFF unless `LEAD_FOLLOWUP_NUDGES_ENABLED` is set.
 - Tests: `prospect-reply-fixtures.test.ts` (real messages, rotation, markdown, sign-off, no-slots), `resident-sms-fixtures.test.ts`.
+
+## Prospect spine and the PropLane line (Nov 12)
+A managed (`is_service`) workspace's prospect replies on the PropLane line are paid by PropLane when the workspace wallet refuses (the same rule its alerts follow, `resolveSmsPayer`); STOP and quiet hours still win. The fixed fallback replies cover client-owned managed workspaces too. Details: [`prospect-spine.md`](prospect-spine.md).

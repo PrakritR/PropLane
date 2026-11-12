@@ -183,6 +183,8 @@ export function deliveryStateLabel(delivery: Pick<InboxMessageDelivery, "channel
 
 type ThreadLike = {
   folder?: string;
+  /** The prospect spine's thread-level issue (an inbound that could not be saved, a reply that was refused). */
+  deliveryIssue?: unknown;
   rootOutbound?: boolean;
   rootDeliveries?: InboxMessageDelivery[];
   messages?: { outbound?: boolean; deliveries?: InboxMessageDelivery[] }[];
@@ -193,6 +195,7 @@ type ThreadLike = {
  * "Not delivered" fact on the list row, the Communication Filter and the dashboard count.
  */
 export function latestOutboundDeliveryFailed(thread: ThreadLike): boolean {
+  if (thread.deliveryIssue) return true;
   const messages = thread.messages ?? [];
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i]!;

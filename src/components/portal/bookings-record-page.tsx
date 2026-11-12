@@ -8,6 +8,7 @@ import { BookingsAirbnbIcon } from "@/components/portal/bookings-airbnb-icon";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
+import { StayMessageLog } from "@/components/portal/stay-message-log";
 import { RecordFactCard, RecordFactRow, RecordRowsCard, type RecordRowItem } from "@/components/portal/portal-record-overview-kit";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { BookingsStayDetailsDialog } from "@/components/portal/bookings-stay-details-dialog";
@@ -147,6 +148,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
     body = <RecordRowsCard title="Payments" rows={rows} dataAttr="booking-payments-card" />;
   } else {
     body = (
+      <>
       <RecordFactCard title="Booking" dataAttr="booking-overview-facts">
         <RecordFactRow label="Dates" value={`${range}${entry.openEnded ? " · open-ended" : ` · ${nights} ${nights === 1 ? "night" : "nights"}`}`} />
         <RecordFactRow label="Where" value={place} />
@@ -170,6 +172,8 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
         {stayDetailRows.map(([key, value]) => <RecordFactRow key={key} label={({ linen: "Linen", baggage: "Baggage" } as Record<string, string>)[key] ?? key} value={value} />)}
         {conflicts.map((conflict) => <RecordFactRow key={bookingEntryKey(conflict)} label="Conflict" value={<Link className="text-danger" href={bookingRecordHref(basePath, bookingEntryKey(conflict))}>{bookingEntryGuestLabel(conflict)} · {formatBookingStayRange(conflict.start, conflict.end, conflict.openEnded)}</Link>} />)}
       </RecordFactCard>
+      <StayMessageLog stayKey={bookingEntryKey(entry)} />
+      </>
     );
   }
   return <>

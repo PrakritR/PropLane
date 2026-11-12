@@ -1,6 +1,5 @@
-import { userHoldsManagerRole } from "@/lib/manager-route-guard.server";
+import { resolveManagerRouteActor } from "@/lib/auth/route-actor.server";
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { assertAutomationSettingsCoManagerAccess, resolveSettingsPropertyOwner } from "@/lib/auth/manager-settings-module-access.server";
 import { loadAutomatedMessageSettings, saveAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
@@ -51,14 +50,7 @@ function legacyScope(source: SettingsResolutionSource): "property" | "workspace"
 
 /** "Messages sent automatically" — per-event switch and template (PLAN-0915). */
 async function requireManager() {
-  const supabaseAuth = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabaseAuth.auth.getUser();
-  if (!user?.id) return null;
-  const db = createSupabaseServiceRoleClient();
-  if (!(await userHoldsManagerRole(db, user.id))) return null;
-  return { db, userId: user.id };
+  return resolveManagerRouteActor({ route: "portal/automated-messages" });
 }
 
 type ScopeAccess =
@@ -111,7 +103,7 @@ async function loadCurrent(
 export async function GET(req: Request) {
   try {
     const ctx = await requireManager();
-    if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const scope = resolveSettingsScopeParams(req.url);
     const access = await resolveScope(ctx, scope, "read");
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
@@ -137,7 +129,7 @@ export async function GET(req: Request) {
 export async function PATCH(req: Request) {
   try {
     const ctx = await requireManager();
-    if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const body = (await req.json().catch(() => ({}))) as {
       settings?: unknown;
       propertyId?: unknown;

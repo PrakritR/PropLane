@@ -39,7 +39,12 @@ export type SharedLineSeamResult =
       bubbles?: { body: string; mediaUrl?: string }[];
     }
   /** Run the existing inbound pipeline as this workspace, exactly as a work-number inbound would. */
-  | { kind: "continue"; owned: { managerId: string; workspaceId: string; messagingServiceSid: string } }
+  | {
+      kind: "continue";
+      owned: { managerId: string; workspaceId: string; messagingServiceSid: string };
+      /** The house the router matched (home lock, entry code, residency), so the pipeline can tag the thread with it. */
+      propertyId?: string | null;
+    }
   /** Nothing to route (shared line off for this text): the existing no-owner path logs it. */
   | { kind: "none" };
 
@@ -330,6 +335,7 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
       workspaceId: candidate.workspaceId,
       messagingServiceSid: input.config.messagingServiceSid ?? "",
     },
+    ...(candidate.propertyId ? { propertyId: candidate.propertyId } : {}),
   };
 }
 

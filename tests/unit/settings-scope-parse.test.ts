@@ -1,4 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+// No PropLane Service staff in these fixtures: the staff read answers "nobody" (a thrown read is a 503, tested separately).
+vi.mock("@/lib/service/service-mode.server", () => ({ loadServiceStaffWorkspaces: async () => [] }));
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   parseSettingsScope,

@@ -69,7 +69,9 @@ export async function serviceStaffSettingsAccess(
   callerUserId: string,
   workspaceId: string,
   intent: "read" | "edit",
-): Promise<{ kind: "none" } | { kind: "read_only" } | { kind: "ok"; ownerUserId: string; fullGrant: boolean }> {
+): Promise<
+  { kind: "none" } | { kind: "read_only" } | { kind: "unavailable" } | { kind: "ok"; ownerUserId: string; fullGrant: boolean }
+> {
   try {
     const { loadServiceStaffWorkspaces } = await import("@/lib/service/service-mode.server");
     const staff = await loadServiceStaffWorkspaces(db as never, callerUserId);
@@ -88,8 +90,9 @@ export async function serviceStaffSettingsAccess(
       fullGrant: standing.role === "owner" || standing.role === "admin" || standing.role === "full",
     };
   } catch (error) {
-    console.error("[settings-scope] service staff standing unreadable", error);
-    return { kind: "none" };
+    // A failed READ is not an answer about access: callers that can say "try again" return 503.
+    console.error("[settings-scope] service staff standing unreadable", { reason: "staff_standing_unreadable", userId: callerUserId, message: error instanceof Error ? error.message : "unknown" });
+    return { kind: "unavailable" };
   }
 }
 
@@ -101,7 +104,19 @@ export type SettingsScopeAccess =
       workspaceId: string | null;
       propertyId: string | null;
     }
-  | { ok: false; status: 403; error: string };
+  | { ok: false; status: 403 | 503; error: string };
+
+export const SETTINGS_SCOPE_UNAVAILABLE_ERROR = "PropLane could not check your access. Try again.";
+
+function scopeRefusal(
+  callerUserId: string,
+  status: 403 | 503,
+  error: string,
+  reason: string,
+): { ok: false; status: 403 | 503; error: string } {
+  console.error("[settings-scope]", { route: "settings-scope", userId: callerUserId, reason });
+  return { ok: false, status, error };
+}
 
 /**
  * Refuse a `workspaceId` the caller does not own (or, with `opts.module`,
@@ -152,22 +167,27 @@ export async function assertSettingsScopeOwned(
     // a module-gated route still falls through to the same per-house co-manager check every other member passes,
     // and only a caller that fails that too is refused.
     let staffReadOnly = false;
+    let staffUnavailable = false;
     if (propertyWorkspaceId) {
       const staff = await serviceStaffSettingsAccess(db, callerUserId, propertyWorkspaceId, intent);
       if (staff.kind === "ok" && staff.ownerUserId === ownerUserId && (!opts?.module || staff.fullGrant)) {
         return { ok: true, ownerUserId, workspaceId: propertyWorkspaceId, propertyId };
       }
       staffReadOnly = staff.kind === "read_only";
+      staffUnavailable = staff.kind === "unavailable";
     }
     if (!opts?.module) {
-      return {
-        ok: false,
-        status: 403,
-        error: staffReadOnly ? "Your seat on this workspace is read-only." : "That property is not in your workspace.",
-      };
+      if (staffUnavailable) {
+        return scopeRefusal(callerUserId, 503, SETTINGS_SCOPE_UNAVAILABLE_ERROR, "property_staff_access_unavailable");
+      }
+      const error = staffReadOnly ? "Your seat on this workspace is read-only." : "That property is not in your workspace.";
+      return scopeRefusal(callerUserId, 403, error, "property_not_in_workspace");
     }
     const allowed = await managerHasCoManagerPermissionForProperty(db, callerUserId, propertyId, opts.module, level);
     if (!allowed) {
+      if (staffUnavailable) {
+        return scopeRefusal(callerUserId, 503, SETTINGS_SCOPE_UNAVAILABLE_ERROR, "property_staff_access_unavailable");
+      }
       return {
         ok: false,
         status: 403,
@@ -184,7 +204,7 @@ export async function assertSettingsScopeOwned(
     if (error) throw error;
     const ownerUserId = data?.owner_user_id ? String(data.owner_user_id) : "";
     if (!ownerUserId) {
-      return { ok: false, status: 403, error: "That workspace is not yours." };
+      return scopeRefusal(callerUserId, 403, "That workspace is not yours.", "workspace_without_owner");
     }
     if (ownerUserId === callerUserId) {
       return { ok: true, ownerUserId, workspaceId, propertyId: null };
@@ -197,12 +217,13 @@ export async function assertSettingsScopeOwned(
       return { ok: true, ownerUserId, workspaceId, propertyId: null };
     }
     const workspaceStaffReadOnly = staff.kind === "read_only";
+    const workspaceStaffUnavailable = staff.kind === "unavailable";
     if (!opts?.module) {
-      return {
-        ok: false,
-        status: 403,
-        error: workspaceStaffReadOnly ? "Your seat on this workspace is read-only." : "That workspace is not yours.",
-      };
+      if (workspaceStaffUnavailable) {
+        return scopeRefusal(callerUserId, 503, SETTINGS_SCOPE_UNAVAILABLE_ERROR, "workspace_staff_access_unavailable");
+      }
+      const error = workspaceStaffReadOnly ? "Your seat on this workspace is read-only." : "That workspace is not yours.";
+      return scopeRefusal(callerUserId, 403, error, "workspace_not_owned");
     }
     const { data: properties, error: propertiesError } = await db
       .from("manager_property_records")
@@ -215,13 +236,15 @@ export async function assertSettingsScopeOwned(
         return { ok: true, ownerUserId, workspaceId, propertyId: null };
       }
     }
-    return {
-      ok: false,
-      status: 403,
-      error: workspaceStaffReadOnly
-        ? "Your seat on this workspace is read-only."
-        : "You do not have access to this workspace's settings.",
-    };
+    if (workspaceStaffUnavailable) {
+      return scopeRefusal(callerUserId, 503, SETTINGS_SCOPE_UNAVAILABLE_ERROR, "workspace_staff_access_unavailable");
+    }
+    return scopeRefusal(
+      callerUserId,
+      403,
+      workspaceStaffReadOnly ? "Your seat on this workspace is read-only." : "You do not have access to this workspace's settings.",
+      "workspace_settings_denied",
+    );
   }
 
   return { ok: true, ownerUserId: callerUserId, workspaceId: null, propertyId: null };

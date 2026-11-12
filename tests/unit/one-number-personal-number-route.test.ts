@@ -13,6 +13,12 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/one-number/personal-number-entitlement.server", () => ({ managerPersonalNumberEntitlement: mocks.personal }));
 vi.mock("@/lib/number-subscription/availability.server", () => ({ getNumberAvailability: mocks.availability }));
+vi.mock("@/lib/auth/route-actor.server", () => ({
+  resolveManagerRouteActor: async () => {
+    const actor = await mocks.requireManagerRouteUser();
+    return actor ? { ok: true, ...actor } : { ok: false, status: 401, error: "Sign in again." };
+  },
+}));
 vi.mock("@/lib/manager-route-guard.server", () => ({ requireManagerRouteUser: mocks.requireManagerRouteUser }));
 vi.mock("@/lib/manager-access-server", () => ({ getManagerPortalNavSubscriptionTier: mocks.getManagerPortalNavSubscriptionTier }));
 vi.mock("@/lib/sms/manager-sms-entitlement.server", () => ({

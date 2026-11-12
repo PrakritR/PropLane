@@ -134,6 +134,7 @@ import {
 import { loadManagerSmsOpenedIds, markManagerSmsOpenedIds } from "@/lib/manager-sms-opened.client";
 import { loadSmsHiddenIds } from "@/lib/manager-sms-hidden.client";
 import { latestOutboundDeliveryFailed } from "@/lib/inbox-delivery-status";
+import { prospectFactsFromThread } from "@/components/portal/prospect-thread-facts";
 import { startObservedInboxReadOperation } from "@/lib/portal-inbox-read-operation.client";
 import { applySmsProjectionListMutation } from "@/lib/sms-projection-list-reconciliation";
 
@@ -874,7 +875,7 @@ export function ManagerUnifiedInbox({
         // The house the server resolved the thread to be about — the same set
         // that decided the row is visible at all. The contact directory (joined
         // by email) is the fallback for rows the server could not place.
-        address: conversationAddressLabel(
+        address: t.prospectContext?.label?.trim() || conversationAddressLabel(
           inboxRowAddressLabel(
             t.houses?.[0]?.label ??
               filterContacts?.find((c) => c.email?.trim().toLowerCase() === t.email?.trim().toLowerCase())
@@ -2010,7 +2011,9 @@ export function ManagerUnifiedInbox({
         href: recordRoutePath("manager", "property", contact.propertyId),
       });
     }
-    return { name, role, phone, email: email || null, records };
+    const stampedThread = selectedRow?.threadId ? emailThreads.find((t) => t.id === selectedRow.threadId) : undefined;
+    const prospect = prospectFactsFromThread(stampedThread);
+    return { name, role, phone, email: email || null, records, ...(prospect ? { prospect } : {}) };
   }, [emailThreads, filterContacts, placeholderContact, selectedRow, selectedSmsResidents]);
 
   return (

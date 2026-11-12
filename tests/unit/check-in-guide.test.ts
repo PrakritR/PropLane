@@ -73,7 +73,7 @@ describe("the guide", () => {
   it("before the reveal every code is null in the DATA, the steps and photos stay, and the unlock time is named", () => {
     const guide = buildCheckInGuide(source(), EARLY);
     expect(guide.revealed).toBe(false);
-    expect(guide.unlockLabel).toBe("Thu 3:00 PM");
+    expect(guide.unlockLabel).toBe("Thu 10:00 AM");
     expect(guide.steps.length).toBe(6);
     const flat = JSON.stringify(guide);
     for (const code of ["7500", "#4821", "9921", "pa55-word", "5566", "Lockbox left of the door"]) expect(flat).not.toContain(code);

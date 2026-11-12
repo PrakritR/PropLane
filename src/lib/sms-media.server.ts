@@ -15,6 +15,7 @@ const EXT_BY_MIME: Record<string, string> = {
   "image/gif": "gif",
   "image/webp": "webp",
   "image/heic": "heic",
+  "image/heif": "heif",
   "application/pdf": "pdf",
   "video/3gpp": "3gp",
   "video/mp4": "mp4",

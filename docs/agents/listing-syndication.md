@@ -381,3 +381,9 @@ is still filed). The inbox is not watched; the reply says so.
 * Row fact on Listing sites / Integrations Posting for Facebook Page: the row gains
   "· Replies: on" only once the Page channel is live (`withRepliesFact`); before that it carries its own
   "Coming soon" fact and nothing about replies.
+
+## Platform inquiry replies (design-1112 §6)
+
+The per-site rules (what a reply may carry: link, phone) are the table `CHANNEL_CAPABILITIES`
+(`src/lib/platform-leads/capabilities.ts`), the captain's statements in one editable place. Still ingest-and-copy only:
+notification EMAIL in, a relay email or a copied draft out; no scraping, no headless posting, no Messenger API.

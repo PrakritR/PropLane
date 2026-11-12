@@ -7,6 +7,7 @@ import {
   ToursSettingsSection,
   VendorDefaultsSettingsSection,
 } from "@/components/portal/automations-settings-sections";
+import { StayMessagesSettingsSection } from "@/components/portal/stay-messages-settings";
 import { RentAndFeesSettingsSection } from "@/components/portal/rent-and-fees-settings";
 import { ServiceFeeSplitCard } from "@/components/portal/service-fee-split-card";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
@@ -918,6 +919,7 @@ export function PortalProfileClient({
             <MoveInFormsSettingsSection />
             <ScreeningSettingsSection />
             <VendorDefaultsSettingsSection />
+            <StayMessagesSettingsSection />
           </>
         ) : null;
       case "applicationForm":

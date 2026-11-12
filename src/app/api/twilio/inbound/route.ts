@@ -56,7 +56,17 @@ export async function POST(req: Request) {
     if (accepted.kind === "unavailable") return NextResponse.json({ error: "Inbound persistence unavailable." }, { status: 503 });
     after(async () => {
       try { await processInboundEnvelope(createSupabaseServiceRoleClient(), accepted.id, { process: async (params) => (await import("@/lib/sms/process-accepted-inbound.server")).processAcceptedInbound(params) }); }
-      catch { console.error("sms ingress deferred failure", { sid, stage: "worker" }); }
+      catch {
+        console.error("sms ingress deferred failure", { sid, stage: "worker" });
+        // Never silent: the envelope is durable and will be retried, but PropLane's people are told once that this text did not process.
+        await import("@/lib/prospect-spine/delivery-issue.server")
+          .then((m) => m.recordDeliveryIssue(createSupabaseServiceRoleClient(), {
+            threadId: null, workspaceId: null, direction: "inbound",
+            reason: "A text to PropLane could not be processed on its first try. It will be retried.",
+            eventId: `inbound-worker:${sid}`,
+          }))
+          .catch(() => undefined);
+      }
     });
     console.info("sms ingress accepted", { sid, status: accepted.kind, ms: Date.now() - started });
     return emptyTwiml();

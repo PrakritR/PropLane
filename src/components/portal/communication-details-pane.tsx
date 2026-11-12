@@ -13,6 +13,7 @@ import Link from "next/link";
 import { useThreadScheduledItems } from "@/components/portal/use-thread-scheduled-cards";
 import { CopyIconAction } from "@/components/portal/portal-icon-action";
 import { InboxAvatar, inboxInitials } from "@/components/portal/portal-inbox-ui";
+import { ProspectThreadFacts, type ProspectThreadFactsData } from "@/components/portal/prospect-thread-facts";
 import { cn } from "@/lib/utils";
 
 export type CommunicationDetailsRecord = {
@@ -33,6 +34,8 @@ export type CommunicationDetails = {
   phoneCopyable?: boolean;
   email?: string | null;
   records: CommunicationDetailsRecord[];
+  /** What the prospect spine stamped on the conversation (house + room, source, moved to text, delivery issue, held draft). */
+  prospect?: ProspectThreadFactsData | null;
 };
 
 /**
@@ -145,6 +148,7 @@ export function CommunicationDetailsPane({ details }: { details: CommunicationDe
           </div>
         ) : null}
       </div>
+      {details.prospect ? <ProspectThreadFacts facts={details.prospect} /> : null}
       {details.records.length > 0 ? (
         <section className="border-t border-border px-[18px] py-3" data-attr="communication-details-records">
           <h4 className="mb-1.5 text-xs font-semibold text-muted">Linked records</h4>

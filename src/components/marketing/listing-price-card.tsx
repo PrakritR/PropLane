@@ -7,8 +7,9 @@
  * the lowest room rent; never a dash or "$0"), the availability line, and exactly two actions: Tour and Book
  * (Book opens the quick sheet for a signed-in resident with saved answers, Continue application when those answers do not
  * cover the listing, Book otherwise). No stay-type control, no date or room pickers, no short-stay block
- * (captain, Nov 12), no phone number and no text link: /rent is the web channel, so every action goes
- * through a resident account into the portal (captain, Oct 20).
+ * (captain, Nov 12). Tour and Book go through a resident account into the portal; Message needs only a phone
+ * and a texted code, no account (captain, Nov 12: design-1112 §1), and "Text us" is the one text link a /rent page
+ * carries, to the configured PropLane line only.
  *
  * `ListingActionsProvider` decides the primary once for the whole page, so the card (drawn twice by width)
  * and the phone's dock always agree and the read-only server check runs once.
@@ -16,6 +17,7 @@
 import Link from "next/link";
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { listingPrimaryCtaClass } from "@/components/marketing/listing-contact-card";
+import { ListingMessageButton, ListingTextUsLink } from "@/components/marketing/listing-message-sheet";
 import { ProspectListingCta } from "@/components/marketing/prospect-listing-cta";
 import { QuickApplySheet } from "@/components/marketing/quick-apply-sheet";
 import { useShortStay } from "@/components/marketing/short-stay-booking";
@@ -182,6 +184,23 @@ export function PriceFigure({ label, className = "", "data-attr": dataAttr }: { 
 
 export const BOOK_TOUR_LABEL = "Tour";
 
+/** The listing's name for the Message / Text us bodies. */
+export function listingMessageLabel(property: MockProperty): string {
+  return property.buildingName?.trim() || property.title?.trim() || property.address?.trim() || "this home";
+}
+
+/** Message and Text us side by side. Never drawn inside a manager's own preview (nothing can be sent from there). */
+export function ListingReachActions({ property, newTab, className = "ps-btn ps-btn-line" }: { property: MockProperty; newTab: boolean; className?: string }) {
+  if (newTab) return null;
+  const label = listingMessageLabel(property);
+  return (
+    <>
+      <ListingMessageButton target={{ propertyId: property.id, propertyLabel: label }} className={className} dataAttr="listing-message" />
+      <ListingTextUsLink propertyId={property.id} label={label} className={className} dataAttr="listing-text-us" />
+    </>
+  );
+}
+
 export function ListingPriceCard({
   property,
   rich,
@@ -212,6 +231,11 @@ export function ListingPriceCard({
         </ProspectListingCta>
         <MonthlyPrimaryCta property={property} newTab={newTab} className="ps-btn ps-btn-line" />
       </div>
+      {newTab ? null : (
+        <div className="ps-msg-pair" style={{ marginTop: 10 }} data-attr="listing-reach-actions">
+          <ListingReachActions property={property} newTab={newTab} />
+        </div>
+      )}
     </div>
   );
 }

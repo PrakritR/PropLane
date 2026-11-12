@@ -41,7 +41,7 @@ import {
 } from "@/lib/inbox-delivery-status.server";
 import { deliveryBlocksResend, isPlaceholderMailbox, isSandboxEmail, type InboxMessageDelivery } from "@/lib/inbox-delivery-status";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveRouteSessionUser } from "@/lib/auth/route-actor.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 import { canSendResidentOutboundSms, sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
@@ -224,11 +224,10 @@ async function resolveBroadcastRecipients(
 
 export async function POST(req: Request) {
   try {
-    const auth = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await auth.auth.getUser();
-    if (!user) return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
+    // A failed auth-service read is a retryable 503, never "Not authenticated."
+    const session = await resolveRouteSessionUser({ route: "portal/send-inbox-message" });
+    if (!session.ok) return NextResponse.json({ ok: false, error: session.error }, { status: session.status });
+    const user = session.user;
 
     if (
       !(await rateLimit(`send-inbox:user:${user.id}`, 30, 60_000)).ok ||
@@ -1480,7 +1479,7 @@ export async function POST(req: Request) {
                     topic: "general" as const,
                   }
                 : null;
-          const result = await sendResidentOutboundSms({
+          let result = await sendResidentOutboundSms({
             to: recipientPhone,
             text: smsText,
             fromNumber: houseLine?.ok ? houseLine.fromNumber : smsFromNumber,
@@ -1499,6 +1498,20 @@ export async function POST(req: Request) {
                 }
               : {}),
           });
+          // A reply on a PropLane-MANAGED workspace must not die on the client's wallet: when the normal send was refused,
+          // PropLane sends it itself (`resolveSmsPayer`'s rule). STOP and quiet hours are never overridden; a self-serve
+          // workspace stays fail-closed. The refusal reason still shows on the message (Delivery issues).
+          if (!result.sent && !result.accepted && !eventCategory) {
+            const payerWorkspaceId = houseTarget?.workspaceId ?? managerSendScope?.activeWorkspaceId ?? null;
+            const payerOwnerId = houseTarget?.ownerUserId ?? user.id;
+            const { sendAsPropLaneAfterRefusal } = await import("@/lib/prospect-spine/payer.server");
+            const fallback = await sendAsPropLaneAfterRefusal(db, {
+              ownerUserId: payerOwnerId, workspaceId: payerWorkspaceId, to: recipientPhone, body: smsText,
+              claimKey: `inbox:${sentTargets.get(recipient.email)?.messageId ?? `${payerOwnerId}:${recipientPhone}:${smsText.length}`}`,
+              refusal: result.error ?? null,
+            }).catch(() => ({ attempted: false, ok: false }));
+            if (fallback.attempted && fallback.ok) result = { sent: true, channel: "twilio" };
+          }
           responseDeliveries.push(await recordSmsAttempt(db, sentTargets.get(recipient.email), result));
           if (result.sent) {
             const logId = `outbound_sms_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;

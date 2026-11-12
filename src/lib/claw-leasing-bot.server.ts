@@ -237,6 +237,42 @@ async function isManagerPersonalPhone(fromE164: string, managerUserId: string): 
   return Boolean(personal && personal === fromE164 && verified);
 }
 
+/**
+ * A prospect reply the normal send refused. On a PropLane-MANAGED workspace PropLane sends it itself (`resolveSmsPayer`: the
+ * service owner pays, never the client's wallet); either way the outcome is never silent: a failure is stamped on the thread
+ * as a delivery issue with its reason. Self-serve workspaces keep today's fail-closed behaviour (the issue is still shown).
+ */
+async function retryProspectReplyAsPropLane(args: {
+  ownerUserId: string;
+  workspaceId: string | null;
+  to: string;
+  text: string;
+  claimKey: string | null;
+  refusal: string | null;
+  result: PropLaneSmsResult;
+}): Promise<PropLaneSmsResult> {
+  try {
+    const db = createSupabaseServiceRoleClient();
+    const { sendAsPropLaneAfterRefusal } = await import("@/lib/prospect-spine/payer.server");
+    const fallback = await sendAsPropLaneAfterRefusal(db, {
+      ownerUserId: args.ownerUserId, workspaceId: args.workspaceId, to: args.to, body: args.text,
+      claimKey: args.claimKey ?? `${args.ownerUserId}:${args.to}:${args.text.length}`, refusal: args.refusal,
+    });
+    if (fallback.attempted && fallback.ok) return { ok: true, channel: "twilio" };
+    const { recordDeliveryIssue } = await import("@/lib/prospect-spine/delivery-issue.server");
+    const { locateThreadId } = await import("@/lib/prospect-spine/locate.server");
+    const threadId = args.workspaceId ? await locateThreadId(db, { ownerUserId: args.ownerUserId, workspaceId: args.workspaceId, phoneE164: args.to }).catch(() => null) : null;
+    await recordDeliveryIssue(db, {
+      threadId, workspaceId: args.workspaceId, direction: "outbound",
+      reason: `The reply to a prospect was not sent (${(fallback.reason ?? args.refusal ?? "refused").replace(/_/g, " ")}).`,
+      eventId: `reply:${args.claimKey ?? args.to}`,
+    });
+  } catch {
+    /* the original refusal stands */
+  }
+  return args.result;
+}
+
 async function replySms(args: {
   to: string;
   text: string;
@@ -252,9 +288,11 @@ async function replySms(args: {
     transport?: "twilio" | "claw"; transportFromNumber?: string | null;
     candidateContext?: unknown; candidateShadowSnapshot?: unknown;
   };
+  /** The workspace the text is for: a PropLane-managed workspace's prospect reply is never lost to the client's empty wallet. */
+  workspaceId?: string | null;
 }): Promise<PropLaneSmsResult> {
   if (args.managerUserId) {
-    const result = await sendFromManagerWorkNumber({
+    let result = await sendFromManagerWorkNumber({
       managerUserId: args.managerUserId,
       to: args.to,
       text: args.text,
@@ -265,7 +303,14 @@ async function replySms(args: {
       conversationKey: args.conversationKey,
       dedupeKey: args.dedupeKey,
       prospectBurst: args.prospectBurst,
+      ...(args.workspaceId ? { workspaceId: args.workspaceId } : {}),
     });
+    if (!result.ok && !result.durablyAccepted && args.counterpartyRole === "prospect") {
+      result = await retryProspectReplyAsPropLane({
+        ownerUserId: args.managerUserId, workspaceId: args.workspaceId ?? null, to: args.to, text: args.text,
+        claimKey: args.dedupeKey ?? null, refusal: result.error ?? null, result,
+      });
+    }
     // An automatic answer to a prospect/resident text is a sent turn on their
     // Communication thread, so the inbox does not also draft for it.
     if ((result.ok || result.durablyAccepted) && args.counterpartyRole) {
@@ -274,6 +319,7 @@ async function replySms(args: {
         counterpartyPhone: args.to,
         text: args.text,
         inboundMessageId: args.dedupeKey?.replace(/^inbound_reply_/, "") ?? null,
+        workspaceId: args.workspaceId ?? null,
       });
     }
     return result;
@@ -699,7 +745,7 @@ function leasingInboundSubjectLabel(intent: LeasingIntent): string {
  * (`canSend: false`) still receives Twilio delivery but cannot reply, and
  * gating the notice on send success left Communication empty (PRP-417).
  */
-async function mirrorLeasingInboundToCommunication(args: {
+async function mirrorLeasingInboundLegacy(args: {
   landlordId: string;
   propertyId: string | null;
   from: string;
@@ -758,6 +804,69 @@ async function mirrorLeasingInboundToCommunication(args: {
   );
 }
 
+async function mirrorLeasingInboundToCommunication(args: {
+  landlordId: string;
+  propertyId: string | null;
+  /** A house the text or the router NAMED (never the manager's default listing). */
+  taggedPropertyId?: string | null;
+  from: string;
+  text: string;
+  propertyLabel: string | null;
+  intent: LeasingIntent;
+  messageId?: string | null;
+  workNumber: string | null;
+  receivedAt: string | null;
+  workspaceId?: string | null;
+}): Promise<void> {
+  const db = createSupabaseServiceRoleClient();
+  // ONE conversation per person per workspace, written by the prospect spine (design-1112): the person's thread in the
+  // workspace's inbox, tagged with the house and room, readable by the staff who run the workspace. No per-teammate copies.
+  let workspaceId = args.workspaceId?.trim() || null;
+  if (!workspaceId) {
+    const { resolveWorkspaceContext } = await import("@/lib/communication/conversation-key.server");
+    workspaceId = (await resolveWorkspaceContext(db, args.landlordId, { propertyId: args.propertyId }).catch(() => null))?.workspaceId ?? null;
+  }
+  const eventId = args.messageId?.trim() || "";
+  if (workspaceId && eventId) {
+    try {
+      const spineContext = await import("@/lib/prospect-spine/context.server");
+      const record = await import("@/lib/prospect-spine/record.server");
+      const phone = normalizeE164Us(args.from) ?? normalizeE164(args.from);
+      if (phone) {
+        const context = await spineContext.resolveInboundContext(db, {
+          workspaceId, ownerUserId: args.landlordId, phoneE164: phone, body: args.text, payloadPropertyId: args.taggedPropertyId ?? null,
+        });
+        const line = args.workNumber && args.receivedAt
+          ? await resolveSmsProjectionWorkLine(db, {
+              ownerManagerUserId: args.landlordId, phoneNumber: args.workNumber, occurredAt: args.receivedAt, workspaceId,
+            }).catch(() => null) : null;
+        const originalSmsEvent = line && args.receivedAt ? {
+          sourceNamespace: `twilio:${args.landlordId}:${process.env.TWILIO_ACCOUNT_SID?.trim() || "unconfigured"}`,
+          sourceEventId: eventId,
+          ownerManagerUserId: args.landlordId,
+          counterpartyRole: "prospect",
+          workLineId: line.workLineId,
+          occurredAt: args.receivedAt,
+          bodySha256: createHash("sha256").update(args.text).digest("hex"),
+        } : undefined;
+        const written = await record.recordInboundWithExtras(db, {
+          workspaceId, ownerUserId: args.landlordId,
+          identity: { kind: "phone", phoneE164: phone, verified: false },
+          context, body: args.text || "(empty message)", channel: "sms", eventId,
+          occurredAt: args.receivedAt ?? new Date().toISOString(),
+          // The inbound alert already fired from the pipeline (it covers every role); this write only stores the turn.
+          notify: false,
+        }, { originalSmsEvent, subjectLabel: leasingInboundSubjectLabel(args.intent) });
+        if (written.ok) return;
+      }
+    } catch (error) {
+      console.error("prospect spine mirror failed", error instanceof Error ? error.message : "unknown");
+    }
+  }
+  // The spine could not write (no workspace, no id, an unreadable store): keep today's owner notice so nothing is lost.
+  await mirrorLeasingInboundLegacy(args);
+}
+
 /**
  * Process one inbound PropLane text (Twilio work number or legacy Claw).
  * Order: manager relay → known resident messaging → leasing auto-reply.
@@ -776,6 +885,8 @@ export async function handleClawLeasingInbound(args: {
   managerUserId?: string | null;
   /** The workspace this text belongs to (the work number's, or the router's on the shared line). */
   workspaceId?: string | null;
+  /** The house the shared-line router matched (home lock / entry code / residency): the thread is tagged with it. */
+  routedPropertyId?: string | null;
   /** E.164 work number to send replies From. */
   workNumber?: string | null;
   /** The caller owns a distributed, leased MessageSid receipt. */
@@ -1090,6 +1201,7 @@ export async function handleClawLeasingInbound(args: {
               from,
               text,
               messageId,
+              workspaceId: args.workspaceId ?? null,
               service: args.service,
               subject: `${action.propertyLabel ? `${action.propertyLabel} · ` : ""}${action.residentName}`,
               body: brief,
@@ -1210,6 +1322,7 @@ export async function handleClawLeasingInbound(args: {
       await mirrorLeasingInboundToCommunication({
         landlordId,
         propertyId,
+        taggedPropertyId: taggedPropertyId || args.routedPropertyId || null,
         from,
         text: event.body,
         propertyLabel,
@@ -1229,6 +1342,12 @@ export async function handleClawLeasingInbound(args: {
   if (landlordId && scopedManagerId && workNumber && !args.routingReply) {
     const { isPropLaneServiceLine } = await import("@/lib/service/service-catalog.server");
     serviceLine = await isPropLaneServiceLine(createSupabaseServiceRoleClient(), { ownerUserId: landlordId, workNumber }).catch(() => false);
+    // A client-owned workspace PropLane manages is answered on the PropLane line too: it gets the same fixed fallback
+    // lines, so its prospect is never left in silence (the owner is not the platform service owner, so the check above is false).
+    if (!serviceLine && args.workspaceId) {
+      const { isManagedWorkspaceId } = await import("@/lib/service/service-alert-targets.server");
+      serviceLine = await isManagedWorkspaceId(createSupabaseServiceRoleClient(), args.workspaceId).catch(() => false);
+    }
   }
   const sendServiceLineReply = async (replyBody: string): Promise<HandleClawInboundResult> => {
     const body = stripLongDashes(replyBody);
@@ -1246,6 +1365,7 @@ export async function handleClawLeasingInbound(args: {
       conversationKey: buildConversationKey({ ownerManagerUserId: landlordId!, role: "prospect", counterpartyPhone: from }),
       dedupeKey: messageId ? `inbound_reply_${messageId}` : null,
       prospectBurst: args.prospectBurst,
+      workspaceId: args.workspaceId ?? null,
     });
     return {
       ok: send.ok || Boolean(send.durablyAccepted),
@@ -1311,6 +1431,7 @@ export async function handleClawLeasingInbound(args: {
         }),
         dedupeKey: `inbound_reply_${messageId}`,
         prospectBurst: args.prospectBurst,
+        workspaceId: args.workspaceId ?? null,
       });
       return {
         ok: send.ok || Boolean(send.durablyAccepted),
@@ -1460,10 +1581,16 @@ export async function handleClawLeasingInbound(args: {
               burstRevision: args.prospectBurst.revision,
             })
           : null;
+        // A prospect with no account gets one line to save the chat (a personal link bound to their phone). Never on STOP'd phones.
+        const replyWithLink = args.workspaceId
+          ? await (await import("@/lib/prospect-spine/personal-link-line.server")).withPersonalLinkLine(db, {
+              text: agent.reply, phoneE164: from, workspaceId: args.workspaceId, propertyId: taggedPropertyId || args.routedPropertyId || null,
+            })
+          : agent.reply;
         const send = await deliverLeasingSmsReply({
           landlordId,
           toPhone: from,
-          text: agent.reply,
+          text: replyWithLink,
           workNumber,
           inboundMessageSid: messageId,
           traceId: agent.traceId,
@@ -1513,6 +1640,15 @@ export async function handleClawLeasingInbound(args: {
           // ponytail: transport errors can echo a raw DB message; mask phone-like digit runs.
           error: send.error?.replace(/\+?\d{7,}/g, "[redacted]"),
         });
+        // Never silent, and on a PropLane-managed workspace never lost to the client's wallet: PropLane sends the same reply
+        // itself; any other outcome is stamped on the thread as a delivery issue with its reason.
+        const recovered = await retryProspectReplyAsPropLane({
+          ownerUserId: landlordId, workspaceId: args.workspaceId ?? null, to: from, text: stripLongDashes(agent.reply),
+          claimKey: messageId ? `inbound_reply_${messageId}` : null, refusal: send.error ?? null, result: send,
+        });
+        if (recovered.ok) {
+          return { ok: true, intent, replied: true, shadowInput: agent.shadowInput };
+        }
       } else if (args.durableBurstWorker) {
         console.warn("leasing SMS agent returned no reply", {
           burstId: args.prospectBurst?.burstId,
@@ -1550,6 +1686,17 @@ export async function handleClawLeasingInbound(args: {
       hasLandlord: Boolean(landlordId),
       hasRoutingReply: Boolean(args.routingReply),
     });
+    if (landlordId) {
+      const db = createSupabaseServiceRoleClient();
+      const { recordDeliveryIssue } = await import("@/lib/prospect-spine/delivery-issue.server");
+      const { locateThreadId } = await import("@/lib/prospect-spine/locate.server");
+      const threadId = args.workspaceId ? await locateThreadId(db, { ownerUserId: landlordId, workspaceId: args.workspaceId, phoneE164: from }).catch(() => null) : null;
+      await recordDeliveryIssue(db, {
+        threadId, workspaceId: args.workspaceId ?? null, direction: "outbound",
+        reason: "The assistant did not produce a reply to this text. A person should answer it.",
+        eventId: `no-outcome:${args.prospectBurst?.burstId ?? messageId}:${args.prospectBurst?.revision ?? 0}`,
+      });
+    }
     return { ok: false, intent, replied: false, error: "Leasing agent did not produce a durable outcome." };
   }
 

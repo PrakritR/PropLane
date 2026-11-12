@@ -38,6 +38,7 @@ import { pacificTodayKey } from "@/lib/room-availability-range";
 import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
 import { useShortStay } from "@/components/marketing/short-stay-booking";
 import { ListingSharedRoomBeds } from "@/components/marketing/listing-shared-room-beds";
+import { ListingMessageButton, ListingTextUsLink } from "@/components/marketing/listing-message-sheet";
 import {
   publicRoomOpenBedCount,
   sharedRoomListingHeadline,
@@ -370,6 +371,9 @@ function ListingModalMedia({ photoUrls, videoSrc }: { photoUrls?: string[]; vide
   );
 }
 
+const LISTING_MODAL_SECONDARY_CLASS =
+  "flex min-h-[48px] items-center justify-center rounded-full border border-border bg-card px-3 py-3 text-sm font-semibold text-foreground transition hover:bg-accent/30";
+
 function ListingModalCta({
   href,
   label,
@@ -486,6 +490,7 @@ export function ListingDetailModal({
   state,
   onClose,
   listingPropertyId,
+  propertyLabel = null,
   signingOrder = null,
 }: {
   state: ModalState;
@@ -497,7 +502,8 @@ export function ListingDetailModal({
 }) {
   const stop = useCallback((e: React.MouseEvent) => e.stopPropagation(), []);
   const isClient = useIsClient();
-  const newTabProps = listingLinkTargetProps(useListingPreviewNewTab());
+  const inPreview = useListingPreviewNewTab();
+  const newTabProps = listingLinkTargetProps(inPreview);
   // A /rent page is the web channel (captain, Oct 20): every action is a web path behind a resident account, and no
   // number, text link or prefilled message is drawn here. Texting lives on the homepage and the text line.
   const { applyHref: textApplyHref, messageHref: textMessageHref, tourHref, stageMessageCompose, auth } =
@@ -556,6 +562,24 @@ export function ListingDetailModal({
                   dataAttr="listing-room-tour"
                   newTabProps={newTabProps}
                 />
+                {inPreview ? null : (
+                  <div className="flex w-full basis-full gap-2" data-attr="listing-room-reach">
+                    <ListingMessageButton
+                      target={{ propertyId: listingPropertyId, propertyLabel: propertyLabel ?? "", roomId: state.room.id, roomLabel: state.room.name }}
+                      className={`${LISTING_MODAL_SECONDARY_CLASS} flex-1`}
+                      dataAttr="listing-room-message"
+                    >
+                      Message about this room
+                    </ListingMessageButton>
+                    <ListingTextUsLink
+                      propertyId={listingPropertyId}
+                      label={propertyLabel ?? ""}
+                      roomLabel={state.room.name}
+                      className={`${LISTING_MODAL_SECONDARY_CLASS} flex-1`}
+                      dataAttr="listing-room-text-us"
+                    />
+                  </div>
+                )}
               </div>
             }
           >

@@ -25,6 +25,7 @@ import {
   BOOK_TOUR_LABEL,
   ListingActionsProvider,
   ListingPriceCard,
+  ListingReachActions,
   MonthlyPrimaryCta,
   PriceFigure,
 } from "@/components/marketing/listing-price-card";
@@ -189,8 +190,9 @@ function Section({
 }
 
 /**
- * The page's actions on a phone: Tour and Book, both through a
- * resident account; no number and no text link on a /rent page (captain, Oct 20). Fixed to the bottom of the public page only; the portal's preview never draws it. It tells
+ * The page's actions on a phone: Tour and Book (through a resident account), then Message (a phone and a texted code,
+ * no account) and Text us (the one configured PropLane line; not drawn when there is none). Fixed to the bottom of the
+ * public page only; the portal's preview never draws it. It tells
  * the page (a flag on <html>) so the floating assistant button rides above it.
  */
 function PhoneDock({ property, newTab }: { property: MockProperty; newTab: boolean }) {
@@ -207,6 +209,7 @@ function PhoneDock({ property, newTab }: { property: MockProperty; newTab: boole
           {BOOK_TOUR_LABEL}
         </ProspectListingCta>
         <MonthlyPrimaryCta property={property} newTab={newTab} className="ps-btn ps-btn-line" label="short" />
+        <ListingReachActions property={property} newTab={newTab} />
       </div>
     </>
   );

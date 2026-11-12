@@ -81,6 +81,22 @@ export async function linkedPropertyIdsForModule(
   return out;
 }
 
+/** Every house the owner holds in one workspace (their default workspace when the seat names none). Empty on a failed read. */
+async function expandAllHousesSeat(db: ServiceClient, ownerId: string, workspaceId: string): Promise<string[]> {
+  try {
+    let ws = workspaceId;
+    if (!ws) {
+      const { data } = await db.from("portal_workspaces").select("id").eq("owner_user_id", ownerId).eq("is_default", true).maybeSingle();
+      ws = String((data as { id?: unknown } | null)?.id ?? "").trim();
+    }
+    if (!ws) return [];
+    const { workspaceHouseIds } = await import("@/lib/workspaces/membership.server");
+    return await workspaceHouseIds(db, ownerId, ws);
+  } catch {
+    return [];
+  }
+}
+
 export type LinkedOwnerScope = {
   /** Owner (inviter) manager user ids where this user has `module` access on ≥1 assigned property. */
   ownerIds: Set<string>;
@@ -113,7 +129,7 @@ export async function linkedOwnerScopeForModule(
     // eslint-disable-next-line prefer-const -- the owner-of-record seats are appended below
     let { data: linkRows, error } = withoutOwnerLinks(await db
       .from("account_link_invites")
-      .select(`inviter_user_id, ${INVITE_PERMISSION_COLUMNS}`)
+      .select(`inviter_user_id, workspace_id, ${INVITE_PERMISSION_COLUMNS}`)
       .eq("status", "accepted")
       .eq("invitee_user_id", userId));
     if (error) {
@@ -147,9 +163,14 @@ export async function linkedOwnerScopeForModule(
       if (isCrossSandboxPortalPair(viewerEmail, inviterEmailById.get(inviterId) ?? "")) continue;
 
       const assignedRaw = (row as { assigned_property_ids?: unknown }).assigned_property_ids;
-      const assigned = Array.isArray(assignedRaw)
+      let assigned = Array.isArray(assignedRaw)
         ? assignedRaw.filter((id): id is string => typeof id === "string" && Boolean(id.trim())).map((id) => id.trim())
         : [];
+      // A seat stored as house_scope = 'all' carries no explicit ids: it reaches every house of its workspace, the same
+      // expansion `actorOwnWorkspaceHouseIds` applies. Without it such a seat granted nothing in Communication.
+      if (assigned.length === 0 && String((row as { house_scope?: unknown }).house_scope ?? "").trim() === "all") {
+        assigned = await expandAllHousesSeat(db, inviterId, String((row as { workspace_id?: unknown }).workspace_id ?? "").trim());
+      }
       if (assigned.length === 0) continue;
 
       const perms = readPropertyPermissionsFromRow(row as Parameters<typeof readPropertyPermissionsFromRow>[0]);

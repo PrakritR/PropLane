@@ -1200,9 +1200,9 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     // Global contact keyed on the phone; the login link is detached, the phone row stays.
     table: "sms_phone_contacts",
     phase: 2,
-    manager: { detachIds: ["user_id"] },
-    resident: { detachIds: ["user_id"] },
-    vendor: { detachIds: ["user_id"] },
+    manager: { detachIds: ["user_id"], detachEmails: ["email"] },
+    resident: { detachIds: ["user_id"], detachEmails: ["email"] },
+    vendor: { detachIds: ["user_id"], detachEmails: ["email"] },
   },
   {
     table: "sms_consent",
@@ -1439,6 +1439,11 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
  * entry here as a decision; an unlisted table is a gap.
  */
 export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
+  personal_email_proofs: "Hashed single-use email proofs for a personal account link; child of auth.users and removed by cascade when the account is deleted; service role only.",
+  prospect_contexts: "Prospect context keyed on a phone or platform handle; no account column; cascades with the workspace.",
+  sms_reply_handles: "Short reply handles keyed on a staff phone; expire in hours; cascade with the workspace.",
+  sms_listing_flows: "Guided listing-by-text state keyed on a staff phone; expires in hours; cascades with the workspace.",
+  stay_message_sends: "Check-in / check-out send log keyed on a stay; no account column; cascades with the workspace.",
   security_deposit_unmatched_refunds: "Provider refund evidence retains source identifiers for reconciliation.",
   sms_ingress_envelopes: "Owner-neutral provider receipts have no Auth owner. Runtime-fenced transport audit expires after 24h and is purged after 30 days by purge_sms_ingress_retention; never used as an account identity grant.",
   sms_platform_replies: "Owner-neutral reply evidence cascades with its ingress receipt after at most 30 days; no client account owner or wallet is fabricated.",

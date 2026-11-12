@@ -63,17 +63,24 @@ export function buildInboundAlertText(input: {
   kind: InboundSenderKind;
   name?: string | null;
   phone: string;
-  /** The house label, or null when no house is known yet. */
+  /** The house label (with the room when known), or null when no house is known yet. */
   house?: string | null;
   body: string;
   link: string;
+  /** Where the text came from when it was not an SMS ("Listing message", "SpareRoom"). Shown in place of "text". */
+  channelLabel?: string | null;
+  /** The short handle this staff phone replies with ("K7"); the line `Reply: K7 <your message>` is added when set. */
+  handle?: string | null;
 }): string {
   const who = senderName(input.name, input.phone);
   const house = input.house?.replace(/\s+/g, " ").trim();
   const quote = inboundQuote(input.body);
-  const head = `PropLane text: ${KIND_LABEL[input.kind]} ${who}${house ? ` (${house})` : " (house not known yet)"} - ${inboundGist(input.kind, input.body)}`;
+  const channel = input.channelLabel?.replace(/\s+/g, " ").trim();
+  const head = `PropLane ${channel ? channel.toLowerCase() : "text"}: ${KIND_LABEL[input.kind]} ${who}${house ? ` (${house})` : " (house not known yet)"} - ${inboundGist(input.kind, input.body)}`;
   const line = `${head}${quote ? ` "${quote}"` : ""}`;
-  const room = INBOUND_ALERT_MAX_CHARS - input.link.length - 1;
+  const handle = (input.handle ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 4);
+  const replyLine = handle ? `Reply: ${handle} <your message>` : "";
+  const room = INBOUND_ALERT_MAX_CHARS - input.link.length - 1 - (replyLine ? replyLine.length + 1 : 0);
   const fitted = line.length > room ? `${line.slice(0, Math.max(0, room - 3)).trimEnd()}...` : line;
-  return toGsm7(`${fitted}\n${input.link}`);
+  return toGsm7(`${fitted}\n${replyLine ? `${replyLine}\n` : ""}${input.link}`);
 }

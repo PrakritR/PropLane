@@ -269,3 +269,6 @@ membership row is written for them). A workspace row on the account record opens
 - **New workspace** sheet: Owner's role is fixed at Property owner; the server refuses any other `ownerRole` before creating
   anything. Owner email invites exactly as the Team Owner role does (existing account: pending membership + notice; new email:
   one-use link bound to that email).
+
+## Staff seats and route guards (Nov 12)
+`resolveManagerRouteActor` (`src/lib/auth/route-actor.server.ts`) answers a failed auth or role READ as 503, never 401/403; a PropLane-issued seat holder or admin passes without a `manager` role row. `serviceStaffSettingsAccess` reports `unavailable` on a thrown read (503 from `resolveSettingsScope`). An unpinned seat (`workspace_id` null) reaches the owner's one workspace. `scripts/backfill-staff-manager-role.mts` is the dry-run backfill.

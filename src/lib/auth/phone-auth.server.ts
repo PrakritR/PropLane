@@ -413,6 +413,14 @@ export async function verifyPhoneChallenge(input: {
     // together. Read back only; an external phone update would split the change.
     const updated = await db.auth.admin.getUserById(user.id);
     if (updated.error || !updated.data.user) throw new Error(PHONE_AUTH_ERROR);
+    // The phone is now PROVEN for this account: link the prospect record on that number (earlier texts, listing messages,
+    // context) to the account. Guarded and idempotent; a failure never fails the verification.
+    try {
+      const { linkAccountToProspectRecord } = await import("@/lib/prospect-spine/link.server");
+      await linkAccountToProspectRecord(db, { userId: user.id, phoneE164: proof.phone });
+    } catch {
+      /* the link is retried by the next verification or by the personal link */
+    }
     // The projection reader attaches old SMS by verified phone and workspace;
     // sms_phone_contacts is bound atomically above, without moving tenant rows.
     if (actor) return { ok: true as const };

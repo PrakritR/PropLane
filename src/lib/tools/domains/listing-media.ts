@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
@@ -185,7 +186,13 @@ export const applyListingPhotosTool = defineWriteTool({
     const sub = listingSubmissionFromRecord(rec);
     if (!sub) throw new Error("Could not load listing submission.");
 
-    const dedupeKey = `apply_listing_photos:${ctx.landlordId}:${rec.id}:${auditDayBucket()}:${input.placements.length}`;
+    // Keyed on WHICH photos (not just how many): a second batch of the same size on the same day is a different action,
+    // which matters for photos texted in as they are taken.
+    const placementDigest = createHash("sha256")
+      .update(JSON.stringify(input.placements.map((p) => [p.photoUrl, p.target, p.targetId ?? ""])))
+      .digest("hex")
+      .slice(0, 16);
+    const dedupeKey = `apply_listing_photos:${ctx.landlordId}:${rec.id}:${auditDayBucket()}:${placementDigest}`;
     const audit = await writeAuditLog(ctx, {
       action: "apply_listing_photos",
       toolName: "apply_listing_photos",

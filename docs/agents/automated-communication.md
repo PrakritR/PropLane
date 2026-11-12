@@ -233,3 +233,8 @@ code on a failed write and logs it; the route answers 503 with the code, never a
 A verified Airbnb / Booking.com / PadSplit / SpareRoom guest message ([`inbound-email-inbox.md`](inbound-email-inbox.md) § Booking-site guest messages) is answered by the leasing
 assistant, EXCEPT money, refunds, cancellations and complaints (`channelHoldReason`): those, and any reply that carries contact details the site forbids, are stored as a
 review draft with an Assistant notice ("Guest message held"), never sent. Nothing automates a regulated notice; a held draft is the manager's one tap.
+
+## Check-in and check-out messages (design-1112 §7)
+
+Not a reminder rule: their own engine and ledger (`src/lib/stay-messages/`, cron `/api/cron/stay-messages`), because they reach
+guests with no login on three channels. Settings and templates: Settings -> Automations. See `bookings.md` for the contract.

@@ -26,7 +26,7 @@ const COMMUNICATION_STATUS_OPTIONS: { value: CommunicationStatus; label: string 
 const MANAGER_COMMUNICATION_STATUS_OPTIONS: { value: CommunicationStatus; label: string }[] = [
   { value: "active", label: "All conversations" },
   { value: "unread", label: "Unread" },
-  { value: "notDelivered", label: "Not delivered" },
+  { value: "notDelivered", label: "Delivery issues" },
   { value: "read", label: "Read" },
 ];
 

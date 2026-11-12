@@ -19,7 +19,7 @@ import { safeEqualHex } from "@/lib/sms/phone-key";
  * destination from the person asking.
  */
 
-export type PhoneOtpPurpose = "link_unlock" | "public_bind" | "sign_in" | "change_number_old" | "change_number_new" | "sms_signup" | "service_manager";
+export type PhoneOtpPurpose = "link_unlock" | "public_bind" | "sign_in" | "change_number_old" | "change_number_new" | "sms_signup" | "service_manager" | "listing_message";
 
 export type RequestOtpResult =
   | { ok: true; challengeId: string }

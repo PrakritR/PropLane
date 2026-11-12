@@ -255,6 +255,11 @@ export type PersistedInboxThread = {
    * conversation stands alone and the manager chooses. Never merged.
    */
   identityFlag?: { reason: "ambiguous_phone" | "identity_conflict"; accountIds: string[]; phone?: string };
+  /** Prospect spine stamps (`src/lib/prospect-spine`): the newest context, a platform thread's state, a held platform draft, a delivery issue. */
+  prospectContext?: { propertyId?: string | null; propertyLabel?: string | null; roomId?: string | null; roomLabel?: string | null; source?: string; sourceLabel?: string | null; label?: string | null; at?: string };
+  platformState?: { site?: string; state?: "active" | "moved"; movedAt?: string; stitchCode?: string | null };
+  platformDraft?: { body?: string | null; openUrl?: string | null; siteLabel?: string | null };
+  deliveryIssue?: { at?: string; direction?: "inbound" | "outbound"; reason?: string; messageId?: string };
   /** Root turn's house (the root lives in `body`). */
   rootHouseId?: string;
   rootHouseLabel?: string;

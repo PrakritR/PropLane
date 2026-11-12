@@ -1,4 +1,4 @@
-import { userHoldsManagerRole } from "@/lib/manager-route-guard.server";
+import { resolveManagerRouteActor } from "@/lib/auth/route-actor.server";
 /**
  * Payment-reminder / tour-reminder / notification-routing settings
  * (`ManagerAutomationSettings`, the `paymentAutomation` namespace) plus
@@ -15,7 +15,6 @@ import { saveManagerAutomationSettings, normalizeManagerAutomationSettings, type
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import { clearReminderOverridesForUnpaidCharges } from "@/lib/payment-reminder-lifecycle.server";
 import { loadVendorDispatchSettings, saveVendorDispatchSettings } from "@/lib/vendor-dispatch-settings";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { assertAutomationSettingsCoManagerAccess } from "@/lib/auth/manager-settings-module-access.server";
 import {
@@ -47,15 +46,7 @@ function foreign(): NextResponse {
 }
 
 async function requireManager() {
-  const supabaseAuth = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabaseAuth.auth.getUser();
-  if (!user?.id) return null;
-
-  const db = createSupabaseServiceRoleClient();
-  if (!(await userHoldsManagerRole(db, user.id))) return null;
-  return { db, userId: user.id };
+  return resolveManagerRouteActor({ route: "portal/automation-settings" });
 }
 
 async function loadCurrent(
@@ -76,7 +67,7 @@ async function loadCurrent(
 export async function GET(req: Request) {
   try {
     const ctx = await requireManager();
-    if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     // The module-permission check and the scope-ownership check are
     // independent reads (neither's DB query depends on the other's result) —
     // running them in parallel instead of in sequence saves one full
@@ -113,7 +104,7 @@ export async function GET(req: Request) {
 export async function PATCH(req: Request) {
   try {
     const ctx = await requireManager();
-    if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
     const access = await assertAutomationSettingsCoManagerAccess(ctx.db, ctx.userId, "edit");
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     const body = (await req.json()) as Record<string, unknown>;

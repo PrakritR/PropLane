@@ -158,6 +158,8 @@ export async function processInboundParams(params: Record<string, string>, prepa
   // workspace here, before any agent runs. A routed text then continues below exactly as a work-number
   // text would, as that workspace's owner. Only live in `shared` mode; every other mode skips this.
   let sharedLine = false;
+  // The house the router matched for this text (home lock, entry code, residency). Rides the stored payload so a recovery rerun tags the same house.
+  let routedPropertyId: string | null = null;
   // An OLD per-workspace number whose workspace now answers on the shared line (not a dedicated one):
   // the sender is told once per 30 days where we moved (PropLane's cost), and the text goes through the
   // shared-line router below as if it had arrived there, so nothing is lost. Dedicated workspaces and
@@ -180,6 +182,11 @@ export async function processInboundParams(params: Record<string, string>, prepa
           config: lineConfig, phoneKey: sharedKey, fromPhone, workspaceId: resolvedNumber.workspaceId, messageSid: messageSid!,
         }).catch((error) => console.error("moved-number reply failed", messageSid, error instanceof Error ? error.name : "unknown"));
       }
+      // A platform inquiry's stitch code in the text merges that thread into this phone's and routes the text to that workspace.
+      // Best-effort and guarded: a failure here is "no code", never a failed inbound.
+      await import("@/lib/prospect-spine/inbound-hook.server")
+        .then((m) => m.applyStitchCodeFromText(db, { fromPhone, body }))
+        .catch(() => false);
       try {
         const seam = await handleSharedLineInbound(db, {
           config: lineConfig,
@@ -213,6 +220,7 @@ export async function processInboundParams(params: Record<string, string>, prepa
         if (seam.kind === "continue") {
           ownedNumber = { ...seam.owned };
           sharedLine = true;
+          routedPropertyId = seam.propertyId ?? null;
         }
       } catch (error) {
         if (isDurableSmsIngress()) throw error;
@@ -356,6 +364,7 @@ export async function processInboundParams(params: Record<string, string>, prepa
     runtime: inboundRuntime(),
     // Stored with the receipt so a recovery rerun still honors a HUMAN pause on the shared line.
     ...(sharedLine ? { sharedLine: true } : {}),
+    ...(routedPropertyId ? { propertyId: routedPropertyId } : {}),
   };
   const { data: inboundClaimed, error: inboundClaimError } = await db.rpc("claim_sms_inbound", {
     p_message_sid: messageSid,

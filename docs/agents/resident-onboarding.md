@@ -183,3 +183,12 @@ A prospect who texts the PropLane line to tour or apply and has no account is of
 in", and on the code echo texts the one-tap sign-in link (`mintPhoneSignInLink`) plus that home's `/resident/tour/schedule?propertyId=` page. The link
 carries no destination (`/auth/confirm` derives it from its type alone), so the tour page is a second link built from the stored id. Only on the
 PropLane line (service catalog, SMS); everything else, and any phone that already has an account or a sign-up in progress, keeps the ordinary links.
+
+## Personal account link (prospect, no application yet)
+
+A prospect who messaged a listing or texted the PropLane line is handed a personal `account` link
+(`mintPersonalAccountLink`, `src/lib/personal-link/`, `/l/<token>`). Same machinery as the move-in link above
+(`phone_bound_links`, single use, `provisionSmsSignupAccount`, `smsProvenSessionAllowed`, `mintPhoneSession`) with two
+differences: no code step (the link only reaches a phone that already proved itself) and nothing is read about a
+record before the account exists, because there is no record yet. The account is the phone-only resident login; the typed
+email stays a claim until its own emailed proof is opened. That proof is deliberately NOT a Supabase `token_hash` / `email_change` link: with secure email change on (it is, everywhere, and stays on) an `email_change` needs a token sent to the account's OLD address, which for a phone-only account is a non-deliverable placeholder. So PropLane mints its own (`personal-link/email-proof.server.ts`, `personal_email_proofs`): 32 random bytes, only the SHA-256 stored (service role only), single use, 24 hours, bound to one user and one email, mailed through Resend as `/auth/confirm-email?token=...`. It is still an out-of-band, cross-browser proof (no PKCE, no session). The page spends it only on a button press (`POST /api/auth/confirm-email-proof`), so a mail scanner's prefetch cannot use it up; the server re-checks hash, expiry, unused and that the email is still unowned, then `updateUserById(userId, { email, email_confirm: true })`, after which the password signs in. A taken email stores nothing, sends nothing and answers identically (no oracle). See [`public-journey.md`](public-journey.md).

@@ -106,7 +106,7 @@ export async function loadTenancyCheckInContext(
 
 export function tenancyReveal(context: TenancyCheckInContext | null, leaseUnlocked: boolean, now: Date = new Date()): CheckInReveal {
   if (!context) return { revealed: false, reason: "no_time", revealAtIso: null };
-  return checkInReveal({ kind: "tenancy", moveInAtIso: context.moveInAtIso, leaseSigned: leaseUnlocked }, now);
+  return checkInReveal({ kind: "tenancy", moveInAtIso: context.moveInAtIso, leaseSigned: leaseUnlocked, timeZone: context.clock.timeZone }, now);
 }
 
 /**
@@ -172,7 +172,7 @@ export type StayCheckIn = {
 /**
  * A short-stay guest's guide for ONE stay. The stay must be a confirmed room-date block that carries
  * this login (`row_data.residentUserId`); anything else is null (a hold, a cancelled stay, someone
- * else's stay). The codes reveal 24 hours before check-in and close again after checkout.
+ * else's stay). The codes reveal at 10:00 local the day before check-in and close again after checkout.
  */
 export async function loadStayCheckIn(
   db: SupabaseClient,
@@ -207,6 +207,7 @@ export async function loadStayCheckIn(
       checkInAtIso: timeline.checkInAt,
       checkOutAtIso: timeline.checkOutAt,
       status: text(rowData.bookingStatus),
+      timeZone: clock.timeZone,
     },
     now,
   );

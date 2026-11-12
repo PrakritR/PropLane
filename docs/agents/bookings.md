@@ -574,3 +574,15 @@ inbox send each, re-authorized by the existing route; the link is the resident's
 
 `src/lib/one-number/checkin-digest.ts` (pure) reads the same `PropertyBookingEntry` rows Bookings draws (`occupancyEntriesForManager`, the entries half of `occupancySnapshotForManager`): a check-in is `start === today`, a check-out is the day after `end` (the last night; an open-ended stay never checks out), and a closure, cancellation, unpaid hold or channel "Not available" is never a stay. `checkin-digest.server.ts` sends one line per house to the owner's alert phones at 7 AM Pacific; guests are first names only.
 
+
+## Automated check-in / check-out messages (design-1112 §7)
+
+`/api/cron/stay-messages` (every 5 minutes, `src/lib/stay-messages/`): check-in at 10:00 America/Los_Angeles the DAY BEFORE the
+check-in date, check-out at 09:00 on the check-out date; a booking made inside the window is sent promptly, once. Exactly-once is
+the `stay_message_sends` ledger (unique (stay_key, kind), claimed before any send, per-channel results stored). Channels: text +
+email + in-app for every stay with contact details; the per-source switch defaults OFF for Airbnb and Booking.com. Never for a
+cancelled booking. The guest's OWN room code is the room's structured `doorCode`; empty = held (`room_code_missing`), the manager
+is flagged, and no fallback to any shared code is ever used; a body carrying another room's code or the staff-only Internal
+section is refused. One correction message when the room or dates change after the check-in went out. Templates, per-source
+switches and contact numbers are Settings -> Automations (`workspace_automation_settings.row_data.stayMessages`). The old
+`stay_arrival_guide` / `stay_checkout_reminder` / `move_in_arrival` sweeps are no longer run by `dispatch-reminders`.

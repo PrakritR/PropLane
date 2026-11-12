@@ -3,8 +3,9 @@
  *
  * ONE decision, `checkInReveal(stay, now)`, shared by the resident Check-in tab, the guest's stay
  * page, the arrival message, the resident assistant and the SMS fast path, so no surface invents its
- * own idea of "unlocked". The rule (captain, Oct 28, like Airbnb): codes appear 24 hours before
- * check-in / move-in. A long-term resident additionally needs a signed lease; a short-stay guest a
+ * own idea of "unlocked". The rule (captain, Nov 12, design-1112 §5 item 4, replacing the Oct 28
+ * "24 hours before" rule): codes appear at 10:00 local on the DAY BEFORE check-in / move-in, the
+ * same moment the automated check-in message goes out. A long-term resident additionally needs a signed lease; a short-stay guest a
  * confirmed stay (a hold or a cancelled stay never sees a code), and a stay's codes close again once
  * the guest has checked out. Before the moment, the steps still show, with the codes masked and the
  * unlock time ("Codes unlock Thu 3:00 PM").
@@ -12,7 +13,37 @@
  * Pure and fail-closed: an unreadable time never reveals.
  */
 
-export const CHECK_IN_REVEAL_LEAD_MS = 24 * 3_600_000;
+import { wallInstantIso } from "@/lib/bookings/stay-times";
+
+export const CHECK_IN_REVEAL_HOUR_LOCAL = "10:00";
+export const CHECK_IN_REVEAL_ZONE = "America/Los_Angeles";
+
+function localDateKey(ms: number, timeZone: string): string | null {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(ms));
+    const pick = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+    const key = `${pick("year")}-${pick("month")}-${pick("day")}`;
+    return /^\d{4}-\d{2}-\d{2}$/.test(key) ? key : null;
+  } catch {
+    return null;
+  }
+}
+
+function dayBefore(dateKey: string): string {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  return new Date(Date.UTC(y!, m! - 1, d! - 1)).toISOString().slice(0, 10);
+}
+
+/**
+ * The moment the codes unlock for a check-in / move-in instant: 10:00 in `timeZone` on the day before the check-in's own
+ * local date. DST-safe (built from the wall time, never "minus 24 h"). Null when the instant is unreadable.
+ */
+export function checkInRevealAtMs(checkInMs: number, timeZone: string = CHECK_IN_REVEAL_ZONE): number | null {
+  const key = localDateKey(checkInMs, timeZone);
+  if (!key) return null;
+  const at = Date.parse(wallInstantIso(dayBefore(key), CHECK_IN_REVEAL_HOUR_LOCAL, timeZone));
+  return Number.isFinite(at) ? at : null;
+}
 
 export type CheckInRevealInput =
   | {
@@ -21,6 +52,8 @@ export type CheckInRevealInput =
       moveInAtIso: string | null;
       /** Both parties have signed (or the tenancy is attested). */
       leaseSigned: boolean;
+      /** The property's IANA zone; Pacific when absent. */
+      timeZone?: string;
     }
   | {
       kind: "stay";
@@ -28,6 +61,8 @@ export type CheckInRevealInput =
       checkOutAtIso?: string | null;
       /** The stay's `bookingStatus`; only `confirmed` ever reveals. */
       status: string;
+      /** The property's IANA zone; Pacific when absent. */
+      timeZone?: string;
     };
 
 export type CheckInRevealReason =
@@ -57,7 +92,7 @@ export function checkInReveal(input: CheckInRevealInput, now: Date = new Date())
   if (input.kind === "tenancy") {
     const hasDate = Boolean(input.moveInAtIso && input.moveInAtIso.trim());
     const moveInMs = parseMs(input.moveInAtIso);
-    const revealMs = moveInMs === null ? null : moveInMs - CHECK_IN_REVEAL_LEAD_MS;
+    const revealMs = moveInMs === null ? null : checkInRevealAtMs(moveInMs, input.timeZone);
     const revealAtIso = revealMs === null ? null : new Date(revealMs).toISOString();
     if (!input.leaseSigned) return { revealed: false, reason: "lease_unsigned", revealAtIso };
     // A date that is on file but unreadable never reveals.
@@ -71,7 +106,8 @@ export function checkInReveal(input: CheckInRevealInput, now: Date = new Date())
   if (input.status !== "confirmed") return { revealed: false, reason: "stay_not_confirmed", revealAtIso: null };
   const checkInMs = parseMs(input.checkInAtIso);
   if (checkInMs === null) return { revealed: false, reason: "no_time", revealAtIso: null };
-  const revealMs = checkInMs - CHECK_IN_REVEAL_LEAD_MS;
+  const revealMs = checkInRevealAtMs(checkInMs, input.timeZone);
+  if (revealMs === null) return { revealed: false, reason: "no_time", revealAtIso: null };
   const revealAtIso = new Date(revealMs).toISOString();
   const checkOutMs = parseMs(input.checkOutAtIso);
   if (checkOutMs !== null && nowMs >= checkOutMs) return { revealed: false, reason: "stay_ended", revealAtIso };

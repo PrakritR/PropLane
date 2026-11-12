@@ -43,8 +43,6 @@ import { autoCloseResidentConfirmations } from "@/lib/work-order-resident-confir
 import { sweepTourReminders } from "@/lib/reminders/subjects/tours.server";
 import { sweepInspectionReminders } from "@/lib/reminders/subjects/inspections.server";
 import { sweepBookingReminders } from "@/lib/reminders/subjects/bookings.server";
-import { sweepStayTimeReminders } from "@/lib/reminders/subjects/stay-times.server";
-import { sweepMoveInArrival } from "@/lib/reminders/subjects/move-in-arrival.server";
 import { sweepMoveInFormReminders, sweepMoveOutForms } from "@/lib/reminders/subjects/move-in-forms.server";
 import { sweepAutomations } from "@/lib/automations/sweep.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -91,9 +89,9 @@ export async function GET(req: Request) {
       ["outgoing_payment", sweepOutgoingPaymentReminders],
       ["payment_manager", sweepPaymentManagerReminders],
       ["booking", sweepBookingReminders],
-      // The guest of a confirmed short stay: arrival guide 24 h before check-in, checkout reminder that morning.
-      ["stay_times", sweepStayTimeReminders],
-      ["move_in_arrival", sweepMoveInArrival],
+      // The guest's check-in (10:00 the day before) and check-out (09:00) messages, and a long-term resident's move-in
+      // message, are the stay-messages cron's now (`/api/cron/stay-messages`, ledger `stay_message_sends`): sweeping them
+      // here too would send the same codes twice. Rows already queued still dispatch (`renderStayTimeReminder`).
       ["inspection", sweepInspectionReminders],
       // PLAN-0915 services: escalations and the vendor loop.
       ["work_order_escalations", sweepWorkOrderEscalations],

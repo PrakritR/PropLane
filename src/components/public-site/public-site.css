@@ -421,6 +421,77 @@
   }
 }
 
+/* ---------- listing message sheet (a message about a home or a room, no account) ---------- */
+.ps-msg-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 240;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(12, 13, 16, 0.5);
+}
+.ps-msg-panel {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  max-height: 92vh;
+  overflow-y: auto;
+  background: var(--ps-white);
+  border: 1px solid var(--ps-ink);
+  padding: 22px var(--ps-gut) calc(22px + env(safe-area-inset-bottom));
+}
+@media (min-width: 640px) {
+  .ps-msg-overlay {
+    align-items: center;
+    padding: 24px;
+  }
+  .ps-msg-panel {
+    padding: 28px;
+  }
+}
+.ps-msg-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+.ps-msg-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.ps-msg-form textarea.ps-input {
+  min-height: 112px;
+  padding-block: 10px;
+  resize: vertical;
+}
+.ps-msg-acts {
+  display: grid;
+  gap: 10px;
+}
+.ps-msg-acts .ps-btn {
+  width: 100%;
+}
+.ps-msg-pair {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 8px;
+}
+.ps-msg-pair > .ps-btn,
+.ps-msg-pair > a.ps-btn {
+  width: 100%;
+  padding-inline: 10px;
+}
+.ps-msg-sent {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.ps-msg-sent h2 {
+  margin: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ps * {
     transition: none !important;

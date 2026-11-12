@@ -9,6 +9,12 @@ const mocks = vi.hoisted(() => ({
   smsScope: vi.fn(),
 }));
 
+vi.mock("@/lib/auth/route-actor.server", () => ({
+  resolveManagerRouteActor: async () => {
+    const actor = await mocks.requireManagerRouteUser();
+    return actor ? { ok: true, ...actor } : { ok: false, status: 401, error: "Sign in again." };
+  },
+}));
 vi.mock("@/lib/manager-route-guard.server", () => ({
   requireManagerRouteUser: mocks.requireManagerRouteUser,
 }));
