@@ -256,7 +256,7 @@ async function retryProspectReplyAsPropLane(args: {
     const { sendAsPropLaneAfterRefusal } = await import("@/lib/prospect-spine/payer.server");
     const fallback = await sendAsPropLaneAfterRefusal(db, {
       ownerUserId: args.ownerUserId, workspaceId: args.workspaceId, to: args.to, body: args.text,
-      claimKey: args.claimKey ?? `${args.ownerUserId}:${args.to}:${args.text.length}`, refusal: args.refusal,
+      claimKey: args.claimKey ?? `${args.ownerUserId}:${args.to}:${args.text.length}`, refusalCode: args.refusal,
     });
     if (fallback.attempted && fallback.ok) return { ok: true, channel: "twilio" };
     const { recordDeliveryIssue } = await import("@/lib/prospect-spine/delivery-issue.server");

@@ -1,11 +1,11 @@
 /** Shared renter CTA copy on public listing surfaces (browsers, modals, sidebars). */
 
 /**
- * Every listing is application first (captain, Oct 3 2026), so every surface says "Apply". The
+ * Every listing is application first (captain, Oct 3 2026), so every surface says "Book" (captain, Nov 12: Apply → Book). The
  * `signingOrder` argument is accepted and ignored so older call sites keep compiling.
  */
 export function listingApplyLabel(textEnabled: boolean, _signingOrder?: "application_first" | null): string {
-  return textEnabled ? "Text to apply" : "Apply online";
+  return textEnabled ? "Text to book" : "Book";
 }
 
 export function listingMessageLabel(textEnabled: boolean): string {

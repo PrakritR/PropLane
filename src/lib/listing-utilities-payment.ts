@@ -115,6 +115,8 @@ function formatEstimateSuffix(raw: string | undefined): string | null {
   const t = raw?.trim();
   if (!t) return null;
   const cleaned = t.replace(/\/mo(nth)?\.?$/i, "").trim();
+  // A bare number is dollars: "0" reads "$0", never "0/mo est.".
+  if (/^\d+(?:\.\d+)?$/.test(cleaned)) return `$${cleaned}`;
   return cleaned || null;
 }
 

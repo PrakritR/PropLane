@@ -4,7 +4,7 @@
  * Tour, Book, and — only when the manager has a real work number — Text.
  *
  * It used to SWAP instead of add: a work number replaced "Schedule a tour" with
- * "Text to tour" and "Apply online" with "Text to apply", so a prospect on a
+ * "Text to tour" and "Book" with "Text to book", so a prospect on a
  * desktop browser was offered two SMS links and could reach the booking form only
  * through a footnote ("No texting on this device?"). Booking and applying now come
  * first always, and texting is additive.
@@ -82,7 +82,7 @@ describe("listing price card CTAs", () => {
     expect(screen.getAllByText("Book").length).toBeGreaterThan(0);
     expect(screen.queryByText("Apply long term")).toBeNull();
     expect(screen.queryByText("Text to tour")).toBeNull();
-    expect(screen.queryByText("Text to apply")).toBeNull();
+    expect(screen.queryByText("Text to book")).toBeNull();
     expect(screen.queryByText(/No texting on this device/)).toBeNull();
   });
 

@@ -16,8 +16,9 @@ import { resolveHouseSmsLine } from "@/lib/house-message-send.server";
 import { loadManagerAssistantEmail } from "@/lib/manager-assistant-email/manager-assistant-email.server";
 import { deliverPortalInboxMessage, deliverPortalMessageThreadSide, scopeForRole } from "@/lib/portal-inbox-delivery";
 import { formatInboxStamp } from "@/lib/portal-inbox-storage";
-import { recordDeliveryIssue, resolveSmsPayer } from "@/lib/prospect-spine/index.server";
+import { recordDeliveryIssue } from "@/lib/prospect-spine/index.server";
 import { sendAsPropLaneAfterRefusal } from "@/lib/prospect-spine/payer.server";
+import { WORKSPACE_NO_WORK_NUMBER_CODE } from "@/lib/sms/workspace-no-work-number";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import { notifyServiceAlertTargets } from "@/lib/service/service-alert-targets.server";
 import { loadStayCandidates, loadStayMessageSettings, loadStayProperty } from "@/lib/stay-messages/facts.server";
@@ -133,21 +134,24 @@ async function sendSms(db: SupabaseClient, input: StayMessageSendInput) {
   const { candidate, property } = input;
   if (!candidate.guestPhone) return { status: "skipped" as const, reason: "no_phone" };
   if (!candidate.workspaceId) return { status: "failed" as const, reason: "no_workspace" };
-  // A PropLane-managed workspace is paid by PropLane (the service owner), never the client owner's wallet: the text leaves on the
-  // shared line, idempotent on one claim key so a retry never texts twice. Self-serve workspaces stay on their own line and wallet.
-  const payer = await resolveSmsPayer(db, { ownerUserId: candidate.ownerUserId, workspaceId: candidate.workspaceId });
-  if (payer !== candidate.ownerUserId.trim()) {
-    const viaPropLane = await sendAsPropLaneAfterRefusal(db, {
+  // A refusal of the client's own wallet or line (structured code only) on a PropLane-managed workspace is re-sent by PropLane on
+  // the shared line, idempotent on one claim key. Every other refusal stays a refusal; self-serve workspaces never fall back.
+  const viaPropLane = async (refusalCode: string | null | undefined) => {
+    const fb = await sendAsPropLaneAfterRefusal(db, {
       ownerUserId: candidate.ownerUserId,
       workspaceId: candidate.workspaceId,
-      to: candidate.guestPhone,
+      to: candidate.guestPhone!,
       body: input.smsBody,
       claimKey: `stay-msg:${input.dedupeBase}:sms`,
+      refusalCode,
     });
-    if (viaPropLane.attempted) return viaPropLane.ok ? { status: "sent" as const } : { status: "failed" as const, reason: viaPropLane.reason ?? "The text was refused." };
-  }
+    return fb.attempted ? (fb.ok ? { status: "sent" as const } : { status: "failed" as const, reason: fb.reason ?? "The text was refused." }) : null;
+  };
   const line = await resolveHouseSmsLine(db, { propertyId: candidate.propertyId, workspaceId: candidate.workspaceId, ownerUserId: candidate.ownerUserId });
-  if (!line.ok) return { status: "failed" as const, reason: "No sendable text line for this house." };
+  if (!line.ok) {
+    const fb = await viaPropLane(WORKSPACE_NO_WORK_NUMBER_CODE);
+    return fb ?? { status: "failed" as const, reason: "No sendable text line for this house." };
+  }
   // Twilio has no idempotency key of its own: the outbox row's unique `dedupe_key` is the record, so a re-claim re-reads the
   // SAME outbox row instead of enqueueing a second text.
   const result = await sendFromManagerWorkNumber({
@@ -166,7 +170,9 @@ async function sendSms(db: SupabaseClient, input: StayMessageSendInput) {
     purpose: "stay_message",
     dedupeKey: `stay-msg:${input.dedupeBase}:sms`,
   });
-  return result.ok || result.durablyAccepted ? { status: "sent" as const } : { status: "failed" as const, reason: result.error ?? "The text was refused." };
+  if (result.ok || result.durablyAccepted) return { status: "sent" as const };
+  const fb = await viaPropLane(result.error);
+  return fb ?? { status: "failed" as const, reason: result.error ?? "The text was refused." };
 }
 
 async function sendEmail(db: SupabaseClient, input: StayMessageSendInput) {

@@ -91,8 +91,8 @@ test.describe("Bundle group manual Chrome walkthrough", () => {
     await shot(page, "04-bundle-modal");
 
     const applyBtn = page
-      .getByRole("link", { name: /Apply online/i })
-      .or(page.getByRole("button", { name: /Apply online/i }))
+      .getByRole("link", { name: /^Book$/i })
+      .or(page.getByRole("button", { name: /^Book$/i }))
       .filter({ visible: true })
       .first();
     await expect(applyBtn).toBeVisible({ timeout: 15_000 });

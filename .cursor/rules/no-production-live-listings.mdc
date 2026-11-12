@@ -65,3 +65,12 @@ Captain: "yes you can make that change" — set 4709A (`mgr-5259-brooklyn-ave-co
 (`room-1789775929962-30`) weekly price to 350 and nightly (`shortTermRent`) to "55", the same as Room 1 in that house.
 Applied once by claude-2 with a guarded `jsonb_set` on that room id only (both fields absent before), after a full-row
 backup; read back verified. Nothing else on the listing was edited. Do not re-run.
+
+## Waiver — 2026-11-12 (captain, explicit, one shot, photos only)
+
+Captain (asked whether to grant a photos-only waiver): "Yes, photos only" — after the Nov 12 release ships, replace the
+listing photos of the three live houses (`mgr-listing-1x3tiu0489ha` = 5257, `mgr-5257-brooklyn-ave-copy-9-rooms-7mbwr0uza0nq`
+= 5259, `mgr-5259-brooklyn-ave-copy-9-rooms-7mdlyj0h2vfg` = 4709A) with each house's own photos (cover + room galleries),
+sourced from that house's own Airbnb / Booking.com listing photos and the captain's assistant Muse. Scope: ONE apply of
+`scripts/one-shot/live-listing-photos-20261112.mts` per house (backup first, writes only the photo fields of
+`property_data.listingSubmission`, reads back). Pricing, rooms, move-in, fees and every other field are not edited. Do not re-run.

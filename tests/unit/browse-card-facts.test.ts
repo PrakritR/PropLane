@@ -8,6 +8,7 @@ import type { MockProperty } from "@/data/types";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import {
   aggregateRoomRowsToPropertyCards,
+  browseCardFactParts,
   browseCardMatchesQuery,
   buildPropertyBrowseCards,
   classifyRoomAvailability,
@@ -270,5 +271,34 @@ describe("browse lease types", () => {
     expect(ids(["short_term"])).toEqual(["short"]);
     expect(ids(["short_term", "long_term"])).toEqual(["long", "short"]);
     expect(ids(["custom"])).toEqual([]);
+  });
+});
+
+describe("browseCardFactParts", () => {
+  const nine = (availableCount: number) =>
+    Array.from({ length: 9 }, (_, i) =>
+      row({
+        roomId: `r${i}`,
+        propertyBaths: 3,
+        petFriendly: false,
+        bathroomHint: "",
+        availabilityRaw: i < availableCount ? "Available now" : "Available Oct 15",
+      }),
+    );
+  it("leads with total bedrooms, baths and rooms available", () => {
+    const [card] = aggregateRoomRowsToPropertyCards(nine(3));
+    expect(browseCardFactParts(card!, "2026-11-12").slice(0, 3).join(" · ")).toBe("9 bedrooms · 3 bath · 3 available");
+  });
+  it("counts leased rooms the card hides, and formats half baths", () => {
+    const rows = nine(3).slice(0, 4);
+    const [card] = aggregateRoomRowsToPropertyCards(
+      rows.map((r) => ({ ...r, propertyBaths: 3.5 })),
+      new Map([["p1", 9]]),
+    );
+    expect(browseCardFactParts(card!, "2026-11-12").slice(0, 3).join(" · ")).toBe("9 bedrooms · 3.5 bath · 3 available");
+  });
+  it("says the soonest opening when nothing is open now", () => {
+    const [card] = aggregateRoomRowsToPropertyCards(nine(0));
+    expect(browseCardFactParts(card!, "2026-11-12")[2]).toMatch(/Oct|Next opening|available/i);
   });
 });

@@ -282,7 +282,7 @@ async function finishEnqueuedSend(
               ? "Your work number is not ready to send yet. Open Settings → Messaging for details."
               : "Could not queue SMS.";
     return response(
-      { error: userMessage },
+      { error: userMessage, code: result.error },
       { status: result.error === "scoped_consent_missing" ? 409 : 503 },
     );
   }
@@ -314,13 +314,14 @@ async function finishEnqueuedSend(
     );
   }
   if (outboxStatus === "blocked" && outbox?.blocked_reason === WORKSPACE_NO_WORK_NUMBER_CODE) {
-    return response({ error: WORKSPACE_NO_WORK_NUMBER_MESSAGE, outboxId: result.outboxId }, { status: 409 });
+    return response({ error: WORKSPACE_NO_WORK_NUMBER_MESSAGE, code: WORKSPACE_NO_WORK_NUMBER_CODE, outboxId: result.outboxId }, { status: 409 });
   }
   if (outboxStatus === "blocked" || outboxStatus === "failed") {
     return response(
       {
         error:
           "The SMS could not be submitted. Check Settings → Messaging and try again.",
+        ...(outbox?.blocked_reason ? { code: String(outbox.blocked_reason) } : {}),
         outboxId: result.outboxId,
       },
       { status: 503 },

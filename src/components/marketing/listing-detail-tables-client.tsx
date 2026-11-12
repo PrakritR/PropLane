@@ -184,10 +184,10 @@ function ListingModalBody({
 }) {
   return (
     <>
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        <div className="space-y-4 p-5 sm:p-6">{children}</div>
+      <div className="ps-rm-body">
+        <div className="space-y-4">{children}</div>
       </div>
-      {footer ? <div className="shrink-0 border-t border-border bg-card px-5 py-4 sm:px-6">{footer}</div> : null}
+      {footer ? <div className="ps-rm-foot">{footer}</div> : null}
     </>
   );
 }
@@ -371,8 +371,7 @@ function ListingModalMedia({ photoUrls, videoSrc }: { photoUrls?: string[]; vide
   );
 }
 
-const LISTING_MODAL_SECONDARY_CLASS =
-  "flex min-h-[48px] items-center justify-center rounded-full border border-border bg-card px-3 py-3 text-sm font-semibold text-foreground transition hover:bg-accent/30";
+const LISTING_MODAL_SECONDARY_CLASS = "ps-btn ps-btn-line";
 
 function ListingModalCta({
   href,
@@ -389,13 +388,10 @@ function ListingModalCta({
   newTabProps: ReturnType<typeof listingLinkTargetProps>;
   onClick?: () => void;
 }) {
-  const className =
-    variant === "primary"
-      ? "flex min-h-[48px] w-full items-center justify-center rounded-full bg-primary py-3 text-sm font-semibold text-white shadow-[0_4px_20px_rgba(47,95,208,0.28)] transition hover:opacity-95"
-      : "flex min-h-[48px] w-full items-center justify-center rounded-full border border-border bg-card py-3 text-sm font-semibold text-foreground transition hover:bg-accent/30";
+  const className = variant === "primary" ? "ps-btn ps-btn-blue" : "ps-btn ps-btn-line";
   return (
-    <Link href={href} className="flex-1" data-attr={dataAttr} onClick={onClick} {...newTabProps}>
-      <span className={className}>{label}</span>
+    <Link href={href} className={`${className} flex-1`} data-attr={dataAttr} onClick={onClick} {...newTabProps}>
+      {label}
     </Link>
   );
 }
@@ -491,7 +487,6 @@ export function ListingDetailModal({
   onClose,
   listingPropertyId,
   propertyLabel = null,
-  signingOrder = null,
 }: {
   state: ModalState;
   onClose: () => void;
@@ -508,7 +503,7 @@ export function ListingDetailModal({
   // number, text link or prefilled message is drawn here. Texting lives on the homepage and the text line.
   const { applyHref: textApplyHref, messageHref: textMessageHref, tourHref, stageMessageCompose, auth } =
     useProspectListingHrefs(listingPropertyId);
-  const applyLabel = listingApplyLabel(false, signingOrder);
+  const applyLabel = listingApplyLabel(false);
   const messageLabel = listingMessageLabel(false);
   const messageCtaExtras = { onClick: stageMessageCompose };
   const { rooms: occupancyRows, loading: occupancyLoading, failed: occupancyFailed } = useListingPublicOccupancy(listingPropertyId);
@@ -529,28 +524,20 @@ export function ListingDetailModal({
   if (!isClient || typeof document === "undefined") return null;
 
   const panel = (
-    <div className="fixed inset-0 z-[240] flex items-end justify-center p-3 sm:items-center sm:p-6" role="dialog" aria-modal>
-      <button type="button" className="absolute inset-0 modal-overlay" onClick={onClose} aria-label="Close dialog" />
-      <div
-        className="modal-panel relative z-10 flex max-h-[min(92vh,820px)] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-border shadow-2xl sm:max-w-2xl"
-        onClick={stop}
-      >
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute right-3 top-3 z-20 flex h-9 w-9 items-center justify-center rounded-full bg-card text-lg text-muted shadow-sm ring-1 ring-border transition hover:bg-accent/30"
-          aria-label="Close"
-        >
+    <div className="ps ps-rm-overlay" role="dialog" aria-modal data-attr="listing-detail-modal">
+      <button type="button" className="absolute inset-0" onClick={onClose} aria-label="Close dialog" />
+      <div className="ps-rm-panel relative z-10" onClick={stop}>
+        <button type="button" className="ps-icon-btn ps-msg-close" onClick={onClose} aria-label="Close" title="Close">
           ×
         </button>
 
         {state.kind === "room" ? (
           <ListingModalBody
             footer={
-              <div className="flex w-full flex-wrap gap-2">
+              <div className="ps-rm-acts" data-attr="listing-room-actions">
                 <ListingModalCta
                   href={roomApplyHref(state.room.id)}
-                  label="Apply"
+                  label="Book"
                   variant="primary"
                   dataAttr="listing-room-apply"
                   newTabProps={newTabProps}
@@ -563,10 +550,10 @@ export function ListingDetailModal({
                   newTabProps={newTabProps}
                 />
                 {inPreview ? null : (
-                  <div className="flex w-full basis-full gap-2" data-attr="listing-room-reach">
+                  <div className="ps-msg-pair sm:col-span-2" data-attr="listing-room-reach">
                     <ListingMessageButton
                       target={{ propertyId: listingPropertyId, propertyLabel: propertyLabel ?? "", roomId: state.room.id, roomLabel: state.room.name }}
-                      className={`${LISTING_MODAL_SECONDARY_CLASS} flex-1`}
+                      className={LISTING_MODAL_SECONDARY_CLASS}
                       dataAttr="listing-room-message"
                     >
                       Message about this room
@@ -575,7 +562,7 @@ export function ListingDetailModal({
                       propertyId={listingPropertyId}
                       label={propertyLabel ?? ""}
                       roomLabel={state.room.name}
-                      className={`${LISTING_MODAL_SECONDARY_CLASS} flex-1`}
+                      className={LISTING_MODAL_SECONDARY_CLASS}
                       dataAttr="listing-room-text-us"
                     />
                   </div>
@@ -626,7 +613,7 @@ export function ListingDetailModal({
               const statusTone = statusDisplay?.tone ?? "neutral";
               return (
                 <>
-                  <header className="flex items-start justify-between gap-4 pr-10" data-attr="listing-room-modal-header">
+                  <header className="flex items-start justify-between gap-4 pr-12" data-attr="listing-room-modal-header">
                     <h2 className="min-w-0 text-xl font-bold tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-2xl">
                       {state.room.name}
                     </h2>

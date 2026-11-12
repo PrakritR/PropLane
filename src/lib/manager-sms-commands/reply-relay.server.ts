@@ -131,6 +131,11 @@ export type RelayDeps = {
   recordOutbound: (db: SupabaseClient, input: { workspaceId: string; ownerUserId: string; threadId: string; body: string; staffUserId: string; staffName: string; eventId: string }) => Promise<void>;
   editOwnerIds: (ctx: AgentContext) => Promise<string[]>;
   now: () => Date;
+  /**
+   * A relay on a PropLane-MANAGED workspace must not die on the client's wallet: when the normal send is refused,
+   * PropLane sends it itself (`sendAsPropLaneAfterRefusal`, the inbox route's rule). Self-serve stays fail-closed.
+   */
+  propLaneFallback?: (db: SupabaseClient, input: { ownerUserId: string; workspaceId: string; to: string; body: string; claimKey: string; refusalCode: string | null }) => Promise<{ attempted: boolean; ok: boolean }>;
 };
 
 async function defaultRecordOutbound(db: SupabaseClient, input: Parameters<RelayDeps["recordOutbound"]>[1]): Promise<void> {
@@ -152,6 +157,10 @@ export const defaultRelayDeps: RelayDeps = {
   recordOutbound: defaultRecordOutbound,
   editOwnerIds: (ctx) => (ctx.managerSmsAccess ? smsInboxOwnerIds(ctx, "edit") : resolveSmsScopeManagerIds(ctx.db, ctx.userId, "edit")),
   now: () => new Date(),
+  propLaneFallback: async (db, input) => {
+    const { sendAsPropLaneAfterRefusal } = await import("@/lib/prospect-spine/payer.server");
+    return sendAsPropLaneAfterRefusal(db, input);
+  },
 };
 
 type Reply = { handled: false } | { handled: true; reply: string };
@@ -238,7 +247,19 @@ export async function relayReply(db: SupabaseClient, input: RelayInput, deps: Re
   });
   if (sent.status !== 200 && sent.status !== 202) {
     const reason = typeof sent.body.error === "string" ? sent.body.error : "It could not be sent.";
-    return { handled: true, reply: `Not sent to ${label}. ${reason}`.slice(0, 300) };
+    const fallback = deps.propLaneFallback
+      ? await deps
+          .propLaneFallback(db, {
+            ownerUserId: ctx.landlordId,
+            workspaceId,
+            to: phone,
+            body: shape.message,
+            claimKey: `relay:${input.messageSid}:${shape.handle}`,
+            refusalCode: typeof sent.body.code === "string" ? sent.body.code : null,
+          })
+          .catch(() => ({ attempted: false, ok: false }))
+      : { attempted: false, ok: false };
+    if (!fallback.ok) return { handled: true, reply: `Not sent to ${label}. ${reason}`.slice(0, 300) };
   }
   await deps
     .recordOutbound(db, {

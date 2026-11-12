@@ -26,27 +26,42 @@ describe("resolveSmsPayer", () => {
 
 describe("sendAsPropLaneAfterRefusal", () => {
   const input = { ownerUserId: "client", workspaceId: "ws", to: "+12065550188", body: "hi", claimKey: "k1" };
-  it("a managed workspace whose wallet refused is sent by PropLane", async () => {
-    expect(await sendAsPropLaneAfterRefusal(db, { ...input, refusal: "comms_billing_insufficient" })).toEqual({ attempted: true, ok: true });
+  const ELIGIBLE = [
+    "credit_unavailable", "comms_billing_insufficient", "comms_billing_no_credit", "workspace_has_no_work_number",
+    "number_missing", "number_not_active", "number_quarantined", "number_grace_expired", "provider_identity_mismatch",
+  ];
+  const NEVER = [
+    "No conversation edit access.", "forbidden", "authorization", "That number has opted out of texts.", "recipient_opted_out",
+    "opted_out", "quiet_hours", "shielded", "protected_account_shielded", "scoped_consent_missing", "communication_not_allowed",
+    "communication_workspace_mismatch", "delivery_outcome_unknown", "duplicate", "empty_body", "invalid_message", "invalid_to",
+    "runtime_paused", "control_plane_unreadable", "Not enough credit to send this text.", "", undefined, null,
+  ];
+
+  it.each(ELIGIBLE)("allowlisted code %s sends via PropLane for a managed workspace", async (refusalCode) => {
+    expect(await sendAsPropLaneAfterRefusal(db, { ...input, refusalCode })).toEqual({ attempted: true, ok: true });
     expect(platformSend).toHaveBeenCalledTimes(1);
   });
-  it("never overrides STOP or quiet hours", async () => {
-    for (const refusal of ["recipient_opted_out", "quiet_hours"]) {
-      expect((await sendAsPropLaneAfterRefusal(db, { ...input, refusal })).attempted).toBe(false);
-    }
+  it.each(ELIGIBLE)("allowlisted code %s never sends for a self-serve workspace", async (refusalCode) => {
+    managed = false;
+    expect((await sendAsPropLaneAfterRefusal(db, { ...input, refusalCode })).attempted).toBe(false);
     expect(platformSend).not.toHaveBeenCalled();
   });
-  it("a self-serve workspace stays fail-closed", async () => {
-    managed = false;
-    expect((await sendAsPropLaneAfterRefusal(db, { ...input, refusal: "comms_billing_insufficient" })).attempted).toBe(false);
+  it.each(NEVER)("code %j never falls back, even on a managed workspace", async (refusalCode) => {
+    const r = await sendAsPropLaneAfterRefusal(db, { ...input, refusalCode: refusalCode as string | null | undefined });
+    expect(r).toMatchObject({ attempted: false, ok: false });
+    expect(platformSend).not.toHaveBeenCalled();
   });
-  it("a retried reply never texts twice", async () => {
+  it("a retried reply never texts twice and is never reported as sent", async () => {
     claimOk = false;
-    expect(await sendAsPropLaneAfterRefusal(db, input)).toMatchObject({ attempted: true, ok: true, reason: "already_sent" });
+    expect(await sendAsPropLaneAfterRefusal(db, { ...input, refusalCode: "credit_unavailable" })).toEqual({ attempted: true, ok: false, reason: "already_attempted" });
     expect(platformSend).not.toHaveBeenCalled();
   });
   it("reports the provider reason when PropLane's own send fails", async () => {
     platformSend.mockResolvedValue({ ok: false, reason: "provider_error" });
-    expect(await sendAsPropLaneAfterRefusal(db, input)).toEqual({ attempted: true, ok: false, reason: "provider_error" });
+    expect(await sendAsPropLaneAfterRefusal(db, { ...input, refusalCode: "credit_unavailable" })).toEqual({ attempted: true, ok: false, reason: "provider_error" });
+  });
+  it("never throws", async () => {
+    platformSend.mockRejectedValue(new Error("boom"));
+    expect(await sendAsPropLaneAfterRefusal(db, { ...input, refusalCode: "credit_unavailable" })).toMatchObject({ attempted: true, ok: false });
   });
 });

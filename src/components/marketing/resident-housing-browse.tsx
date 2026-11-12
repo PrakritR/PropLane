@@ -14,7 +14,7 @@ import {
   ResidentHousingChat,
 } from "@/components/marketing/resident-listing-search";
 import { browseStateFromChatFilters, type HousingChatAppliedFilters } from "@/lib/housing-chat-filters";
-import { LEASE_TYPES, leaseTypeLabel, type LeaseTypeId } from "@/lib/rental-application/lease-terms";
+import { LEASE_TYPES, type LeaseTypeId } from "@/lib/rental-application/lease-terms";
 import { usePublicListings } from "@/hooks/use-public-listings";
 import {
   buildPropertyBrowseCards,
@@ -22,7 +22,9 @@ import {
   type BrowseSortId,
   type PropertyBrowseCard,
   browseCardMatchesQuery,
+  browseCardFactParts,
 } from "@/lib/room-listings-catalog";
+import { pacificTodayKey } from "@/lib/public-room-live-label";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { formatRoomPriceAmount } from "@/lib/room-pricing";
 import { NoImagePlaceholder } from "@/components/ui/no-image-placeholder";
@@ -68,10 +70,6 @@ function periodSuffix(card: PropertyBrowseCard): string {
   return "/ mo";
 }
 
-function formatBaths(n: number): string {
-  return Number.isInteger(n) ? String(n) : n.toFixed(1);
-}
-
 function formatShortDate(iso: string): string | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
   if (!m) return null;
@@ -115,12 +113,7 @@ function HousingBrowseCard({ card }: { card: PropertyBrowseCard }) {
   const resolvedImageUrl =
     card.imageUrl || (isDemoModeActive() ? demoOnlyBrowseCardPlaceholderImage(card.propertyId) : "");
   const isDataUrl = resolvedImageUrl.startsWith("data:");
-  const facts = [
-    `${card.roomCount} room${card.roomCount === 1 ? "" : "s"}`,
-    card.bathCount > 0 ? `${formatBaths(card.bathCount)} ba` : null,
-    card.petFriendly ? "Pets OK" : card.bathHint || null,
-    ...card.leaseTypes.map(leaseTypeLabel),
-  ].filter((f): f is string => Boolean(f));
+  const facts = browseCardFactParts(card, pacificTodayKey());
   const avail = availabilityText(card);
 
   return (

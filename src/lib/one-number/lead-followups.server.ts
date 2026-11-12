@@ -47,7 +47,7 @@ export function leadNudgesEnabled(): boolean {
 }
 
 export function nudgeText(kind: "24" | "72", profile: LeadProfile): string {
-  if (kind === "72") return "Still looking? Text me any time and I will pick your room search back up.";
+  if (kind === "72") return "Still looking? Text me any time and I will pick your room search back up. Reply STOP to opt out.";
   if (profile.stage === "offered" && (profile.offers?.length ?? 0) > 0) {
     const n = profile.offers!.length;
     return `Still interested in one of those rooms? Reply ${n === 1 ? "1" : n === 2 ? "1 or 2" : "1, 2 or 3"}, or TOUR.`;

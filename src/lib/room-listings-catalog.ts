@@ -4,7 +4,7 @@ import { getListingRichContent } from "@/data/listing-rich-content";
 import type { ListingFloorCard, ListingRoomRow } from "@/data/listing-rich-content";
 import type { MockProperty } from "@/data/types";
 import { normalizeManagerListingSubmissionV1, resolveAllowedLeaseTerms } from "@/lib/manager-listing-submission";
-import { LEASE_TYPES, leaseTypeIdsFromStored, type LeaseTypeId } from "@/lib/rental-application/lease-terms";
+import { LEASE_TYPES, leaseTypeIdsFromStored, leaseTypeLabel, type LeaseTypeId } from "@/lib/rental-application/lease-terms";
 import {
   parseMonthlyRent,
   parseUSZip,
@@ -605,6 +605,8 @@ export type PropertyBrowseCard = {
   pricePeriod: "day" | "week" | "month";
   priceLabel: string;
   roomCount: number;
+  /** Every room on the listing, leased or not (the listing page's roomCount); `roomCount` only counts rooms the card advertises. */
+  totalRoomCount: number;
   petFriendly: boolean;
   /** Bathrooms on the property (`propertyBaths`); 0 when unknown. */
   bathCount: number;
@@ -695,7 +697,32 @@ function cardAvailability(
   return { availabilityLabel: "Not available", availabilityKind: "unavailable", availableNowCount: 0, nextOpening: null };
 }
 
-export function aggregateRoomRowsToPropertyCards(roomRows: RoomListingRow[]): PropertyBrowseCard[] {
+/** "3.5" for a half bath, "3" otherwise. */
+export function formatBathCount(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
+/**
+ * The browse card's fact line: "<N> bedrooms · <B> bath · <K> available", then the rest (pets/bath hint, lease types).
+ * N is every room on the listing, K the rooms open now (the shared `classifyRoomAvailability`, fed by the same live
+ * occupancy the listing page reads) or, with none open, the soonest opening date.
+ */
+export function browseCardFactParts(card: PropertyBrowseCard, today: string): string[] {
+  const total = card.totalRoomCount > 0 ? card.totalRoomCount : card.roomCount;
+  const parts: Array<string | null> = [
+    total > 0 ? `${total} bedroom${total === 1 ? "" : "s"}` : null,
+    card.bathCount > 0 ? `${formatBathCount(card.bathCount)} bath` : null,
+    card.availableNowCount > 0 ? `${card.availableNowCount} available` : browseCardNextOpeningLabel(card, today),
+    card.petFriendly ? "Pets OK" : card.bathHint || null,
+    ...card.leaseTypes.map(leaseTypeLabel),
+  ];
+  return parts.filter((f): f is string => Boolean(f));
+}
+
+export function aggregateRoomRowsToPropertyCards(
+  roomRows: RoomListingRow[],
+  totalRoomsByProperty?: ReadonlyMap<string, number>,
+): PropertyBrowseCard[] {
   const byProperty = new Map<string, PropertyBrowseCard>();
   const rowsByProperty = new Map<string, RoomListingRow[]>();
 
@@ -717,6 +744,7 @@ export function aggregateRoomRowsToPropertyCards(roomRows: RoomListingRow[]): Pr
         pricePeriod: row.pricePeriod,
         priceLabel: row.priceLabel,
         roomCount: 1,
+        totalRoomCount: 0,
         petFriendly: row.petFriendly,
         bathCount: Number.isFinite(row.propertyBaths) && row.propertyBaths > 0 ? row.propertyBaths : 0,
         bathHint: shortBathHint(row.bathroomHint),
@@ -750,6 +778,7 @@ export function aggregateRoomRowsToPropertyCards(roomRows: RoomListingRow[]): Pr
   for (const card of byProperty.values()) {
     const rows = rowsByProperty.get(card.propertyId) ?? [];
     Object.assign(card, cardAvailability(rows));
+    card.totalRoomCount = Math.max(totalRoomsByProperty?.get(card.propertyId) ?? 0, rows.length);
     const samePeriod = rows
       .filter((r) => r.pricePeriod === card.pricePeriod && typeof r.headlineRent === "number")
       .map((r) => r.headlineRent as number);
@@ -839,5 +868,9 @@ export function buildPropertyBrowseCards(
     leaseTypes: filters.leaseTypes,
   }).filter((row) => hasDateFilter || !roomHiddenFromBrowse(row.availabilityRaw));
 
-  return sortPropertyBrowseCards(aggregateRoomRowsToPropertyCards(roomRows), opts?.sort ?? "price-asc");
+  const totalRoomsByProperty = new Map<string, number>();
+  for (const p of scopedProperties) {
+    totalRoomsByProperty.set(p.id, browseRoomEntries(p, getListingRichContent(p)).length);
+  }
+  return sortPropertyBrowseCards(aggregateRoomRowsToPropertyCards(roomRows, totalRoomsByProperty), opts?.sort ?? "price-asc");
 }

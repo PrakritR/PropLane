@@ -1508,7 +1508,7 @@ export async function POST(req: Request) {
             const fallback = await sendAsPropLaneAfterRefusal(db, {
               ownerUserId: payerOwnerId, workspaceId: payerWorkspaceId, to: recipientPhone, body: smsText,
               claimKey: `inbox:${sentTargets.get(recipient.email)?.messageId ?? `${payerOwnerId}:${recipientPhone}:${smsText.length}`}`,
-              refusal: result.error ?? null,
+              refusalCode: result.error ?? null,
             }).catch(() => ({ attempted: false, ok: false }));
             if (fallback.attempted && fallback.ok) result = { sent: true, channel: "twilio" };
           }

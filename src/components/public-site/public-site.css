@@ -492,6 +492,73 @@
   margin: 0;
 }
 
+/* ---------- listing detail pop-up (room / floor / bathroom): the message sheet's frame, a wider panel ---------- */
+.ps-rm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 240;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(12, 13, 16, 0.5);
+}
+.ps-rm-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 640px;
+  max-height: min(92dvh, 820px);
+  overflow: hidden;
+  background: var(--ps-white);
+  border: 1px solid var(--ps-ink);
+  border-radius: 0;
+}
+.ps-rm-body {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 22px var(--ps-gut);
+}
+.ps-rm-foot {
+  flex-shrink: 0;
+  padding: 14px var(--ps-gut) calc(14px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--ps-rule);
+  background: var(--ps-paper);
+}
+.ps-rm-acts {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+.ps-rm-acts > .ps-btn,
+.ps-rm-acts a > .ps-btn {
+  width: 100%;
+}
+.ps-rm-acts a {
+  display: block;
+  text-decoration: none;
+}
+@media (min-width: 640px) {
+  .ps-rm-overlay {
+    align-items: center;
+    padding: 24px;
+  }
+  .ps-rm-body {
+    padding: 28px;
+  }
+  .ps-rm-foot {
+    padding: 16px 28px;
+  }
+  .ps-rm-acts {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.ps-rm-panel .ps-msg-close {
+  z-index: 20;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ps * {
     transition: none !important;
