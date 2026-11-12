@@ -2150,10 +2150,10 @@ export function ManagerPaymentsLedgerPanel({
   const renderAirbnbPayoutRow = (row: DemoManagerPaymentLedgerRow) => {
     const payout = airbnbPayouts.get(row.id);
     const openBooking = () => {
-      if (payout && listBasePath) navigate(bookingRecordHref(listBasePath, payout.bookingKey, "overview"));
+      if (payout?.bookingKey && listBasePath) navigate(bookingRecordHref(listBasePath, payout.bookingKey, "overview"));
     };
     const markPaid = async () => {
-      if (!payout) return;
+      if (!payout?.connectionId) return;
       try {
         await saveChannelStayDetailsClient({
           connectionId: payout.connectionId,
@@ -2170,7 +2170,7 @@ export function ManagerPaymentsLedgerPanel({
       <PortalApplicantRecordRow
         key={row.id}
         name={row.residentName}
-        tileLabel="A B"
+        tileLabel={payout?.platform === "booking_com" ? "B C" : "A B"}
         address={payout ? airbnbPayoutPlaceLine(payout) : row.chargeTitle}
         facts={
           <PortalRowFact icon={CalendarDays} tone={row.bucket === "paid" ? "ok" : undefined}>
@@ -2184,9 +2184,9 @@ export function ManagerPaymentsLedgerPanel({
             <span className="tabular-nums">{row.lineAmount}</span>
           )
         }
-        onOpen={payout ? openBooking : undefined}
+        onOpen={payout?.bookingKey ? openBooking : undefined}
         actions={
-          <AirbnbPayoutRowMenu onMarkPaid={row.bucket === "paid" ? undefined : markPaid} onOpenBooking={payout ? openBooking : undefined} />
+          <AirbnbPayoutRowMenu onMarkPaid={row.bucket === "paid" || !payout?.connectionId ? undefined : markPaid} onOpenBooking={payout?.bookingKey ? openBooking : undefined} />
         }
         dataAttr="payment-list-row-airbnb"
       />

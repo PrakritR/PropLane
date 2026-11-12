@@ -160,6 +160,8 @@ import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { ManagerPipelineLeaseEditModal } from "@/components/portal/pro-pipeline-lease-edit-modal";
 import { AddResidentWizard } from "@/components/portal/resident-wizard";
+import { QuickAddResidentsModal } from "@/components/portal/quick-add-residents-modal";
+import { ResidentSetupProgressModal } from "@/components/portal/resident-setup-progress-modal";
 import {
   ALSO_CREATE_IDS,
   MANAGER_APPLICATION_TEXT_KEYS,
@@ -798,6 +800,9 @@ export function ManagerResidents({
   }, []);
   // Add resident / prospect — the wizard owns its own form (resident-wizard/state.ts).
   const [addResidentOpen, setAddResidentOpen] = useState(false);
+  // Quick add (one sheet / CSV) is what the + opens; its "Full form" opens the wizard above.
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [setupProgressFor, setSetupProgressFor] = useState<{ id: string; name: string } | null>(null);
 
   // Edit resident
   const erSkipPricingFillRef = useRef(false);
@@ -4338,7 +4343,7 @@ export function ManagerResidents({
           <PortalPrimaryIconAction
             label="Add resident"
             data-attr="residents-add-top"
-            onClick={() => setAddResidentOpen(true)}
+            onClick={() => setQuickAddOpen(true)}
           />
         }
         activeFilterChips={
@@ -4444,7 +4449,7 @@ export function ManagerResidents({
                 actions:
                   residentsTab === "past"
                     ? []
-                    : [{ label: "Add resident", onClick: () => setAddResidentOpen(true), dataAttr: "residents-empty-add" }],
+                    : [{ label: "Add resident", onClick: () => setQuickAddOpen(true), dataAttr: "residents-empty-add" }],
               }
         }
         onBulkClear={clearSelection}
@@ -4477,6 +4482,17 @@ export function ManagerResidents({
               }}
             >
               Send setup
+            </Button>
+            ) : null}
+            {singleListSelectedResident?.manuallyAdded ? (
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="residents-bulk-setup-progress"
+              onClick={() => setSetupProgressFor({ id: singleListSelectedResident.axisId, name: singleListSelectedResident.name })}
+            >
+              Setup progress
             </Button>
             ) : null}
             {singleListSelectedNeedsSetup && singleListSelectedResident ? (
@@ -4653,6 +4669,25 @@ export function ManagerResidents({
           </>
         }
       />
+
+      <QuickAddResidentsModal
+        open={quickAddOpen}
+        onClose={() => setQuickAddOpen(false)}
+        onFullForm={() => {
+          setQuickAddOpen(false);
+          setAddResidentOpen(true);
+        }}
+        onAdded={() => {
+          setChargeBucket("pending");
+          setHcTick((n) => n + 1);
+          setLeaseTick((n) => n + 1);
+        }}
+        managerUserId={userId ?? null}
+        propertyOptions={propertyOptions}
+        propertyTick={propertyTick}
+        executedLeaseKeys={executedLeaseKeys}
+      />
+      <ResidentSetupProgressModal applicationId={setupProgressFor?.id ?? null} residentName={setupProgressFor?.name ?? ""} onClose={() => setSetupProgressFor(null)} />
 
       {addResidentOpen ? (
         <AddResidentWizard

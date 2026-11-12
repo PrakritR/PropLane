@@ -362,3 +362,19 @@ Workspace insights product area (`src/lib/mcp/capabilities.ts`).
 Coverage for the page itself: `tests/unit/manager-integrations-panel.test.tsx`,
 `integrations-channel-rows.test.tsx`, `integrations-messages-panel.test.tsx`,
 `channel-calendar-link-modal.test.tsx`, `channel-calendar-ical*.test.ts*`.
+
+## Channel finances (Airbnb, Booking.com payouts)
+
+Reporting rows, never resident charges or party-ledger movements. `channel_payout_records` (one per platform + confirmation
+code + kind `reservation|payout`) and `channel_finance_mail` (last mail, review queue) are service-role only.
+
+- **Feed:** the host's one Gmail filter forwards the channel's reservation / payout / invoice mail to the workspace work address
+  (`src/lib/channel-finance/gmail-filter.ts`; rows in Integrations > Bookings). `ingestChannelFinanceMail` runs from
+  `process-assistant-inbound`, only for a DKIM/SPF-proven sender.
+- **Never guess an amount:** an amount is read only from a labelled line. Parsers are UNVERIFIED (`CHANNEL_FINANCE_PARSER_VERIFIED`,
+  built from documented wording, no real samples). A read counts only when certain AND (cross-checked gross - fee = payout, or the
+  parser is switched on via `CHANNEL_FINANCE_PARSERS=airbnb,booking_com`, or no money stated). Otherwise it is stored `needs_review`
+  and counts nowhere until the manager confirms. An unreadable mail is stored flagged; an unmatched booking is `needs_room`.
+- **Backfill:** Payments > Channel income > Import CSV (Airbnb Transaction history, Booking.com Payouts / Reservations), preview
+  with per-row errors, idempotent on (platform, code, kind).
+- **One source:** `channelIncomeRows` (`income.ts`) feeds the Payments list rows and the report; only paid payouts total.

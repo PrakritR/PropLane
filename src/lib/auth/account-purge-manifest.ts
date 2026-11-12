@@ -965,6 +965,16 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    table: "channel_payout_records",
+    phase: 2,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
+    table: "channel_finance_mail",
+    phase: 2,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     table: "account_link_invites",
     phase: 2,
     manager: { ids: ["inviter_user_id", "invitee_user_id"] },

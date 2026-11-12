@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   leasing: vi.fn(),
   reserve: vi.fn(),
   apply: vi.fn(),
+  finance: vi.fn(),
 }));
 
 vi.mock("@/lib/sms/manager-workspace-role.server", () => ({ resolveWorkspaceOwnerForWorkEmail: mocks.resolveOwner }));
@@ -36,6 +37,7 @@ vi.mock("@/lib/manager-assistant-email/email-auto-reply-credit.server", () => ({
 vi.mock("@/lib/automation-send-mode.server", () => ({ partyFacingAnswerHold: vi.fn() }));
 vi.mock("@/lib/tools/manager-sms-context", () => ({ resolveManagerSmsAgentContext: vi.fn() }));
 vi.mock("@/lib/channel-calendar/airbnb-email-intake.server", () => ({ applyAirbnbEmailToStay: mocks.apply }));
+vi.mock("@/lib/channel-finance/ingest.server", () => ({ ingestChannelFinanceMail: mocks.finance }));
 
 import { processManagerAssistantInboundEmail } from "@/lib/manager-assistant-email/process-assistant-inbound.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -66,6 +68,7 @@ beforeEach(() => {
   mocks.mirror.mockResolvedValue(undefined);
   mocks.fetchHeaders.mockResolvedValue({ "authentication-results": ["mx; dkim=pass header.d=airbnb.com"] });
   mocks.apply.mockResolvedValue({ applied: true, connectionId: "c1", sourceUid: "u1" });
+  mocks.finance.mockResolvedValue({ status: "recorded", recordId: "rec-1" });
 });
 
 describe("Airbnb mail to the work email", () => {
@@ -88,6 +91,14 @@ describe("Airbnb mail to the work email", () => {
     expect(mocks.mirror.mock.calls[0]![1]).toMatchObject({ replyText: null, replySent: false, residentUserId: null });
     expect(mocks.deliver).not.toHaveBeenCalled();
     expect(mocks.leasing).not.toHaveBeenCalled();
+  });
+
+  it("a payout the finance parser would not vouch for never reaches the stay's payout field, and the mail is stored for review", async () => {
+    mocks.finance.mockResolvedValue({ status: "flagged", recordId: "rec-2" });
+    const result = await processManagerAssistantInboundEmail(db(), parsed);
+    expect(result).toEqual({ handled: true, replied: false });
+    expect(mocks.apply).not.toHaveBeenCalled();
+    expect(mocks.mirror).toHaveBeenCalledTimes(1);
   });
 
   it("does not believe an airbnb.com From the receiving server did not authenticate", async () => {

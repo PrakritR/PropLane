@@ -364,8 +364,12 @@ export type AirbnbPayoutRow = {
   end: string;
   payoutCents: number;
   paidAt: string | null;
-  /** Key of the booking record page. */
+  /** Key of the booking record page. Empty for a payout read from mail / CSV that no synced stay carries. */
   bookingKey: string;
+  /** Absent = Airbnb (the original stay-detail payouts). */
+  platform?: "airbnb" | "booking_com";
+  /** The channel_payout_records row behind a payout read from mail / CSV. */
+  recordId?: string;
 };
 
 export async function fetchAirbnbPayouts(): Promise<AirbnbPayoutRow[]> {

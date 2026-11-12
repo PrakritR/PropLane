@@ -5,6 +5,7 @@ import { Building2, CalendarPlus, ExternalLink, House, Palmtree, Plus, UsersRoun
 
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import { ChannelsHealthCard } from "@/components/portal/channels-health-card";
+import { ChannelFinanceFeedRows } from "@/components/portal/integrations-channel-finance-rows";
 import { IntegrationRow } from "@/components/portal/integration-row";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalSettingsGroup } from "@/components/portal/portal-settings-ui";
@@ -156,6 +157,7 @@ export function ManagerBookingChannelsPanel() {
           action={<PortalIconAction icon={Plus} label="Connect an Other calendar" data-attr="settings-ical-manage" disabled={!workspaceReady} onClick={() => setChannelOpen("ical")} />}
         />
       </PortalSettingsGroup>
+      <ChannelFinanceFeedRows />
       <ChannelCalendarLinkModal
         open={channelOpen !== null}
         onClose={() => setChannelOpen(null)}
