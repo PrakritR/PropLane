@@ -11,11 +11,12 @@ import { syncLedgerRefundEntry } from "@/lib/reports/ledger-sync";
 import { categoryCodeForChargeKind } from "@/lib/reports/categories";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { emitHouseholdChargeTransition } from "@/lib/domain-action-events.server";
+import { householdRefundAttemptIdFromPlatformKey } from "@/lib/household-charge-refund-coordinator.server";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { enqueueWebhookEvent } from "@/lib/webhooks/deliver.server";
 import { webhookEventBuilders } from "@/lib/webhooks/events";
 import { markHouseholdChargePaidFromPaymentIntent } from "@/lib/stripe-household-charge";
-import { notifyAutopayDeclined, runAttempt } from "@/lib/resident-autopay.server";
+import { notifyAutopayDeclined, recordAutopayDecline, runAttempt } from "@/lib/resident-autopay.server";
 import { releaseVerifiedPlatformHoldsForOwner } from "@/lib/platform-hold-release.server";
 import { settleClearedPlatformOwnerRecovery } from "@/lib/platform-owner-recovery.server";
 import { creditVerifiedHouseholdAutopaySource,
@@ -456,6 +457,68 @@ type RefundReservationSource = {
   refund_components: Array<{ source_id: string; principal_cents: number }> | null;
 };
 
+async function reconcileDepositRefund(db: SupabaseClient, refund: Stripe.Refund, sourceChargeId: string, componentCents: number): Promise<void> {
+  const attemptId = refund.metadata?.deposit_return_attempt?.trim();
+  if (attemptId) {
+    const { error } = await db.rpc("settle_security_deposit_return", { p_attempt: attemptId });
+    if (error) throw new Error("Deposit return settlement requires reconciliation.");
+    return;
+  }
+  const { data, error } = await db.from("security_deposit_ledger").select("id").eq("source_charge_id", sourceChargeId).maybeSingle();
+  if (error) throw new Error("Could not check deposit refund source.");
+  if (!data) return;
+  const providerChargeId = typeof refund.charge === "string" ? refund.charge : refund.charge?.id;
+  if (!providerChargeId) throw new Error("Deposit refund source is unavailable.");
+  const { error: flagError } = await db.from("security_deposit_unmatched_refunds").upsert({
+    stripe_refund_id: refund.id, stripe_charge_id: providerChargeId,
+    source_charge_id: sourceChargeId, amount_cents: componentCents,
+  }, { onConflict: "stripe_refund_id,source_charge_id", ignoreDuplicates: true });
+  if (flagError) throw new Error("Could not flag unreserved deposit refund for reconciliation.");
+  const { data: reconciliation, error: reconcileError } = await db.rpc("reconcile_external_security_deposit_refund", {
+    p_refund: refund.id, p_source: sourceChargeId,
+  });
+  if (reconcileError || reconciliation?.status !== "reconciled") throw new Error("Unreserved deposit refund requires reconciliation.");
+}
+
+/**
+ * Bind this provider refund to its household reservation, if it has one, and let
+ * `bind_household_charge_refund` do the terminal projection.
+ *
+ * Two ways in, because the two rails carry different metadata:
+ *
+ *  - destination / managed: the refund was created with the caller's own metadata, so it carries
+ *    `household_refund_attempt` directly;
+ *  - central: `reserve_platform_money_refund` drops the caller's metadata and stamps only
+ *    `platform_refund_attempt`, so the platform row's `attempt_key` is resolved back to the
+ *    household attempt — and the RPC then re-checks that binding against the row's own immutable
+ *    basis. Metadata alone never grants a binding.
+ */
+async function reconcileHouseholdChargeRefund(
+  db: SupabaseClient,
+  refund: Stripe.Refund,
+  stripeChargeId: string,
+  platformAttemptId: string | null,
+): Promise<void> {
+  let attemptId = refund.metadata?.household_refund_attempt?.trim() || null;
+  if (!attemptId && platformAttemptId) {
+    const { data, error } = await db.from("platform_hold_refund_attempts")
+      .select("attempt_key").eq("id", platformAttemptId).maybeSingle();
+    if (error) throw new Error("Could not resolve the refund's household reservation.");
+    attemptId = householdRefundAttemptIdFromPlatformKey(data?.attempt_key as string | null);
+  }
+  if (!attemptId) return;
+  const { data, error } = await db.rpc("bind_household_charge_refund", {
+    p_attempt: attemptId, p_refund: refund.id, p_charge: stripeChargeId,
+    p_amount: refund.amount, p_currency: refund.currency, p_status: refund.status,
+    p_platform_attempt: platformAttemptId,
+  });
+  if (error) throw new Error("Household charge refund binding requires reconciliation.");
+  if (["succeeded", "failed", "canceled"].includes(refund.status ?? "") && data?.basis?.kind === "stay_add_on_refund" && typeof data.source_charge_id === "string") {
+    const { applyPaidStayAddOn } = await import("@/lib/short-stay/stay-add-on-settlement.server");
+    await applyPaidStayAddOn(db, { chargeId: data.source_charge_id, verifiedRefundReason: typeof data.basis.reason === "string" ? data.basis.reason : undefined });
+  }
+}
+
 export async function handleStripeRefund(
   db: SupabaseClient,
   refund: Stripe.Refund,
@@ -488,8 +551,20 @@ export async function handleStripeRefund(
     p_amount: current.amount, p_status: current.status,
   });
   if (evidenceError) throw new Error("Could not record captured refund evidence.");
+  const depositAttemptId = current.metadata?.deposit_return_attempt?.trim();
+  if (depositAttemptId) {
+    const { error } = await db.rpc("bind_security_deposit_refund", {
+      p_attempt: depositAttemptId, p_refund: current.id, p_charge: stripeChargeId,
+      p_amount: current.amount, p_status: current.status,
+      p_platform_attempt: current.metadata?.platform_refund_attempt?.trim() || null,
+    });
+    if (error) throw new Error("Deposit refund binding requires reconciliation.");
+  }
   const reservedAttemptId = current.metadata?.platform_refund_attempt?.trim();
   let reservation: RefundReservationSource | null = null;
+  // Before any ledger work and on EVERY status, including pending: a reserved household refund
+  // must have its attempt state and its one-time money projection driven by verified evidence.
+  await reconcileHouseholdChargeRefund(db, current, stripeChargeId, reservedAttemptId || null);
   if (reservedAttemptId) {
     const { data, error: reservationError } = await db
       .from("platform_hold_refund_attempts")
@@ -518,7 +593,19 @@ export async function handleStripeRefund(
       .select("id").eq("stripe_charge_id", stripeChargeId)
       .eq("source_allocation_mode", "hold").limit(1);
     if (allocationError) throw new Error("Could not check refund recipient allocation.");
-    if (allocations?.length) throw new Error("Captured source refund needs exact allocation review.");
+    if (allocations?.length) {
+      // A dashboard refund bypasses the central reservation. Preserve an
+      // actionable review record even though canonical accounting cannot post.
+      const { data: payments, error: paymentError } = await db.from("ledger_entries")
+        .select("source_charge_id,category_code").eq("stripe_charge_id", stripeChargeId).eq("entry_type", "payment");
+      if (paymentError) throw new Error("Could not identify unreserved refund sources.");
+      for (const payment of payments ?? []) {
+        if (payment.category_code === "security_deposit_liability" && payment.source_charge_id) {
+          await reconcileDepositRefund(db, current, payment.source_charge_id, current.amount);
+        }
+      }
+      throw new Error("Captured source refund needs exact allocation review.");
+    }
   }
   if (current.status !== "succeeded" && settlement !== "succeeded") return;
   const settledRefund = current.status === "succeeded" ? current : await stripe.refunds.retrieve(current.id);
@@ -537,6 +624,9 @@ export async function handleStripeRefund(
       // The source-bound settlement already posted the canonical refund
       // ledger and journal atomically for every captured component. Running
       // the legacy full-cash poster here would erase the creditor split.
+      for (const component of reservation.refund_components ?? []) {
+        await reconcileDepositRefund(db, settledRefund, component.source_id, component.principal_cents);
+      }
       return;
     }
   }
@@ -604,6 +694,7 @@ export async function handleStripeRefund(
       description: `Refund ${refund.id}`,
       linkLedgerEntryId: ledgerId,
     });
+    await reconcileDepositRefund(db, settledRefund, payment.source_charge_id, component.principal_cents);
   }
 }
 
@@ -761,6 +852,9 @@ export async function assertMarkedCheckoutPaymentIntentClaim(
  * historical failure handler by copying the marker. */
 export async function assertMarkedAutopayFailureClaim(
   db: SupabaseClient, paymentIntent: Stripe.PaymentIntent,
+  /** The decline recorder may meet a run that has not bound this PaymentIntent yet (a create whose response was a
+   *  decline) or has already failed on it (the synchronous path got there first). Both are this same PaymentIntent. */
+  options?: { recordingDecline?: boolean },
 ): Promise<void> {
   const metadata = paymentIntent.metadata;
   const runId = metadata?.autopay_run_id?.trim();
@@ -777,10 +871,52 @@ export async function assertMarkedAutopayFailureClaim(
     .select("id,charge_id,manager_id,attempt,stripe_payment_intent_id,status")
     .eq("id", runId).maybeSingle();
   if (error || !run || run.charge_id !== chargeId || run.manager_id !== ownerId ||
-      Number(run.attempt) !== attempt || run.stripe_payment_intent_id !== paymentIntent.id ||
-      !["claimed", "succeeded"].includes(run.status)) {
+      Number(run.attempt) !== attempt ||
+      !(run.stripe_payment_intent_id === paymentIntent.id ||
+        (options?.recordingDecline === true && run.stripe_payment_intent_id == null)) ||
+      !(["claimed", "succeeded"].includes(run.status) ||
+        (options?.recordingDecline === true && run.status === "failed"))) {
     throw new Error("Marked autopay failure differs from its persisted run.");
   }
+}
+
+/**
+ * The declined side of a MARKED autopay PaymentIntent (`payment_intent.payment_failed`, `source_arbitration_v=1`).
+ *
+ * The marked flow deliberately mints no NSF fee and never reopens a charge, but it used to stop at the attestation:
+ * the run stayed `claimed` for good, so the resident was never told, the Payments banner never showed, the one
+ * allowed retry never ran (it only picks up `failed` rows) and the charge's payment slot was never freed. An
+ * autopay PaymentIntent is never confirmed again by a client, so a failure on it is terminal for that attempt.
+ * The live PaymentIntent is read first, so a stale event for an intent that went on to succeed records nothing.
+ */
+export async function handleMarkedAutopayPaymentIntentFailed(
+  db: SupabaseClient, stripe: Stripe, paymentIntent: Stripe.PaymentIntent,
+): Promise<void> {
+  const runId = paymentIntent.metadata?.autopay_run_id?.trim();
+  const chargeId = paymentIntent.metadata?.charge_id?.trim();
+  const managerUserId = paymentIntent.metadata?.manager_user_id?.trim();
+  if (!runId || !chargeId || !managerUserId) throw new Error("Marked autopay failure lacks frozen claim terms.");
+
+  // A redelivered failure for an earlier attempt must not touch a later attempt in flight.
+  const { data: existing } = await db.from("resident_autopay_runs").select("attempt").eq("id", runId).maybeSingle();
+  const intentAttempt = runAttempt(paymentIntent.metadata?.autopay_attempt);
+  if (existing && intentAttempt < runAttempt(existing.attempt)) return;
+
+  await assertMarkedAutopayFailureClaim(db, paymentIntent, { recordingDecline: true });
+
+  const live = await stripe.paymentIntents.retrieve(paymentIntent.id);
+  if (live.status !== "requires_payment_method" && live.status !== "canceled") return;
+
+  const reason = live.last_payment_error?.message?.trim() ||
+    paymentIntent.last_payment_error?.message?.trim() || "The payment was declined.";
+  const { data: row } = await db.from("portal_household_charge_records")
+    .select("row_data").eq("id", chargeId).maybeSingle();
+  const recorded = await recordAutopayDecline(db, {
+    runId, attempt: intentAttempt, paymentIntentId: paymentIntent.id, chargeId,
+    managerId: managerUserId, reason, charge: (row?.row_data as HouseholdCharge | null) ?? null,
+  });
+  // Unrecordable means the run does not match this intent: fail the delivery so it is retried and reviewed.
+  if (!recorded) throw new Error("Marked autopay decline could not be recorded against its run.");
 }
 
 /**

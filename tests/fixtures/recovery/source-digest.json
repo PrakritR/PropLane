@@ -1,16 +1,21 @@
 {
-  "sha256": "c3ffb8b666917b2493776b4e347b52c936641f6f381bab9f47021e37b1bab4b1",
+  "sha256": "9fe26b2e2167428b651dc4660ddb58b013cf5e6592e9521f976f47b55c35fa6c",
   "selection": "SQL migrations containing account_recovery_, resident_move_in_forms, CREATE/DROP/ALTER TABLE and admin_team_atomic_revoke; plus purge manifest and recovery policy",
   "missing_dev_catalog": [
+    "applicant_preapply_checks",
+    "application_adverse_actions",
+    "channel_finance_mail",
+    "channel_payout_records",
     "payment_reminder_occurrences",
     "phone_required_skips",
+    "resident_ratings",
     "scheduled_inbox_channel_deliveries"
   ],
   "reviewed_change": {
-    "date": "2026-11-04",
-    "reason": "Reviewed owner-neutral SMS transport migration, two ACCOUNT_PURGE_RETAINED annotations, and the additive email_onboarding_handoffs.tour_slot_key column only; recoverable table selection, catalog, known hook gaps and missing_dev_catalog are unchanged.",
-    "migration_sha256": "37ee641a1886840e79b615879686d8205e4714e72c37f50913e5dc342e18d113",
-    "selected_source_paths": 330,
-    "baseline_reproduced_sha256": "ceb4f7d539c749aa8a06988f9d64aa42399b3969d4e58d5415be201d70bde636"
+    "date": "2026-11-13",
+    "reason": "Review follow-up on the managed-workspace ownership release: 20261112250000 adds the stored generated column channel_payout_records.workspace_key and a unique index on (manager_user_id, platform, confirmation_code, kind, workspace_key), replacing the owner-level channel_payout_records_key so a booking record is identified inside its own workspace and an import can no longer re-point an existing row to another workspace. Derived column and index only: no new table, no column dropped, no grant or policy change, and the purge classification of channel_payout_records (phase 2, manager_user_id) is unchanged. Managed-workspace ownership release: adds channel_payout_records and channel_finance_mail (20261112220000; Airbnb/Booking.com payout evidence and forwarded finance mail) and managed_workspace_ownership_moves (20261112230000; mover audit, single-apply marker, undo record). All service-role-only (RLS on, no client grants); the two channel tables are classified in the account purge manifest (phase 2, manager_user_id purged with the account) and absent from the historical dev catalog snapshot, which is unchanged; the move audit is in ACCOUNT_PURGE_RETAINED (ids only, deletion guarded by managed-account-deletion-guard.server.ts). Earlier 2026-11-12 additions (preapply checks, adverse actions, ratings, prospect spine, stay_message_sends) stand.",
+    "selected_source_paths": 348,
+    "previous_sha256": "bb25ad024165f0dba0c48e75dfa904f3ff0e1e1853d9dc2f52720a58c06d8c5f",
+    "migration_sha256": "438938c21431149de015faae9ec1c9a488502cc0922a2da3fe21dc475ed7dc4b"
   }
 }

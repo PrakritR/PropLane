@@ -1,4 +1,9 @@
+import { freezeSignedTermsForApplication } from "@/lib/rental-application/freeze-signed-terms.server";
+import { approvalPlacementServerBlocker } from "@/lib/application-approval-placement.server";
 import { shortStayApprovalBlocker } from "@/lib/short-stay-pricing-gate.server";
+import { resolveBaselineResidentIdentity } from "@/lib/resident-identity/baseline.server";
+import { preApplyGuestGate } from "@/lib/screening/preapply.server";
+import { ADVERSE_ACTION_BLOCKED_MESSAGE, adverseActionDeclineBlocker } from "@/lib/screening/adverse-action.server";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { readListingSource } from "@/lib/listing-channels/lead-source.server";
 import { openApplicantRow, prepareApplicantIdentityWrite, sealApplicantRow } from "@/lib/security/applicant-identity";
@@ -1030,7 +1035,9 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as {
-      action?: "upsert" | "delete" | "replace" | "withdraw";
+      action?: "upsert" | "delete" | "replace" | "withdraw" | "freezeSignedTerms";
+      leaseId?: string;
+      terms?: Record<string, unknown>;
       id?: string;
       row?: DemoApplicantRow;
       rows?: DemoApplicantRow[];
@@ -1041,6 +1048,15 @@ export async function POST(req: Request) {
     };
     const db = createSupabaseServiceRoleClient();
     const user = await sessionUser();
+
+    if (body.action === "freezeSignedTerms") {
+      if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+      const gate = await assertManagerOrAdminWriteAccess(db, user);
+      if (gate) return gate;
+      if (typeof body.id !== "string" || !body.id.trim() || typeof body.leaseId !== "string" || !body.leaseId.trim() || !body.terms || typeof body.terms !== "object" || Array.isArray(body.terms)) return NextResponse.json({ error: "Application, lease and terms are required." }, { status: 400 });
+      const result = await freezeSignedTermsForApplication(db, user.id, body.id.trim(), body.leaseId.trim(), body.terms);
+      return result.ok ? NextResponse.json({ ok: true, row: result.row }) : NextResponse.json({ error: result.error }, { status: result.status });
+    }
 
     if (body.action === "replace") {
       if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
@@ -1093,6 +1109,8 @@ export async function POST(req: Request) {
           guarded.row,
           (stored?.row_data ?? null) as DemoApplicantRow | null,
         );
+        const placementError = await approvalPlacementServerBlocker(db, anchored, (stored?.row_data ?? null) as DemoApplicantRow | null);
+        if (placementError) { stayPricingError = placementError; continue; }
         // Same re-check the single-row upsert applies (PLAN-0920-0631): a room
         // priced per resident re-derives openness here too, since a mirror
         // batch can carry a fresh approval same as the single-row path can.
@@ -1269,6 +1287,14 @@ export async function POST(req: Request) {
     if (workspaceGate) return workspaceGate;
     let residentSelfWrite = false;
     if (!user) {
+      if (!isDraftShapedApplicationRow(row)) {
+        const identity = await resolveBaselineResidentIdentity(db, null);
+        if (identity === "required") return NextResponse.json({ error: "Sign in and verify your identity to submit an application.", blocked: "identity", href: "/resident/profile?tab=profile#verification" }, { status: 403 });
+        if (identity === "unavailable") return NextResponse.json({ error: "Identity verification is unavailable.", blocked: "identity_unavailable" }, { status: 503 });
+        // A listing that requires Verify ID / a background check before applying needs a signed-in applicant.
+        const preApplyGuest = await preApplyGuestGate(db, row);
+        if (!preApplyGuest.ok) return NextResponse.json(preApplyGuest.body, { status: preApplyGuest.status });
+      }
       // One application per person per house: a draft for a house the guest already has an open
       // application for folds into it. A typed email is not proof, so the kept row must also be
       // proven by its own setup token (this browser already holds it); otherwise the draft is
@@ -1564,6 +1590,16 @@ export async function POST(req: Request) {
       if (formGate === "blocked") {
         return NextResponse.json({ error: APPROVAL_BLOCKED_BY_FORM_MESSAGE, blocked: "forms" }, { status: 409 });
       }
+      // FCRA: a decline for an application with a consumer report needs the manager's answer on record
+      // ("based on the background check?") and, when yes, the final adverse-action notice. The decline screen
+      // asks first; this makes the question impossible to skip by calling the write directly.
+      const adverseGate = await adverseActionDeclineBlocker(db, storedLoad.record ?? null, guarded.row);
+      if (adverseGate === "unchecked") {
+        return NextResponse.json({ error: "Could not check the adverse-action requirements. Try again.", blocked: "adverse-action-check" }, { status: 503 });
+      }
+      if (adverseGate === "blocked") {
+        return NextResponse.json({ error: ADVERSE_ACTION_BLOCKED_MESSAGE, blocked: "adverse_action" }, { status: 409 });
+      }
       row = anchorServerOwnedSmsConsent(
         guarded.row,
         (storedLoad.record?.row_data ?? null) as DemoApplicantRow | null,
@@ -1583,6 +1619,8 @@ export async function POST(req: Request) {
         );
       }
       row = slotCheck.row;
+      const placementError = await approvalPlacementServerBlocker(db, row, (storedLoad.record?.row_data ?? null) as DemoApplicantRow | null);
+      if (placementError) return NextResponse.json({ error: placementError, blocked: "placement" }, { status: 409 });
       const pricingError = await shortStayApprovalBlocker(db, row, (storedLoad.record?.row_data ?? null) as DemoApplicantRow | null);
       if (pricingError) return NextResponse.json({ error: pricingError, blocked: "stay-pricing" }, { status: 409 });
     }
@@ -1649,7 +1687,7 @@ export async function POST(req: Request) {
             row: prepareApplicantIdentityWrite(row, null, row.id),
             ...(linkedForms.length > 0 ? { linkedForms } : {}),
           }
-        : { ok: true, id: row.id, ...(row.bucket === "approved" ? { residentAccess: "invitation_required" } : {}) },
+        : { ok: true, id: row.id, row, ...(row.bucket === "approved" ? { residentAccess: "invitation_required" } : {}) },
     );
   } catch (e) {
     const mapped = applicationWriteErrorResponse(e, "Failed to save application.");

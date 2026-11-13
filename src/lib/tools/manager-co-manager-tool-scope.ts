@@ -1,4 +1,5 @@
 import type { AgentContext } from "./context";
+import { coManagerModuleAllowed } from "@/lib/co-manager-permissions";
 import type { ToolDefinition } from "./registry";
 import { isManagedReadOnly, managedReadOnlyWorkspaceIds } from "@/lib/auth/managed-read-only.server";
 import { MANAGED_READ_ONLY_TOOL_MESSAGE } from "@/lib/auth/managed-read-only-policy";
@@ -73,6 +74,23 @@ export const CO_MANAGER_SCOPED_TOOLS = new Set([
 ]);
 
 /**
+ * Listing edits a DELEGATED seat (a PropLane staff seat, a co-manager) may make by text: price, availability date,
+ * description. Each is property-targeted (`propertyId`), its loader already pins the record to an assigned house, and
+ * on top of that the seat must hold Properties at EDIT on that very house, checked in the preview AND the handler.
+ * Anything else about a listing stays portal-only for a delegated seat.
+ */
+export const DELEGATED_LISTING_EDIT_TOOLS = new Set(["update_room_rent", "update_property", "update_listing_details"]);
+
+function assertDelegatedMayEditListing(ctx: AgentContext, input: unknown): void {
+  const access = ctx.managerSmsAccess;
+  const propertyId = String((input as { propertyId?: unknown } | null)?.propertyId ?? "").trim();
+  const grants = access?.permissionsByOwner?.[ctx.landlordId];
+  if (!access || !propertyId || !coManagerModuleAllowed(grants, propertyId, "properties", "edit")) {
+    throw new Error("This action is not available on another manager's number. Use PropLane with your assigned permissions.");
+  }
+}
+
+/**
  * A PropLane-managed workspace is view-only for its client: every write tool is refused, in the
  * preview AND the handler (so a stale approval can never run). No second confirm path. A turn with
  * no workspace scope, or a scope that failed to resolve, refuses when the user has
@@ -110,15 +128,22 @@ export function scopeManagerTool<Input, Output>(
   };
   const sendsMessages = COMMUNICATION_SENDING_TOOLS.has(tool.name);
   const isWrite = tool.kind === "write";
-  const scoped = async (ctx: AgentContext): Promise<AgentContext> => {
+  const delegatedListingEdit = DELEGATED_LISTING_EDIT_TOOLS.has(tool.name);
+  const scoped = async (ctx: AgentContext, input?: unknown): Promise<AgentContext> => {
     if (isWrite) await assertWorkspaceWritable(ctx);
+    if (delegatedListingEdit && ctx.managerSmsAccess?.mode === "delegated") {
+      assertDelegatedMayEditListing(ctx, input);
+      const next = ctx;
+      if (sendsMessages) await assertToolMayCommunicate(next);
+      return next;
+    }
     const next = context(ctx);
     if (sendsMessages) await assertToolMayCommunicate(next);
     return next;
   };
   return {
     ...tool,
-    handler: async (ctx, input) => tool.handler(await scoped(ctx), input),
-    ...(tool.kind === "write" ? { preview: async (ctx: AgentContext, input: Input) => tool.preview(await scoped(ctx), input) } : {}),
+    handler: async (ctx, input) => tool.handler(await scoped(ctx, input), input),
+    ...(tool.kind === "write" ? { preview: async (ctx: AgentContext, input: Input) => tool.preview(await scoped(ctx, input), input) } : {}),
   };
 }

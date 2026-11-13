@@ -14,14 +14,14 @@ describe("PropLane line first text", () => {
   );
 
   it("the fixed reply is the role question: one GSM-7 segment with no long dash", () => {
-    expect(PROPLANE_FIRST_TEXT_REPLY).toBe("Hi, this is PropLane. Are you a resident, a vendor, looking for a place, or want to manage your own property with PropLane?");
+    expect(PROPLANE_FIRST_TEXT_REPLY).toBe("Are you a resident, a vendor, looking for a place, or want to manage your own property with PropLane?");
     expect(PROPLANE_FIRST_TEXT_REPLY).toBe(PROPLANE_ROLE_QUESTION);
     for (const reply of [PROPLANE_FIRST_TEXT_REPLY, PROPLANE_PROSPECT_FALLBACK_REPLY]) {
       expect(reply.length).toBeLessThanOrEqual(160);
       expect(reply).toMatch(/^[\x20-\x7E]+$/);
       expect(reply).not.toMatch(/[–—]/);
     }
-    expect(PROPLANE_PROSPECT_FALLBACK_REPLY).toBe("Hi, this is PropLane. Looking for a place to rent? Tell me the area, budget and move-in date.");
+    expect(PROPLANE_PROSPECT_FALLBACK_REPLY).toBe("Looking for a place to rent? Tell me the area, budget and move-in date.");
   });
 
   it("a finished question waits less than a fragment", () => {

@@ -96,7 +96,7 @@ beforeEach(() => {
   uploadMoveInFormPdf.mockReset();
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => ({ ok: true, json: async () => ({ leasingPipeline: { applicationBeforeTour: "required" } }) })),
+    vi.fn(async () => ({ ok: true, json: async () => ({}) })),
   );
 });
 afterEach(() => {

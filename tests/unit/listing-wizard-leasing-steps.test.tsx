@@ -72,7 +72,7 @@ beforeEach(() => {
   showToast.mockReset();
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => ({ ok: true, json: async () => ({ leasingPipeline: { applicationBeforeTour: "required" } }) })),
+    vi.fn(async () => ({ ok: true, json: async () => ({}) })),
   );
 });
 afterEach(() => {
@@ -467,29 +467,11 @@ describe("Application step", () => {
     expect(headingText()).toBe("2 applications");
   });
 
-  it("'Application before a tour' is one settings row under the cards: Not needed by default, a pick saves to the workspace", async () => {
-    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
-    vi.stubGlobal("fetch", fetchMock);
+  it("has no 'Application before a tour' row: anyone signed in can book a tour", () => {
     mountLive(bothStays());
     go("application");
-    const row = q("[data-attr='listing-v2-application-before-tour']")!;
-    const trigger = row.querySelector("[data-attr='listing-v2-application-before-tour-select']")!;
-    expect(trigger.textContent).toContain("Not needed");
-    expect(row.textContent).not.toContain("—");
-    fireEvent.click(trigger);
-    tapOption("Required");
-    await waitFor(() => {
-      const patch = (fetchMock.mock.calls as unknown as Array<[string, RequestInit?]>).find(([, init]) => init?.method === "PATCH");
-      expect(patch).toBeTruthy();
-      expect(JSON.parse(patch![1]!.body as string)).toEqual({ leasingPipeline: { applicationBeforeTour: "required" } });
-    });
-    expect(q("[data-attr='listing-v2-application-before-tour-select']")!.textContent).toContain("Required");
-  });
-
-  it("'Application before a tour' shows the stored workspace value once it arrives", async () => {
-    mountLive(bothStays());
-    go("application");
-    await waitFor(() => expect(q("[data-attr='listing-v2-application-before-tour-select']")!.textContent).toContain("Required"));
+    expect(q("[data-attr='listing-v2-application-before-tour']")).toBeNull();
+    expect(document.body.textContent).not.toContain("Application before a tour");
   });
 });
 

@@ -71,6 +71,7 @@ function makeDb(tables: Record<string, Row[]>, missingTables: Set<string> = new 
         update(obj: Row) {
           const updateFilters: Array<(r: Row) => boolean> = [];
           const updateBuilder: Record<string, unknown> = {
+            select() { return updateBuilder; },
             eq(col: string, val: unknown) {
               updateFilters.push((r) => String(r[col]) === String(val));
               return updateBuilder;
@@ -119,7 +120,7 @@ const WORKSPACE_1 = "workspace-1";
 
 function seed(): Record<string, Row[]> {
   return {
-    manager_property_records: [{ id: HOUSE_A, manager_user_id: MGR, workspace_id: WORKSPACE_1, row_data: {} }],
+    manager_property_records: [{ id: HOUSE_A, manager_user_id: MGR, workspace_id: WORKSPACE_1, updated_at: "2026-01-01T00:00:00.000Z", row_data: {} }],
     workspace_automation_settings: [],
   };
 }

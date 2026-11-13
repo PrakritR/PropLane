@@ -211,7 +211,8 @@ export type PhoneBoundLinkPurpose =
   | "rent"
   | "move_in"
   | "job"
-  | "payouts";
+  | "payouts"
+  | "account";
 
 export type PhoneBoundLinkPolicy = { ttlHours: number | "until_closed"; requiresOtp: boolean };
 
@@ -225,6 +226,11 @@ export const PHONE_BOUND_LINK_POLICY: Record<PhoneBoundLinkPurpose, PhoneBoundLi
   move_in: { ttlHours: 24 * 14, requiresOtp: true },
   job: { ttlHours: "until_closed", requiresOtp: false },
   payouts: { ttlHours: 24 * 7, requiresOtp: true },
+  /**
+   * The personal account link a prospect gets after a listing message or a text (design-1112 §5): no code gate,
+   * because the link only ever reaches a phone that already proved itself (the web code step, or a text sent to it).
+   */
+  account: { ttlHours: 24 * 14, requiresOtp: false },
 };
 
 /** OTP rules for link unlocks and phone sign-in (reuse `phone_verifications`). */

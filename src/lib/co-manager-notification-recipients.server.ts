@@ -1,11 +1,14 @@
+import { isManagedWorkspaceId } from "@/lib/service/service-alert-targets.server";
 import "server-only";
 
 import { asStringArray, INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { normalizeE164Us } from "@/lib/claw-messenger.server";
 import {
+  hasCoManagerPermissionLevel,
   hasCoManagerPermissionLevelForProperty,
   type CoManagerPermissionId,
+  type OwnerPermissionId,
 } from "@/lib/co-manager-permissions";
 import type { ReminderSubjectKind } from "@/lib/reminders/rules";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
@@ -336,6 +339,52 @@ function derivedTeamNotice(input: {
  * every leg is idempotent per `idempotencyKey` + member). A teammate's failure
  * never blocks the owner or the other teammates.
  */
+/**
+ * What the PROPERTY OWNER of a managed workspace (the client) is told. Managed workspaces are the admin's, so the
+ * workspace owner is PropLane's own account and the client is a second recipient, resolved from the owner seat
+ * (`resolveManagedPayee`), never from the workspace owner column. An allowlist, not a denylist: payments and
+ * financials notices, and anything urgent; nothing else. Each is also gated by the seat's own owner keys
+ * (`ownerStatements` for money, `ownerPerformance` for an urgent operational notice).
+ */
+export function managedClientNoticeOwnerKey(input: {
+  module: CoManagerPermissionId;
+  urgent: boolean;
+  category?: ManagerNotificationCategory;
+}): OwnerPermissionId | null {
+  if (input.category === "payment_reminders") return null;
+  if (input.module === "payments" || input.module === "financials") return "ownerStatements";
+  if (input.urgent) return "ownerPerformance";
+  return null;
+}
+
+async function managedClientRecipient(
+  db: ServiceClient,
+  input: { workspaceId: string; ownerId: string; propertyId?: string | null; key: OwnerPermissionId; excluded: ReadonlySet<string> },
+): Promise<string | null> {
+  try {
+    const { resolveManagedPayee } = await import("@/lib/managed-finance/payee.server");
+    const payee = await resolveManagedPayee(db, input.workspaceId);
+    // Legacy attached workspace: the client still owns it and is the primary recipient already.
+    if (!payee || payee === input.ownerId || input.excluded.has(payee)) return null;
+    const { data, error } = await db
+      .from("account_link_invites")
+      .select(`workspace_id, ${INVITE_PERMISSION_COLUMNS}`)
+      .eq("workspace_id", input.workspaceId)
+      .eq("invitee_user_id", payee)
+      .eq("status", "accepted")
+      .eq("team_role", "property_owner");
+    if (error) return null;
+    for (const row of (data ?? []) as Array<Parameters<typeof readPropertyPermissionsFromRow>[0]>) {
+      const perms = readPropertyPermissionsFromRow({ ...row, house_scope: "selected" } as Parameters<typeof readPropertyPermissionsFromRow>[0]);
+      const houseIds = input.propertyId ? [input.propertyId] : Object.keys(perms);
+      if (houseIds.some((id) => hasCoManagerPermissionLevel(perms[id], input.key, "read"))) return payee;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function notifyPropertyScopedManagersFromAgent(
   db: ServiceClient,
   input: {
@@ -398,8 +447,58 @@ export async function notifyPropertyScopedManagersFromAgent(
   )
     .map((recipient) => recipient.userId)
     .filter((id) => !excluded.has(id));
-  for (const userId of recipientIds) {
+  // PropLane-MANAGED workspace (`is_service`): its owner is a client, not the team. A ROUTINE event is heard by PropLane's people
+  // (the Team chat line, the listed alert phones and the staff seats) and not texted / emailed to the client as well; the client
+  // gets financials (payments and financials modules), anything urgent, and the monthly statement. A payment-reminder
+  // confirmation is bookkeeping: it is counted in the daily digest ("Payment reminders sent: 9 residents") and posts no per-resident
+  // line anywhere. A self-serve workspace is untouched.
+  const managedWorkspace = noticeWorkspace?.workspaceId
+    ? await isManagedWorkspaceId(db, noticeWorkspace.workspaceId).catch(() => false)
+    : false;
+  if (managedWorkspace && !urgent && input.category === "payment_reminders") return;
+  const ownerHearsIt = !managedWorkspace || urgent || input.module === "payments" || input.module === "financials";
+  if (managedWorkspace && !ownerHearsIt) {
+    // The service manager's verified phone (when set) still hears it, exactly as it did through the owner's notice.
+    const { alertServiceManagerFromNotice } = await import("@/lib/service/service-manager-alerts.server");
+    await alertServiceManagerFromNotice(db, {
+      workspaceId: noticeWorkspace?.workspaceId,
+      subject: input.subject,
+      text: input.text,
+      externalText: input.externalText,
+      category: input.category,
+      threadType: input.threadType,
+      idempotencyKey: input.idempotencyKey,
+    }).catch(() => "skipped");
+  }
+  if (managedWorkspace && !urgent && input.idempotencyKey && noticeWorkspace?.workspaceId) {
+    // A seat holder's EMAIL for a routine event (their text is the Team chat line). Same grants as the Team chat, own key.
+    try {
+      const { notifyServiceAlertTargets } = await import("@/lib/service/service-alert-targets.server");
+      await notifyServiceAlertTargets(db, {
+        workspaceId: noticeWorkspace.workspaceId,
+        module: input.module,
+        propertyId: input.propertyId ?? null,
+        scope: "seat_emails",
+        smsText: "",
+        emailSubject: input.subject,
+        emailText: input.externalText ?? input.text,
+        url: input.url,
+        idempotencyKey: `seat-mail:${input.idempotencyKey.replace(/:(manager|team)$/, "")}`,
+      });
+    } catch {
+      /* the Team chat line and the owner's path are unaffected */
+    }
+  }
+  // The client of a managed workspace (second recipient): payments / financials / urgent, by the seat's owner keys.
+  const clientKey = managedWorkspace ? managedClientNoticeOwnerKey({ module: input.module, urgent, category: input.category }) : null;
+  const clientId =
+    clientKey && noticeWorkspace?.workspaceId
+      ? await managedClientRecipient(db, { workspaceId: noticeWorkspace.workspaceId, ownerId, propertyId: input.propertyId, key: clientKey, excluded })
+      : null;
+  const deliverTo = clientId && !recipientIds.includes(clientId) ? [...recipientIds, clientId] : recipientIds;
+  for (const userId of deliverTo) {
     const isOwner = userId === ownerId;
+    if (isOwner && !ownerHearsIt) continue;
     const deliver = () =>
       notifyManagerFromAgent(db, {
         landlordId: userId,

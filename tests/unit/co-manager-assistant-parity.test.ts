@@ -116,7 +116,9 @@ describe("the work email belongs to the workspace, exactly like the work number"
   it("assistant-email's canRequest is off inside a shared workspace, and POST refuses before billing", () => {
     const start = assistantEmail.indexOf("canRequest:");
     expect(start).toBeGreaterThan(-1);
-    expect(assistantEmail.slice(start, start + 200)).toContain("!pureCoManager");
+    // `workspace.owned` is the owner-only gate here, and it is the STRICTER one: a pure co-manager
+    // and PropLane service staff both fail it (service staff read as the owner but own nothing).
+    expect(assistantEmail.slice(start, start + 200)).toContain("workspace.owned");
     const post = assistantEmail.slice(assistantEmail.indexOf("export async function POST"));
     expect(post.indexOf("workspace_not_owned")).toBeGreaterThan(-1);
     expect(post.indexOf("workspace_not_owned")).toBeLessThan(

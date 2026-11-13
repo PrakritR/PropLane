@@ -111,7 +111,7 @@ function world(extra: Record<string, FakeRow[]> = {}, rpc: Record<string, any> =
 async function go(w: ReturnType<typeof world>, args: string[], deps: Record<string, unknown> = {}) {
   const h = harness();
   const files: Record<string, any> = {};
-  const code = await run(["--target", "dev", ...args], {
+  const code = await run(["--target", "dev", "--legacy-attach", ...args], {
     env: { ...DEV_ENV },
     db: w.db,
     log: h.log,
@@ -176,11 +176,17 @@ describe("move-plan: pure decisions", () => {
 });
 
 describe("move-houses-to-service: guards and refusals", () => {
+  it("--mode attach (and the old default) is retired: managed workspaces are owned by the service owner", async () => {
+    const w = world();
+    await expect(run(["--target", "dev", "--owner-email", "ambika@example.com", "--label", "Ambika"], { env: { ...DEV_ENV }, db: w.db, log: () => {} })).rejects.toThrow(/retired/);
+    await expect(run(["--target", "dev", "--mode", "attach", "--owner-email", "ambika@example.com", "--label", "Ambika"], { env: { ...DEV_ENV }, db: w.db, log: () => {} })).rejects.toThrow(/managed-workspaces-to-admin/);
+  });
+
   it("needs a target, and an owner email (listing matches by name first)", async () => {
     const w = world();
     await expect(run([], { env: { ...DEV_ENV }, db: w.db, log: () => {} })).rejects.toThrow(/--target/);
     const h = harness();
-    await expect(run(["--target", "dev", "--owner-name", "ambika"], { env: { ...DEV_ENV }, db: w.db, log: h.log })).rejects.toThrow(/--owner-email/);
+    await expect(run(["--target", "dev", "--legacy-attach", "--owner-name", "ambika"], { env: { ...DEV_ENV }, db: w.db, log: h.log })).rejects.toThrow(/--owner-email/);
     expect(h.text()).toMatch(/ambika@example.com/);
     expect(h.text()).not.toMatch(/vinod@example.com/);
     expect(w.writes).toEqual([]);
@@ -243,13 +249,13 @@ describe("move-houses-to-service: guards and refusals", () => {
     await expect(go(w, [...AMB, "--workspace-id", WA, "--apply"])).rejects.toThrow(/--expect-houses 3/);
     await expect(go(w, [...AMB, "--workspace-id", WA, "--apply", "--expect-houses", "2"])).rejects.toThrow(/--expect-houses 3/);
     await expect(go(w, [...AMB, "--workspace-id", WA, "--mode", "transfer", "--apply", "--expect-houses", "3"])).rejects.toThrow(/--mode transfer refuses without --acknowledge-unmoved/);
-    await expect(go(w, [...AMB, "--workspace-id", WA, "--mode", "bogus"])).rejects.toThrow(/--mode must be attach/);
+    await expect(go(w, [...AMB, "--workspace-id", WA, "--mode", "bogus"])).rejects.toThrow(/--mode transfer is the only mode left/);
     expect(w.writes).toEqual([]);
   });
 
   it("a production write needs the confirm ref, a reason, a fresh backup, and a backup taken for THIS owner", async () => {
     const w = world();
-    const base = ["--target", "production", "--owner-email", "ambika@example.com", "--label", "1. Ambika", "--workspace-id", WA, "--apply", "--expect-houses", "3", "--acknowledge-unmoved", "--journal-out", "/j/p.json"];
+    const base = ["--target", "production", "--legacy-attach", "--owner-email", "ambika@example.com", "--label", "1. Ambika", "--workspace-id", WA, "--apply", "--expect-houses", "3", "--acknowledge-unmoved", "--journal-out", "/j/p.json"];
     const deps = (move: unknown) => ({ env: { ...PROD_ENV }, db: w.db, log: () => {}, fsDeps: { exists: () => true, read: () => JSON.stringify({ meta: { kind: "one-number-backup", complete: true, ref: PROD_REF, createdAt: new Date().toISOString(), ...(move ? { move } : {}) } }) }, writeFile: () => {} });
     await expect(run(base, deps(null) as any)).rejects.toThrow(/--confirm-ref/);
     await expect(run([...base, "--confirm-ref", PROD_REF], deps(null) as any)).rejects.toThrow(/--reason/);

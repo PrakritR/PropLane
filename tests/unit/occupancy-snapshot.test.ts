@@ -90,9 +90,9 @@ describe("combineOccupancyEntries", () => {
 
 describe("dayStayDisplayName", () => {
   it("names the channel on a channel availability block, never a guest", () => {
-    expect(dayStayDisplayName({ source: "airbnb", summary: "Not available" })).toBe("Airbnb · Not available");
-    expect(dayStayDisplayName({ source: "airbnb", summary: "Airbnb (Not available)" })).toBe("Airbnb · Not available");
-    expect(dayStayDisplayName({ source: "booking_com", summary: "CLOSED - Not available" })).toBe("Booking.com · Not available");
+    expect(dayStayDisplayName({ source: "airbnb", summary: "Not available" })).toBe("Closed on Airbnb");
+    expect(dayStayDisplayName({ source: "airbnb", summary: "Airbnb (Not available)" })).toBe("Closed on Airbnb");
+    expect(dayStayDisplayName({ source: "booking_com", summary: "CLOSED - Not available" })).toBe("Booking.com guest");
   });
 
   it("reads Blocked only for the manager's own block", () => {
@@ -100,7 +100,7 @@ describe("dayStayDisplayName", () => {
   });
 
   it("keeps a real channel reservation as a reservation", () => {
-    expect(dayStayDisplayName({ source: "airbnb", summary: "Reserved" })).toBe("Airbnb · Reserved");
+    expect(dayStayDisplayName({ source: "airbnb", summary: "Reserved" })).toBe("Airbnb guest");
     expect(dayStayDisplayName({ source: "airbnb", summary: "Reserved", residentName: "Dana" })).toBe("Dana");
   });
 });
@@ -108,7 +108,9 @@ describe("dayStayDisplayName", () => {
 describe("isAvailabilityBlockRow", () => {
   it("is true for a channel Not available block and the manager's own block, false for a channel Reserved guest", () => {
     expect(isAvailabilityBlockRow({ source: "airbnb", summary: "Airbnb (Not available)" })).toBe(true);
-    expect(isAvailabilityBlockRow({ source: "booking_com", summary: "CLOSED - Not available" })).toBe(true);
+    // A privacy-stripped Booking.com reservation is a real guest, so it is never drawn as a closure.
+    expect(isAvailabilityBlockRow({ source: "booking_com", summary: "CLOSED - Not available" })).toBe(false);
+    expect(isAvailabilityBlockRow({ source: "airbnb", summary: "Blocked" })).toBe(true);
     expect(isAvailabilityBlockRow({ source: "block", summary: "Reserved" })).toBe(true);
     expect(isAvailabilityBlockRow({ source: "airbnb", summary: "Reserved" })).toBe(false);
     expect(isAvailabilityBlockRow({ source: "airbnb", summary: "Jane Doe" })).toBe(false);

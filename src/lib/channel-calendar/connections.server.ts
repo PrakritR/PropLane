@@ -4,6 +4,7 @@ import type { ManagerListingSubmissionV1, ManagerRoomUnavailableRange } from "@/
 import type { MockProperty } from "@/data/types";
 import {
   CHANNEL_CALENDAR_IMPORTED_RANGE_PREFIX,
+  CHANNEL_IMPORTED_DESCRIPTION_MAX,
   type ChannelCalendarConnectionPublic,
   type ChannelCalendarConnectionRow,
   type ChannelCalendarImportedRange,
@@ -143,6 +144,7 @@ export function parseConnectionRow(raw: Record<string, unknown>): ChannelCalenda
             ...(isHostBlockRange({ hostBlock: typeof o.hostBlock === "boolean" ? o.hostBlock : undefined, summary: String(o.summary ?? "") }) ? { hostBlock: true } : {}),
             ...(isReservationCode(o.reservationCode) ? { reservationCode: o.reservationCode } : {}),
             ...(isPhoneLast4(o.phoneLast4) ? { phoneLast4: o.phoneLast4 } : {}),
+            ...(typeof o.description === "string" && o.description.trim() ? { description: o.description.trim().slice(0, CHANNEL_IMPORTED_DESCRIPTION_MAX) } : {}),
           };
         })
         .filter((x): x is ChannelCalendarImportedRange => Boolean(x))

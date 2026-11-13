@@ -19,6 +19,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
 const OUT = process.env.EVIDENCE_DIR ?? "";
 const log: string[] = [];
@@ -35,7 +36,7 @@ let LINKS: unknown[] = [];
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: vi.fn(async () => false) }));
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({
   linkedPropertyIdsForModule: vi.fn(async () => new Set<string>()),
-  linkedOwnerForProperty: vi.fn(async () => null),
+  linkedOwnerForProperty: vi.fn(async (_db: unknown, userId: string, propertyId: string) => (EDIT_GRANTS[userId] ?? []).includes(propertyId) ? "mgr-victim" : null),
 }));
 vi.mock("@/lib/auth/manager-lease-scope", () => ({
   managerHasCoManagerPermissionForProperty: vi.fn(
@@ -54,7 +55,7 @@ function makeDb() {
   return {
     storage: { from: () => ({ list: async () => ({ data: [], error: null }), remove: async () => ({ error: null }) }) },
     from(table: string) {
-      const f: { eqCol: string | null; eqVal: string | null } = { eqCol: null, eqVal: null };
+      const f: { eqCol: string | null; eqVal: string | null; filters: Record<string, string> } = { eqCol: null, eqVal: null, filters: {} };
       const builder: Record<string, unknown> = {
         select: () => builder,
         insert(values: { id: string; manager_user_id: string | null }) {
@@ -69,6 +70,7 @@ function makeDb() {
           return Promise.resolve({ error: null });
         },
         eq(column: string, value: string) {
+          f.filters[column] = value;
           f.eqCol = column;
           f.eqVal = value;
           return builder;
@@ -80,8 +82,15 @@ function makeDb() {
         or: () => builder,
         order: () => builder,
         limit: () => builder,
-        maybeSingle: () =>
-          Promise.resolve({ data: table === "profiles" ? { role: ROLE, email: "mgr@test.local" } : null, error: null }),
+        maybeSingle: () => {
+          if (table === "manager_property_records") {
+            const property = PROPERTIES.find((p) => (!f.filters.id || p.id === f.filters.id) && (!f.filters.manager_user_id || p.manager_user_id === f.filters.manager_user_id));
+            const base = createDefaultListingSubmission();
+            const listingSubmission = { ...base, rooms: [{ ...base.rooms[0], id: "room-1", name: "Room 1", monthlyRent: 1000 }] };
+            return Promise.resolve({ data: property ? { ...property, row_data: { listingSubmission } } : null, error: null });
+          }
+          return Promise.resolve({ data: table === "profiles" ? { role: ROLE, email: "mgr@test.local" } : null, error: null });
+        },
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
           if (table === "profile_roles") return Promise.resolve({ data: [{ role: ROLE }], error: null }).then(resolve);
           const data =
@@ -193,9 +202,10 @@ describe("evidence · a manager write may only name houses the writer runs", () 
     EDIT_GRANTS[ATTACKER] = [VICTIM_HOUSE];
     const granted = await record(
       `names ${VICTIM_HOUSE}, writer holds an edit grant on it`,
-      approved({ assignedPropertyId: VICTIM_HOUSE, assignedRoomChoice: `${VICTIM_HOUSE}::room-1` }),
+      approved({ propertyId: VICTIM_HOUSE, assignedPropertyId: VICTIM_HOUSE, assignedRoomChoice: `${VICTIM_HOUSE}::room-1` }),
     );
     expect(granted.status).toBe(200);
+    expect(UPSERTS.at(-1)?.manager_user_id).toBe("mgr-victim");
     say();
   });
 

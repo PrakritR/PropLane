@@ -107,6 +107,41 @@ describe("ResidentAutopayCard", () => {
     await waitFor(() => expect(byAttr(container, "resident-autopay-next-charge")).toHaveTextContent("Sep 28 · $1,510.00"));
   });
 
+  it("turning autopay on asks for the authorization first and sends consent with the save", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => BASE_GET_RESPONSE })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ enabled: true, paymentMethodId: "pm_bank_1", runDaysBeforeDue: 0, nextScheduledCharge: null }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const { container } = render(<ResidentAutopayCard onManagePaymentMethods={() => {}} onPayChargeNow={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId("resident-autopay-card")).toBeInTheDocument());
+
+    await act(async () => {
+      fireEvent.click(byAttr(container, "resident-autopay-toggle"));
+    });
+    const option = within(screen.getByRole("listbox")).getByText("On");
+    await act(async () => {
+      fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
+      fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
+    });
+
+    // Nothing is saved until the resident agrees, and the text names the method, the run day and the rent fee.
+    const text = await screen.findByText(/You authorize PropLane to charge Chase/);
+    expect(text.textContent).toContain("on the due date");
+    expect(text.textContent).toContain("0.8% bank processing (max $5.00)");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "I agree, turn on autopay" }));
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const body = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+    expect(body).toEqual({ enabled: true, paymentMethodId: "pm_bank_1", runDaysBeforeDue: 0, consent: true });
+  });
+
   it("shows the decline banner with Pay now / Change method when the last run failed", async () => {
     vi.stubGlobal(
       "fetch",

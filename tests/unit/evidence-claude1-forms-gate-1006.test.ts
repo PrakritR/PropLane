@@ -139,7 +139,7 @@ async function call(action: "upsert" | "replace", row: DemoApplicantRow) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  PROPERTY = null;
+  PROPERTY = createDefaultListingSubmission();
   PROFILE = { role: "manager", email: EMAIL };
   getUser.mockResolvedValue({ data: { user: { id: OWNER, email: EMAIL, email_confirmed_at: "confirmed", user_metadata: {} } }, error: null });
   STORED_ROWS = [];

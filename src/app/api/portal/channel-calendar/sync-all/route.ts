@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { syncChannelCalendarConnectionIds } from "@/lib/channel-calendar/sync.server";
+import { MAX_SYNC_ALL_PROPERTY_IDS } from "@/lib/channel-calendar/types";
 import { managerCanWriteCalendarForProperties } from "@/lib/auth/manager-lease-scope";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -14,9 +16,18 @@ export async function POST(req: Request) {
   try {
     const ctx = await requireManagerRouteUser();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    const limit = await rateLimit(`channel-sync:${ctx.userId}`, 20, 60_000);
+    if (limit.unavailable) return NextResponse.json({ error: "Sync is temporarily unavailable." }, { status: 503 });
+    if (!limit.ok) return NextResponse.json({ error: "Too many syncs. Try again in a minute." }, { status: 429 });
 
-    const body = (await req.json().catch(() => ({}))) as { propertyIds?: string[] };
+    const body = (await req.json().catch(() => ({}))) as { propertyIds?: string[]; force?: boolean };
+    if (body.propertyIds !== undefined && !Array.isArray(body.propertyIds)) {
+      return NextResponse.json({ error: "propertyIds must be a list." }, { status: 400 });
+    }
     const requested = (body.propertyIds ?? []).map((id) => String(id).trim()).filter(Boolean);
+    if (requested.length > MAX_SYNC_ALL_PROPERTY_IDS) {
+      return NextResponse.json({ error: `Sync at most ${MAX_SYNC_ALL_PROPERTY_IDS} houses at a time.` }, { status: 400 });
+    }
 
     // Scoped by HOUSE, not by who typed the link: a co-manager with Calendar at edit and service-mode staff
     // sync the owner's connections, which `manager_user_id` alone left out (Sync all reported 0 for them).
@@ -44,7 +55,7 @@ export async function POST(req: Request) {
     const { synced, failed, skipped } = await syncChannelCalendarConnectionIds(
       ctx.db,
       syncable.map((c) => c.id),
-      { budgetMs: Math.max(0, maxDuration * 1000 - (Date.now() - requestStartedAt)) },
+      { budgetMs: Math.max(0, maxDuration * 1000 - (Date.now() - requestStartedAt)), force: body.force === true },
     );
 
     return NextResponse.json({

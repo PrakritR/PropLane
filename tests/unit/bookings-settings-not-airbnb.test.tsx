@@ -13,6 +13,8 @@ import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render } from "@testing-library/react";
 
 vi.mock("@/lib/channel-calendar/client", () => ({
+  fetchRemovedChannelStays: vi.fn(async () => []),
+  restoreRemovedChannelStay: vi.fn(async () => undefined),
   fetchChannelCalendarConnections: () => Promise.resolve([]),
   fetchManagerChannelBookings: () => Promise.resolve([]),
   fetchWritableChannelCalendarPropertyIds: (ids: string[]) => Promise.resolve(ids),

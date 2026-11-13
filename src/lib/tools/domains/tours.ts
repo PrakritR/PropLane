@@ -28,7 +28,6 @@ import type { ResidentAgentContext } from "../resident-context";
 import { writeAuditLog, updateAuditResult, auditDayBucket } from "../audit";
 import { listOpenTourSlots } from "@/lib/tour-availability.server";
 import { createTourInquiry } from "@/lib/tour-inquiry-create.server";
-import { applicationBeforeTourRefusal } from "@/lib/application-before-tour.server";
 import { createManualPlannedTour } from "@/lib/manual-planned-tour.server";
 import { cancelPlannedTour, reschedulePlannedTour } from "@/lib/tour-planned-change.server";
 import { formatTourRangeLabel } from "@/lib/tour-inquiry.server";
@@ -240,21 +239,6 @@ async function assertSlotStillOpen(db: AgentContext["db"], input: RequestTourInp
 }
 
 /**
- * "Application before a tour": the refusal is re-derived from the property's workspace setting and
- * the VERIFIED applicant email (the resident's own account; never the model's or the prospect's
- * `email` input). A texting prospect has no verified email, so a workspace that requires an
- * application reads them as not having applied. Manager-run tools (`book_tour`) never call this.
- */
-async function assertTourAllowedByApplicationRule(
-  db: AgentContext["db"],
-  propertyId: string,
-  verifiedEmail: string | null,
-): Promise<void> {
-  const refusal = await applicationBeforeTourRefusal(db, { propertyId, verifiedEmail });
-  if (refusal) throw new Error(refusal);
-}
-
-/**
  * Resident-facing tour request. The resident's OWN contact details should be
  * used; the tool still takes them explicitly because a resident may be booking
  * with a different email than their account (a co-applicant, a family member),
@@ -272,7 +256,6 @@ export const residentRequestTourTool = defineWriteTool<
   // against published availability in both phases, never a scope key.
   allowedIdentityInputs: ["hostUserId"],
   preview: async (ctx, input) => {
-    await assertTourAllowedByApplicationRule(ctx.db as AgentContext["db"], input.propertyId, ctx.email);
     await assertSlotStillOpen(ctx.db as AgentContext["db"], input);
     return {
       kind: "request_tour",
@@ -285,11 +268,10 @@ export const residentRequestTourTool = defineWriteTool<
   },
   handler: async (ctx, input) => {
     const db = ctx.db as AgentContext["db"];
-    await assertTourAllowedByApplicationRule(db, input.propertyId, ctx.email);
     await assertSlotStillOpen(db, input);
     // The resident assistant also runs over text and email: a request made by text is answered by text.
     const noticeChannel = (ctx as { channel?: string }).channel === "sms" ? "sms" : "portal";
-    const created = await createTourInquiry(db, { incoming: tourInquiryRowFrom(input), verifiedApplicantEmail: ctx.email, noticeChannel });
+    const created = await createTourInquiry(db, { incoming: tourInquiryRowFrom(input), verifiedApplicantEmail: ctx.email, verifiedApplicantUserId: ctx.userId, noticeChannel });
     if (!created.ok) throw new Error(created.error);
     return {
       reply: `Tour requested for ${formatTourRangeLabel(input.start, input.end)}. The manager will confirm the time.`,
@@ -315,7 +297,6 @@ export const leasingRequestTourTool = defineWriteTool<RequestTourInput, { reply:
   inputSchema: requestTourInputSchema,
   allowedIdentityInputs: ["hostUserId"],
   preview: async (ctx, input) => {
-    await assertTourAllowedByApplicationRule(ctx.db, input.propertyId, null);
     await assertSlotStillOpen(ctx.db, input);
     return {
       kind: "request_tour",
@@ -326,7 +307,6 @@ export const leasingRequestTourTool = defineWriteTool<RequestTourInput, { reply:
     };
   },
   handler: async (ctx, input) => {
-    await assertTourAllowedByApplicationRule(ctx.db, input.propertyId, null);
     await assertSlotStillOpen(ctx.db, input);
     const scope = ctx.leasingScope;
     const smsOrigin = scope?.channel === "sms" ? { senderPhoneE164: scope.prospectPhoneE164 } : null;
@@ -413,7 +393,6 @@ export const prepareProspectTourConfirmationTool = defineWriteTool<z.infer<typeo
     const scope = ctx.leasingScope;
     const burst = scope?.prospectBurst;
     if (!scope || !burst) throw new Error("This offer is available only for a current prospect SMS reply.");
-    await assertTourAllowedByApplicationRule(ctx.db, input.propertyId, null);
     const [selectedDate, selectedIndex] = input.slotKey.split(":");
     const selectedMinute = Number(selectedIndex) * 30;
     if (!selectedDate || !Number.isFinite(selectedMinute)) throw new Error("That selected time is invalid.");
@@ -474,7 +453,6 @@ export const confirmProspectSmsTourTool = defineWriteTool<z.infer<typeof confirm
     const scope = ctx.leasingScope;
     const burst = scope?.prospectBurst;
     if (!scope || !burst) throw new Error("This confirmation is available only for a current prospect SMS reply.");
-    await assertTourAllowedByApplicationRule(ctx.db, input.propertyId, null);
     const existing = await loadConfirmedProspectTourBooking(ctx.db, {
       managerUserId: ctx.landlordId,
       burstId: burst.burstId,

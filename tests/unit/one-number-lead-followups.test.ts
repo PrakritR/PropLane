@@ -1,6 +1,6 @@
 // Quiet leads: one nudge at 24h, one at 72h, then nothing. Shared line only, never in quiet hours,
 // never to an opted-out number, never twice.
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MockProperty } from "@/data/types";
 import { LEAD_CONSTRAINTS, leadFakeDb, type LeadFakeDb } from "../helpers/lead-fake-db";
 import { storedListing } from "../helpers/lead-listing-fixtures";
@@ -25,6 +25,7 @@ import {
   NUDGE_FIRST_AFTER_MS,
   NUDGE_SECOND_AFTER_MS,
   dueNudge,
+  leadNudgesEnabled,
   nudgeText,
   runLeadFollowUps,
   type FollowUpDeps,
@@ -75,9 +76,9 @@ describe("which nudge is due", () => {
     expect(dueNudge({ stage: "no_match" }, 30 * HOUR)).toBeNull();
   });
   it("writes plain, short, STOP-aware copy that re-asks the pending question", () => {
-    expect(nudgeText("24", { stage: "qualifying", asked: "budget" })).toBe("Hi, this is PropLane. Still looking for a room? What is your monthly budget for rent?");
+    expect(nudgeText("24", { stage: "qualifying", asked: "budget" })).toBe("Still looking for a room? What is your monthly budget for rent?");
     expect(nudgeText("24", { stage: "offered", offers: [{ n: 1, propertyId: "p", roomId: "r", label: "x", rent: 1, availability: "" }, { n: 2, propertyId: "q", roomId: "r", label: "y", rent: 1, availability: "" }] })).toBe(
-      "Hi, this is PropLane. Still interested in one of those rooms? Reply 1 or 2, or TOUR.",
+      "Still interested in one of those rooms? Reply 1 or 2, or TOUR.",
     );
     expect(nudgeText("72", {})).toContain("Reply STOP to opt out.");
     for (const text of [nudgeText("24", {}), nudgeText("72", {})]) {
@@ -88,6 +89,12 @@ describe("which nudge is due", () => {
 });
 
 describe("the sweep", () => {
+  beforeEach(() => {
+    // The nudges are business-initiated and OFF by default; these tests are the explicit setting turned on.
+    vi.stubEnv("LEAD_FOLLOWUP_NUDGES_ENABLED", "1");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
   it("sends the 24h nudge once, records it, and never again", async () => {
     const fake = db([{ id: "lead-01", quietMs: 25 * HOUR }]);
     const { send, deps } = harness();
@@ -208,5 +215,16 @@ describe("the sweep", () => {
     const { send, deps } = harness();
     expect(await runLeadFollowUps(fake.db, deps)).toMatchObject({ newMatch: 0, nudged24: 0 });
     expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe("the nudges are off unless a setting turns them on", () => {
+  it("sends no 'still looking?' text by default, however quiet the lead", async () => {
+    vi.unstubAllEnvs();
+    const fake = db([{ id: "lead-off", quietMs: 100 * HOUR, profile: { stage: "qualifying", asked: "budget" } }]);
+    const { send, deps } = harness();
+    expect(await runLeadFollowUps(fake.db, deps)).toMatchObject({ nudged24: 0, nudged72: 0 });
+    expect(send).not.toHaveBeenCalled();
+    expect(leadNudgesEnabled()).toBe(false);
   });
 });

@@ -32,6 +32,8 @@ export type ResidentOutboundSmsResult = {
   error?: string;
   sid?: string;
   outboxStatus?: string;
+  /** The durable outbox row, so a caller can follow a message that is queued or deferred rather than sent. */
+  outboxId?: string;
 };
 
 export type ResidentOutboundThreadOpts = {
@@ -123,6 +125,19 @@ export async function sendResidentOutboundSms(args: {
   dedupeKey?: string;
   /** Immediate user/lifecycle traffic is transactional; scheduled nudges are automated. */
   sendClass?: SmsSendClass;
+  /**
+   * The line this text is pinned to, for a message ABOUT one workspace's house: the work number is the one of the
+   * workspace that holds `propertyId` and its owner's wallet pays, whoever is signed in. `openThread.managerUserId`
+   * must then be that OWNER. All optional; without them the sender's own default workspace line is used.
+   */
+  propertyId?: string | null;
+  workspaceId?: string | null;
+  /** The signed-in person who wrote it (a teammate), when it is not the owner. */
+  actorUserId?: string | null;
+  /** `manager_sms_numbers.id` of the line, so the dispatcher re-checks the same line at the provider boundary. */
+  selectedWorkLineId?: string | null;
+  /** The recipient's PropLane account, so consent reads that profile. */
+  recipientUserId?: string | null;
 }): Promise<ResidentOutboundSmsResult> {
   let text = args.text.trim();
   if (!text) return { sent: false, error: "empty_body" };
@@ -167,6 +182,11 @@ export async function sendResidentOutboundSms(args: {
     purpose: args.purpose ?? "legacy_automated_message",
     dedupeKey: args.dedupeKey,
     conversationKey: args.openThread?.conversationKey,
+    ...(args.propertyId?.trim() ? { propertyId: args.propertyId.trim() } : {}),
+    ...(args.workspaceId?.trim() ? { workspaceId: args.workspaceId.trim() } : {}),
+    ...(args.actorUserId?.trim() ? { actorUserId: args.actorUserId.trim() } : {}),
+    ...(args.selectedWorkLineId?.trim() ? { selectedWorkLineId: args.selectedWorkLineId.trim() } : {}),
+    ...(args.recipientUserId?.trim() ? { recipientUserId: args.recipientUserId.trim() } : {}),
     log: args.openThread?.managerUserId
       ? {
           managerUserId: args.openThread.managerUserId,
@@ -194,6 +214,7 @@ export async function sendResidentOutboundSms(args: {
     error: result.error,
     sid: result.sid,
     outboxStatus: result.outboxStatus,
+    ...(result.outboxId ? { outboxId: result.outboxId } : {}),
   };
 }
 

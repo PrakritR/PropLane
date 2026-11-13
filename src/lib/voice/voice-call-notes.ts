@@ -2,7 +2,7 @@
 
 export const VOICE_CALL_NOTE_SID_PREFIX = "voice:";
 
-export type VoiceCallNoteKind = "started" | "user" | "agent" | "ended";
+export type VoiceCallNoteKind = "started" | "user" | "agent" | "ended" | "links";
 
 export function isVoiceCallNoteSid(messageSid: string | null | undefined): boolean {
   return String(messageSid ?? "").startsWith(VOICE_CALL_NOTE_SID_PREFIX);

@@ -92,6 +92,8 @@ export async function deliverManagerEmailReply(args: {
   text: string;
   fromAddress: string;
   replyTo?: string | null;
+  /** Sent as Resend's `Idempotency-Key`: a retried send of the same key never emails twice. */
+  idempotencyKey?: string;
   /**
    * A reply to a booking-site guest message. `toEmail` must then be the site's RELAY address on the site's own domain, and
    * the inbound must have been authenticated (DKIM/SPF) as that site: anything else is refused here, so no caller can
@@ -121,6 +123,7 @@ export async function deliverManagerEmailReply(args: {
   const res = await postResendEmail({
     apiKey,
     actorUserId: args.managerUserId,
+    ...(args.idempotencyKey ? { idempotencyKey: args.idempotencyKey } : {}),
     effectSummary: "Manager assistant email reply captured for the test workspace.",
     payload: {
       from,

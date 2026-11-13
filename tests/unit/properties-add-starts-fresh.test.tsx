@@ -74,6 +74,34 @@ async function seedDraft(id: string, buildingName: string) {
 }
 
 describe("Properties '+' always starts a blank listing (PRP-495 / PRP-497)", () => {
+  it("waits for the subscription read before allowing the editor to open", async () => {
+    managerId = "mgr-add-deferred-plan";
+    window.history.replaceState(null, "", "/portal/properties/all");
+    let resolvePlan!: (response: Response) => void;
+    const plan = new Promise<Response>((resolve) => { resolvePlan = resolve; });
+    vi.stubGlobal("fetch", vi.fn((url: unknown) => String(url).includes("/api/manager/subscription")
+      ? plan
+      : Promise.resolve({ ok: true, status: 200, json: async () => ({ snapshot: null }) } as Response)));
+    render(<AppUiProvider><div className="portal-shell"><ManagerProperties stage="all" /></div></AppUiProvider>);
+    const add = screen.getByRole("button", { name: "Add property" });
+    expect(add).toBeDisabled();
+    expect(screen.queryByPlaceholderText("Magnolia House")).toBeNull();
+    resolvePlan({ ok: true, status: 200, json: async () => ({ effectiveTier: "starter", planUnknown: false }) } as Response);
+    await waitFor(() => expect(add).toBeEnabled());
+    await userEvent.click(add);
+    expect(await screen.findByPlaceholderText("Magnolia House")).toBeTruthy();
+  });
+
+  it("does not leave Add disabled when the subscription read fails", async () => {
+    managerId = "mgr-add-failed-plan";
+    window.history.replaceState(null, "", "/portal/properties/all");
+    vi.stubGlobal("fetch", vi.fn((url: unknown) => String(url).includes("/api/manager/subscription")
+      ? Promise.reject(new Error("offline"))
+      : Promise.resolve({ ok: true, status: 200, json: async () => ({ snapshot: null }) } as Response)));
+    render(<AppUiProvider><div className="portal-shell"><ManagerProperties stage="all" /></div></AppUiProvider>);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add property" })).toBeEnabled());
+  });
+
   it("opens blank on the first click and again on a second click, even with an existing draft", async () => {
     managerId = "mgr-add-starts-fresh-1";
     window.history.replaceState(null, "", "/portal/properties/all");

@@ -43,20 +43,14 @@ export function buildProspectApplyHref(
 }
 
 /**
- * `applicationFirst` = the property's workspace requires an application before a tour. A visitor
- * who is not a signed-in resident is sent to apply (the account gate sits in front of it); a
- * signed-in resident goes to the Tour flow, which checks their own applications on the server and
- * sends them to apply when they have none.
+ * A signed-in resident goes straight to the Tour flow; anyone else makes a resident account first,
+ * then lands on the tour scheduler for this home. There is no application-before-tour gate.
  */
 export function buildProspectTourHref(
   propertyId: string,
   auth: { ready: boolean; userId: string | null; hasResidentRole: boolean },
-  opts?: { applicationFirst?: boolean },
 ): string {
   const pid = propertyId.trim();
-  if (opts?.applicationFirst && pid && !(auth.ready && auth.userId && auth.hasResidentRole)) {
-    return buildProspectApplyHref({ propertyId: pid }, auth);
-  }
   if (auth.ready && auth.userId && auth.hasResidentRole) {
     return residentPortalTourSchedulePath(pid);
   }

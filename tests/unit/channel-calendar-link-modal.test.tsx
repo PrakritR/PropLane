@@ -17,6 +17,8 @@ vi.mock("@/lib/rental-application/data", async (importOriginal) => {
 });
 
 vi.mock("@/lib/channel-calendar/client", () => ({
+  fetchRemovedChannelStays: vi.fn(async () => []),
+  restoreRemovedChannelStay: vi.fn(async () => undefined),
   fetchChannelCalendarConnections: vi.fn(async () => []),
   fetchManagerChannelBookings: vi.fn(async () => []),
   fetchOccupancySnapshot: vi.fn(async () => ({ days: [] })),
@@ -31,7 +33,7 @@ vi.mock("@/lib/channel-calendar/client", () => ({
 }));
 
 import { ChannelCalendarLinkModal, channelCalendarLinkTitle } from "@/components/portal/channel-calendar-link-modal";
-import { fetchManagerChannelBookings, fetchRoomExportCalendarUrl, fetchWritableChannelCalendarPropertyIds, saveChannelCalendarConnectionsBatch, syncChannelCalendarConnection } from "@/lib/channel-calendar/client";
+import { fetchManagerChannelBookings, fetchRoomExportCalendarUrl, fetchWritableChannelCalendarPropertyIds, saveChannelCalendarConnectionsBatch, syncAllChannelCalendarConnections, syncChannelCalendarConnection } from "@/lib/channel-calendar/client";
 
 beforeEach(() => {
   data.entireHome = new Set();
@@ -246,6 +248,33 @@ describe("ChannelCalendarLinkModal (one page)", () => {
       await waitFor(() => expect(saveChannelCalendarConnectionsBatch).toHaveBeenCalledTimes(1));
       expect(vi.mocked(saveChannelCalendarConnectionsBatch).mock.calls[0]![0].map((i) => [i.roomId, i.importUrl])).toEqual([["room-2", airbnb(1)], ["room-3", airbnb(2)]]);
       await waitFor(() => expect(syncChannelCalendarConnection).toHaveBeenCalledTimes(2));
+    });
+
+    it("Sync all now reports a partial run instead of a failure when some houses did sync", async () => {
+      const toasts: string[] = [];
+      vi.mocked(syncAllChannelCalendarConnections).mockResolvedValueOnce({
+        synced: 8,
+        failed: 0,
+        skipped: 0,
+        unsynced: 50,
+        error: "Too many syncs. Try again in a minute.",
+      });
+      render(<ChannelCalendarLinkModal {...baseProps} showToast={(text: string) => void toasts.push(text)} />);
+      await ready();
+      fireEvent.click(screen.getByText("Sync all now"));
+      await waitFor(() => expect(toasts.length).toBe(1));
+      // The reason the run carries, in the same unit (calendars) as the count, never a generic line.
+      expect(toasts[0]).toBe("Synced 8 calendars · 50 houses not synced · Too many syncs. Try again in a minute.");
+    });
+
+    it("Sync all now reports a clean run plainly", async () => {
+      const toasts: string[] = [];
+      vi.mocked(syncAllChannelCalendarConnections).mockResolvedValueOnce({ synced: 3, failed: 0, skipped: 0, unsynced: 0 });
+      render(<ChannelCalendarLinkModal {...baseProps} showToast={(text: string) => void toasts.push(text)} />);
+      await ready();
+      fireEvent.click(screen.getByText("Sync all now"));
+      await waitFor(() => expect(toasts.length).toBe(1));
+      expect(toasts[0]).toBe("Synced 3 calendars.");
     });
 
     it("a link to a room the house no longer lists still shows as a row, export-only or not", async () => {

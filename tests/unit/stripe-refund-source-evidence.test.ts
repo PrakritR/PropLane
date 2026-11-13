@@ -5,6 +5,8 @@ const sync = vi.hoisted(() => vi.fn());
 const postGl = vi.hoisted(() => vi.fn());
 const providerRetrieve = vi.hoisted(() => vi.fn());
 const classified = vi.hoisted(() => vi.fn());
+const resumeAddOn = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/short-stay/stay-add-on-settlement.server", () => ({ applyPaidStayAddOn: resumeAddOn }));
 
 vi.mock("@/lib/platform-money-refund.server", () => ({
   settleReservedPlatformMoneyRefundFromWebhook: settle,
@@ -19,8 +21,8 @@ vi.mock("@/lib/test-workspaces/effects.server", () => ({
 import { handleStripeRefund } from "@/lib/stripe-webhook-financials";
 
 function fixture(allocation = false, mixed = false, reservationOwner = "manager",
-  tamper?: "owner" | "category" | "principal") {
-  const rpc = vi.fn(async () => ({ data: true, error: null }));
+  tamper?: "owner" | "category" | "principal", centralReturn = false, externalDeposit = false) {
+  const rpc = vi.fn(async (name: string) => ({ data: name === "reconcile_external_security_deposit_refund" ? { status: "reconciled" } : true, error: null }));
   const from = vi.fn((table: string) => {
     let sourceId: string | null = null;
     const query: Record<string, unknown> = {
@@ -39,14 +41,16 @@ function fixture(allocation = false, mixed = false, reservationOwner = "manager"
               : sourceId === "charge-deposit" ? 20 : mixed ? 80 : 100,
             property_id: null, resident_user_id: null }
           : null
+        : table === "security_deposit_ledger" && externalDeposit ? { id: "deposit" }
         : table === "platform_hold_refund_attempts"
           ? { hold_id: "hold", owner_user_id: reservationOwner, source_charge_id: "ch_exact",
+            attempt_key: "household-refund:hh-1",
             refund_components: mixed
               ? [{ source_id: "charge-1", principal_cents: 80 },
                 { source_id: "charge-deposit", principal_cents: 20 }]
               : [{ source_id: "charge-1", principal_cents: 100 }] }
           : table === "platform_payment_holds"
-            ? { owner_user_id: reservationOwner, stripe_charge_id: "ch_exact",
+            ? { id: "hold", owner_role: centralReturn ? "manager" : undefined, owner_user_id: reservationOwner, stripe_charge_id: "ch_exact",
               source_verified_at: "2026-10-04T00:00:00Z",
               source_components: mixed
                 ? [{ source_id: "charge-1", kind: "rent", principal_cents: 80 },
@@ -54,7 +58,7 @@ function fixture(allocation = false, mixed = false, reservationOwner = "manager"
                 : [{ source_id: "charge-1", kind: "rent", principal_cents: 100 }] }
             : null, error: null })),
     };
-    return { select: () => query };
+    return { select: () => query, upsert: async () => ({ error: null }) };
   });
   const refund = { id: "re_exact", charge: "ch_exact", payment_intent: "pi_exact",
     amount: 100, currency: "usd", status: "succeeded", created: 1_750_000_000,
@@ -69,6 +73,116 @@ describe("signed Stripe refund source evidence", () => {
     sync.mockResolvedValue("ledger-refund");
     classified.mockResolvedValue({ captured: false });
     providerRetrieve.mockImplementation(async () => fixture().refund);
+  });
+
+  it.each(["succeeded", "failed", "canceled"])("resumes the exact bound add-on on verified %s", async (status) => {
+    const f = fixture();
+    f.rpc.mockImplementation(async (name: string) => ({ data: name === "bind_household_charge_refund" ? { source_charge_id: "exact-add-on", basis: { kind: "stay_add_on_refund", reason: "slot_taken" } } : true, error: null }));
+    const refund = { ...f.refund, status, metadata: { household_refund_attempt: "hh-1" } };
+    providerRetrieve.mockResolvedValue(refund);
+    await handleStripeRefund(f.db as never, refund as never, "ch_exact");
+    expect(resumeAddOn).toHaveBeenCalledExactlyOnceWith(f.db, { chargeId: "exact-add-on", verifiedRefundReason: "slot_taken" });
+  });
+
+  /**
+   * A general charge refund's money is projected ONLY here, from the re-read refund, through
+   * `bind_household_charge_refund` — which re-checks the attempt's own immutable basis, so the
+   * metadata only NAMES the row, it never authorizes the binding. Two rails, two ways in: the
+   * destination and managed rails carry `household_refund_attempt` in the refund's own metadata;
+   * the central rail drops caller metadata, so the platform reservation's `attempt_key` is
+   * resolved back instead.
+   */
+  it("binds a destination-rail household refund from the refund's own metadata, on every status", async () => {
+    for (const status of ["pending", "succeeded"]) {
+      vi.clearAllMocks();
+      settle.mockResolvedValue("unmatched");
+      sync.mockResolvedValue("ledger-refund");
+      classified.mockResolvedValue({ captured: false });
+      const f = fixture();
+      const refund = { ...f.refund, status, metadata: { household_refund_attempt: "hh-1" } };
+      providerRetrieve.mockResolvedValue(refund);
+      await handleStripeRefund(f.db as never, refund as never, "ch_exact");
+      expect(f.rpc).toHaveBeenCalledWith("bind_household_charge_refund", {
+        p_attempt: "hh-1", p_refund: "re_exact", p_charge: "ch_exact",
+        p_amount: 100, p_currency: "usd", p_status: status, p_platform_attempt: null,
+      });
+    }
+  });
+
+  it("resolves a central-rail household refund through the platform reservation's own key", async () => {
+    const f = fixture(true);
+    providerRetrieve.mockResolvedValueOnce(f.refund);
+    settle.mockResolvedValueOnce("succeeded");
+    await handleStripeRefund(f.db as never, f.refund as never, "ch_exact");
+    expect(f.rpc).toHaveBeenCalledWith("bind_household_charge_refund", expect.objectContaining({
+      p_attempt: "hh-1", p_platform_attempt: "attempt-1", p_refund: "re_exact", p_amount: 100,
+    }));
+  });
+
+  it("binds nothing when no reservation names this refund", async () => {
+    const f = fixture();
+    const refund = { ...f.refund, metadata: { proplane_charge_id: "charge-1" } };
+    providerRetrieve.mockResolvedValueOnce(refund);
+    await handleStripeRefund(f.db as never, refund as never, "ch_exact");
+    expect(f.rpc).not.toHaveBeenCalledWith("bind_household_charge_refund", expect.anything());
+  });
+
+  it("refuses the whole event when a household binding cannot be recorded", async () => {
+    const f = fixture();
+    const refund = { ...f.refund, metadata: { household_refund_attempt: "hh-1" } };
+    providerRetrieve.mockResolvedValueOnce(refund);
+    f.rpc.mockImplementation(async (name: string) => name === "bind_household_charge_refund"
+      ? { data: null, error: { message: "terminal status changed" } }
+      : { data: true, error: null });
+    await expect(handleStripeRefund(f.db as never, refund as never, "ch_exact"))
+      .rejects.toThrow("Household charge refund binding requires reconciliation.");
+    expect(sync).not.toHaveBeenCalled();
+  });
+
+  it("binds a deposit attempt but does not settle while the provider is pending", async () => {
+    const f = fixture();
+    const refund = { ...f.refund, status: "pending", metadata: { ...f.refund.metadata, deposit_return_attempt: "deposit-1" } };
+    providerRetrieve.mockResolvedValueOnce(refund);
+    await handleStripeRefund(f.db as never, refund as never, "ch_exact");
+    expect(f.rpc).toHaveBeenCalledWith("bind_security_deposit_refund", expect.objectContaining({ p_attempt: "deposit-1", p_status: "pending" }));
+    expect(f.rpc).not.toHaveBeenCalledWith("settle_security_deposit_return", expect.anything());
+  });
+
+  it("settles a deposit after the canonical journal is posted", async () => {
+    const f = fixture();
+    const refund = { ...f.refund, metadata: { ...f.refund.metadata, deposit_return_attempt: "deposit-1" } };
+    providerRetrieve.mockResolvedValueOnce(refund);
+    await handleStripeRefund(f.db as never, refund as never, "ch_exact");
+    expect(f.rpc).toHaveBeenCalledWith("settle_security_deposit_return", { p_attempt: "deposit-1" });
+    expect(postGl.mock.invocationCallOrder[0]).toBeLessThan(f.rpc.mock.invocationCallOrder.at(-1)!);
+  });
+
+  it("settles a deposit after the central rail posts its canonical journal", async () => {
+    const f = fixture(true, false, "manager", undefined, true);
+    const refund = { ...f.refund, metadata: { ...f.refund.metadata, deposit_return_attempt: "deposit-1" } };
+    providerRetrieve.mockResolvedValueOnce(refund);
+    settle.mockResolvedValueOnce("succeeded");
+    await handleStripeRefund(f.db as never, refund as never, "ch_exact");
+    expect(f.rpc).toHaveBeenCalledWith("settle_security_deposit_return", { p_attempt: "deposit-1" });
+    expect(sync).not.toHaveBeenCalled();
+  });
+
+  it("queues and retries a successful external deposit refund after its journal", async () => {
+    const f = fixture(false, false, "manager", undefined, false, true);
+    const refund = { ...f.refund, metadata: { proplane_charge_id: "charge-1" } };
+    providerRetrieve.mockResolvedValueOnce(refund);
+    await handleStripeRefund(f.db as never, refund as never, "ch_exact");
+    expect(f.from).toHaveBeenCalledWith("security_deposit_unmatched_refunds");
+    expect(f.rpc).toHaveBeenCalledWith("reconcile_external_security_deposit_refund", { p_refund: "re_exact", p_source: "charge-1" });
+    expect(postGl.mock.invocationCallOrder[0]).toBeLessThan(f.rpc.mock.invocationCallOrder.at(-1)!);
+  });
+
+  it("fails the webhook when an external deposit still requires review", async () => {
+    const f = fixture(false, false, "manager", undefined, false, true);
+    f.rpc.mockImplementation(async (name: string) => ({ data: name === "reconcile_external_security_deposit_refund" ? { status: "review" } : true, error: null }));
+    const refund = { ...f.refund, metadata: { proplane_charge_id: "charge-1" } };
+    providerRetrieve.mockResolvedValueOnce(refund);
+    await expect(handleStripeRefund(f.db as never, refund as never, "ch_exact")).rejects.toThrow(/requires reconciliation/);
   });
 
   it("records pending evidence but does not debit a hold or book a paid refund", async () => {

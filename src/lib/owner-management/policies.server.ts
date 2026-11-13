@@ -18,6 +18,7 @@ import {
   ownerShareBpsForFeePercent,
 } from "@/lib/owner-management/fee-percent";
 import { flagManagedFeeProblem, type FeeFlagCause } from "@/lib/owner-management/fee-flags.server";
+import { resolveManagedPayee } from "@/lib/managed-finance/payee.server";
 
 /**
  * Fee policies of PropLane-managed workspaces. Only a platform admin creates, attests or ends one (the fee is PropLane's
@@ -206,7 +207,7 @@ async function loadWorkspaceOwnerId(db: SupabaseClient, workspaceId: string): Pr
   return str((data as Row).owner_user_id) || null;
 }
 
-/** Is this person an accepted member of the workspace? The owner of record must be (the invite section). */
+/** Is this person an accepted member of the workspace? (Any role; the owner of record must be a Property owner: `isWorkspacePropertyOwner`.) */
 export async function isWorkspaceMember(db: SupabaseClient, workspaceId: string, userId: string): Promise<boolean> {
   const { data, error } = await db
     .from("account_link_invites")
@@ -214,6 +215,23 @@ export async function isWorkspaceMember(db: SupabaseClient, workspaceId: string,
     .eq("workspace_id", workspaceId)
     .eq("invitee_user_id", userId)
     .eq("status", "accepted")
+    .limit(1);
+  if (error) throw new PolicyError(500, "Could not check the workspace team.");
+  return (data ?? []).length > 0;
+}
+
+/**
+ * Is this person an accepted PROPERTY OWNER seat of the workspace? That is what the owner of record of a managed workspace is:
+ * the client is seated under the admin who owns the workspace, never a teammate and never PropLane's own staff seat.
+ */
+export async function isWorkspacePropertyOwner(db: SupabaseClient, workspaceId: string, userId: string): Promise<boolean> {
+  const { data, error } = await db
+    .from("account_link_invites")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .eq("invitee_user_id", userId)
+    .eq("status", "accepted")
+    .eq("team_role", "property_owner")
     .limit(1);
   if (error) throw new PolicyError(500, "Could not check the workspace team.");
   return (data ?? []).length > 0;
@@ -233,19 +251,19 @@ async function loadPlatformServiceOwnerId(db: SupabaseClient): Promise<string | 
 }
 
 /**
- * May this person be the owner of record of the workspace? The workspace's own owner is the owner of record of a CLIENT-owned
- * (attached) workspace, never of one the platform service owner owns (that would pay PropLane its own owner share). Anyone else
- * must be an accepted member of the workspace team.
+ * May this person be the owner of record of the workspace? Every managed workspace is OWNED by the service owner (the admin):
+ * its owner of record is the client, seated as an accepted Property owner, and never PropLane's own account (that would pay
+ * PropLane its own owner share). The one transitional arm: a client who still owns a workspace attached BEFORE the ownership
+ * mover ran (`move_managed_workspace_to_service_owner`) stays its owner of record until that workspace is moved; it is dead
+ * once every managed workspace is admin-owned, and a new attach moves ownership first.
  */
 export async function assertOwnerOfRecordAllowed(db: SupabaseClient, workspaceId: string, ownerUserId: string, workspaceOwner: string | null): Promise<void> {
-  if (workspaceOwner && ownerUserId === workspaceOwner) {
-    const serviceOwner = await loadPlatformServiceOwnerId(db);
-    if (serviceOwner && serviceOwner === workspaceOwner) {
-      throw new PolicyError(422, "The property owner must be a person added to the workspace, not its PropLane manager.");
-    }
-    return;
+  const serviceOwner = await loadPlatformServiceOwnerId(db);
+  if (serviceOwner && ownerUserId === serviceOwner) {
+    throw new PolicyError(422, "The property owner must be a person added to the workspace, not its PropLane manager.");
   }
-  if (!(await isWorkspaceMember(db, workspaceId, ownerUserId))) throw new PolicyError(422, "Add the owner to the workspace team first.");
+  if (workspaceOwner && ownerUserId === workspaceOwner) return; // transitional: a client-owned attached workspace not yet moved
+  if (!(await isWorkspacePropertyOwner(db, workspaceId, ownerUserId))) throw new PolicyError(422, "Add the owner to the workspace team first.");
 }
 
 /** A policy starts on or before today: it is activated the moment it is accepted, and never dated ahead. */
@@ -381,7 +399,7 @@ async function activate(
   return fresh;
 }
 
-/** The policy's owner of record is still seated: the workspace's own (client) owner, or an accepted team member. */
+/** The policy's owner of record is still seated: an accepted Property owner of the workspace (or, transitionally, its client owner). */
 async function assertCurrentOwnerSeated(db: SupabaseClient, policy: PolicyRow): Promise<void> {
   try {
     await assertOwnerOfRecordAllowed(db, policy.workspaceId, policy.ownerUserId, await loadWorkspaceOwnerId(db, policy.workspaceId));
@@ -529,23 +547,26 @@ async function feeUnavailable(
 }
 
 /**
- * The owner of record of a service workspace: its client owner when attached, else the team member flagged as one.
- * Fail closed - with no `platform_service_settings` row there is no way to tell a client's workspace from PropLane's
- * own, and naming PropLane would pay PropLane its own owner share, so the answer is "none".
+ * The owner of record of a service workspace: `resolveManagedPayee` (the accepted Property owner seat flagged owner of record,
+ * else the one seat, else the signed policy's owner). Fail closed - with no `platform_service_settings` row there is no way to
+ * tell a client's workspace from PropLane's own, and naming PropLane would pay PropLane its own owner share, so the answer is
+ * "none". The last arm is transitional: a client-owned workspace attached before the ownership mover ran.
  */
 async function resolveOwnerOfRecord(db: SupabaseClient, workspaceId: string, workspaceOwner: string): Promise<string | null> {
   const serviceOwner = await loadPlatformServiceOwnerId(db);
   if (!serviceOwner) return null;
+  // Transitional arm: a client-owned workspace attached before the ownership mover ran keeps its client as owner of record.
   if (serviceOwner !== workspaceOwner) return workspaceOwner;
-  const { data, error } = await db
-    .from("account_link_invites")
-    .select("invitee_user_id")
-    .eq("workspace_id", workspaceId)
-    .eq("is_owner_of_record", true)
-    .eq("status", "accepted")
-    .limit(1);
-  if (error) throw new PolicyError(500, OWNER_UNREADABLE);
-  return str(((data ?? []) as Row[])[0]?.invitee_user_id) || null;
+  // Money path: any failed read of the seats is "unreadable", never "no owner" (`resolveManagedPayee` reads a missing table as none).
+  const probe = await db.from("account_link_invites").select("id").eq("workspace_id", workspaceId).eq("status", "accepted").eq("team_role", "property_owner").limit(1);
+  if (probe.error) throw new PolicyError(500, OWNER_UNREADABLE);
+  let payee: string | null;
+  try {
+    payee = await resolveManagedPayee(db, workspaceId);
+  } catch {
+    throw new PolicyError(500, OWNER_UNREADABLE);
+  }
+  return payee && payee !== serviceOwner ? payee : null;
 }
 
 /** The workspace's open draft: a fee version an admin set up in Admin > Managed finance and has not recorded yet. */

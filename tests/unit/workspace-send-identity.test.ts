@@ -110,6 +110,8 @@ describe("direct shared-sender (RESEND_FROM) references are classified", () => {
     "src/app/api/internal/auth-email-sender-health/route.ts",
     "src/lib/auth/account-recovery.server.ts",
     "src/lib/test-workspaces/deliver-auth-invite.server.ts",
+    // Mailbox proof for a phone-first account (personal link): platform auth mail, no workspace sender.
+    "src/lib/personal-link/email-proof.server.ts",
     // Alerts and receipts TO the manager / the user themself.
     "src/app/api/manager/app-download-email/route.ts",
     "src/lib/cosigner-notification.server.ts",

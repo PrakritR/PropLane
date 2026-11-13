@@ -7,7 +7,7 @@ import {
   ADMIN_TEAM_ROLE_OPTIONS,
   LAST_OVERALL_ADMIN_ERROR,
   NO_WORKSPACE_CHOSEN,
-  ONLY_OVERALL_GRANTS_OVERALL,
+  ONLY_PRIMARY_GRANTS_OVERALL,
   OVERALL_ADMIN_ROLE,
   WORKSPACE_NOT_YOURS,
   adminTeamAccessFields,
@@ -25,7 +25,8 @@ import { ADMIN_NAV_ROW_ORDER, adminNavRowsForViewer } from "@/lib/portals/nav-gr
 import { PROPLANE_SCOPE_VALUE, settingsScopeOptions, settingsScopeTarget, settingsScopeValue, type SettingsScope } from "@/lib/admin-team/settings-scope";
 import { TEAM_ROLE_INVITE_OPTIONS } from "@/lib/co-manager-team-roles";
 
-const overall: AdminTeamActor = { overall: true, manageableWorkspaceIds: new Set(["ws-a", "ws-b"]) };
+const primary: AdminTeamActor = { overall: true, primary: true, manageableWorkspaceIds: new Set(["ws-a", "ws-b"]) };
+const overall: AdminTeamActor = { overall: true, primary: false, manageableWorkspaceIds: new Set(["ws-a", "ws-b"]) };
 const workspaceAdmin: AdminTeamActor = { overall: false, manageableWorkspaceIds: new Set(["ws-a"]) };
 const nobody: AdminTeamActor = { overall: false, manageableWorkspaceIds: new Set() };
 
@@ -53,14 +54,20 @@ describe("roles", () => {
   });
 });
 
-describe("who may grant what (decision 1)", () => {
-  it("only an Overall admin can grant Overall admin", () => {
-    expect(adminTeamGrantVerdict(overall, { role: "overall_admin", workspaceIds: [] })).toEqual({ ok: true });
-    expect(adminTeamGrantVerdict(workspaceAdmin, { role: "overall_admin", workspaceIds: [] })).toEqual({
-      ok: false,
-      status: 403,
-      error: ONLY_OVERALL_GRANTS_OVERALL,
-    });
+describe("who may grant what (decision 1, tightened Nov 12)", () => {
+  it("only the PRIMARY admin can grant Overall admin: an Overall admin who is not primary, a workspace admin and nobody are refused", () => {
+    expect(adminTeamGrantVerdict(primary, { role: "overall_admin", workspaceIds: [] })).toEqual({ ok: true });
+    const refused = { ok: false, status: 403, error: ONLY_PRIMARY_GRANTS_OVERALL };
+    expect(adminTeamGrantVerdict(overall, { role: "overall_admin", workspaceIds: [] })).toEqual(refused);
+    expect(adminTeamGrantVerdict({ overall: true, manageableWorkspaceIds: new Set() }, { role: "overall_admin", workspaceIds: [] })).toEqual(refused);
+    // `primary` without the Overall role is never enough either.
+    expect(adminTeamGrantVerdict({ overall: false, primary: true, manageableWorkspaceIds: new Set() }, { role: "overall_admin", workspaceIds: [] })).toEqual(refused);
+    expect(adminTeamGrantVerdict(workspaceAdmin, { role: "overall_admin", workspaceIds: [] })).toEqual(refused);
+    expect(adminTeamGrantVerdict(nobody, { role: "overall_admin", workspaceIds: [] })).toEqual(refused);
+  });
+
+  it("any Overall admin still seats a workspace role in any service workspace", () => {
+    expect(adminTeamGrantVerdict(overall, { role: "property_manager", workspaceIds: ["ws-a", "ws-b"] })).toEqual({ ok: true });
   });
 
   it("a workspace admin grants only inside the workspaces they manage", () => {

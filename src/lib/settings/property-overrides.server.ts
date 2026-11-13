@@ -108,7 +108,22 @@ export type OperationsNamespace =
    * per-property picker on this settings page, so there is no
    * property-override rung for it.
    */
-  | "leaseClauseTemplate";
+  | "leaseClauseTemplate"
+  /**
+   * The workspace's "Landlord on leases" name (`ManagerLandlordProfile`,
+   * `manager-landlord-profile.ts`). Workspace-rung only: the name is chosen
+   * once per workspace and printed on every lease generated in it, so an
+   * owner who runs two workspaces names each one separately. The account row
+   * (`manager_automation_settings.row_data.landlordProfile`) is the fallback
+   * every workspace without its own row still resolves to.
+   */
+  | "landlordProfile"
+  /**
+   * Which applicant checks this listing offers (`ApplicantScreeningSettings`, `screening/applicant-screening.ts`):
+   * the ID check and the applicant-paid background check, separately. Property override, then workspace row, then
+   * the built-in default (OFF for every workspace).
+   */
+  | "applicantScreening";
 
 /** A `propertyId` that is not in this manager's workspace. Routes map it to 403. */
 export class ForeignPropertyError extends Error {
@@ -130,41 +145,39 @@ function asObject(value: unknown): Record<string, unknown> {
  * {@link ForeignPropertyError} when the id is not one of that manager's
  * houses.
  */
-async function ownedRowData(
+async function updateOwnedRowData(
   db: SupabaseClient,
   managerUserId: string,
   propertyId: string,
-): Promise<Record<string, unknown>> {
+  transform: (rowData: Record<string, unknown>) => Record<string, unknown> | null,
+): Promise<void> {
   const id = propertyId.trim();
   if (!id) throw new ForeignPropertyError();
-  const { data, error } = await db
-    .from("manager_property_records")
-    .select("id, row_data")
-    .eq("manager_user_id", managerUserId)
-    .eq("id", id)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) throw new ForeignPropertyError();
-  return asObject(data.row_data);
-}
-
-async function writeRowData(
-  db: SupabaseClient,
-  managerUserId: string,
-  propertyId: string,
-  nextRowData: Record<string, unknown>,
-): Promise<void> {
-  const { error } = await db
-    .from("manager_property_records")
-    .update({ row_data: nextRowData, updated_at: new Date().toISOString() })
-    .eq("manager_user_id", managerUserId)
-    .eq("id", propertyId.trim());
-  if (error) throw error;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const { data, error } = await db.from("manager_property_records")
+      .select("id, row_data, updated_at").eq("manager_user_id", managerUserId).eq("id", id).maybeSingle();
+    if (error) throw error;
+    if (!data) throw new ForeignPropertyError();
+    const revision = data.updated_at;
+    const priorTime = typeof revision === "string" ? Date.parse(revision) : NaN;
+    if (!Number.isFinite(priorTime)) throw new Error("Property revision is unavailable. Please retry.");
+    const next = transform(asObject(data.row_data));
+    if (!next) return;
+    const updatedAt = new Date(Math.max(Date.now(), priorTime + 1)).toISOString();
+    const result = await db.from("manager_property_records")
+      .update({ row_data: next, updated_at: updatedAt })
+      .eq("manager_user_id", managerUserId).eq("id", id).eq("updated_at", revision).select("id");
+    if (result.error) throw result.error;
+    if (!Array.isArray(result.data)) throw new Error("Property update could not be confirmed. Please retry.");
+    if (result.data.length === 1) return;
+    if (result.data.length !== 0) throw new Error("Property update could not be confirmed. Please retry.");
+  }
+  throw new Error("Property settings changed. Please retry.");
 }
 
 /**
  * Read only the one namespace's stored value out of `row_data`, proving
- * ownership the same way as {@link ownedRowData} — a narrower `select` than a
+ * ownership the same way as {@link updateOwnedRowData} — a narrower `select` than a
  * full `row_data` read (WS7 egress), since a read-only resolution never needs
  * every other namespace or the listing payload riding alongside it.
  */
@@ -227,13 +240,13 @@ export async function savePropertyOverride(
   namespace: OperationsNamespace,
   value: unknown,
 ): Promise<void> {
-  const rowData = await ownedRowData(db, managerUserId, propertyId);
-  const ops = { ...asObject(rowData[OPERATIONS_SETTINGS_KEY]) };
-  const stored = asObject(ops[namespace]);
-  const existing = namespace === "reminderRules" ? liftLegacyReminderRulesOverride(stored) : stored;
-  const incoming = asObject(value);
-  ops[namespace] = { ...existing, ...incoming };
-  await writeRowData(db, managerUserId, propertyId, { ...rowData, [OPERATIONS_SETTINGS_KEY]: ops });
+  await updateOwnedRowData(db, managerUserId, propertyId, (rowData) => {
+    const ops = { ...asObject(rowData[OPERATIONS_SETTINGS_KEY]) };
+    const stored = asObject(ops[namespace]);
+    const existing = namespace === "reminderRules" ? liftLegacyReminderRulesOverride(stored) : stored;
+    ops[namespace] = { ...existing, ...asObject(value) };
+    return { ...rowData, [OPERATIONS_SETTINGS_KEY]: ops };
+  });
 }
 
 /**
@@ -253,33 +266,27 @@ export async function clearPropertyOverride(
   namespace: OperationsNamespace,
   kind?: string,
 ): Promise<void> {
-  const rowData = await ownedRowData(db, managerUserId, propertyId);
-  const ops = { ...asObject(rowData[OPERATIONS_SETTINGS_KEY]) };
-  if (!(namespace in ops)) return;
-
-  if (kind == null) {
-    delete ops[namespace];
-    await writeRowData(db, managerUserId, propertyId, { ...rowData, [OPERATIONS_SETTINGS_KEY]: ops });
-    return;
-  }
-
-  const existing = asObject(ops[namespace]);
-  const next = { ...existing };
-  let changed = false;
-  if (kind in next) {
-    delete next[kind];
-    changed = true;
-  }
-  const nestedRules = asObject(next.rules);
-  if (kind in nestedRules) {
-    const nextRules = { ...nestedRules };
-    delete nextRules[kind];
-    next.rules = nextRules;
-    changed = true;
-  }
-  if (!changed) return;
-  ops[namespace] = next;
-  await writeRowData(db, managerUserId, propertyId, { ...rowData, [OPERATIONS_SETTINGS_KEY]: ops });
+  await updateOwnedRowData(db, managerUserId, propertyId, (rowData) => {
+    const ops = { ...asObject(rowData[OPERATIONS_SETTINGS_KEY]) };
+    if (!(namespace in ops)) return null;
+    if (kind == null) {
+      delete ops[namespace];
+      return { ...rowData, [OPERATIONS_SETTINGS_KEY]: ops };
+    }
+    const next = { ...asObject(ops[namespace]) };
+    let changed = false;
+    if (kind in next) { delete next[kind]; changed = true; }
+    const nestedRules = asObject(next.rules);
+    if (kind in nestedRules) {
+      const nextRules = { ...nestedRules };
+      delete nextRules[kind];
+      next.rules = nextRules;
+      changed = true;
+    }
+    if (!changed) return null;
+    ops[namespace] = next;
+    return { ...rowData, [OPERATIONS_SETTINGS_KEY]: ops };
+  });
 }
 
 /** Ids of every house in this manager's workspace that has its own override. */

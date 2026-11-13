@@ -36,6 +36,7 @@ import { isStayTimeReminderKind, renderStayTimeReminder } from "@/lib/reminders/
 import { renderMoveInArrival } from "@/lib/reminders/subjects/move-in-arrival.server";
 import type { VendorNotificationTopic } from "@/lib/vendor-notification-settings";
 import { recordRefFromReminderRow } from "@/lib/reminders/reminder-record-ref";
+import { reminderNoticeIdempotencyKey } from "@/lib/reminders/notice-idempotency";
 
 /** Which vendor Settings row gates each vendor-audience kind. */
 const VENDOR_TOPIC_BY_KIND: Partial<Record<ReminderSubjectKind, VendorNotificationTopic>> = {
@@ -183,6 +184,7 @@ export async function dispatchReminderRow(
     return "failed";
   }
   if (!(await reminderIsCurrent(db, row))) {
+    console.info("[reminders] dropped stale reminder", { id: row.id, kind: row.kind, subjectId: row.subjectId, leadMinutes: row.leadMinutes });
     await resolveReminder(db, row.id, workerId, "failed", "subject changed or is no longer active");
     return "failed";
   }
@@ -302,7 +304,7 @@ export async function dispatchReminderRow(
         threadType: "agent_reminder",
         url: typeof row.payload.url === "string" ? row.payload.url : undefined,
         category,
-        idempotencyKey: row.id,
+        idempotencyKey: reminderNoticeIdempotencyKey(row, reminderRecipientId),
         rollKey: bookingNoticeRollKey(row.payload.bookingKey),
       });
       await resolveReminder(db, row.id, workerId, "sent");
@@ -361,6 +363,9 @@ export async function dispatchReminderRow(
         deliverToPortalInbox: channels.inbox,
         deliverViaEmail: channels.email,
         deliverViaSms: channels.sms && moveInRendered?.smsAllowed !== false,
+        // The rule's own email switch narrows what the person's preferences allow (the text side is left to
+        // their preferences, Reach by and STOP, as before).
+        eventChannels: { email: channels.email },
         eventCategory: CATEGORY_BY_KIND[row.kind],
         automated: true,
         senderRole: "manager",

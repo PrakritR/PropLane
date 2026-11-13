@@ -369,12 +369,15 @@ export function ManagerAssistantEmailChannelRow({
       <>
         {shared.map((entry) => {
           const address = entry.address?.trim() || "";
+          // Ready is the real status, not the mere presence of an address: storage up and the deployment able to
+          // both send and receive at it (the address is already withheld by the server when it cannot).
+          const ready = Boolean(address) && status.storageReady && status.sendingAvailable && status.receivingAvailable;
           return (
-            <WorkIdentityRow key={entry.workspaceId} label="Work email" value={address ? `${address} · Ready` : "Not set up"}><ChannelRow
+            <WorkIdentityRow key={entry.workspaceId} label="Work email" value={ready ? `${address} · Ready` : "Not set up"}><ChannelRow
               icon={Mail}
               channel={<>{address || "Work email"}</>}
               workspace={entry.workspaceName}
-              status={address ? "Ready" : "Waiting on setup"}
+              status={ready ? "Ready" : address ? "Not set up" : "Waiting on setup"}
               menu={
                 address ? (
                   <ChannelRowMenu

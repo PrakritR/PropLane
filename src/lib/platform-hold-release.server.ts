@@ -1,5 +1,7 @@
 import "server-only";
 
+import { holdIsServiceWorkspaceMoney } from "@/lib/managed-finance/funding-model.server";
+
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
@@ -178,6 +180,13 @@ export async function releaseVerifiedPlatformHoldsForOwner(
         for (const ws of frozenService) await flagUnsignedFeeAgreement(db, ws, "hold_frozen");
       }
       if (frozenService.length > 0) { pending += 1; continue; }
+    }
+    // An is_service workspace's money is never paid to a manager's own Connect account, whatever else put it in a hold. A new
+    // release is frozen (stays held, visible); an unreadable flag freezes it too. Fail closed.
+    if (!previous && hold.owner_role === "manager") {
+      let serviceMoney = true;
+      try { serviceMoney = await holdIsServiceWorkspaceMoney(db, hold); } catch { serviceMoney = true; }
+      if (serviceMoney) { pending += 1; continue; }
     }
     await verifyPlatformHoldSourceRefundHistory(db, stripe, hold);
     let destination: string | null;

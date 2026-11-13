@@ -172,7 +172,7 @@ describe("role registries never cross", () => {
     // public property research, tour availability, redundant-reply suppression,
     // manager escalation, tour requests, dates-only room availability, and
     // the approved-answers knowledge lookup (audience "all" only).
-    expect(leasingSmsAgentRegistry.size).toBeLessThanOrEqual(12);
+    expect(leasingSmsAgentRegistry.size).toBeLessThanOrEqual(13); // +start_prospect_signup (Nov 10)
   });
 
   it("the one-job vendor SMS agent shares nothing at all", () => {

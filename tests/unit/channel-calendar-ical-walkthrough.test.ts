@@ -71,8 +71,9 @@ describe("an Other calendar feed, end to end", () => {
     // `end` is the LAST NIGHT: iCalendar DTEND is exclusive, and the calendar paints nights.
     expect(imported[0]).toMatchObject({ start: "2026-10-20", end: "2026-10-22", phoneLast4: "8842" });
     expect(imported[1]).toMatchObject({ start: "2026-11-01", end: "2026-11-02", hostBlock: true });
-    // The guest's description is not stored - only the code and the last four digits survive.
-    expect(JSON.stringify(imported)).not.toContain("Reservation URL");
+    // The description is kept (trimmed to 500) on a reservation for the manager-side record page, never on a host block.
+    expect(imported[0]!.description).toContain("Reservation URL");
+    expect(imported[1]).not.toHaveProperty("description");
   });
 
   it("the manager's Bookings calendar names the site, for both links on the same room", () => {
@@ -93,7 +94,7 @@ describe("an Other calendar feed, end to end", () => {
     show("status line, no name typed", channelStatusLine({ hasImportUrl: true, lastSyncedAt: null }, new Date("2026-10-14T20:00:00Z"), "ical", ""));
 
     expect(entries).toHaveLength(3);
-    expect(entries.map((entry) => bookingEntryGuestLabel(entry))).toEqual(["Booked (Houfy)", "Houfy block", "Booked (Furnished Finder)"]);
+    expect(entries.map((entry) => bookingEntryGuestLabel(entry))).toEqual(["Houfy guest", "Closed on Houfy", "Furnished Finder guest"]);
     expect(entries.map((entry) => entry.channelLabel)).toEqual(["Houfy", "Houfy", "Furnished Finder"]);
   });
 

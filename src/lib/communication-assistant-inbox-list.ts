@@ -182,8 +182,9 @@ export function pinPropLaneAssistantUnifiedItems(
 }
 
 /**
- * The workspace's group conversations sit right under the Assistant: the Team chat, then every house chat.
- * A stable partition, so each group keeps the order it already had (most recent first).
+ * Pin ONLY the Assistant and the workspace Team chat at the top (Assistant, then Team). Every other conversation,
+ * house chats included, keeps the order it arrived in: strictly last activity, newest first (`sortMs`, a real
+ * timestamp, never the "Nov 4" label). A stable partition.
  */
 export function groupWorkspaceChatsAfterAssistant(
   items: UnifiedInboxListItem[],
@@ -192,17 +193,15 @@ export function groupWorkspaceChatsAfterAssistant(
   const assistantId = assistantThreadId?.trim() ?? "";
   const assistant: UnifiedInboxListItem[] = [];
   const team: UnifiedInboxListItem[] = [];
-  const houses: UnifiedInboxListItem[] = [];
   const rest: UnifiedInboxListItem[] = [];
   for (const item of items) {
     const id = item.threadId ?? "";
     if (assistantId && id === assistantId) assistant.push(item);
     else if (id.startsWith("team-thread:")) team.push(item);
-    else if (id.startsWith("house-thread:")) houses.push(item);
     else rest.push(item);
   }
-  if (team.length === 0 && houses.length === 0) return items;
-  return [...assistant, ...team, ...houses, ...rest];
+  if (team.length === 0) return items;
+  return [...assistant, ...team, ...rest];
 }
 
 /** Put the live assistant row first even when the section filter dropped it (Unread / Archived). */

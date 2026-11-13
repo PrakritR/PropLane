@@ -36,12 +36,15 @@ const ALL_MODULES_MANAGE: CoManagerPermissions = stampTeamRolePermissions("admin
 
 export function AdminTeamSheet({
   workspaces,
+  canMakeOverall,
   member,
   onClose,
   onChanged,
 }: {
   /** The service workspaces the viewer manages (with their houses). */
   workspaces: AdminTeamWorkspace[];
+  /** Only the primary admin makes another Overall admin; for anyone else the role is not offered (the server refuses it too). */
+  canMakeOverall: boolean;
   /** Present: Change role for this person. Absent: a new invite. */
   member: AdminTeamMemberRow | null;
   onClose: () => void;
@@ -50,6 +53,7 @@ export function AdminTeamSheet({
   const { showToast } = useAppUi();
   const editing = member !== null && member.userId !== null;
   const [email, setEmail] = useState(member?.email ?? "");
+  const [phone, setPhone] = useState("");
   const [role, setRole] = useState<AdminTeamRole>(member?.role ?? "viewer");
   const [workspaceIds, setWorkspaceIds] = useState<string[]>(() => member?.seats.map((s) => s.workspaceId) ?? workspaces.slice(0, 1).map((w) => w.id));
   const firstSeat = member?.seats[0];
@@ -61,6 +65,8 @@ export function AdminTeamSheet({
   const [busy, setBusy] = useState(false);
 
   const isOverall = role === OVERALL_ADMIN_ROLE;
+  // An existing Overall admin keeps their row's role label in the list; a new grant of it is the primary admin's alone.
+  const roleOptions = useMemo(() => ADMIN_TEAM_ROLE_OPTIONS.filter((option) => canMakeOverall || option.value !== OVERALL_ADMIN_ROLE || role === OVERALL_ADMIN_ROLE), [canMakeOverall, role]);
   const single = workspaceIds.length === 1 ? workspaces.find((w) => w.id === workspaceIds[0]) : undefined;
   const effectiveScope: HouseScope = single ? houseScope : "all";
   const effective = isOverall ? ALL_MODULES_MANAGE : role === "custom" ? customPermissions : (stampTeamRolePermissions(role as TeamRoleId) ?? EMPTY_CO_MANAGER_PERMISSIONS);
@@ -88,7 +94,7 @@ export function AdminTeamSheet({
     try {
       const body = editing
         ? adminTeamChangeRequest({ userId: member!.userId!, choice })
-        : adminTeamInviteRequest({ email, choice });
+        : adminTeamInviteRequest({ email, phone, choice });
       const res = await fetchWithTimeout(
         editing ? "/api/admin/team/change" : "/api/admin/team/invite",
         { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
@@ -153,9 +159,21 @@ export function AdminTeamSheet({
           autoComplete="off"
           data-attr="admin-team-email"
         />
+        {editing ? null : (
+          <Input
+            aria-label="Mobile"
+            placeholder="Mobile (optional)"
+            type="tel"
+            value={phone}
+            onChange={(event) => setPhone(event.target.value)}
+            maxLength={32}
+            autoComplete="off"
+            data-attr="admin-team-phone"
+          />
+        )}
         <FieldSingleSelect
           label="Role"
-          options={ADMIN_TEAM_ROLE_OPTIONS}
+          options={roleOptions}
           value={role === "full" ? "admin" : role}
           onChange={(next) => changeRole(next as AdminTeamRole)}
           dataAttr="admin-team-role"

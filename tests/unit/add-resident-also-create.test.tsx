@@ -75,7 +75,7 @@ describe("Also create — current resident", () => {
       ...emptyAddPersonForm("resident"),
       alsoCreate: normalizeAlsoCreate(["application"]),
     };
-    expect(thingsToFinish(noLease).map((t) => t.step)).toEqual(["contact", "contact", "home"]);
+    expect(thingsToFinish(noLease).map((t) => t.step)).toEqual(["contact", "contact", "contact", "home"]);
     expect(thingsToFinish(noLease).some((t) => t.step === "lease")).toBe(false);
   });
 

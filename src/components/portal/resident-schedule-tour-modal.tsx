@@ -7,8 +7,6 @@ import { PORTAL_MODAL_BODY_SCROLL_CLASS } from "@/components/ui/modal-styles";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PopupSubjectCard } from "@/components/portal/popup-live-preview";
 import { PropertySearchPicker, type PropertySearchOption } from "@/components/marketing/property-search-picker";
-import { residentPortalApplyReturnPath } from "@/lib/rental-application/public-apply-session";
-import { TourBlockedNotice } from "@/components/marketing/tour-application-first-panel";
 import { TourScheduleFlow } from "@/components/marketing/tour-schedule-flow";
 import {
   isPropertyActiveForLeads,
@@ -22,8 +20,6 @@ import { isProductionPublicSite } from "@/lib/public-demo-access";
 import { getPropertyById, getPropertyForPublicLink } from "@/lib/rental-application/data";
 import { residentBrowseForTourHref } from "@/lib/resident-public-nav";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { useTourApplicationGate } from "@/hooks/use-tour-application-gate";
-import { TOUR_BLOCK_MESSAGES } from "@/lib/application-before-tour-policy";
 
 export function ResidentScheduleTourModal({
   open,
@@ -100,18 +96,6 @@ export function ResidentScheduleTourModal({
     setFlowPropertyId(pid);
   };
 
-  // The picked home's gate: a home that needs an approved application (or whose application was
-  // denied) cannot be scheduled from here; the reason is the button's tooltip and accessible name.
-  const pickedGate = useTourApplicationGate(
-    { id: pickedPropertyId ?? "", applicationBeforeTour: undefined },
-    { signedIn: Boolean(pickedPropertyId) },
-  );
-  const blockedReason =
-    pickedGate.status === "apply_first" || pickedGate.status === "pending_approval" || pickedGate.status === "denied"
-      ? pickedGate.status
-      : null;
-  const gateReason = blockedReason ? TOUR_BLOCK_MESSAGES[blockedReason] : null;
-
   const pickerFooter = (
     <ModalFooter>
       <Button
@@ -131,9 +115,7 @@ export function ResidentScheduleTourModal({
         variant="primary"
         className="rounded-full"
         data-attr="resident-tour-continue"
-        disabled={!pickedPropertyId || pickedGate.status === "checking" || gateReason !== null}
-        title={gateReason ?? undefined}
-        aria-label={gateReason ? `Continue unavailable. ${gateReason}` : undefined}
+        disabled={!pickedPropertyId}
         onClick={startScheduling}
       >
         Continue
@@ -176,9 +158,6 @@ export function ResidentScheduleTourModal({
         </div>
       ) : (
         <>
-          {pickedPropertyId && blockedReason ? (
-            <TourBlockedNotice applyHref={residentPortalApplyReturnPath({ propertyId: pickedPropertyId })} reason={blockedReason} />
-          ) : null}
         <PropertySearchPicker
           options={propertyOptions}
           value={pickedPropertyId}

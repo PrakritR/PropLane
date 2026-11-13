@@ -232,12 +232,9 @@ truth are:
 Each pane owns one standing lane across prompts. Do not make a new branch for
 each prompt, and do not delete a standing lane after integration.
 
-**Sub-branches.** When the captain opens another agent tab from a lane
-(Cmd+Shift+T), that agent works on its own `<lane>-branch-<N>` cut from the
-lane, in its own worktree and port. Its work merges back into **its parent
-lane** (fast-forward push, never force), never straight into `prakrit`, and the
-sub-branch is deleted from origin once merged. The parent lane carries it to
-`prakrit` through `/promote prakrit` like any other lane work.
+**No sub-branches** (captain, 2026-11-11): exactly three agents with three
+standing lanes. One agent works one lane, plan to production; nothing branches
+off a lane.
 
 `prakrit` is the integration rung, and it is **locked** unless the captain has
 typed `/prakrit` in that pane (a session-start hook re-locks it when the pane
@@ -254,8 +251,10 @@ lane's own pane. That command:
    rule for every merge into `prakrit`); a high or medium finding stops the
    land until it is fixed and re-validated;
 4. fast-forwards `prakrit` to the validated, reviewed tip and pushes;
-5. fans `prakrit` back out to every other lane (merge commit allowed on lanes,
-   never rebase or force; a dirty or conflicting lane is skipped and reported);
+5. fast-forwards every lane to `prakrit`, so all lanes sit on the same commit
+   between pieces of work (a dirty lane, or one with unshipped commits, is
+   skipped and reported and syncs at its next prompt; never a merge commit,
+   never force);
 6. refreshes the `prakrit` worktree, restarts `:3000` and opens
    http://localhost:3000 for the captain to review `prakrit`;
 7. marks the lane's plan `merged` and refreshes the studio.
@@ -268,6 +267,16 @@ the captain's own typed word:
 /promote staging                 # prakrit → main → staging
 /promote staging to production   # staging → production, after npm run ship:preflight
 ```
+
+`ship` (or "merge to production") runs all four rungs in order, each with its
+own checks.
+
+| Captain types | Agent does |
+| --- | --- |
+| any request | sync + studio plan + watcher, then stops |
+| `build` / `approve` | marks the plan approved, builds on its own lane, `npm run gate:prompt`, serves its port |
+| `skip plan` | urgent fix: builds directly on its own lane |
+| `/promote prakrit` … `/promote staging to production`, `ship` | the ladder above |
 
 **`/promote production` is refused** - the message points back to `/promote
 staging to production`. If any push is not a fast-forward, stop; never rebase,

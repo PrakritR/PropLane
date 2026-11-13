@@ -120,3 +120,10 @@ describe("rooms that disagree are still not a billing fact", () => {
     expect(aggregateBillableUtilitiesEstimate(sub)).toBe(0);
   });
 });
+
+describe("zero utilities estimate", () => {
+  it("reads $0, never a bare 0", async () => {
+    const { formatUtilitiesListingLine } = await import("@/lib/listing-utilities-payment");
+    expect(formatUtilitiesListingLine("manager_billed", "0")).toBe("$0/mo est.");
+  });
+});

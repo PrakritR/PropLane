@@ -57,25 +57,25 @@ function renderLeaseModal(signingOrder?: "application_first" | null) {
 }
 
 describe("listing detail modal — apply CTA follows signingOrder", () => {
-  it("says Apply for an application-first listing (today's copy, unchanged)", () => {
+  it("says Book for an application-first listing (today's copy, unchanged)", () => {
     renderLeaseModal("application_first");
     const cta = document.querySelector('[data-attr="listing-text-apply"]');
     expect(cta).not.toBeNull();
-    expect(cta!.textContent).toContain("Apply");
+    expect(cta!.textContent).toContain("Book");
     expect(cta!.textContent).not.toContain("Sign lease");
   });
 
-  it("says Apply when signingOrder is absent (every existing caller keeps compiling unchanged)", () => {
+  it("says Book when signingOrder is absent (every existing caller keeps compiling unchanged)", () => {
     renderLeaseModal(undefined);
     const cta = document.querySelector('[data-attr="listing-text-apply"]');
-    expect(cta!.textContent).toContain("Apply");
+    expect(cta!.textContent).toContain("Book");
   });
 
-  it("never says Sign lease: a stale lease_first value still reads Apply", () => {
+  it("never says Sign lease: a stale lease_first value still reads Book", () => {
     renderLeaseModal("lease_first" as never);
     const cta = document.querySelector('[data-attr="listing-text-apply"]');
     expect(cta).not.toBeNull();
-    expect(cta!.textContent).toContain("Apply");
+    expect(cta!.textContent).toContain("Book");
     expect(cta!.textContent).not.toContain("Sign lease");
   });
 });

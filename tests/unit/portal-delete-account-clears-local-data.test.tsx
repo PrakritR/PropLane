@@ -33,7 +33,18 @@ import { PortalDeleteAccountButton } from "@/components/portal/portal-delete-acc
  * account's properties and applications reappear — under the same email on a fresh signup.
  */
 describe("PortalDeleteAccountButton", () => {
-  afterEach(() => cleanup());
+  /**
+   * The confirm modal is a Radix dialog, and its focus scope restores focus on a DEFERRED task.
+   * Unmounting without letting that task run leaves it queued; in a full suite run the next file
+   * replaces the jsdom realm first, and the deferred `dispatchEvent` then lands on a node whose
+   * document is gone — the unhandled error the suite reported. So: unmount, then drain a
+   * macrotask while this file's realm is still the live one. Nothing is suppressed.
+   */
+  afterEach(async () => {
+    cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    vi.unstubAllGlobals();
+  });
 
   it("drops the local portal caches once the server confirms the delete", async () => {
     vi.stubGlobal(
@@ -44,11 +55,19 @@ describe("PortalDeleteAccountButton", () => {
       })),
     );
 
+    // The success path replaces the document location. jsdom cannot navigate, and the
+    // "Not implemented" it logs is noise from a real call this test is not about. `location`
+    // itself is non-configurable, so the stand-in replaces the whole object for this test and
+    // `vi.unstubAllGlobals()` in `afterEach` puts the real one back.
+    const replace = vi.fn();
+    vi.stubGlobal("location", { ...window.location, replace, assign: vi.fn() });
+
     render(<PortalDeleteAccountButton portalKind="manager" />);
     fireEvent.click(screen.getByText("Delete account"));
     fireEvent.click(screen.getByText("Yes, delete account"));
 
     await waitFor(() => expect(clearPortalBrowserCache).toHaveBeenCalled());
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/auth/sign-in?deleted=1"));
   });
 
   it("keeps the local caches when the server refuses", async () => {

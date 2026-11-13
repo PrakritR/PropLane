@@ -4,9 +4,9 @@ import { applicationsBilledByLease } from "@/lib/lease-signing-charges.client";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 
-const app = (id: string, email: string) => ({ id, email, name: id, bucket: "approved" }) as unknown as DemoApplicantRow;
+const app = (id: string, email: string) => ({ id, email, name: id, bucket: "approved", managerUserId: "owner", propertyId: "house" }) as unknown as DemoApplicantRow;
 const lease = (over: Partial<LeasePipelineRow>) =>
-  ({ id: "l1", axisId: "AXIS-1", residentEmail: "a@x.com", residentName: "A", status: "Fully Signed", ...over }) as unknown as LeasePipelineRow;
+  ({ id: "l1", managerUserId: "owner", propertyId: "house", axisId: "AXIS-1", residentEmail: "a@x.com", residentName: "A", status: "Fully Signed", ...over }) as unknown as LeasePipelineRow;
 
 describe("applicationsBilledByLease", () => {
   const apps = [app("AXIS-1", "a@x.com"), app("AXIS-2", "b@x.com"), app("AXIS-3", "c@x.com")];
@@ -15,8 +15,14 @@ describe("applicationsBilledByLease", () => {
     expect(applicationsBilledByLease(lease({}), apps).map((a) => a.id)).toEqual(["AXIS-1"]);
   });
 
-  it("falls back to the resident email when the id does not match", () => {
-    expect(applicationsBilledByLease(lease({ axisId: "AXIS-9", residentEmail: "B@x.com" }), apps).map((a) => a.id)).toEqual(["AXIS-2"]);
+  it("never falls back when a declared id does not match", () => {
+    expect(applicationsBilledByLease(lease({ axisId: "AXIS-9", residentEmail: "B@x.com" }), apps)).toEqual([]);
+    expect(applicationsBilledByLease(lease({ axisId: undefined, residentEmail: "B@x.com" }), apps).map((a) => a.id)).toEqual(["AXIS-2"]);
+  });
+  it("refuses foreign ownership, property and ambiguous legacy email", () => {
+    expect(applicationsBilledByLease(lease({ managerUserId: "other" }), apps)).toEqual([]);
+    expect(applicationsBilledByLease(lease({ propertyId: "other" }), apps)).toEqual([]);
+    expect(applicationsBilledByLease(lease({ axisId: undefined }), [...apps, app("AXIS-4", "a@x.com")])).toEqual([]);
   });
 
   it("bills every member of a joint bundle once", () => {

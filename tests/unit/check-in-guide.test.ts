@@ -73,7 +73,7 @@ describe("the guide", () => {
   it("before the reveal every code is null in the DATA, the steps and photos stay, and the unlock time is named", () => {
     const guide = buildCheckInGuide(source(), EARLY);
     expect(guide.revealed).toBe(false);
-    expect(guide.unlockLabel).toBe("Thu 3:00 PM");
+    expect(guide.unlockLabel).toBe("Thu 10:00 AM");
     expect(guide.steps.length).toBe(6);
     const flat = JSON.stringify(guide);
     for (const code of ["7500", "#4821", "9921", "pa55-word", "5566", "Lockbox left of the door"]) expect(flat).not.toContain(code);
@@ -252,6 +252,8 @@ describe("nothing public or outbound carries them", () => {
   };
 
   it("publicListingProjection drops the Internal values, the room door code and every door photo", () => {
+    const normalized = normalizeManagerListingSubmissionV1(sub);
+    const stableFees = normalized.customFees?.map((fee, index) => ({ ...fee, id: `public-fee-${index}` }));
     const projected = publicListingProjection({
       id: "p1",
       title: "Ballard House",
@@ -268,7 +270,7 @@ describe("nothing public or outbound carries them", () => {
       buildingName: "Ballard House",
       unitLabel: "",
       adminPublishLive: true,
-      listingSubmission: normalizeManagerListingSubmissionV1(sub),
+      listingSubmission: { ...normalized, customFees: stableFees },
     } as unknown as MockProperty);
     const flat = JSON.stringify(projected);
     for (const leaked of ["2410", "3711", "9921", "7500", "pa55-word", "secret-front", "secret-outside", "secret-room9", "doorCode", "frontDoorPhotoDataUrl", "exteriorPhotoDataUrl", "doorPhotoDataUrl"]) {

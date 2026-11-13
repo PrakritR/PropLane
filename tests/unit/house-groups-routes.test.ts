@@ -11,6 +11,8 @@ vi.mock("@/lib/house-groups/ra.server", () => ({
   handleGroupMessage: handled.message,
   handleGroupPreferenceText: handled.preference,
 }));
+// The house chat's SMS-group bridge answers first; a W10 RA group is not its Conversation, so it falls through.
+vi.mock("@/lib/house-sms-group/inbound.server", () => ({ handleHouseSmsGroupInbound: vi.fn(async () => ({ handled: false })) }));
 const posts = vi.hoisted(() => ({ postToHouseGroup: vi.fn() }));
 vi.mock("@/lib/house-groups/post.server", () => posts);
 vi.mock("@/lib/tools/audit", () => ({ writeAuditLog: vi.fn(async () => ({ recorded: true })) }));

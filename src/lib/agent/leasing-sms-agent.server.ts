@@ -39,10 +39,11 @@ import {
   persistProspectTourSchedulingContext,
   schedulingContextPrompt,
 } from "@/lib/prospect-tour-scheduling-context.server";
-import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
+import { stripLongDashes, stripSmsMarkdown } from "@/lib/agent/conversation-style-rules";
 import { summarizeLeasingEvidence } from "@/lib/agent/leasing-sms-fallback";
 import { buildProspectLinksTool, proplaneSiteLinks, publicOrigin } from "@/lib/tools/domains/leasing-sms";
 import { isPropLaneServiceLine } from "@/lib/service/service-catalog.server";
+import { finalizeProspectReply, prospectContextFromEvidence } from "@/lib/prospect-replies";
 
 type Db = SupabaseClient;
 
@@ -351,6 +352,13 @@ export async function runLeasingSmsAgentTurn(
     inboundMessageSid?: string | null;
     /** True on the shared Claw line — lets listing tools span the whole public catalog. */
     crossCatalog?: boolean;
+    /**
+     * Who pays for this turn when it is not the workspace owner: PropLane itself on its own line (an empty client wallet never
+     * silences a caller). Decided by the call's own billing, never by anything the caller says.
+     */
+    billingOverride?: { ownerUserId: string; workspaceId: string | null; allowUnfunded: boolean };
+    /** Answer from the PropLane-managed homes only (a stranger on the PropLane line, by voice). Never trusted from a caller's text. */
+    serviceCatalog?: boolean;
     channel?: "sms" | "voice";
     maxReplyChars?: number;
     traceName?: string;
@@ -471,8 +479,8 @@ export async function runLeasingSmsAgentTurn(
   const prospectPhone = normalizeE164(args.prospectPhoneE164 ?? "") ?? (args.prospectPhoneE164 ?? "").trim();
   // The PropLane line in per-workspace mode (a number the platform service owner holds): the catalog is the homes PropLane
   // manages, not this account's own other workspaces. Any other number keeps its workspace's homes only.
-  const serviceLine = !args.testActor && args.crossCatalog !== true && channel === "sms"
-    ? await isPropLaneServiceLine(db, { ownerUserId: session.landlord_id, workNumber: args.workNumber })
+  const serviceLine = !args.testActor && args.crossCatalog !== true
+    ? args.serviceCatalog === true || (await isPropLaneServiceLine(db, { ownerUserId: session.landlord_id, workNumber: args.workNumber }))
     : false;
   // A phone locked to one home on the PropLane line: the agent is told which, from the session row, never from the text.
   const lockedHome = !args.testActor && channel === "sms"
@@ -540,7 +548,7 @@ export async function runLeasingSmsAgentTurn(
     const systemBase = await leasingSmsSystemPromptForWorkNumberOwner(db, session.landlord_id);
     let system =
       channel === "voice"
-        ? `${systemBase}\n\nYou are speaking on a phone call, not texting. Keep replies concise and easy to hear. Always call list_open_tour_slots before quoting tour availability.`
+        ? `${systemBase}\n\nYou are speaking on a phone call, not texting. Keep replies to one or two short spoken sentences, easy to hear. Never read a web address, a long number or an id aloud: when a link would help (the listing, a tour page, the application), call build_prospect_links for the matched home and say you will text it after the call. Say prices, counts and availability only as a tool returned them for this call. Always call list_open_tour_slots before quoting tour availability.`
         : systemBase;
     if (recentDeliveredReplies.length > 0) {
       system += `\n\nConfirmed recent delivered SMS replies eligible for suppress_redundant_reply (copy only these ids):\n${recentDeliveredReplies.map((reply) => `- ${reply.messageId} at ${reply.deliveredAt}: ${reply.text}`).join("\n")}`;
@@ -751,7 +759,19 @@ export async function runLeasingSmsAgentTurn(
   // The standing no-em-dash rule, applied once where the prospect-visible reply is finalized, so
   // every consumer (the durable prepared reply, the carrier send, the reminder, the manager's
   // "Replied: ..." notice) carries the same stripped text.
-  const reply = quietHandoff ? "" : stripLongDashes(result!.reply).trim().slice(0, maxReplyChars);
+  // Plain text, signed as PropLane (never a person), every link keyed to the home THIS turn matched, a working tour link,
+  // and the link the prospect asked for. Reads only this turn's tool results. Voice replies are spoken, so they skip it.
+  const finalized = quietHandoff || channel !== "sms"
+    ? null
+    : (() => {
+        try {
+          const context = prospectContextFromEvidence(result?.toolEvidence ?? [], publicOrigin());
+          return finalizeProspectReply({ reply: result!.reply, message: text, links: context.links, facts: context.facts });
+        } catch {
+          return null;
+        }
+      })();
+  const reply = quietHandoff ? "" : stripLongDashes(finalized?.text ?? result!.reply).trim().slice(0, maxReplyChars);
   if (!reply && !quietHandoff) {
     console.warn("leasing-sms turn produced no reply", session.id, result?.terminationReason);
     return null;
@@ -865,7 +885,8 @@ export async function runLeasingSmsAgentTurn(
   };
   };
   if (args.testActor) return execute();
-  const creditKey = await commsTurnKey(db, session.landlord_id, `ai_turn:${channel}:${session.id}:${inboundMessageId}`);
+  const payerId = args.billingOverride?.ownerUserId.trim() || session.landlord_id;
+  const creditKey = await commsTurnKey(db, payerId, `ai_turn:${channel}:${session.id}:${inboundMessageId}`);
   // W009: name the workspace this send's own work number actually belongs to
   // rather than letting `reserveCommsCredit` default to the owner's default
   // workspace — the line a prospect is texting may hold a non-default house.
@@ -874,19 +895,21 @@ export async function runLeasingSmsAgentTurn(
   // guessing; the legacy per-workspace wallet keeps its existing
   // default-workspace fallback when the number cannot be placed, so this is
   // never a behavior change while the pool is off.
-  const workspaceId = (await workspaceOwnedBy(db, session.landlord_id, args.workspaceId))
-    ?? (await resolveWorkspaceIdForWorkNumber(db, session.landlord_id, args.workNumber));
+  const workspaceId = args.billingOverride
+    ? args.billingOverride.workspaceId
+    : (await workspaceOwnedBy(db, session.landlord_id, args.workspaceId))
+      ?? (await resolveWorkspaceIdForWorkNumber(db, session.landlord_id, args.workNumber));
   if (!workspaceId && isCommsCreditPoolEnabled()) {
     console.warn("leasing-sms turn skipped: workspace unknown", { sessionId: session.id, managerUserId: session.landlord_id });
     return null;
   }
-  const credit = await reserveCommsCredit(db, { managerUserId: session.landlord_id, workspaceId: workspaceId ?? undefined, meter: "ai_agent_turn",
-    idempotencyKey: creditKey, metadata: { sessionId: session.id, channel } });
+  const credit = await reserveCommsCredit(db, { managerUserId: payerId, workspaceId: workspaceId ?? undefined, meter: "ai_agent_turn",
+    idempotencyKey: creditKey, metadata: { sessionId: session.id, channel } }, args.billingOverride?.allowUnfunded === true);
   if (!credit.allowed) {
     console.warn("leasing-sms turn skipped: comms credit not reserved", { sessionId: session.id, managerUserId: session.landlord_id, reason: credit.reason });
     return null;
   }
-  if (credit.duplicate) return readCommsTurnResult<LeasingSmsTurn>(db, session.landlord_id, creditKey, {
+  if (credit.duplicate) return readCommsTurnResult<LeasingSmsTurn>(db, payerId, creditKey, {
     reply: INTERRUPTED_COMMS_REPLY,
     suppressed: false,
     sessionId: session.id,
@@ -899,10 +922,10 @@ export async function runLeasingSmsAgentTurn(
     // A failed model call (provider outage, bad key) is not a turn. Caching it
     // as a completed `null` silenced the prospect forever and billed the
     // manager; release the hold so the retry reserves a fresh key and runs.
-    await finishCommsCredit(db, session.landlord_id, creditKey, true);
+    await finishCommsCredit(db, payerId, creditKey, true);
     return null;
   }
-  return completeCommsTurn(db, session.landlord_id, creditKey, outcome, toolsRan);
+  return completeCommsTurn(db, payerId, creditKey, outcome, toolsRan);
 }
 
 /** Leasing / prospect voice — shares session history with leasing SMS on the same phone. */
@@ -915,6 +938,9 @@ export async function runLeasingVoiceAgentTurn(
     workNumber?: string | null;
     inboundCallSid?: string | null;
     crossCatalog?: boolean;
+    workspaceId?: string | null;
+    serviceCatalog?: boolean;
+    billingOverride?: { ownerUserId: string; workspaceId: string | null; allowUnfunded: boolean };
   },
 ) {
   return runLeasingSmsAgentTurn(db, {
@@ -922,6 +948,9 @@ export async function runLeasingVoiceAgentTurn(
     prospectPhoneE164: args.prospectPhoneE164,
     inboundText: args.inboundText,
     workNumber: args.workNumber,
+    workspaceId: args.workspaceId,
+    serviceCatalog: args.serviceCatalog,
+    billingOverride: args.billingOverride,
     inboundMessageSid: args.inboundCallSid,
     crossCatalog: args.crossCatalog,
     channel: "voice",
@@ -948,7 +977,7 @@ export async function deliverLeasingSmsReply(args: {
   const { redactedInboundReplyOverride } = await import("@/lib/one-number/redact-reply.server");
   const { deliverAgentReply, bubbleDedupeKey } = await import("@/lib/one-number/bubble-delivery.server");
   // Segment guard: a curly quote or emoji would bill this reply as UCS-2.
-  const text = toGsm7((await redactedInboundReplyOverride(args.inboundMessageSid)) ?? args.text);
+  const text = toGsm7(stripSmsMarkdown((await redactedInboundReplyOverride(args.inboundMessageSid)) ?? args.text));
   const baseKey = args.inboundMessageSid?.trim() ? `inbound_reply_${args.inboundMessageSid.trim()}` : null;
   const result = await deliverAgentReply({
     workspaceId: args.workspaceId,

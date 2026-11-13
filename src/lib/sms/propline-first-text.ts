@@ -20,7 +20,7 @@ export type FirstTextRole = "resident" | "vendor" | "looking" | "manage";
 const QUESTION_TAIL = "Are you a resident, a vendor, looking for a place, or want to manage your own property with PropLane?";
 
 /** The question on the PropLane line. */
-export const PROPLANE_ROLE_QUESTION = `Hi, this is PropLane. ${QUESTION_TAIL}`;
+export const PROPLANE_ROLE_QUESTION = QUESTION_TAIL;
 
 /**
  * Kept under its old name: the one fixed line a bare greeting gets on the PropLane line is now the role question.
@@ -30,7 +30,7 @@ export const PROPLANE_ROLE_QUESTION = `Hi, this is PropLane. ${QUESTION_TAIL}`;
 export const PROPLANE_FIRST_TEXT_REPLY = PROPLANE_ROLE_QUESTION;
 
 /** The fallback for a prospect on the PropLane line whose agent turn produced nothing. */
-export const PROPLANE_PROSPECT_FALLBACK_REPLY = "Hi, this is PropLane. Looking for a place to rent? Tell me the area, budget and move-in date.";
+export const PROPLANE_PROSPECT_FALLBACK_REPLY = "Looking for a place to rent? Tell me the area, budget and move-in date.";
 
 /**
  * The question on a manager's own work number: their workspace's name instead of PropLane's. The last clause is kept as
@@ -76,9 +76,14 @@ export const VENDOR_TRADE_QUESTION = "Thanks. What trade do you do, and what are
  */
 export const OPT_OUT_NOTICE = "Reply STOP to opt out.";
 
-/** `text` with the opt-out notice on it, once. */
+/**
+ * A reply to someone who texted us carries NO opt-out footer (captain, Nov 12): the carrier notice (A2P 10DLC / CTIA) is
+ * required only on the first business-initiated message to a contact who never texted in, and those senders append
+ * `OPT_OUT_NOTICE` themselves. Kept as the identity so the callers that used to add the footer to a conversational reply
+ * keep working. STOP / START / HELP handling is unchanged (`/api/twilio/inbound`).
+ */
 export function withOptOut(text: string): string {
-  return /reply stop/i.test(text) ? text : `${text} ${OPT_OUT_NOTICE}`;
+  return text;
 }
 
 // ---------------------------------------------------------------------------

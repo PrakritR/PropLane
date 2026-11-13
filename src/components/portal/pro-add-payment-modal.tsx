@@ -5,16 +5,21 @@ import { useRouter } from "next/navigation";
 import { useWorkspaceDraft } from "@/components/portal/add-workspace/draft";
 import { Button } from "@/components/ui/button";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
-import { PreviewPanel, WizardField, WizardSelect } from "@/components/portal/add-workspace/parts";
+import { PreviewPanel, WizardField, WizardMultiSelect, WizardSelect } from "@/components/portal/add-workspace/parts";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Input } from "@/components/ui/input";
 import type { ManagerPaymentBucket } from "@/data/demo-portal";
-import { createManagerCharge } from "@/lib/household-charges";
+import {
+  EVERYONE_IN_HOUSE,
+  chargesAddedMessage,
+  createChargesForResidents,
+  nextResidentSelection,
+  pickerSelection,
+  type BatchChargeResident,
+} from "@/lib/manager-charge-batch";
 import { MANAGER_PAYMENT_PRESETS, type ManagerPaymentPresetId } from "@/lib/payment-policy";
 import { defaultDueIsoForReminderSettings } from "@/lib/payment-reminder-bootstrap";
-import { buildNewChargeNoticeBody, deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
-import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
 import { restoreFutureRemindersForPendingCharge } from "@/components/portal/payment-schedule-ui";
 import { isCurrentResidentApplicationRow } from "@/lib/current-resident";
 import {
@@ -106,12 +111,7 @@ function buildResidentPaymentOptions(managerUserId: string | null): ResidentPaym
 }
 
 type PaymentPreview = {
-  propertyName: string;
-  propertyId: string;
-  applicationId?: string;
-  residentName: string;
-  residentEmail: string;
-  chargeTitle: string;
+  residents: BatchChargeResident[];
   amount: number;
   dueDateLabel: string;
   bucket: ManagerPaymentBucket;
@@ -148,13 +148,12 @@ export function ManagerAddPaymentModal({
   const [applicationTick, setApplicationTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyId, setPropertyId] = useState("");
-  const [residentApplicationId, setResidentApplicationId] = useState("");
+  const [residentApplicationIds, setResidentApplicationIds] = useState<string[]>([]);
   const [preset, setPreset] = useState<ManagerPaymentPresetId>("rent");
   const [chargeTitle, setChargeTitle] = useState("Monthly rent");
   const [amount, setAmount] = useState("");
   const [dueIso, setDueIso] = useState(() => defaultDueIsoForReminderSettings());
   const [bucket, setBucket] = useState<ManagerPaymentBucket>("pending");
-  const [noticePreview, setNoticePreview] = useState<PaymentPreview | null>(null);
   const [noticeBusy, setNoticeBusy] = useState(false);
   // Guards a double-submit: React's `noticeBusy` state update is batched, so two
   // clicks landing before the disabled prop re-renders could both pass a
@@ -217,9 +216,9 @@ export function ManagerAddPaymentModal({
     return residentOptions.filter((row) => residentBelongsToProperty(row, selectedProperty));
   }, [residentOptions, selectedProperty]);
 
-  const selectedResident = useMemo(
-    () => residentOptions.find((row) => row.applicationId === residentApplicationId) ?? null,
-    [residentApplicationId, residentOptions],
+  const selectedResidents = useMemo(
+    () => residentOptions.filter((row) => residentApplicationIds.includes(row.applicationId)),
+    [residentApplicationIds, residentOptions],
   );
 
   useEffect(() => {
@@ -240,7 +239,7 @@ export function ManagerAddPaymentModal({
         : null;
     if (resident) {
       setPropertyId(resident.propertyId);
-      setResidentApplicationId(resident.applicationId);
+      setResidentApplicationIds([resident.applicationId]);
       return;
     }
     if (initialPropertyId) setPropertyId(initialPropertyId);
@@ -255,13 +254,12 @@ export function ManagerAddPaymentModal({
 
   const reset = () => {
     setPropertyId("");
-    setResidentApplicationId("");
+    setResidentApplicationIds([]);
     setPreset("rent");
     setChargeTitle("Monthly rent");
     setAmount("");
     setDueIso(defaultDueIsoForReminderSettings());
     setBucket("pending");
-    setNoticePreview(null);
     setNoticeBusy(false);
     setStepIdx(0);
     setStepError(null);
@@ -272,11 +270,13 @@ export function ManagerAddPaymentModal({
   const workspaceDraft = useWorkspaceDraft({
     scope: `charge:${serviceRecordId ?? initialApplicationId ?? initialPropertyId ?? "new"}`,
     open,
-    value: { stepIdx, propertyId, residentApplicationId, preset, chargeTitle, amount, dueIso, bucket },
+    value: { stepIdx, propertyId, residentApplicationIds, preset, chargeTitle, amount, dueIso, bucket },
     restore: (saved) => {
       setStepIdx(saved.stepIdx);
       setPropertyId(saved.propertyId);
-      setResidentApplicationId(saved.residentApplicationId);
+      // A draft saved before several residents could be picked kept one id under the old key.
+      const legacy = (saved as { residentApplicationId?: string }).residentApplicationId;
+      setResidentApplicationIds(saved.residentApplicationIds ?? (legacy ? [legacy] : []));
       setPreset(saved.preset);
       setChargeTitle(saved.chargeTitle);
       setAmount(saved.amount);
@@ -293,8 +293,8 @@ export function ManagerAddPaymentModal({
 
   const buildPreview = (): PaymentPreview | null => {
     const amountNum = Number.parseFloat(amount);
-    if (!selectedResident) {
-      showToast("Select a property and resident.");
+    if (selectedResidents.length === 0) {
+      showToast("Select a property and at least one resident.");
       return null;
     }
     if (!chargeTitle.trim() || !Number.isFinite(amountNum) || amountNum <= 0) {
@@ -302,127 +302,77 @@ export function ManagerAddPaymentModal({
       return null;
     }
 
-    // roomLabel often already carries its own prefix ("Unit 12A", "Room 3"),
-    // so prefixing unconditionally produced "Unit Unit 12A" on the charge and
-    // everywhere it is echoed (resident dashboard, payments, receipts).
-    const roomLabel = selectedResident.roomLabel.trim();
-    const roomSuffix = /^(unit|room|apt|apartment|suite)\b/i.test(roomLabel) ? roomLabel : `Unit ${roomLabel}`;
-    const titleWithRoom = roomLabel ? `${chargeTitle.trim()} — ${roomSuffix}` : chargeTitle.trim();
-
-    return {
-      propertyName: selectedResident.propertyLabel,
-      propertyId: selectedProperty?.propertyId || selectedResident.propertyId,
-      applicationId: selectedResident.applicationId,
-      residentName: selectedResident.residentName,
-      residentEmail: selectedResident.residentEmail,
-      chargeTitle: titleWithRoom,
-      amount: amountNum,
-      dueDateLabel: dueLabelFromIso(dueIso),
-      bucket,
-    };
+    const residents = selectedResidents.map((resident): BatchChargeResident => {
+      // roomLabel often already carries its own prefix ("Unit 12A", "Room 3"),
+      // so prefixing unconditionally produced "Unit Unit 12A" on the charge and
+      // everywhere it is echoed (resident dashboard, payments, receipts).
+      const roomLabel = resident.roomLabel.trim();
+      const roomSuffix = /^(unit|room|apt|apartment|suite)\b/i.test(roomLabel) ? roomLabel : `Unit ${roomLabel}`;
+      return {
+        applicationId: resident.applicationId,
+        residentName: resident.residentName,
+        residentEmail: resident.residentEmail,
+        propertyId: selectedProperty?.propertyId || resident.propertyId,
+        propertyLabel: resident.propertyLabel,
+        title: roomLabel ? `${chargeTitle.trim()} — ${roomSuffix}` : chargeTitle.trim(),
+      };
+    });
+    return { residents, amount: amountNum, dueDateLabel: dueLabelFromIso(dueIso), bucket };
   };
 
-  const reviewPayment = () => {
+  // Adding the charge IS the notice: each persisted row fires `charge_created` on the server (inbox card, SMS with that
+  // charge's pay link, email), through the resident's own channel rules. This flow never sends a second one.
+  const submitCharges = async () => {
+    if (submittingRef.current) return;
     const preview = buildPreview();
     if (!preview) return;
-    setNoticePreview(preview);
-  };
-
-  const confirmPayment = async (
-    skipMessage: boolean,
-    channels?: { viaEmail: boolean; viaSms: boolean },
-    draft?: { subject: string; body: string },
-  ) => {
-    if (!noticePreview || submittingRef.current) return;
     submittingRef.current = true;
     setNoticeBusy(true);
     try {
-      const result = createManagerCharge({
-        residentEmail: noticePreview.residentEmail,
-        residentName: noticePreview.residentName,
-        propertyId: noticePreview.propertyId,
-        propertyLabel: noticePreview.propertyName,
+      const { created, failed } = createChargesForResidents(preview.residents, {
         managerUserId,
-        applicationId: noticePreview.applicationId,
-        title: noticePreview.chargeTitle,
-        amount: noticePreview.amount,
-        dueDateLabel: noticePreview.dueDateLabel,
-        initialStatus: noticePreview.bucket === "paid" ? "paid" : "pending",
-        id: chargeIdRef.current ?? undefined,
+        amount: preview.amount,
+        dueDateLabel: preview.dueDateLabel,
+        initialStatus: preview.bucket === "paid" ? "paid" : "pending",
         workOrderId: serviceRecordId,
+        baseId: chargeIdRef.current ?? `hc_mgr_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
       });
-      if (!result) {
+      if (created.length === 0) {
         showToast("Could not add charge. Check all fields.");
         return;
       }
 
-      if (noticePreview.bucket !== "paid") {
-        await restoreFutureRemindersForPendingCharge(result.id).catch(() => undefined);
+      if (preview.bucket !== "paid") {
+        await Promise.all(created.map((charge) => restoreFutureRemindersForPendingCharge(charge.id).catch(() => undefined)));
       }
 
       workspaceDraft.clear();
       reset();
       onSubmitted();
-      if (skipMessage) {
-        showToast("Payment added (no notification sent).");
-        return;
-      }
-
-      const amountLabel = `$${noticePreview.amount.toFixed(2)}`;
-      const subject = draft?.subject?.trim() || `New charge: ${noticePreview.chargeTitle}`;
-      const body =
-        draft?.body?.trim() ||
-        buildNewChargeNoticeBody({
-          residentName: noticePreview.residentName,
-          residentEmail: noticePreview.residentEmail,
-          chargeTitle: noticePreview.chargeTitle,
-          amountLabel,
-          dueDateLabel: noticePreview.dueDateLabel,
-          propertyLabel: noticePreview.propertyName,
-        });
-      const notice = await deliverPortalInboxMessage({
-        eventCategory: "payments",
-        toEmails: [noticePreview.residentEmail],
-        subject,
-        text: body,
-        deliverViaEmail: channels?.viaEmail !== false,
-        deliverViaSms: channels?.viaSms !== false,
-      });
-
-      if (notice.ok) {
-        showToast(
-          notice.skipped
-            ? "Payment added. Notice sent (sandbox email skipped; SMS/inbox when available)."
-            : "Payment added and notice sent via inbox, email, and SMS when available.",
-        );
-      } else {
-        showToast(notice.error ? `Payment added, but notice failed: ${notice.error}` : "Payment added, but notice could not be sent.");
-      }
+      showToast(
+        failed.length > 0
+          ? `${chargesAddedMessage(created.length)} ${failed.length} could not be added.`
+          : chargesAddedMessage(created.length),
+      );
     } finally {
       submittingRef.current = false;
       setNoticeBusy(false);
-      setNoticePreview(null);
     }
   };
 
-  const previewBody =
-    noticePreview &&
-    buildNewChargeNoticeBody({
-      residentName: noticePreview.residentName,
-      residentEmail: noticePreview.residentEmail,
-      chargeTitle: noticePreview.chargeTitle,
-      amountLabel: `$${noticePreview.amount.toFixed(2)}`,
-      dueDateLabel: noticePreview.dueDateLabel,
-      propertyLabel: noticePreview.propertyName,
-    });
-
   const noProperties = propertyOptions.length === 0;
   const amountNum = Number.parseFloat(amount);
-  const whoIncomplete = !propertyId || !residentApplicationId;
+  const whoIncomplete = !propertyId || residentApplicationIds.length === 0;
   const amountIncomplete = !chargeTitle.trim() || !Number.isFinite(amountNum) || amountNum <= 0;
   const presetLabel = MANAGER_PAYMENT_PRESETS.find((option) => option.id === preset)?.label ?? "Charge";
-  const residentLabel = selectedResident?.residentName ?? "Not set";
+  const residentLabel =
+    selectedResidents.length === 0
+      ? "Not set"
+      : selectedResidents.length === 1
+        ? selectedResidents[0]!.residentName
+        : `${selectedResidents.length} residents`;
   const amountLabel = Number.isFinite(amountNum) && amountNum > 0 ? `$${amountNum.toFixed(2)}` : "Not set";
+  const residentsFactLabel = selectedResidents.length > 1 ? "Residents" : "Resident";
   const steps: AddWorkspaceStep[] = [
     { id: "who", label: "Who", incomplete: whoIncomplete },
     { id: "amount", label: "Amount", incomplete: amountIncomplete },
@@ -443,58 +393,29 @@ export function ManagerAddPaymentModal({
             setStepIdx(index);
           }}
           onClose={handleClose}
-          onRequestClose={() => {
-            if (noticePreview) {
-              setNoticePreview(null);
-              return false;
-            }
-            return true;
-          }}
           keepsDraft
           onDiscardDraft={workspaceDraft.clear}
-          dirty={Boolean(propertyId || residentApplicationId || amount.trim())}
+          dirty={Boolean(propertyId || residentApplicationIds.length > 0 || amount.trim())}
           discardTitle="Discard this charge?"
           assistantContext="Add a resident charge on Incoming."
           assistantScopeKey="Add charge"
-          overlay={
-            noticePreview ? (
-              <PortalNotificationPreviewModal
-                open
-                title="New payment — notification preview"
-                onClose={() => setNoticePreview(null)}
-                recipient={noticePreview.residentEmail}
-                subject={`New charge: ${noticePreview.chargeTitle}`}
-                body={previewBody ?? ""}
-                showChannelPicker
-                emailAvailable={Boolean(noticePreview.residentEmail?.includes("@"))}
-                smsAvailable
-                deliverViaKind="payments"
-                hideSendViaFooterNote
-                confirmLabel="Add payment & send notice"
-                confirmLabelWithoutMessage="Add payment only"
-                confirmBusy={noticeBusy}
-                confirmBusyLabel="Adding…"
-                cancelLabel="Back"
-                onConfirm={(skipMessage, channels, draft) => confirmPayment(skipMessage, channels, draft)}
-              />
-            ) : null
-          }
           sidePanel={
             <PreviewPanel
               title="Charge"
               name={residentLabel}
               facts={[
-                { label: "Resident", value: residentLabel, warn: !residentApplicationId },
+                { label: residentsFactLabel, value: residentLabel, warn: residentApplicationIds.length === 0 },
                 { label: "Type", value: presetLabel },
                 { label: "Amount", value: amountLabel, warn: amountIncomplete },
               ]}
             />
           }
-          lastLabel="Add charge"
+          lastLabel={selectedResidents.length > 1 ? `Add ${selectedResidents.length} charges` : "Add charge"}
+          busy={noticeBusy}
           nextDisabled={(stepId === "who" && whoIncomplete) || (stepId === "amount" && amountIncomplete)}
           onBeforeNext={() => {
             if (stepId === "who" && whoIncomplete) {
-              setStepError(noProperties ? "Add a property first." : "Select a property and resident.");
+              setStepError(noProperties ? "Add a property first." : "Select a property and at least one resident.");
               return false;
             }
             if (stepId === "amount" && amountIncomplete) {
@@ -504,14 +425,14 @@ export function ManagerAddPaymentModal({
             setStepError(null);
             return true;
           }}
-          onFinish={reviewPayment}
+          onFinish={() => void submitCharges()}
           dataAttrPrefix="payments-add"
           finishDataAttr="payments-empty-add"
           footerNote={stepError ? <span className="text-sm text-rose-600">{stepError}</span> : null}
         >
           {stepId === "who" ? (
             <StepColumn>
-              <StepHeading title="Property and resident" />
+              <StepHeading title="Property and residents" />
               {noProperties ? (
                 <div className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border px-4 py-8">
                   <p className="text-[16px] font-bold">No properties</p>
@@ -524,18 +445,32 @@ export function ManagerAddPaymentModal({
                     value={propertyId}
                     onChange={(next) => {
                       setPropertyId(next);
-                      setResidentApplicationId("");
+                      setResidentApplicationIds([]);
                     }}
                     options={propertyOptions.map((option) => ({ value: option.propertyId, label: option.propertyLabel }))}
                     placeholder="Select property"
                   />
-                  <WizardSelect
-                    label="Resident"
-                    value={residentApplicationId}
-                    onChange={setResidentApplicationId}
-                    options={residentsForProperty.map((row) => ({ value: row.applicationId, label: row.residentName }))}
-                    placeholder={!propertyId ? "Select property first" : residentsForProperty.length === 0 ? "No residents at this property" : "Select resident"}
+                  <WizardMultiSelect
+                    label="Residents"
+                    required
+                    options={[
+                      ...(residentsForProperty.length > 1 ? [{ value: EVERYONE_IN_HOUSE, label: "Everyone in this house" }] : []),
+                      ...residentsForProperty.map((row) => ({ value: row.applicationId, label: row.residentName })),
+                    ]}
+                    selected={pickerSelection(residentApplicationIds, residentsForProperty.map((row) => row.applicationId))}
+                    onChange={(next) =>
+                      setResidentApplicationIds(
+                        nextResidentSelection(
+                          pickerSelection(residentApplicationIds, residentsForProperty.map((row) => row.applicationId)),
+                          next,
+                          residentsForProperty.map((row) => row.applicationId),
+                        ),
+                      )
+                    }
+                    emptyLabel={!propertyId ? "Select property first" : residentsForProperty.length === 0 ? "No residents at this property" : "Select residents"}
+                    emptyMenuText="No residents at this property"
                     disabled={!propertyId}
+                    dataAttr="payments-add-residents"
                   />
                 </div>
               )}
@@ -578,9 +513,9 @@ export function ManagerAddPaymentModal({
                 title="Charge"
                 name={residentLabel}
                 facts={[
-                  { label: "Resident", value: residentLabel },
+                  { label: residentsFactLabel, value: residentLabel },
                   { label: "Type", value: presetLabel },
-                  { label: "Amount", value: amountLabel },
+                  { label: selectedResidents.length > 1 ? "Amount each" : "Amount", value: amountLabel },
                 ]}
               />
             </StepColumn>

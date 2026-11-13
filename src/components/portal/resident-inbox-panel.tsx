@@ -3,7 +3,7 @@
 import { sharedGet } from "@/lib/shared-get-cache";
 import { ELIGIBLE_CONTACTS_TTL_MS } from "@/lib/inbox-eligible-contacts-ttl";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Archive, ArchiveRestore, Mail, MailOpen, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, House, Mail, MailOpen, Trash2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { consumeComposeQueryParam } from "@/lib/portals/compose-query";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -16,7 +16,10 @@ import { INBOX_TAB_DEFS, INBOX_LIST_SCROLL, INBOX_THREAD_ICON_BTN, INBOX_THREAD_
 import { InboxComposerChannelMenu, InboxComposerScheduleMenu, formatScheduledLabel } from "@/components/portal/inbox-composer-tools";
 import { defaultScheduleSendAtLocal } from "@/components/portal/portal-message-compose-fields";
 import { useResidentManagerContacts } from "@/hooks/use-resident-manager-contacts";
-import { matchResidentManagerContact, residentThreadSubtitle, resolveResidentThreadManager } from "@/lib/resident-communication-manager";
+import { matchResidentManagerContact, resolveResidentThreadManager } from "@/lib/resident-communication-manager";
+import { residentConversationLabel, residentThreadHeaderSubtitle } from "@/lib/communication/resident-conversation-names";
+import { CopyIconAction } from "@/components/portal/portal-icon-action";
+import { AxisAssistantChatIcon } from "@/components/portal/assistant-shared";
 import { scheduledItemsForRecipient } from "@/lib/inbox-scheduled-thread";
 import {
   PortalInboxSelectionToolbar,
@@ -1246,6 +1249,12 @@ export const ResidentInboxPanel = forwardRef<
     () => (activeThread ? matchResidentManagerContact(activeThread.email, managerContacts) : undefined),
     [activeThread, managerContacts],
   );
+  // What this conversation is CALLED: the house for a manager / work-number conversation, "PropLane" for the agent,
+  // "My PropLane agent" for the resident's own number. Never a phone number (the number is the copy action below).
+  const activeLabel = useMemo(
+    () => (activeThread && activeManager ? residentConversationLabel(activeThread, activeManager, managerContacts) : null),
+    [activeThread, activeManager, managerContacts],
+  );
 
   /**
    * The embedded thread's icon actions, the manager's row shape: reach the
@@ -1281,11 +1290,21 @@ export const ResidentInboxPanel = forwardRef<
       );
     }
     const managerEmail = activeManagerContact?.email?.trim() || null;
+    // The house's work number: a copyable detail in the header, never the title.
+    const workPhone = activeLabel?.kind === "house" ? activeLabel.workPhone : undefined;
+    const copyWorkNumber = workPhone ? (
+      <CopyIconAction
+        label="Copy work number"
+        data-attr="inbox-thread-copy-work-number"
+        onCopy={() => navigator.clipboard?.writeText(workPhone).catch(() => {})}
+      />
+    ) : null;
     // A text-only conversation is derived and read-only: nothing to mark unread or archive. The portal is
     // the web channel, so there is no sms: link to the manager here (the portal inbox is how they are reached).
-    if (activeThread.smsOnly) return undefined;
+    if (activeThread.smsOnly) return copyWorkNumber ?? undefined;
     return (
       <>
+        {copyWorkNumber}
         {managerEmail ? (
           <a
             href={`mailto:${managerEmail}`}
@@ -1320,7 +1339,7 @@ export const ResidentInboxPanel = forwardRef<
         </button>
       </>
     );
-  }, [activeThread, activeManagerContact, restoreFromTrash, deleteForever, moveToTrash, markUnread]);
+  }, [activeThread, activeLabel, activeManagerContact, restoreFromTrash, deleteForever, moveToTrash, markUnread]);
 
   useEffect(() => {
     if (!embeddedInCommunication) return;
@@ -1355,11 +1374,18 @@ export const ResidentInboxPanel = forwardRef<
   }, [expandedId, updateReplyDraft]);
 
   // The avatar and title are the MANAGER's, whichever side sent the last turn.
-  const activeThreadAvatarName = activeManager?.name;
+  const activeThreadAvatarName = activeLabel?.title ?? activeManager?.name;
+  const activeThreadTitle = activeLabel?.title ?? activeManager?.name ?? "Property manager";
+  const activeThreadHeaderAvatar =
+    activeLabel?.kind === "proplane_agent" ? (
+      <AxisAssistantChatIcon className="size-4" />
+    ) : activeLabel?.kind === "house" ? (
+      <House className="size-4" aria-hidden />
+    ) : undefined;
   // "Property manager · Cascade Lofts · work@email" — the manager's header
   // line (Resident · House, Room · email) turned around: who they are to the
   // resident, the home it is about, and the address they write from.
-  const activeThreadSubtitle = activeIsHouseThread ? undefined : residentThreadSubtitle(activeManager, Boolean(activeThread?.smsOnly));
+  const activeThreadSubtitle = activeIsHouseThread ? undefined : residentThreadHeaderSubtitle(activeLabel);
   const activeFolder = activeThread
     ? activeThread.folder === "trash"
       ? inferPreviousFolder(activeThread)
@@ -1832,8 +1858,9 @@ export const ResidentInboxPanel = forwardRef<
           {activeThread ? (
             <InboxThreadView
               scrollMode={pageScroll ? "page" : "pane"}
-              title={activeManager?.name ?? "Property manager"}
+              title={activeThreadTitle}
               avatarName={activeThreadAvatarName}
+              headerAvatar={activeThreadHeaderAvatar}
               subtitle={activeThreadSubtitle}
               messages={activeBubbles}
               emailNameAsPerson
@@ -1909,8 +1936,8 @@ export const ResidentInboxPanel = forwardRef<
               <div className={INBOX_LIST_SCROLL}>
                 {rowsForTab.map((thread) => {
                   // Every row names the manager (or workspace) it is with, never the generic "Property manager" / "Resident" label.
-                  const rowManagerName = resolveResidentThreadManager(thread, managerContacts).name;
-                  const displayName = rowManagerName;
+                  const rowManager = resolveResidentThreadManager(thread, managerContacts);
+                  const displayName = residentConversationLabel(thread, rowManager, managerContacts).title;
                   const msgs = inboxThreadMessages(thread);
                   const lastMsg = msgs[msgs.length - 1];
                   return (
@@ -1941,8 +1968,9 @@ export const ResidentInboxPanel = forwardRef<
             activeThread ? (
               <InboxThreadView
                 scrollMode={pageScroll ? "page" : "pane"}
-                title={activeManager?.name ?? "Property manager"}
+                title={activeThreadTitle}
                 avatarName={activeThreadAvatarName}
+                headerAvatar={activeThreadHeaderAvatar}
                 subtitle={activeThreadSubtitle}
                 messages={activeBubbles}
                 emailNameAsPerson

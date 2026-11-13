@@ -31,6 +31,7 @@ import { renderRecordSection } from "@/components/portal/record-section-renderer
 import { ManagerLeasesGroupedTable } from "@/components/portal/pro-leases-grouped-table";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { leaseDetailHref, leaseListHref, residentEditHref, type LeaseDetailTabId } from "@/lib/portal-detail-routes";
+import { LEASE_PLACEHOLDER_EMAIL_MESSAGE, leaseRecipientIsPlaceholder } from "@/lib/lease-send-recipient";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import {
@@ -377,6 +378,13 @@ export function ManagerLeasesPipelinePanel({
 
   /** Send lease — the one screen (terms, document, schedule, message). Every Send opens it. */
   const openSendLeasePreview = (row: LeasePipelineRow) => {
+    // A lease addressed to an import placeholder reaches nobody (the server refuses it too): open Edit
+    // resident at Email instead of a Send screen that can only refuse.
+    if (leaseRecipientIsPlaceholder(row) && row.axisId?.trim() && listBasePath) {
+      showToast(LEASE_PLACEHOLDER_EMAIL_MESSAGE);
+      navigate(residentEditHref(listBasePath, row.axisId.trim(), "email"));
+      return;
+    }
     setSendSheetLeaseId(row.id);
   };
 
@@ -457,16 +465,20 @@ export function ManagerLeasesPipelinePanel({
       // The last signature just landed: the deposit, first month and rent schedule are created now,
       // from the signed terms — nothing waits for Payments to be opened.
       let paymentsScheduled = false;
+      let paymentWarning = false;
       if (fullySigned && !signingRow.pendingRenewal) {
         for (const leaseRow of [signingRow, ...siblingsToSign]) {
           const executed = readLeasePipeline(managerUserId).find((r) => r.id === leaseRow.id);
-          if (!executed) continue;
+          if (!executed) { paymentWarning = true; continue; }
           const made = await createChargesForExecutedLease(executed, managerUserId ?? null).catch(() => null);
           if (made && made.ok && made.created) paymentsScheduled = true;
+          if (!made || !made.ok) paymentWarning = true;
         }
       }
       showToast(
-        renewalApplied
+        paymentWarning
+          ? "Lease signed, but the payment schedule could not be confirmed. Review and retry."
+          : renewalApplied
           ? "Lease fully signed. Rent and payment schedule updated to the renewed terms."
           : fullySigned
             ? paymentsScheduled
@@ -739,7 +751,7 @@ export function ManagerLeasesPipelinePanel({
           if (!result.ok) return result.error;
           setMarkSignedRowId(null);
           setSelectedIds(new Set());
-          showToast(`Lease marked as signed. ${markSignedRow.residentName}'s portal is unlocked.`);
+          showToast(result.warning ?? `Lease marked as signed. ${markSignedRow.residentName}'s portal is unlocked.`);
           // "completed" is the Signed tab; "signed" is Manager signature.
           if (listBasePath) navigate(leaseListHref(listBasePath, "completed"));
           return null;

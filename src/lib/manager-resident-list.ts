@@ -34,6 +34,10 @@ export type ManagerResidentListRow = {
    * no selection or resident actions.
    */
   channelStay?: ChannelGuestFacts;
+  /** No phone on record: the row says so (a glyph fact) and the Missing phone filter lists it. */
+  missingPhone?: boolean;
+  /** The email is empty or the import placeholder, so nothing can be mailed to it. */
+  noRealEmail?: boolean;
 };
 
 export type ManagerResidentListCluster = ResidentCluster<ManagerResidentListRow>;

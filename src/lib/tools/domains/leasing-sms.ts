@@ -4,6 +4,7 @@
  * prefills. escalate_to_manager is the only write (allowlisted) — it notifies
  * the owning manager; the model never sends SMS itself (delivery is code).
  */
+import { buildReadableListingUrl, getListingSlugIndex } from "@/lib/seo/listing-slugs.server";
 import { z } from "zod";
 import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
@@ -23,6 +24,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { loadPublicRoomOccupancy } from "@/lib/public-room-occupancy.server";
 import { availabilityLabelFromPublicSpans, pacificListingDay } from "@/lib/public-room-occupancy";
 import { roomAvailabilityForRange } from "@/lib/room-availability-range.server";
+import { countRoomsAvailableNow } from "@/lib/public-listing-available-count";
 import {
   CHECK_ROOM_AVAILABILITY_DESCRIPTION,
   applyMoveInDateToLabel,
@@ -476,6 +478,45 @@ export async function checkedAvailabilityForListing(
 }
 
 /**
+ * The two numbers a reply may quote for "how many rooms are open": `availableNowCount` of `roomCount`. It is the listing
+ * page's own count (`countRoomsAvailableNow`, the function behind its "1 of 10" tile) over the same published occupancy, so
+ * a text and the page can never disagree and the model never tallies per-room flags itself. `availableNowCount` is null
+ * when the occupancy read failed or was not made: unknown is never turned into a number. Pure; exported for tests.
+ */
+export function listingAvailabilityCounts(
+  propertyId: string,
+  rooms: ReadonlyArray<{ id: string; publishedAvailability: string | null; residentCapacity: number }>,
+  occupancy: Parameters<typeof countRoomsAvailableNow>[1] | null,
+  today: string,
+): { roomCount: number; availableNowCount: number | null } {
+  if (!occupancy) return { roomCount: rooms.length, availableNowCount: null };
+  const pageRooms = rooms.map((room) => ({
+    id: room.id,
+    availability: room.publishedAvailability ?? "",
+    occupancyCapacity: room.residentCapacity,
+  }));
+  return { roomCount: rooms.length, availableNowCount: countRoomsAvailableNow(pageRooms, occupancy, today, propertyId) };
+}
+
+/** {@link listingAvailabilityCounts} for one record, reading the (cached) published occupancy. */
+async function availabilityCountsForListing(
+  rec: RawPropertyRecord,
+  ownerId: string | undefined,
+  now: Date = new Date(),
+): Promise<{ roomCount: number; availableNowCount: number | null }> {
+  const src = propertySource(rec);
+  const rooms = summarizeRooms(src);
+  const submission = asObject(src?.listingSubmission);
+  if (submission?.v !== 1) return listingAvailabilityCounts(rec.id, rooms, null, pacificTodayKey(now));
+  try {
+    const occupancy = await loadListingOccupancyForSms(rec, submission, ownerId);
+    return listingAvailabilityCounts(rec.id, rooms, occupancy, pacificTodayKey(now));
+  } catch {
+    return listingAvailabilityCounts(rec.id, rooms, null, pacificTodayKey(now));
+  }
+}
+
+/**
  * A public-catalog listing (any owner) reshaped into the raw-row form the
  * summarizers expect. `getPublicListings()` already returns the marketing
  * `property_data` (title/address/rooms/bundles via `listingSubmission`), so no
@@ -851,17 +892,21 @@ export const listLiveListingsTool = defineTool({
     // label can be stale, so it is never returned here: a room is either checked, or says it is not.
     const ownerScope = isCrossCatalog(ctx) || isServiceCatalog(ctx) ? undefined : ctx.landlordId;
     const checkedByHome = new Map<string, Map<string, CheckedRoomAvailability>>();
+    const countsByHome = new Map<string, { roomCount: number; availableNowCount: number | null }>();
     await Promise.all(
       ranked.slice(0, CHECKED_AVAILABILITY_HOME_LIMIT).map(async ({ rec }) => {
         checkedByHome.set(rec.id, await checkedAvailabilityForListing(rec, ownerScope).catch(() => new Map<string, CheckedRoomAvailability>()));
+        countsByHome.set(rec.id, await availabilityCountsForListing(rec, ownerScope).catch(() => ({ roomCount: summarizeRooms(propertySource(rec)).length, availableNowCount: null })));
       }),
     );
+    const slugIndex = await getListingSlugIndex();
     const listings = ranked
       // Cap the payload the model sees (large catalogs); a needle narrows first.
       .slice(0, 40)
       .map(({ listing, area }) => {
         const rents = listing.rooms.map((room) => room.monthlyRent).filter((rent): rent is number => typeof rent === "number" && rent > 0);
         const checkedRooms = checkedByHome.get(listing.propertyId);
+        const counts = countsByHome.get(listing.propertyId);
         return {
           ...listing,
           rooms: listing.rooms.map((room) => {
@@ -882,8 +927,10 @@ export const listLiveListingsTool = defineTool({
             };
           }),
           // The home's own link, from the tool: the only link a reply may carry for this home.
-          listingUrl: buildManagerListingUrl(origin, listing.propertyId),
-          roomCount: listing.rooms.length,
+          listingUrl: buildManagerListingUrl(origin, listing.propertyId, slugIndex.idToSlug.get(listing.propertyId)),
+          // The listing page's own numbers: quote "availableNowCount of roomCount" (null = not checked, say you will confirm); never tally rooms.
+          roomCount: counts?.roomCount ?? listing.rooms.length,
+          availableNowCount: counts?.availableNowCount ?? null,
           lowestRoomRent: rents.length > 0 ? Math.min(...rents) : null,
           ...(area ? { areaMatch: area } : {}),
         };
@@ -1034,6 +1081,7 @@ export const getListingDetailsTool = defineTool({
       // Malformed legacy room data cannot support a complete listing total.
     }
     const applicationFee = await loadApplicationFeeFactsForSms(ctx, rec.id);
+    const availabilityCounts = listingAvailabilityCounts(rec.id, rooms, occupancy, pacificTodayKey());
     const roomNeedle = (input.roomQuery ?? "").trim().toLowerCase();
     const matchedRooms = roomNeedle
       ? rooms.filter(
@@ -1074,7 +1122,10 @@ export const getListingDetailsTool = defineTool({
             currentAvailabilityVerified: spans !== undefined,
           };
         }),
-        allRoomCount: rooms.length,
+        // The listing page's own counts (countRoomsAvailableNow): quote "availableNowCount of roomCount", never tally
+        // rooms yourself. ONE name for the home's room total, the one the prompt quotes. Null = occupancy unverified.
+        roomCount: availabilityCounts.roomCount,
+        availableNowCount: availabilityCounts.availableNowCount,
         maximumResidents,
         bundles: summarizeBundles(src),
         leaseTerms: facts.leaseTerms,
@@ -1249,7 +1300,7 @@ export const buildProspectLinksTool = defineTool({
       propertyId: rec.id,
       title: propertyLabel(src),
       /** Full listing page: photos, video, rooms, rent, policies. Send for any question about the home. */
-      listingUrl: buildManagerListingUrl(origin, rec.id),
+      listingUrl: await buildReadableListingUrl(origin, rec.id),
       /** Prospect picks a real open time; the manager confirms. Send when they want to tour. */
       tourUrl: buildManagerTourUrl(origin, rec.id),
       /** Prefilled rental application. Send when they want to apply or ask what is needed to rent. */
@@ -1265,6 +1316,45 @@ export const buildProspectLinksTool = defineTool({
         bundleId: input.bundleId?.trim() || null,
       },
     };
+  },
+});
+
+/**
+ * `start_prospect_signup`: a prospect on the PropLane line asked to tour (or apply) and has no PropLane account, so the
+ * link they would be sent runs into a sign-in wall. This starts the existing reply-based sign-up by text
+ * (docs/agents/one-number.md § W26) for THIS texter's own phone, remembering the one live home they asked about; the
+ * account exists only after they text back the 6-digit code we send, and the sign-in link plus the tour page are texted
+ * by the sign-up flow itself, not by the model. A read tool in the `send_my_link` sense: it contacts no third party and
+ * moves no money; the phone is read from the verified turn, never from the model. Only the PropLane line (service
+ * catalog, SMS) runs the sign-up conversation ahead of this agent, so every other surface answers `unavailable` and the
+ * agent keeps sending the ordinary links.
+ */
+export const startProspectSignupTool = defineTool({
+  name: "start_prospect_signup",
+  description:
+    "Use when a prospect on SMS wants to tour or apply for a matched home and build_prospect_links shows they have no PropLane account yet, or when you are about to send a tour or apply link to someone who has not signed up. Starts the by-text sign-up for the phone that is texting. Send the returned reply text exactly as written (it asks their name) and nothing else; do NOT also send a tour or apply link. If it returns started:false (they already have an account, are mid sign-up, or sign-up is unavailable), carry on with the ordinary tour or apply link from build_prospect_links.",
+  kind: "read",
+  inputSchema: z
+    .object({ propertyId: z.string().min(1), listingRoomId: z.string().optional() })
+    .strict(),
+  handler: async (ctx, input) => {
+    const scope = ctx.leasingScope;
+    const phone = scope?.prospectPhoneE164 ?? "";
+    if (!scope || scope.channel !== "sms" || !isServiceCatalog(ctx) || !phone || scope.testActorUserId) {
+      return { ok: true, started: false, reason: "unavailable" };
+    }
+    // The destination is a live home this line serves, checked here; never an id the model made up.
+    const rec = await loadResolvableListing(ctx, input.propertyId);
+    if (!rec) return { ok: false, error: "listing_not_found" };
+    const { startTourSignup } = await import("@/lib/one-number/signup/flow.server");
+    const started = await startTourSignup(ctx.db, {
+      phoneE164: phone,
+      propertyId: rec.id,
+      listingRoomId: input.listingRoomId?.trim() || null,
+    });
+    return started.started
+      ? { ok: true, started: true, reply: started.reply }
+      : { ok: true, started: false, reason: started.reason };
   },
 });
 

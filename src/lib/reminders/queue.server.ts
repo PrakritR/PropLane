@@ -10,6 +10,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   DEFAULT_REMINDER_SETTINGS,
   URGENT_REMINDER_KINDS,
+  REMINDER_DEDUPE_KEY_VERSION,
+  pacificDateKey,
   reminderDedupeKey,
   reminderSendTimes,
   type QuietHours,
@@ -105,6 +107,9 @@ export async function materializeReminders(
   const rule = settings.rules[input.kind];
   if (!rule) return 0;
 
+  // A moved anchor (and any row queued under the old identity) is replaced, never left to fire.
+  await supersedeStaleReminders(db, input.kind, input.subjectId, input.anchorIso, now);
+
   const urgent = URGENT_REMINDER_KINDS.has(input.kind);
   const sends = reminderSendTimes(rule, input.anchorIso, settings.quietHours, now, { urgent });
   // A recipient carrying their own `quietHours` (a vendor's personal Settings →
@@ -153,6 +158,11 @@ export async function materializeReminders(
         subjectId: input.subjectId,
         leadMinutes,
         recipient: recipient.phone ? `sms:${recipient.phone}` : recipient.email,
+        recipientRole: recipient.role,
+        anchorIso: input.anchorIso,
+        recipientUserId: recipient.userId ?? null,
+        recipientPhone: recipient.phone ?? null,
+        managerUserId: input.managerUserId,
       }),
       payload: {
         ...input.payload,
@@ -181,6 +191,50 @@ export async function materializeReminders(
     .upsert(rows, { onConflict: "dedupe_key", ignoreDuplicates: true });
   if (error) throw error;
   return rows.length;
+}
+
+/**
+ * When a subject's anchor moves, its queued reminders were written for a moment that no longer exists:
+ * cancel the still-future `scheduled` ones whose anchor falls on a different Pacific date (or that were
+ * keyed before the person + anchor-date identity), and let the caller's materialize queue the new set.
+ * Only the same date keeps its rows, so a sweep that re-reads an unchanged date never disturbs a row a
+ * dispatcher may be mid-send on. Best effort: a read failure must never stop the new rows being queued.
+ */
+export async function supersedeStaleReminders(
+  db: SupabaseClient,
+  kind: ReminderSubjectKind,
+  subjectId: string,
+  anchorIso: string,
+  now: Date = new Date(),
+): Promise<number> {
+  try {
+    const { data, error } = await db
+      .from("portal_reminder_records")
+      .select("id, dedupe_key, send_at, payload")
+      .eq("kind", kind)
+      .eq("subject_id", subjectId)
+      .eq("status", "scheduled");
+    if (error || !Array.isArray(data)) return 0;
+    const newDate = pacificDateKey(anchorIso);
+    const stale = data
+      .filter((row: { dedupe_key?: unknown; send_at?: unknown; payload?: unknown }) => {
+        if (Date.parse(String(row.send_at ?? "")) <= now.getTime()) return false;
+        const key = String(row.dedupe_key ?? "");
+        if (!key.startsWith(REMINDER_DEDUPE_KEY_VERSION)) return true;
+        const rowAnchor = (row.payload as { anchorIso?: unknown } | null)?.anchorIso;
+        return typeof rowAnchor === "string" && pacificDateKey(rowAnchor) !== newDate;
+      })
+      .map((row: { id?: unknown }) => String(row.id));
+    if (stale.length === 0) return 0;
+    const { error: updateError } = await db
+      .from("portal_reminder_records")
+      .update({ status: "cancelled", updated_at: now.toISOString() })
+      .in("id", stale)
+      .eq("status", "scheduled");
+    return updateError ? 0 : stale.length;
+  } catch {
+    return 0;
+  }
 }
 
 /**

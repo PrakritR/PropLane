@@ -1,3 +1,5 @@
+import { isOutboundOnlyOwnerSms } from "@/lib/communication/managed-owner-thread";
+import { loadManagedOwnerIdentity } from "@/lib/communication/managed-owner-thread.server";
 import "server-only";
 import { withSmsMedia } from "@/lib/one-number/sms-media-index.server";
 import { loadSharedLineConfig } from "@/lib/one-number/config.server";
@@ -5,7 +7,7 @@ import { sharedLineWorkspaceIdOf } from "@/lib/one-number/line-label";
 import { normalizeE164 } from "@/lib/phone-e164";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { conversationVisible, resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
+import { communicationCandidateOwnerIds, conversationVisible, resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
 import { loadWorkspaceHouseLabels } from "@/lib/manager-sms-messages.server";
 import { managerSmsContactKey } from "@/lib/sms/manager-sms-contacts.server";
 import type { ManagerSmsMessageRow, ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
@@ -332,7 +334,7 @@ export async function visibleManagerSmsProjectionIds(
   if (summaries.length === 0) return new Set();
   if (summaries.length > 40) throw new Error("SMS notice visibility batch exceeds limit.");
   const scope = await resolveCommunicationScope(db, viewerId, "read");
-  const candidates = summaries.filter((summary) => scope.ownerIds.includes(summary.ownerManagerUserId));
+  const candidates = summaries.filter((summary) => communicationCandidateOwnerIds(scope).includes(summary.ownerManagerUserId));
   if (!candidates.length) return new Set();
   const context = await loadPageContext(db, viewerId, candidates);
   return new Set(candidates.filter((summary) => conversationVisible(scope, {
@@ -348,13 +350,15 @@ export async function visibleManagerSmsProjectionIds(
 export async function fetchManagerSmsProjectionPage(db: SupabaseClient, viewerId: string, before: SmsProjectionCursor | null) {
   const scope = await resolveCommunicationScope(db, viewerId, "read");
   const visible: (ManagerSmsResidentConversation & { projectionId: string; unread: boolean; stateVersion: number })[] = [];
+  // The client owner of a PropLane-managed workspace has a conversation here only once they have texted in.
+  const managedOwner = await loadManagedOwnerIdentity(db, scope.activeWorkspaceId);
   let cursor = before;
   let hasMore = false;
   // Each request inspects at most ten indexed summary pages. An owner with
   // many hidden threads can yield an empty page with a continuation cursor;
   // the client must not treat that as the end of history.
   for (let scan = 0; scan < 10; scan += 1) {
-    const pages = await Promise.all(scope.ownerIds.map((ownerManagerUserId) =>
+    const pages = await Promise.all(communicationCandidateOwnerIds(scope).map((ownerManagerUserId) =>
       listSmsProjectionConversations(db, { ownerManagerUserId, before: cursor ?? undefined, limit: PAGE_SIZE }),
     ));
     const candidates = pages.flatMap((page) => page.items).sort(tupleBefore).slice(0, PAGE_SIZE);
@@ -365,6 +369,10 @@ export async function fetchManagerSmsProjectionPage(db: SupabaseClient, viewerId
       processed += 1;
       const houseIds = context.houseIds.get(summary.id) ?? [];
       const line = summary.workLinePhone;
+      if (managedOwner && isOutboundOnlyOwnerSms({ counterpartyUserId: summary.counterpartyUserId, phone: summary.phone, lastInboundAt: summary.lastInboundAt, lastInboundEventId: summary.lastInboundEventId }, managedOwner)) {
+        cursor = { occurredAt: summary.lastEventAt!, id: summary.id };
+        continue;
+      }
       if (conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds, untaggedTurns: true, lines: line ? [line] : [], sharedLineWorkspaceId: placedWorkspaceIdOf(summary, context) })) {
         visible.push(asResident(summary, context));
       }
@@ -418,7 +426,7 @@ export async function viewerMayActOnSmsProjection(
   if (error) throw new Error("Could not read the conversation.");
   if (!row || row.merged_into_id) return false;
   const scope = await resolveCommunicationScope(db, viewerId, level);
-  if (!scope.ownerIds.includes(String(row.owner_manager_user_id))) return false;
+  if (!communicationCandidateOwnerIds(scope).includes(String(row.owner_manager_user_id))) return false;
   const summary = summaryFromRow(row);
   const context = await loadPageContext(db, viewerId, [summary]);
   const line = summary.workLinePhone;
@@ -431,22 +439,42 @@ export async function viewerMayActOnSmsProjection(
   });
 }
 
+/**
+ * The owners admin Communication reads (`fetchAdminSmsConversations` builds its list from the same set): the mapped
+ * manager cohort and the service owner in full, and a PropLane Service client only for a conversation placed in one
+ * of its service workspaces. Admin oversight authorizes a thread by this scope, never by the admin's own workspace.
+ */
+export type AdminSmsOwnerScope = { fullOwnerIds: string[]; clientOwnerIds: string[]; serviceWorkspaceIds: string[] };
+
+function adminScopeAllows(scope: AdminSmsOwnerScope, summary: SmsProjectionSummary, context: Context): boolean {
+  const owner = summary.ownerManagerUserId;
+  if (scope.fullOwnerIds.includes(owner)) return true;
+  if (!scope.clientOwnerIds.includes(owner)) return false;
+  const placed = placedWorkspaceIdOf(summary, context);
+  return Boolean(placed && scope.serviceWorkspaceIds.includes(placed));
+}
+
 /** Authorize a selected summary again before returning its independent turn page. */
-export async function fetchManagerSmsProjectionDetail(db: SupabaseClient, viewerId: string, conversationId: string, before: SmsProjectionCursor | null, level: "read" | "edit" | "delete" = "read", redirected = false) {
+export async function fetchManagerSmsProjectionDetail(db: SupabaseClient, viewerId: string, conversationId: string, before: SmsProjectionCursor | null, level: "read" | "edit" | "delete" = "read", redirected = false, adminScope: AdminSmsOwnerScope | null = null) {
   const { data: row, error } = await db.from("sms_projection_conversations")
     .select("id,owner_manager_user_id,counterparty_role,work_line_id,work_line_phone,identity_key,identity_kind,counterparty_user_id,counterparty_phone,legacy_conversation_key,last_body,last_direction,last_event_at,last_event_id,last_inbound_at,last_inbound_event_id,event_count,metadata,merged_into_id")
     .eq("id", conversationId).maybeSingle();
   if (error || !row) return null;
   if (row.merged_into_id) {
     if (redirected || row.merged_into_id === conversationId) return null;
-    return fetchManagerSmsProjectionDetail(db, viewerId, String(row.merged_into_id), before, level, true);
+    return fetchManagerSmsProjectionDetail(db, viewerId, String(row.merged_into_id), before, level, true, adminScope);
   }
-  const scope = await resolveCommunicationScope(db, viewerId, level);
-  if (!scope.ownerIds.includes(String(row.owner_manager_user_id))) return null;
   const summary = summaryFromRow(row);
+  const scope = adminScope ? null : await resolveCommunicationScope(db, viewerId, level);
+  if (scope && !communicationCandidateOwnerIds(scope).includes(String(row.owner_manager_user_id))) return null;
   const context = await loadPageContext(db, viewerId, [summary]);
-  const line = summary.workLinePhone;
-  if (!conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds: context.houseIds.get(summary.id) ?? [], untaggedTurns: true, lines: line ? [line] : [], sharedLineWorkspaceId: placedWorkspaceIdOf(summary, context) })) return null;
+  if (adminScope) {
+    // Admin oversight: the route already confirmed the admin role; the thread must be one admin Communication lists.
+    if (!adminScopeAllows(adminScope, summary, context)) return null;
+  } else if (scope) {
+    const line = summary.workLinePhone;
+    if (!conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds: context.houseIds.get(summary.id) ?? [], untaggedTurns: true, lines: line ? [line] : [], sharedLineWorkspaceId: placedWorkspaceIdOf(summary, context) })) return null;
+  }
   const page = await getSmsProjectionTurns(db, { ownerManagerUserId: summary.ownerManagerUserId, conversationId, before: before ?? undefined, limit: 50 });
   const outboundSids = [...new Set(page.turns.filter((turn) => turn.direction === "outbound" && isTwilioMessageSid(turn.sourceEventId)).map((turn) => turn.sourceEventId))];
   const { data: outboxRows, error: outboxError } = outboundSids.length
@@ -479,7 +507,7 @@ export async function fetchManagerSmsProjectionDetail(db: SupabaseClient, viewer
 }
 
 /** Resolve a legacy pointer only when it has one authorized line/role target. */
-export async function resolveManagerSmsProjectionSelection(db: SupabaseClient, viewerId: string, idOrAlias: string): Promise<string | "ambiguous" | null> {
+export async function resolveManagerSmsProjectionSelection(db: SupabaseClient, viewerId: string, idOrAlias: string, adminScope: AdminSmsOwnerScope | null = null): Promise<string | "ambiguous" | null> {
   if (/^[0-9a-f-]{36}$/i.test(idOrAlias)) return idOrAlias;
   if (!idOrAlias || idOrAlias.length > 240) return null;
   const { data, error } = await db.from("sms_projection_aliases")
@@ -487,7 +515,7 @@ export async function resolveManagerSmsProjectionSelection(db: SupabaseClient, v
   if (error || !data || data.length > 20) return "ambiguous";
   const visible = new Set<string>();
   for (const alias of data) {
-    const detail = await fetchManagerSmsProjectionDetail(db, viewerId, String(alias.conversation_id), null);
+    const detail = await fetchManagerSmsProjectionDetail(db, viewerId, String(alias.conversation_id), null, "read", false, adminScope);
     if (detail?.resident.projectionId) visible.add(detail.resident.projectionId);
     if (visible.size > 1) return "ambiguous";
   }

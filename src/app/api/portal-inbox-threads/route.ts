@@ -5,6 +5,7 @@ import { visibleManagerSmsProjectionIds } from "@/lib/sms/sms-projection-inbox.s
 import type { SmsProjectionSummary } from "@/lib/sms/sms-projection.server";
 import { portalInboxReadObservation, type PortalInboxReadRecord } from "@/lib/portal-inbox-read-state.server";
 import { NextResponse } from "next/server";
+import { createPhaseTimer } from "@/lib/server-timing";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   filterVisibleInboxThreadRecords,
@@ -38,6 +39,7 @@ import { ensureManagerAgentNoticeThread } from "@/lib/agent-notify.server";
 import { isViewAsSessionOpen } from "@/lib/auth/view-as.server";
 import { isTeamThreadId, updateTeamThreadMailboxState } from "@/lib/team-comms.server";
 import { teamThreadRowForViewer } from "@/lib/team-thread-view";
+import { withoutDeliveryReceipts } from "@/lib/inbox-delivery-projection";
 import { isHouseInboxThread } from "@/lib/house-thread-id";
 import {
   applyHouseMailboxState,
@@ -241,10 +243,11 @@ async function settleCollapsedSiblingsRead(
 }
 
 export async function GET(request: Request) {
+  const timer = createPhaseTimer();
   try {
     const url = new URL(request.url);
     const scopeParam = url.searchParams.get("scope") ?? "";
-    const ctx = await resolveInboxScopeUser(scopeParam);
+    const ctx = await timer.timed("auth", () => resolveInboxScopeUser(scopeParam));
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     if (ctx.user.role !== "admin" && scopeParam === MANAGER_INBOX_SCOPE) {
       const ownerRefusal = await refuseOwnerOnly(ctx.db, ctx.user.id);
@@ -290,6 +293,7 @@ export async function GET(request: Request) {
     // A View-as session is read-only: this GET heals (inserts) the notice and Team chat threads, so it
     // must not run for an operator looking at someone else's account.
     if (scopeParam === MANAGER_INBOX_SCOPE && ctx.user.id && !viewAsOpen) {
+      const healStartedAt = performance.now();
       try {
         const { resolveActiveWorkspaceFromRequest } = await import("@/lib/workspaces/active.server");
         const active = await resolveActiveWorkspaceFromRequest(ctx.db, ctx.user.id);
@@ -309,6 +313,8 @@ export async function GET(request: Request) {
         await ensureWorkspaceTeamThread(ctx.db, { ownerManagerUserId: active.ownerUserId, workspaceId: active.id });
       } catch (e) {
         console.error("ensureManagerAgentNoticeThread failed", e);
+      } finally {
+        timer.phases.heal = Math.round((performance.now() - healStartedAt) * 10) / 10;
       }
     }
 
@@ -325,7 +331,7 @@ export async function GET(request: Request) {
       query = query.eq("scope", ADMIN_INBOX_SCOPE) as typeof query;
     } else {
       if (scopeParam === MANAGER_INBOX_SCOPE) {
-        communicationScope = await resolveCommunicationScope(ctx.db, ctx.user.id, "read");
+        communicationScope = await timer.timed("scope", () => resolveCommunicationScope(ctx.db, ctx.user.id, "read"));
       }
       query = applyPortalInboxThreadScope(query, ctx.user, communicationScope ? inboxStoreOwnerIds(communicationScope) : [], {
         participantOnlyWhenUnowned: scopeParam === MANAGER_INBOX_SCOPE,
@@ -337,7 +343,7 @@ export async function GET(request: Request) {
       }
     }
 
-    const { data, error } = await query;
+    const { data, error } = await timer.timed("rows", async () => await query);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     // House chats are one shared row read by many people: they are listed below, per viewer, by their own
@@ -346,7 +352,7 @@ export async function GET(request: Request) {
       (record) => !isHouseInboxThread({ id: String(record.id ?? ""), thread_type: record.thread_type }),
     );
     const records: (PortalInboxReadRecord & { houses?: { propertyId: string; label: string }[] })[] = communicationScope
-      ? await filterVisibleInboxThreadRecords(ctx.db, communicationScope, fetched)
+      ? await timer.timed("visible", () => filterVisibleInboxThreadRecords(ctx.db, communicationScope, fetched))
       : fetched;
     // A notice can hold several originals from different lines/roles. Hide
     // only individual messages whose exact source, bytes and timestamp are
@@ -444,7 +450,9 @@ export async function GET(request: Request) {
       const storedRow = (record.row_data && typeof record.row_data === "object" ? record.row_data : record) as Record<string, unknown>;
       // A team chat is read by several people: whose lines are "mine" is the viewer's.
       const row = isTeamThreadId(String(record.id ?? "")) ? teamThreadRowForViewer(storedRow, ctx.user.id) : storedRow;
-      return { ...normalizeInboxRow({ ...row, id: record.id, ownerUserId: record.owner_user_id, threadType: record.thread_type, ...(record.houses ? { houses: record.houses } : {}) }), readSources: [{ id: record.id, observation: portalInboxReadObservation(record), unread: row?.unread === true }], readSourcesComplete: true };
+      const normalized = { ...normalizeInboxRow({ ...row, id: record.id, ownerUserId: record.owner_user_id, threadType: record.thread_type, ...(record.houses ? { houses: record.houses } : {}) }), readSources: [{ id: record.id, observation: portalInboxReadObservation(record), unread: row?.unread === true }], readSourcesComplete: true };
+      // Provider ids and failure reasons are the sender's: a Team chat is read by teammates who did not send the line.
+      return isTeamThreadId(String(record.id ?? "")) ? withoutDeliveryReceipts(normalized) : normalized;
     });
 
     // The viewer's house chats (manager: the active workspace's, by team access; resident: the houses they
@@ -463,11 +471,13 @@ export async function GET(request: Request) {
             : scopeParam === RESIDENT_INBOX_SCOPE
               ? await houseRowsForResident(ctx.db, { userId: ctx.user.id, email: ctx.user.email ?? "", inboxScope: scopeParam })
               : [];
-        houseRows = raw.map((row) => ({
-          ...normalizeInboxRow(row),
-          readSources: [{ id: String(row.id), observation: String(row.updatedAt ?? ""), unread: row.unread === true }],
-          readSourcesComplete: true,
-        }));
+        houseRows = raw.map((row) =>
+          withoutDeliveryReceipts({
+            ...normalizeInboxRow(row),
+            readSources: [{ id: String(row.id), observation: String(row.updatedAt ?? ""), unread: row.unread === true }],
+            readSourcesComplete: true,
+          }),
+        );
       } catch (e) {
         console.error("house chat list failed", e instanceof Error ? e.message : "unknown");
       }
@@ -497,7 +507,7 @@ export async function GET(request: Request) {
           },
           collapsed,
         );
-        return NextResponse.json({ rows: [...extras.rows, ...houseRows], residentPhone: extras.phone });
+        return NextResponse.json({ rows: [...extras.rows.map(withoutDeliveryReceipts), ...houseRows], residentPhone: extras.phone });
       } catch (e) {
         console.error("resident conversation extras failed", e instanceof Error ? e.message : "unknown");
       }
@@ -518,18 +528,24 @@ export async function GET(request: Request) {
           },
           collapsed,
         );
-        return NextResponse.json({ rows: [...extras.rows, ...houseRows], vendorPhone: extras.phone });
+        return NextResponse.json({ rows: [...extras.rows.map(withoutDeliveryReceipts), ...houseRows], vendorPhone: extras.phone });
       } catch (e) {
         console.error("vendor conversation extras failed", e instanceof Error ? e.message : "unknown");
       }
     }
 
+    // The resident / vendor on the receiving end never sees the sender's provider receipts.
+    const receivingSide = scopeParam === RESIDENT_INBOX_SCOPE || scopeParam === VENDOR_INBOX_SCOPE;
     return NextResponse.json({
       rows: [
-        ...(scopeParam === MANAGER_INBOX_SCOPE ? collapseAssistantInboxThreads(collapsed) : collapsed),
+        ...(scopeParam === MANAGER_INBOX_SCOPE
+          ? collapseAssistantInboxThreads(collapsed)
+          : receivingSide
+            ? collapsed.map(withoutDeliveryReceipts)
+            : collapsed),
         ...houseRows,
       ],
-    });
+    }, { headers: { "Server-Timing": timer.header() } });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load records.";
     return NextResponse.json({ error: message }, { status: 500 });

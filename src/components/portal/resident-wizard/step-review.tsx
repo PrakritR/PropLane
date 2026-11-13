@@ -1,5 +1,6 @@
 "use client";
 
+import { REACH_CHANNELS, REACH_CHANNEL_LABELS, normalizeReachBy } from "@/lib/recipient-channels";
 import { useMemo } from "react";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { MessageStep, ReviewCard, WizardChip, WizardLine, WizardSection, type MessageDraft } from "@/components/portal/add-workspace/parts";
@@ -71,7 +72,10 @@ export function ReviewStep({
             <WizardLine label="Nothing changed yet" />
           ) : (
             editLines.map((line) => (
-              <WizardLine key={line.label} label={line.label} control={<span className="text-[13px] font-semibold">{line.before} → {line.after}</span>} />
+              <div key={line.label} className="min-w-0 border-b border-border/60 py-3 first:pt-0 last:border-b-0 last:pb-0">
+                <div className="text-[12px] text-muted">{line.label}</div>
+                <div className="min-w-0 break-words text-[13px] font-semibold">{line.before} → {line.after}</div>
+              </div>
             ))
           )}
         </WizardSection>
@@ -100,8 +104,9 @@ export function ReviewStep({
         facts={[
           { label: "Name", value: form.name.trim() || "Required", missing: !form.name.trim() },
           { label: "Email", value: form.email.trim() || (prospect ? "—" : "Required"), missing: !prospect && !form.email.trim() },
-          { label: "Phone", value: form.phone.trim() || "—" },
+          { label: "Phone", value: form.phone.trim() || (form.noPhone ? "No phone" : "—") },
           { label: "Prefers", value: form.preferredContact === "sms" ? "Text" : "Email" },
+          { label: "Reach by", value: (normalizeReachBy(form.reachBy) ?? REACH_CHANNELS).map((channel) => REACH_CHANNEL_LABELS[channel]).join(", ") },
         ]}
       />
       <ReviewCard

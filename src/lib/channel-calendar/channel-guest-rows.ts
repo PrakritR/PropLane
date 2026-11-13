@@ -9,10 +9,9 @@
  * Pure, so the rules (who counts, what a row is called, what it opens) are unit-tested without a store.
  */
 
-import { bookingEntryGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
+import { channelStayName } from "@/lib/channel-calendar/booking-guest-label";
 import { addDaysToDateKey, bookingEntryKey, bookingSourceLabel } from "@/lib/channel-calendar/bookings-ui";
 import { isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
-import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
 import { bookingRecordHref } from "@/lib/portal-detail-routes";
 import { isPersonOccupant } from "@/lib/occupancy/snapshot";
 
@@ -50,17 +49,8 @@ export function channelStayCoverageKey(connectionId: string, sourceUid: string):
  * the list). Never "Reserved" or "CLOSED - Not available".
  */
 export function channelGuestName(entry: PropertyBookingEntry): string {
-  const label = bookingEntryGuestLabel(entry).trim();
-  const generic =
-    !label ||
-    /^booked \(/i.test(label) ||
-    /^reserved$/i.test(label) ||
-    // A stay a manager imported into the calendar is filed under its channel's own name ("Airbnb", "Booking").
-    /^(airbnb|booking(\.com)?|vrbo)$/i.test(label) ||
-    /not available|^closed\b/i.test(label) ||
-    isHostBlockSummary(label);
-  if (!generic) return label;
-  return `${bookingSourceLabel(entry.source, entry.channelLabel)} guest`;
+  const name = channelStayName(entry).trim();
+  return name || `${bookingSourceLabel(entry.source, entry.channelLabel)} guest`;
 }
 
 /**

@@ -307,3 +307,14 @@ describe("split review presentation", () => {
     expect(split.leftover).toContain("Security deposit: A refundable security deposit is required.");
   });
 });
+
+describe("access and code fields never show a plausible value as a placeholder", () => {
+  it("Getting in, Wi-Fi and alarm placeholders all read 'Not set'", async () => {
+    const { HOUSE_INFO_SECTIONS } = await import("@/lib/house-info");
+    for (const section of HOUSE_INFO_SECTIONS.filter((s) => ["access", "wifi", "safety", "internal"].includes(s.id))) {
+      for (const field of section.fields.filter((f) => f.secret || section.id === "access")) {
+        expect(field.placeholder, `${section.id}.${field.key}`).toBe("Not set");
+      }
+    }
+  });
+});

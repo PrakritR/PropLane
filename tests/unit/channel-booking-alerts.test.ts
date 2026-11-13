@@ -12,7 +12,7 @@ vi.mock("@/lib/channel-calendar/airbnb-residents.server", () => ({
   upsertAirbnbResidentsFromImportedRanges: async () => undefined,
   releaseAirbnbResidentsAbsentFromFeed: async () => undefined,
 }));
-vi.mock("@/lib/channel-calendar/stay-tombstones.server", () => ({ loadChannelStayTombstoneKeys: async () => new Set<string>() }));
+vi.mock("@/lib/channel-calendar/stay-tombstones.server", () => ({ loadChannelStayTombstoneKeys: async () => new Set<string>(), loadChannelStayTombstoneRecords: async () => [], deleteChannelStayTombstoneRecords: async () => undefined }));
 
 import { diffChannelReservations, reservationIdentitiesElsewhere, withoutMovedReservations } from "@/lib/channel-calendar/channel-booking-diff";
 import { channelBookingStay, emitChannelBookingEvent, renderChannelBookingEvent } from "@/lib/channel-booking-events.server";
@@ -116,7 +116,7 @@ describe("emitChannelBookingEvent", () => {
     expect(first.eventId).toContain("c1:uid-1");
     expect(first).toMatchObject({ domain: "channel_booking", event: "channel_booking_created", senderUserId: "m1", managerUserId: "m1" });
     expect(first.recipients).toEqual([expect.objectContaining({ audience: "manager", userId: "m1" })]);
-    expect(first.payload).toMatchObject({ connectionId: "c1", propertyId: "p1", roomId: "r1", provider: "airbnb", start: "2026-10-12", end: "2026-10-14", nights: 3, guestLabel: "Booked (Airbnb)" });
+    expect(first.payload).toMatchObject({ connectionId: "c1", propertyId: "p1", roomId: "r1", provider: "airbnb", start: "2026-10-12", end: "2026-10-14", nights: 3, guestLabel: "Airbnb guest" });
     expect(track).toHaveBeenCalledWith("channel_booking_alert", "m1", { provider: "airbnb", kind: "created" });
   });
   it("tracks cancelled alerts as kind cancelled", async () => {

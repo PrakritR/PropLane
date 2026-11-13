@@ -1,5 +1,7 @@
 "use client";
 
+import { preserveUnchangedResidentPlacement } from "@/lib/resident-edit-placement";
+
 import { managerApplicationsReadSucceeded } from "@/lib/manager-applications-storage";
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { filterPropertyOptionsForActiveWorkspace, isActiveWorkspaceId, workspaceContainsProperty } from "@/lib/workspaces/selection";
@@ -33,6 +35,9 @@ import {
   PORTAL_MODAL_FORM_GRID_CLASS,
 } from "@/components/ui/modal";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
+import { ManagerResidentRatingsSection } from "@/components/portal/manager-resident-ratings-section";
+import { ResidentRatingSheet } from "@/components/portal/resident-rating-sheet";
+import { useAdverseActionDecline } from "@/components/portal/adverse-action-decline";
 import { ApproveApplicationDialog } from "@/components/portal/approve-application-dialog";
 import { LeaseSendSheet } from "@/components/portal/lease-send-sheet";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
@@ -122,7 +127,7 @@ import {
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { MoreHorizontal } from "lucide-react";
 import { downloadCsv, toSafeCsv } from "@/lib/csv";
-import { residentSectionHeaderActions as residentSectionActionsFor } from "@/lib/resident-record-section-actions";
+import { residentSectionHeaderActions as residentSectionActionsFor, withResidentRateAction } from "@/lib/resident-record-section-actions";
 import type { RecordHeaderAction } from "@/lib/portals/record-sections";
 import { ManagerResidentsGroupedTable } from "@/components/portal/pro-residents-grouped-table";
 import { ManagerResidentToursPanel } from "@/components/portal/pro-resident-tours-panel";
@@ -155,10 +160,14 @@ import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { ManagerPipelineLeaseEditModal } from "@/components/portal/pro-pipeline-lease-edit-modal";
 import { AddResidentWizard } from "@/components/portal/resident-wizard";
+import { QuickAddResidentsModal } from "@/components/portal/quick-add-residents-modal";
+import { ResidentSetupProgressModal } from "@/components/portal/resident-setup-progress-modal";
 import {
   ALSO_CREATE_IDS,
   MANAGER_APPLICATION_TEXT_KEYS,
   emptyAddPersonForm,
+  reachByDetails,
+  reachByFormFields,
   type AddPersonForm,
 } from "@/components/portal/resident-wizard/state";
 import {
@@ -318,6 +327,21 @@ import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { groupIdForRow } from "@/components/portal/application-group-section";
 import { ManagerCosignerReadonlyReview } from "@/components/portal/pro-cosigner-readonly-review";
 import { dedupeResidentsByEmail } from "@/lib/resident-directory-dedupe";
+import {
+  RESIDENT_CONTACT_FILTER_DEFAULT,
+  RESIDENT_STAY_FILTER_DEFAULT,
+  RESIDENT_STAY_FILTER_OPTIONS,
+  isShortStay,
+  hasPhoneOnRecord,
+  hasRealEmail,
+  matchesContactFilter,
+  matchesStayFilter,
+  phoneRequestMessage,
+  type ResidentContactFilter,
+  type ResidentStayFilter,
+  type ShortStayFacts,
+} from "@/lib/resident-list-filters";
+import { ResidentContactFilterField, ResidentStayFilterField } from "@/components/portal/resident-list-filter-fields";
 import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
 import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map";
 import { signerAppIdsForCosignerLookup } from "@/lib/rental-application/application-list-grouping";
@@ -431,6 +455,12 @@ type ActiveResident = {
   residentSlotFact?: string;
   /** When the application was last started or submitted, for Sort by Recently updated. */
   updatedMs?: number;
+  /** A guest stay (booking residency, non-standard rental type, iCal source): off the default Long-term list. */
+  isShortStay?: boolean;
+  /** False when no phone is on record (manual details or application); undefined reads as "has one". */
+  phoneOnRecord?: boolean;
+  /** False when the email is empty or the import placeholder: nothing can be mailed to it. */
+  realEmail?: boolean;
 };
 
 /**
@@ -678,6 +708,10 @@ export function ManagerResidents({
   );
   const directorySourcesReady = directoryReady && (isDemoModeActive() || process.env.NODE_ENV === "test" || directoryLoadedFor === userId);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+  // Residents counts long-term people by default; guests are one choice away (Stay -> Short stays).
+  const [stayFilter, setStayFilter] = useState<ResidentStayFilter>(RESIDENT_STAY_FILTER_DEFAULT);
+  const [contactFilter, setContactFilter] = useState<ResidentContactFilter>(RESIDENT_CONTACT_FILTER_DEFAULT);
+  const [phoneRequestBusy, setPhoneRequestBusy] = useState(false);
   const [residentSearch, setResidentSearch] = useState("");
   const [sortMode, setSortMode] = useState<HouseListSort>(HOUSE_LIST_DEFAULT_SORT);
   const residentsTab = parseResidentsTab(tabIdProp);
@@ -718,6 +752,8 @@ export function ManagerResidents({
   const [welcomePreviewFor, setWelcomePreviewFor] = useState<ActiveResident | null>(null);
   const [welcomePreviewContent, setWelcomePreviewContent] = useState("");
   const [approvePreviewRow, setApprovePreviewRow] = useState<DemoApplicantRow | null>(null);
+  // FCRA: declining an application with a consumer report asks "is this based on the background check?" first.
+  const adverseAction = useAdverseActionDecline();
   const [checkrScreeningRowId, setCheckrScreeningRowId] = useState<string | null>(null);
   const [holdingFeeRowId, setHoldingFeeRowId] = useState<string | null>(null);
   const [checkrScreeningShowPicker, setCheckrScreeningShowPicker] = useState(false);
@@ -750,6 +786,9 @@ export function ManagerResidents({
     useState<ResidentRecordStatusBucketId>("pending");
   const [residentLeasePipelineTab, setResidentLeasePipelineTab] = useState<LeaseListTabId>("draft");
   const [addResidentPaymentOpen, setAddResidentPaymentOpen] = useState(false);
+  // Rate (a header icon): the manager's 1-5 star rating + review of this resident; the ratings card re-reads on save.
+  const [rateResidentOpen, setRateResidentOpen] = useState(false);
+  const [ratingsRefresh, setRatingsRefresh] = useState(0);
   const [addResidentServiceOpen, setAddResidentServiceOpen] = useState(false);
   const [embeddedPaymentFooterActions, setEmbeddedPaymentFooterActions] = useState<ReactNode>(null);
   const [embeddedPaymentBulkActions, setEmbeddedPaymentBulkActions] = useState<ReactNode>(null);
@@ -761,6 +800,9 @@ export function ManagerResidents({
   }, []);
   // Add resident / prospect — the wizard owns its own form (resident-wizard/state.ts).
   const [addResidentOpen, setAddResidentOpen] = useState(false);
+  // Quick add (one sheet / CSV) is what the + opens; its "Full form" opens the wizard above.
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [setupProgressFor, setSetupProgressFor] = useState<{ id: string; name: string } | null>(null);
 
   // Edit resident
   const erSkipPricingFillRef = useRef(false);
@@ -1044,6 +1086,9 @@ export function ManagerResidents({
           statusLabel: applicationStageDisplayLabel(row),
           residentSlotFact: residentRowSlotFact(row),
           updatedMs: applicationRowSortMs(row),
+          isShortStay: isShortStay(row as unknown as ShortStayFacts),
+          phoneOnRecord: hasPhoneOnRecord(row.manualResidentDetails?.phone, row.application?.phone),
+          realEmail: hasRealEmail(row.email),
         };
       });
     if (built.length === 0 && shouldShowDevResidentListFixtures()) {
@@ -1243,8 +1288,10 @@ export function ManagerResidents({
     // application for another room is legitimately both, and collapsing the
     // pair would hide whichever row lost.
     const inTab = dedupeResidentsByEmail(
-      residentDirectoryRows.filter((resident) => resident.stage === residentsTab),
-    );
+      residentDirectoryRows.filter(
+        (resident) => resident.stage === residentsTab && matchesStayFilter(Boolean(resident.isShortStay), stayFilter),
+      ),
+    ).filter((resident) => matchesContactFilter(resident.phoneOnRecord !== false, contactFilter));
     const inProperty = propertyFilters.length > 0
       ? inTab.filter((r) => propertyFilters.includes(r.propertyId))
       : inTab;
@@ -1268,19 +1315,20 @@ export function ManagerResidents({
       updatedMs: (r) => r.updatedMs ?? 0,
       tieBreak: (r) => String(parseInt(r.roomLabel.match(/\d+/)?.[0] ?? "0", 10)).padStart(6, "0") + r.id,
     });
-  }, [residentDirectoryRows, propertyFilters, residentsTab, residentSearch, sortMode]);
+  }, [residentDirectoryRows, propertyFilters, residentsTab, residentSearch, sortMode, stayFilter, contactFilter]);
 
   const residentTabCounts = useMemo(() => {
     const counts: Record<ResidentsTabId, number> = { potential: 0, current: 0, past: 0 };
     for (const stage of RESIDENT_DIRECTORY_TABS) {
       counts[stage] = dedupeResidentsByEmail(
-        residentDirectoryRows.filter((row) => row.stage === stage),
+        residentDirectoryRows.filter((row) => row.stage === stage && matchesStayFilter(Boolean(row.isShortStay), stayFilter)),
       ).length;
     }
-    // Guests in the house tonight or arriving are part of who is here, so Current counts them too.
-    counts.current += channelGuestListRows.length;
+    // Channel guests are short stays: they count (and list) only when the Stay filter lets them in,
+    // so the default Current tab is long-term people and agrees with the rooms-occupied number.
+    if (matchesStayFilter(true, stayFilter)) counts.current += channelGuestListRows.length;
     return counts;
-  }, [residentDirectoryRows, channelGuestListRows]);
+  }, [residentDirectoryRows, channelGuestListRows, stayFilter]);
 
   // The rows the list draws: the filtered, sorted residents as the row shape the table takes.
   const residentListRows = useMemo(() => {
@@ -1295,8 +1343,18 @@ export function ManagerResidents({
       groupId: res.groupId,
       statusLabel: res.stage === "potential" ? res.statusLabel : "",
       residentSlotFact: res.residentSlotFact,
+      missingPhone: res.phoneOnRecord === false,
+      noRealEmail: res.realEmail === false,
     }));
-    if (residentsTab !== "current" || channelGuestListRows.length === 0) return residentRows;
+    // A guest has no resident record to ask for a phone, and is a short stay by definition.
+    if (
+      residentsTab !== "current" ||
+      channelGuestListRows.length === 0 ||
+      !matchesStayFilter(true, stayFilter) ||
+      contactFilter !== "all"
+    ) {
+      return residentRows;
+    }
     // Same narrowing the residents get: the house filter and the search box.
     const guests = channelGuestListRows
       .filter((g) => propertyFilters.length === 0 || propertyFilters.includes(g.propertyId))
@@ -1310,7 +1368,69 @@ export function ManagerResidents({
       updatedMs: (r) => (r.channelStay ? (toMs(r.channelStay.start) ?? 0) : 0),
       tieBreak: (r) => String(parseInt(r.roomLabel.match(/\d+/)?.[0] ?? "0", 10)).padStart(6, "0") + r.id,
     });
-  }, [filtered, channelGuestListRows, residentsTab, propertyFilters, residentSearch, sortMode]);
+  }, [filtered, channelGuestListRows, residentsTab, propertyFilters, residentSearch, sortMode, stayFilter, contactFilter]);
+
+  // "Ask these N for their phone": one per-person send each, through the same route a manager's
+  // Reply uses, so the server re-authorizes every recipient against the workspace. The link lands on
+  // the resident's own Settings -> Profile, where the phone is added and verified.
+  const phoneAskTargets = useMemo(
+    () =>
+      contactFilter === "missing_phone" && residentsTab !== "past"
+        ? filtered.filter((r) => r.phoneOnRecord === false && r.email.includes("@"))
+        : [],
+    [contactFilter, filtered, residentsTab],
+  );
+  const askResidentsForPhone = useCallback(async () => {
+    if (phoneAskTargets.length === 0) return;
+    setPhoneRequestBusy(true);
+    const profileUrl = `${window.location.origin}/resident/profile?tab=profile`;
+    let sent = 0;
+    let needEmail = 0;
+    const failed: string[] = [];
+    try {
+      for (const target of phoneAskTargets) {
+        const realEmail = target.realEmail !== false;
+        try {
+          const res = await fetch("/api/portal/send-inbox-message", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              fromName: "Property manager",
+              toEmails: [target.email],
+              subject: "Add your phone number",
+              text: phoneRequestMessage({ name: target.name, hasRealEmail: realEmail, profileUrl }),
+              deliverToPortalInbox: true,
+              deliverViaEmail: realEmail,
+              eventCategory: "messages",
+              senderPortal: "manager",
+              ...(target.propertyId ? { propertyId: target.propertyId } : {}),
+            }),
+          });
+          const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+          if (!res.ok || data.ok === false) {
+            failed.push(target.name);
+            continue;
+          }
+          sent += 1;
+          if (!realEmail) needEmail += 1;
+        } catch {
+          failed.push(target.name);
+        }
+      }
+    } finally {
+      setPhoneRequestBusy(false);
+    }
+    showToast(
+      [
+        `Asked ${sent} ${sent === 1 ? "resident" : "residents"} for their phone.`,
+        needEmail > 0 ? `${needEmail} have no real email, so it went to their app inbox only.` : "",
+        failed.length > 0 ? `Could not reach ${failed.join(", ")}.` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
+  }, [phoneAskTargets, showToast]);
 
   const propertyFilterLabel = useMemo(() => {
     const id = propertyFilters[0];
@@ -1376,6 +1496,23 @@ export function ManagerResidents({
     openEditResidentModal(selected.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editParam, selected]);
+
+  // `?edit=1&focus=email` (a lease addressed to an import placeholder): land on the Email field once the wizard has drawn it.
+  const focusParam = searchParams.get("focus");
+  useEffect(() => {
+    if (focusParam !== "email" || !editResidentOpen) return;
+    let tries = 0;
+    const timer = window.setInterval(() => {
+      const field = document.querySelector<HTMLInputElement>('[data-attr="residents-wizard-email"]');
+      tries += 1;
+      if (field) {
+        field.focus();
+        field.select();
+      }
+      if (field || tries >= 20) window.clearInterval(timer);
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [focusParam, editResidentOpen]);
 
   if (activeResidentId !== prevSelectedId) {
     setPrevSelectedId(activeResidentId);
@@ -1787,6 +1924,22 @@ export function ManagerResidents({
     }
   }
 
+  /** "Text link": ONE text with the one-time-code onboarding link, to the phone on this resident's approved application. */
+  async function textOnboardingLink(res: ActiveResident) {
+    try {
+      const response = await fetch("/api/portal/resident-onboarding-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ applicationId: res.axisId }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      showToast(response.ok && data.ok ? "Onboarding link texted." : (data.error ?? "Could not text the link."));
+    } catch {
+      showToast("Could not text the link.");
+    }
+  }
+
   async function sendResidentAccountEmail(
     res: ActiveResident,
     opts?: {
@@ -2099,6 +2252,7 @@ export function ManagerResidents({
     await declineApplicationWithUndo({
       row,
       showToast,
+      confirm: () => adverseAction.confirmDecline(row),
       run: async (id, next) => {
         const result = await transitionApplicationBucket(id, next, {
           userId: userId ?? null,
@@ -2327,6 +2481,7 @@ export function ManagerResidents({
       moveInFee: savedFee || app?.managerMoveInFeeOverride?.trim() || "",
       securityDeposit: savedDeposit || app?.managerSecurityDepositOverride?.trim() || "",
       notes: row.manualResidentDetails?.notes || "",
+      ...reachByFormFields(row.manualResidentDetails),
       alsoCreate: [...ALSO_CREATE_IDS],
       application: app ? ({ ...app } as AddPersonForm["application"]) : {},
     };
@@ -2544,6 +2699,7 @@ export function ManagerResidents({
         roomNumber: selectedRoomLabel || undefined,
         leaseTerm: leaseTerm.trim() || undefined,
         notes: notes.trim() || undefined,
+        ...(from ? { reachBy: undefined, noPhone: undefined, ...reachByDetails(from) } : {}),
       },
       application: baseApplication
         ? {
@@ -2575,11 +2731,12 @@ export function ManagerResidents({
       nextRow = mergeApplicationLeaseDatesIntoResidentRow(nextRow, nextRow.application);
     }
 
-    const next = [...rows];
-    next[idx] = nextRow;
+    nextRow = preserveUnchangedResidentPlacement(existing, nextRow, editResidentForm, {
+      propertyId, roomId, bundleId, moveInDate, moveOutDate, leaseTerm, leaseTermCustomMode,
+    });
     setErSaving(true);
     return persistResidentProfileEdit({
-      rows: next,
+      rows,
       nextRow,
       managerUserId: userId ?? null,
       voidSentLeases: options?.voidSentLeases,
@@ -2607,7 +2764,7 @@ export function ManagerResidents({
             ? `Resident updated, but ${result.sync.skipped.join("; ")}.`
             : "Resident updated — application, lease and charges rebuilt.",
         );
-      })
+      }, () => showToast("Could not confirm the resident was saved. Please try again."))
       .finally(() => setErSaving(false));
   }
 
@@ -2954,16 +3111,22 @@ export function ManagerResidents({
       if (renewalApplied) setHcTick((n) => n + 1);
       // The last signature just landed: payments are created now, from the signed terms.
       let paymentsScheduled = false;
+      let paymentWarning = false;
       if (fullySigned && !signingLease.pendingRenewal) {
         const executed = readLeasePipeline(userId).find((r) => r.id === signingLease.id);
         if (executed) {
           const made = await createChargesForExecutedLease(executed, userId ?? null).catch(() => null);
           paymentsScheduled = Boolean(made && made.ok && made.created);
+          paymentWarning = !made || !made.ok;
           if (paymentsScheduled) setHcTick((n) => n + 1);
+        } else {
+          paymentWarning = true;
         }
       }
       showToast(
-        renewalApplied
+        paymentWarning
+          ? "Lease signed, but the payment schedule could not be confirmed. Review and retry."
+          : renewalApplied
           ? "Lease fully signed. Rent and payment schedule updated to the renewed terms."
           : fullySigned
             ? paymentsScheduled
@@ -3131,9 +3294,19 @@ export function ManagerResidents({
   }, [portalBase, residentsTab, selected, residentLifecycleInput, tourBucketProp]);
 
   // Edit · Delete, identical on every tab. Everything else is an action of the tab it belongs to.
-  const residentRecordHeaderActions = useMemo(
+  const residentRegistryHeaderActions = useMemo(
     () => recordSections("manager", "resident", { basePath: portalBase, residentsTab }).headerActions,
     [portalBase, residentsTab],
+  );
+  // Rate sits between Edit and Delete once the person is (or was) a tenant. The server is the authority on whether
+  // this workspace really housed them (and whether the viewer may edit Residents); this only keeps the icon off
+  // someone who is still an applicant.
+  const residentRecordHeaderActions = useMemo(
+    () =>
+      selected && selected.stage !== "potential"
+        ? withResidentRateAction(residentRegistryHeaderActions)
+        : residentRegistryHeaderActions,
+    [residentRegistryHeaderActions, selected],
   );
 
   /**
@@ -3224,6 +3397,9 @@ export function ManagerResidents({
     switch (actionId) {
       case "edit":
         openEditResidentModal(selected.id);
+        return;
+      case "rate":
+        setRateResidentOpen(true);
         return;
       case "delete":
         void (async () => {
@@ -3542,6 +3718,9 @@ export function ManagerResidents({
                                   }}
                                   extraNeedsYou={moveInNeedsYou}
                                 />
+                                <div className="mt-3">
+                                  <ManagerResidentRatingsSection applicationId={selected.id} refreshKey={ratingsRefresh} />
+                                </div>
                               </ResidentDetailTabPanel>
                             ) : resolvedDetailTab === "forms" ? (
                               <ResidentDetailTabPanel>
@@ -3700,6 +3879,7 @@ export function ManagerResidents({
                               ) : (
                                 <p className="text-sm text-muted">No application on file for this resident.</p>
                               )}
+                              <ManagerResidentRatingsSection applicationId={selected.id} refreshKey={ratingsRefresh} />
                             </ResidentDetailTabPanel>
                             </div>
                             ) : resolvedDetailTab === "tours" ? (
@@ -4036,15 +4216,19 @@ export function ManagerResidents({
       activeCount={portalFilterActiveCount([
         propertyFilters,
         houseListSortActiveCount(sortMode),
+        stayFilter !== RESIDENT_STAY_FILTER_DEFAULT ? [stayFilter] : [],
+        contactFilter !== RESIDENT_CONTACT_FILTER_DEFAULT ? [contactFilter] : [],
       ])}
       compactPanel
       commandStripTrigger
-      filterFieldCount={propertyOptions.length > 0 ? 2 : 1}
+      filterFieldCount={(propertyOptions.length > 0 ? 2 : 1) + 2}
       constrainDropdownToTitleBand={false}
       mobileFlushBody
       onReset={() => {
         setPropertyFilters([]);
         setSortMode(HOUSE_LIST_DEFAULT_SORT);
+        setStayFilter(RESIDENT_STAY_FILTER_DEFAULT);
+        setContactFilter(RESIDENT_CONTACT_FILTER_DEFAULT);
       }}
       dataAttr="residents-filter-sheet-open"
     >
@@ -4067,6 +4251,8 @@ export function ManagerResidents({
             label="House"
           />
         ) : null}
+        <ResidentStayFilterField value={stayFilter} onChange={setStayFilter} />
+        <ResidentContactFilterField value={contactFilter} onChange={setContactFilter} />
       </FilterFieldsAccordion>
     </PortalFilterSortSheet>
   );
@@ -4157,11 +4343,14 @@ export function ManagerResidents({
           <PortalPrimaryIconAction
             label="Add resident"
             data-attr="residents-add-top"
-            onClick={() => setAddResidentOpen(true)}
+            onClick={() => setQuickAddOpen(true)}
           />
         }
         activeFilterChips={
-          propertyFilters.length > 0 || sortMode !== HOUSE_LIST_DEFAULT_SORT ? (
+          propertyFilters.length > 0 ||
+          sortMode !== HOUSE_LIST_DEFAULT_SORT ||
+          stayFilter !== RESIDENT_STAY_FILTER_DEFAULT ||
+          contactFilter !== RESIDENT_CONTACT_FILTER_DEFAULT ? (
             <PortalActiveFilterChips
               chips={[
                 ...(sortMode !== HOUSE_LIST_DEFAULT_SORT
@@ -4170,6 +4359,24 @@ export function ManagerResidents({
                         id: "sort-mode",
                         label: `Sort: ${HOUSE_LIST_SORT_OPTIONS.find((o) => o.value === sortMode)?.label ?? sortMode}`,
                         onRemove: () => setSortMode(HOUSE_LIST_DEFAULT_SORT),
+                      },
+                    ]
+                  : []),
+                ...(stayFilter !== RESIDENT_STAY_FILTER_DEFAULT
+                  ? [
+                      {
+                        id: "stay",
+                        label: `Stay: ${RESIDENT_STAY_FILTER_OPTIONS.find((o) => o.value === stayFilter)?.label ?? stayFilter}`,
+                        onRemove: () => setStayFilter(RESIDENT_STAY_FILTER_DEFAULT),
+                      },
+                    ]
+                  : []),
+                ...(contactFilter !== RESIDENT_CONTACT_FILTER_DEFAULT
+                  ? [
+                      {
+                        id: "contact",
+                        label: "Missing phone",
+                        onRemove: () => setContactFilter(RESIDENT_CONTACT_FILTER_DEFAULT),
                       },
                     ]
                   : []),
@@ -4212,12 +4419,19 @@ export function ManagerResidents({
                 tone: "muted",
                 clear: { label: "Clear search", onClick: () => setResidentSearch(""), dataAttr: "residents-empty-clear-search" },
               }
-            : propertyFilters.length > 0
+            : propertyFilters.length > 0 || contactFilter !== RESIDENT_CONTACT_FILTER_DEFAULT
             ? {
                 title: portalEmptyNoMatchTitle("residents"),
                 section: "residents",
                 tone: "muted",
-                clear: { label: "Clear filters", onClick: () => setPropertyFilters([]), dataAttr: "residents-empty-clear-filters" },
+                clear: {
+                  label: "Clear filters",
+                  onClick: () => {
+                    setPropertyFilters([]);
+                    setContactFilter(RESIDENT_CONTACT_FILTER_DEFAULT);
+                  },
+                  dataAttr: "residents-empty-clear-filters",
+                },
               }
             : {
                 title: portalEmptyCopy(`residents.${residentsTab}` as PortalEmptyCopyKey).title,
@@ -4235,7 +4449,7 @@ export function ManagerResidents({
                 actions:
                   residentsTab === "past"
                     ? []
-                    : [{ label: "Add resident", onClick: () => setAddResidentOpen(true), dataAttr: "residents-empty-add" }],
+                    : [{ label: "Add resident", onClick: () => setQuickAddOpen(true), dataAttr: "residents-empty-add" }],
               }
         }
         onBulkClear={clearSelection}
@@ -4268,6 +4482,30 @@ export function ManagerResidents({
               }}
             >
               Send setup
+            </Button>
+            ) : null}
+            {singleListSelectedResident?.manuallyAdded ? (
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="residents-bulk-setup-progress"
+              onClick={() => setSetupProgressFor({ id: singleListSelectedResident.axisId, name: singleListSelectedResident.name })}
+            >
+              Setup progress
+            </Button>
+            ) : null}
+            {singleListSelectedNeedsSetup && singleListSelectedResident ? (
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="residents-bulk-text-onboarding"
+              onClick={() => {
+                void textOnboardingLink(singleListSelectedResident);
+              }}
+            >
+              Text link
             </Button>
             ) : null}
             <Button
@@ -4314,7 +4552,7 @@ export function ManagerResidents({
       >
         <ManagerResidentsGroupedTable
           // Rebuilt around a different question (tab, house, sort), the open / closed state starts over.
-          key={`${residentsTab}:${sortMode}:${propertyFilters.join(",")}`}
+          key={`${residentsTab}:${sortMode}:${propertyFilters.join(",")}:${stayFilter}:${contactFilter}`}
           rows={residentListRows}
           groupMode="house"
           groupByHouse={sortMode === "house"}
@@ -4328,9 +4566,28 @@ export function ManagerResidents({
           }
         />
       </PortalRecordListSurface>
+      {phoneAskTargets.length > 0 ? (
+        <div className="mt-3 flex justify-end" data-attr="residents-ask-phone-footer">
+          <Button
+            type="button"
+            variant="primary"
+            data-attr="residents-ask-phone"
+            onClick={() => askResidentsForPhone()}
+          >
+            {`Ask these ${phoneAskTargets.length} for their phone`}
+          </Button>
+        </div>
+      ) : null}
 
       </ManagerPortalPageShell>
       )}
+      <ResidentRatingSheet
+        open={rateResidentOpen && Boolean(selected)}
+        onClose={() => setRateResidentOpen(false)}
+        applicationId={selected?.id ?? ""}
+        onSaved={() => setRatingsRefresh((n) => n + 1)}
+      />
+
       <ManagerAddPaymentModal
         open={addResidentPaymentOpen}
         onClose={() => setAddResidentPaymentOpen(false)}
@@ -4412,6 +4669,25 @@ export function ManagerResidents({
           </>
         }
       />
+
+      <QuickAddResidentsModal
+        open={quickAddOpen}
+        onClose={() => setQuickAddOpen(false)}
+        onFullForm={() => {
+          setQuickAddOpen(false);
+          setAddResidentOpen(true);
+        }}
+        onAdded={() => {
+          setChargeBucket("pending");
+          setHcTick((n) => n + 1);
+          setLeaseTick((n) => n + 1);
+        }}
+        managerUserId={userId ?? null}
+        propertyOptions={propertyOptions}
+        propertyTick={propertyTick}
+        executedLeaseKeys={executedLeaseKeys}
+      />
+      <ResidentSetupProgressModal applicationId={setupProgressFor?.id ?? null} residentName={setupProgressFor?.name ?? ""} onClose={() => setSetupProgressFor(null)} />
 
       {addResidentOpen ? (
         <AddResidentWizard
@@ -4545,6 +4821,7 @@ export function ManagerResidents({
         onClose={() => setHoldingFeeRowId(null)}
       />
 
+      {adverseAction.dialog}
       <ApproveApplicationDialog
         row={approvePreviewRow}
         userId={userId ?? null}

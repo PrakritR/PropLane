@@ -59,6 +59,8 @@ vi.mock("@/hooks/use-manager-user-id", () => ({
   useManagerUserId: () => ({ userId: "mgr-1", email: "mgr@example.com", ready: true }),
 }));
 
+import { serviceChargeDisplayTitle } from "@/lib/service-charge-title";
+
 vi.mock("@/lib/household-charges", () => ({
   HOUSEHOLD_CHARGES_EVENT: "household-charges-changed",
   syncHouseholdChargesFromServer: () => Promise.resolve(),
@@ -69,6 +71,10 @@ vi.mock("@/lib/household-charges", () => ({
   householdChargeManagerBucket: (c: { status?: string; __overdue?: boolean }) =>
     c.status === "paid" ? "paid" : c.__overdue ? "overdue" : "pending",
   isManagerAddedOneOffCharge: () => false,
+  // The dashboard reads a charge's title through the shared normalizer, so a legacy
+  // "Work order · …" row reads "Service · …" here too (AGENTS.md: no "work orders").
+  householdChargeDisplayTitle: (c: { kind?: string | null; title?: string | null }, fallback = "Charge") =>
+    serviceChargeDisplayTitle(c, fallback),
   chargeDueLabel: (c: { __overdue?: boolean }) => (c.__overdue ? "Due May 1, 2026" : "Due Jul 20, 2026"),
   // The KPI row asks each charge for its due date to total "due this period".
   householdChargeDueDate: (c: { __overdue?: boolean }) => (c.__overdue ? new Date(2026, 4, 1) : new Date(2026, 6, 20)),

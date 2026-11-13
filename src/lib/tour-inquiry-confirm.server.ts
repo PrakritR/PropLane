@@ -26,6 +26,7 @@ import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
 import { canAssign, normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
 import { createPrepareForTourTask } from "@/lib/manager-default-tasks.server";
 import { mutateConfirmedTourSchedule } from "@/lib/tour-schedule-persistence.server";
+import { settleTourFeeOnCancel, tourFeeConfirmGate } from "@/lib/tour-fee.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -307,6 +308,11 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     return { ok: false, status: 403, error: "Unauthorized." };
   }
 
+  // A request whose tour fee is unpaid is not confirmed: the guest pays first. No fee (the default) means no gate.
+  // Only a request that was stamped with a fee at booking (`tourFee`, set only when the fee was above 0) is read at all.
+  const feeGate = row.tourFee ? await tourFeeConfirmGate(db, id) : null;
+  if (feeGate) return { ok: false, status: feeGate.status, error: feeGate.error };
+
   // Approving claims it. An admin acting on someone's behalf changes nothing.
   const requestedHostUserId = opts.hostUserId?.trim() ?? "";
   const managerUserId =
@@ -415,6 +421,11 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
       status: persisted.reason === "conflict" ? 409 : 500,
       error: persisted.reason === "conflict" ? "That time was already booked. Review this tour and pick another slot." : persisted.reason,
     };
+  }
+
+  // Any other request this booking removed (same slot, same tour group) that had paid a tour fee gets it back.
+  for (const removedId of removedInquiryIds) {
+    if (removedId !== id) await settleTourFeeOnCancel(db, { inquiryId: removedId, reason: "slot_taken" });
   }
 
   // Tell the rest of the team this tour is now taken (WS5 team audience).

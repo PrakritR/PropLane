@@ -1,4 +1,5 @@
 import "server-only";
+import { accountHolderNameFromAccount, holderNamesMatch } from "@/lib/stripe-account-holder";
 
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -151,6 +152,19 @@ export async function addPayoutDestination(
 ): Promise<AddDestinationResult> {
   const token = opts.token?.trim();
   if (!token) return { ok: false, status: 422, error: "Missing card or bank token." };
+
+  // Stripe requires the external account to belong to the account holder. The name on a bank token must match the
+  // verified name on the connected account, checked here from Stripe's own objects, never from the browser's word.
+  if (/^b?tok_/.test(token)) try {
+    const [tok, account] = await Promise.all([stripe.tokens.retrieve(token), stripe.accounts.retrieve(accountId)]);
+    const holder = accountHolderNameFromAccount(account);
+    const tokenName = tok.bank_account?.account_holder_name ?? null;
+    if (tok.bank_account && !(holder && tokenName && holderNamesMatch(tokenName, holder))) {
+      return { ok: false, status: 422, error: "The bank account must be in the name on the Stripe account." };
+    }
+  } catch (e) {
+    return { ok: false, status: 400, error: stripeExternalAccountErrorMessage(e, "stripe-external-accounts holder check") };
+  }
 
   let created: Stripe.ExternalAccount;
   try {

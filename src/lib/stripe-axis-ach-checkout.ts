@@ -49,6 +49,13 @@ export type AxisAchCheckoutInput = {
   /** A claim-backed attempt stores this server-calculated quote before
    * provider creation; retries must reuse it after pricing code changes. */
   fixedFeeBreakdown?: ResidentServiceFeeBreakdown;
+  /**
+   * The payer's own Stripe Customer, set ONLY when the payer is the signed-in resident paying from their own session.
+   * Checkout then offers the cards they saved in Settings (one tap, or Apple Pay) instead of an empty card form. Never
+   * set for a manager collecting on a resident's behalf or any link another person could open: the saved cards would be
+   * shown to whoever holds the client secret. Absent = `customer_email` and a blank form, as before.
+   */
+  customerId?: string | null;
   managerTier?: string | null;
   /**
    * Who bears the service fee on this charge. Callers resolve it from the
@@ -416,7 +423,12 @@ export async function createAxisAchCheckoutSession(
 
   const sessionBase = {
     mode: "payment" as const,
-    customer_email: residentEmail,
+    ...(input.customerId?.trim()
+      ? {
+          customer: input.customerId.trim(),
+          saved_payment_method_options: { allow_redisplay_filters: ["always", "limited", "unspecified"] },
+        }
+      : { customer_email: residentEmail }),
     wallet_options: { link: { display: "never" as const } },
     ...paymentMethodConfig,
     line_items: stripeLineItems,

@@ -16,6 +16,16 @@ skip the message and answer `communicationBlocked`. The owner's plan decides. In
 transactional / auth mail are never gated. See
 [`plan-entitlements.md`](plan-entitlements.md) § Communication on a trial.
 
+**A typed address that is not yet a contact is a real send, capped.** A manager-side sender with
+Communication at `edit` on the active workspace (its owner, or a teammate whose grant reaches one of
+its houses) may email a bare `name@host.tld` nobody has an account for, which opens a conversation in
+that workspace through the same keyed creation as any other send. Every part of it is re-derived
+server-side: edit rights from the membership (`managerMayMessageNewContacts`), account-less status
+from a successful case-insensitive profile read only (`confirmedAccountlessEmails` — a failed read or
+an existing account is never a typed address), and never for a vendor or resident sender. The caps
+are 5 new addresses per message and 25 per workspace per rolling day, reserved as ONE all-or-nothing
+`rateLimit` cost so a refused send spends nothing. `src/lib/inbox-recipient-scope.ts`.
+
 ## `recordRef` — a thread can be labeled with the record it is about
 
 A thread's `row_data` may carry `recordRef: { kind, id, label }` (kinds:
@@ -193,8 +203,9 @@ admin:
   `SMS_COMM_UI_ENABLED` says - admin operates the PropLane line (see the flag below).
 - **Workspace placement (PropLane Service, Oct 20).** Every text thread carries `workspaceId` / `workspaceName`: the
   `is_service` workspace the router stamped on its messages (`placeAdminSmsConversations`), else "Unassigned" - a stamp on
-  any other workspace is never named. The row draws it as one plain line under the preview (`placeLine`, no pill); the
-  Filter popover has a Workspace field (All · Unassigned · each service workspace) that re-reads the stream with
+  any other workspace is never named. The row draws its place as one plain line under the preview (`placeLine`, no pill;
+  what that line holds is below); the Filter popover has a Workspace field (All · Unassigned · each service
+  workspace) that re-reads the stream with
   `?workspaceId=` (`unassigned` or a service workspace this surface already reads, else 400/404; admin gate first).
   The thread header names the workspace with an "Open in workspace" icon action (the Admin > Service `open` action, then
   `/portal/communication/active/<key>`).
@@ -206,6 +217,34 @@ admin:
 - **Inside a service workspace** a PropLane-line thread routed to it (`sms_projection_conversations.workspace_id` of an
   `is_service` workspace) is placed by that stamp alone (`placedWorkspaceIdOf`, the shared-line placement rule): visible
   in that workspace with no house tag, in no other. Another owner's thread still needs the viewer's house grant.
+- **A thread that lives in a workspace is not in the admin's main list (Nov 12).** `placeAdminSmsConversations` keeps only
+  threads no service workspace holds (Unassigned, open leads); an assigned lead, or any text stamped on a service workspace,
+  shows only in that workspace's Communication and under the Workspace filter. A sender that is not a phone number (a
+  carrier short code like `78156`, an alphanumeric id) is stored by `ingestNonPhoneSenderText` as its own history-only
+  thread titled by the sender (`sendDisabled`), alerts the admin phones once with the body in full, and is NEVER replied to
+  or given to an agent (`non-phone-sender.ts`; the inbound route no longer answers it 400).
+- **Opening and answering a placed thread (Nov 12).** Narrowing the LIST is a view, never routing. Admin opens any thread its
+  list shows through `/api/manager/sms-conversations/<id>` with `?oversight=admin` (`adminOversightUrl`): the route confirms the
+  admin role (`resolveAdminOversight`) and then authorizes against `loadAdminSmsOwnerScope` — the admin list's OWN owners (the
+  mapped manager cohort and the service owner in full, a PropLane Service client only for a thread placed in one of its service
+  workspaces) — never the admin's own workspace, which used to 404 a managed client's thread. The send route reads with
+  `includePlaced: true` so a reply resolves the recipient's thread across EVERY placed thread, logs to that workspace and leaves
+  on its line; without it the reply landed under an arbitrary owner. Test: `tests/unit/admin-sms-thread-oversight.test.ts`.
+- **The admin pane is not the manager pane.** A thread admin's list shows never silently vanishes: on 403/404 the row stays and
+  says so in place (the manager pane still drops it). Renaming a contact, the email leg of a reply and "Schedule for later" are
+  manager-scoped writes the admin pane does not own, so an `/api/admin/*` endpoint hides them and an admin text thread sends now
+  or not at all. A row's `placeLine` is the house (and room) the thread names, as the manager inbox's is, and falls back to the
+  service workspace it was routed to, else Unassigned. Test: `tests/unit/admin-sms-panel-actions.test.ts`.
+- **Thread header chrome.** The admin lead thread's "Assign to workspace" is an icon action over a menu (confirm, then
+  `PATCH /api/admin/unassigned-leads/<id>`); no select pill whose width follows a workspace name. The shared
+  `InboxThreadView` header is `min-w-0 max-w-full`, message text wraps (`break-words [overflow-wrap:anywhere]`).
+- **Who an outbound text is from.** An AI or automated outbound (outbox purpose other than `manager_conversation`, send
+  class `automated`, source `automated`, or an "actor" that is the texter) reads "PropLane" with the Assistant mark; a staff
+  reply wears that person's name (`isAutomatedSmsOutbound`, `smsOutboundAuthorLabel`). Display only: stored rows are untouched.
+- **Notices name the house, never its id.** `notifyManagerFromAgent` replaces any `mgr-…` property id in a notice's prose with
+  the listing's display name (`withHouseDisplayNames`); the digest and reminder builders resolve names at the source
+  (`noticePlaceName`). A lease follow-up is one notice per lease, lead time and person (`reminderNoticeIdempotencyKey`).
+  Guard: `tests/unit/assistant-notice-no-raw-ids.test.ts`.
 - **Identity boxes** are the support address (`PUBLIC_SUPPORT_EMAIL`, the mailbox
   inbound mail is routed from - `docs/agents/inbound-email-inbox.md`) and, when the
   text stream reported one, its number (`AdminWorkIdentityCard`). No "set up" prompt:
@@ -1018,6 +1057,51 @@ are `resident-conversation.ts` (`tests/unit/resident-conversation.test.ts`):
   which re-keys the number's past SMS projection rows through the one resolver
   (`acct:` where the resident is linked to the workspace, else the `tel:` key).
 
+## What a resident's conversations are called, and the one PropLane agent (Nov 12)
+
+Captain, Nov 12: the resident's Communication reads like a Messages tab (Airbnb-inspired: a 48px avatar, a bold
+title, a one-line preview, the stamp top right, an unread dot, a full-screen thread on a phone), and a resident can
+tell every voice apart by NAME. The names are one module, `src/lib/communication/resident-conversation-names.ts`
+(pure; `tests/unit/resident-conversation-names.test.ts`), used by the list, the thread header and the details pane.
+
+| What it is | Row title | Avatar |
+| --- | --- | --- |
+| The PropLane agent (the 206 line, the top-bar assistant, the dashboard's Ask card, the phone's Ask tab) | **PropLane** | assistant glyph |
+| A manager's / owner's work-number conversation about a house | the **house** ("4709A 8th Ave"), else the workspace, else the manager's name, else "Your home" | house tile |
+| The house group chat | "House · 4709A 8th Ave" (unchanged) | people tile |
+| The agent behind the resident's OWN PropLane Number (texts that reach that number from other people) | **My PropLane agent** | phone |
+
+- **A phone number is never a title** (`looksLikePhoneNumber`, and a bare email is skipped too). The house's WORK number
+  is a copyable detail: the thread header's subtitle ("<manager> · +1 (206) 555-0100") with a copy icon action
+  (`CopyIconAction`, "Copy work number") and the details pane's "Work number" row. Only a work line is offered
+  (`residentHouseWorkPhone`: the server-stamped counterparty number, or a contact whose `phoneKind` is `work`), never a
+  manager's profile phone. The manager's name is the plain line under the row, the texter's number the line under a
+  "My PropLane agent" row. The stored author "PropLane Assistant" is mapped to "PropLane" at display time
+  (`residentAssistantDisplayName`); the stored string is unchanged.
+- **Order:** the PropLane agent first, always (even when it is the oldest conversation); then the house chats; then every
+  house / number conversation by recency; then the houses with nothing to read yet (below). A stable partition
+  (`orderResidentConversationRows`). On Active only: the agent is not on Archived or Unread, and it cannot be archived.
+  The desktop opens the first conversation by default, which is the agent, so a chat is always open.
+- **One agent, every door.** The pinned row, the top bar's side panel / phone sheet, the dashboard's Ask card, the
+  phone's Ask tab and a composer's "Ask PropLane" all read the ONE `AssistantConversationProvider` the resident layout
+  mounts on `/api/agent/resident-chat` (`residentAssistantEntryTarget` names the one id, `resident-agent-<uid>`, for
+  every entry point). The pinned row's thread pane is `ResidentAssistantThread`, the shared `AssistantDockPanel`; its
+  preview is the latest turn of that conversation, and opening Communication calls `hydrateArchive` so the latest saved
+  session is restored. **Where they diverged:** the old pinned row (removed Oct 3) opened a stored `resident-agent-<uid>`
+  inbox thread whose replies went through `send-inbox-message` to `runResidentInboxAgentTurn`, a second store and a
+  second turn runner, so history typed in one door was invisible in the other. A reply to the agent never takes that
+  path from the list now, and there is no second assistant route or registry. The row exists only where the provider is
+  mounted (not in the demo, not in a "View as" session, not in a record-scoped list). The stored `resident-agent` thread
+  still counts toward the badge when it holds an unread turn. A text filed under `resident-agent-inbound-sms:` shares
+  the id prefix but is "My PropLane agent", not the agent (`isResidentPropLaneAgentThread`).
+- **Start a conversation about a house.** Each current house (a manager contact whose house has no live conversation) is
+  a last row on Active with the house as its title and "No messages yet."; tapping it opens the existing New message
+  composer addressed to that house's manager (`residentHouseStarters`; `openCompose`). The message goes through the one
+  authorize-then-append path (`send-inbox-message`), into the resident's ONE conversation per workspace
+  (`ws:<workspace>`), which the manager reads as the same conversation as that resident's texts. A starter is an offer:
+  it is not counted in the tab or header count and an archived conversation does not cover its house.
+- Notifications that name the agent or a house read these names; the server-side push / SMS notice copy is unchanged.
+
 ## A reply leaves on the channel the person reached you on
 
 Person threads in Communication default the composer to the **last inbound
@@ -1074,6 +1158,15 @@ Gmail attribution header that wraps onto a second line — the one case that use
 to leak "On … wrote:" into the bubble. Coverage:
 `tests/unit/inbound-email-reply.test.ts`, `tests/unit/assistant-email-mirror-stamps.test.ts`,
 `tests/unit/manager-inbox-reply-channels.test.ts`, `tests/unit/inbox-bubble-alignment.test.tsx`.
+
+## Delivery status (Nov 10)
+
+- Every outbound text or email an inbox message goes out on records `deliveries: {channel, providerId, status, error, at}[]` on that message (`InboxThreadMessage.deliveries`; the root turn, which lives in `body`, uses `rootDeliveries`). Additive: a turn without it renders the plain Sent tick as before. Types and rules: `src/lib/inbox-delivery-status.ts`; writers: `inbox-delivery-status.server.ts`.
+- Status is provider truth, never inferred: the send path stamps `sent` (Twilio SID / Resend id) or `failed` with a reason; the signed `/api/twilio/status` callback and the Svix-signed `/api/webhooks/email/resend-events` (`RESEND_WEBHOOK_SECRET`, fail closed: 503 unset, 401 bad signature) advance it. A callback only advances (terminal `delivered`/`failed` never changes) and a replay is a no-op.
+- A provider id finds its message through `inbox_message_provider_refs` (service-role only, RLS on, no client grants). The send path writes the ref before the status; an id with no ref is ignored. A thread merged or deleted since the send simply has nothing to update.
+- A placeholder address (`@import.proplane.local`, sheet junk, a PropLane-minted stand-in; `isPlaceholderMailbox`) is recorded `failed` "Not a real mailbox" at send time and Resend is never handed it. Sandbox accounts skip mail on purpose and record nothing.
+- A message counts as not delivered only when EVERY channel it went on failed (a text that landed beside a bounced email is delivered). `latestOutboundDeliveryFailed` is the one decision for the red "Not delivered" glyph fact on the list row (never a pill), the Communication Filter's "Not delivered" option (a filter, not a tab) and the dashboard's "N messages didn't deliver" item (`?filter=not-delivered`).
+- A failed bubble shows one red strip: the plain reason, plus Retry and Send by text/email when the surface owns a composer (`InboxDeliveryActionsContext`; the manager inbox puts the message back in the composer on that channel, so the send stays the composer's own one path). Error wording lives in `twilioErrorMessage` / `mapResendEvent`, never in the bubble.
 
 ## Inbox attachments
 
@@ -1240,3 +1333,13 @@ Public listing contacts, preview contacts, resident manager cards, manager threa
 ## Bookings: notices and removed stays (C2-BK4, C2-AB7)
 
 Cancel booking's "Notify guest" sends through the same authorized `POST /api/portal/send-inbox-message` (`booking-cancel-notice.ts`), after the cancel is saved, stamped with a `booking` recordRef; with no email on the stay the checkbox is disabled. A stay brought in by a channel feed is removed with a tombstone (`channel_stay_tombstone` in `portal_schedule_records`, keyed by house, room, channel and the feed's event UID) written by `/api/portal/channel-calendar/stay-tombstones`; the sync prunes tombstoned UIDs before it stores ranges, and Undo restores the carried range. A host block ("Airbnb (Not available)") shares one UID with every other block the host has, so its tombstone identity also carries `start|end` (`house|room|channel|uid|start|end`) while a reservation stays UID-only; changing a connection's import URL clears that room's tombstones, and a sync that prunes anything logs `pruned_count`. Notes and stay details on a signed-lease or application stay (`booking_stay_meta`) are written by `/api/portal/bookings/stay-meta`, which re-derives the caller's access to the lease/application from the session. The generic schedule-records route refuses both record types.
+
+## Prospect threads, staff visibility and delivery issues (Nov 12)
+Staff of a PropLane Service workspace read that workspace's conversations whole (`staffWorkspaceOwners`); the thread header carries `prospectContext` ("5259 Brooklyn Ave NE · Room 4"), `platformState` ("Moved to text") and `platformDraft` (Copy + "Open on <site>"). A thread `deliveryIssue` (inbound unsaved, reply refused, provider failure) lists under Filter > "Delivery issues" with its reason and clears on the next delivered send. Owner: [`prospect-spine.md`](prospect-spine.md).
+
+## List order, From filter, Team chat roster, chat fit (Nov 12)
+
+- **Pin only the Assistant and the Team chat.** Every other conversation, house chats included, sorts strictly by `sortMs` (`inboxThreadSortMs`, a real timestamp, never the "Nov 4" label) on every portal (`groupWorkspaceChatsAfterAssistant`, `orderResidentConversationRows`). Test: `tests/unit/inbox-sort-pinning.test.ts`.
+- **From filter** (manager + admin Filter popover, single-select, per-viewer localStorage): `communication-from-filter.ts` derives Residents / Vendors / Managers / Prospects from the SMS counterparty role, the Team chat id, `prospectContext`, or the contact directory, never a name; unknown = All only. Applicant counts as Prospect. Test: `communication-from-filter.test.ts`.
+- **Team chat roster** = owner + every accepted seat of the workspace (co-managers and PropLane staff seats, any manager role, Viewer reads) via `resolveWorkspaceTeamMembers`; the list also admits `staffWorkspaceOwners`. Test: `team-chat-members-groups.test.ts`.
+- **Chat fit:** thread body clips x-overflow, wraps long strings, media is `max-width:100%`, pane fallback uses `dvh`. Test: `inbox-chat-fit.test.ts`.

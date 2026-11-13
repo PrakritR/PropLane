@@ -25,6 +25,7 @@ import {
   BOOK_TOUR_LABEL,
   ListingActionsProvider,
   ListingPriceCard,
+  ListingReachActions,
   MonthlyPrimaryCta,
   PriceFigure,
 } from "@/components/marketing/listing-price-card";
@@ -44,13 +45,6 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
  */
 
 const BUNDLE_FACT_ICONS = { rooms: BedDouble, price: DollarSign, stay: CalendarDays } as const;
-
-/** Scrolls to the visible short-stay card. A class/data hook, not an id: the listing renders in more than one shell, and a duplicate id made the jump land on a hidden copy. */
-function scrollToShortStayCard() {
-  const cards = Array.from(document.querySelectorAll<HTMLElement>("[data-short-stay-card]"));
-  const visible = cards.find((card) => card.getClientRects().length > 0) ?? cards[0];
-  visible?.scrollIntoView({ block: "start", behavior: "smooth" });
-}
 
 function formatBoldSegments(text: string) {
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
@@ -196,13 +190,12 @@ function Section({
 }
 
 /**
- * The page's actions on a phone: Book a tour and Apply (or Request to book on the short-stay segment), all through a
- * resident account; no number and no text link on a /rent page (captain, Oct 20). Fixed to the bottom of the public page only; the portal's preview never draws it. It tells
+ * The page's actions on a phone: Tour and Book (through a resident account), then Message (a phone and a texted code,
+ * no account) and Text us (the one configured PropLane line; not drawn when there is none). Fixed to the bottom of the
+ * public page only; the portal's preview never draws it. It tells
  * the page (a flag on <html>) so the floating assistant button rides above it.
  */
 function PhoneDock({ property, newTab }: { property: MockProperty; newTab: boolean }) {
-  const stay = useShortStay();
-  const shortSegment = stay?.offered === true && stay.segment === "short";
   useEffect(() => {
     const root = document.documentElement;
     root.setAttribute("data-ps-dock", "");
@@ -215,18 +208,8 @@ function PhoneDock({ property, newTab }: { property: MockProperty; newTab: boole
         <ProspectListingCta action="tour" propertyId={property.id} data-attr="listing-web-tour" className="ps-btn ps-btn-blue" newTab={newTab}>
           {BOOK_TOUR_LABEL}
         </ProspectListingCta>
-        {shortSegment ? (
-          <button
-            type="button"
-            className="ps-btn ps-btn-line"
-            data-attr="listing-sticky-request"
-            onClick={() => scrollToShortStayCard()}
-          >
-            Request to book
-          </button>
-        ) : (
-          <MonthlyPrimaryCta property={property} newTab={newTab} className="ps-btn ps-btn-line" label="short" />
-        )}
+        <MonthlyPrimaryCta property={property} newTab={newTab} className="ps-btn ps-btn-line" label="short" />
+        <ListingReachActions property={property} newTab={newTab} />
       </div>
     </>
   );
@@ -250,29 +233,10 @@ function StickyBar({
   /** Manager preview on a phone: one slim row (price and availability left, the primary and Tour right). */
   slim?: boolean;
 }) {
-  const stay = useShortStay();
-  // Exactly one primary and Tour: on the Short stay segment the primary is Request to book, which brings the
-  // booking block into view; on Monthly it is the same Quick apply / Continue / Apply the card shows.
-  // `stay.offered` is the card's own predicate, so the bar can never offer a segment the card is not on.
-  const shortSegment = stay?.offered === true && stay.segment === "short";
-  const nightlyFrom = listingShortStayNightlyFrom(property.listingSubmission);
-  const from =
-    shortSegment && nightlyFrom > 0
-      ? `from $${nightlyFrom.toLocaleString("en-US")} / night`
-      : (listingMonthlyPriceLine(rich)?.label ?? "");
+  // Exactly one primary and Tour: the primary is the same Book / Continue the card shows, and the price is the monthly line.
+  const from = listingMonthlyPriceLine(rich)?.label ?? "";
   const compact = slim ? "!w-auto flex-none !px-4" : "min-w-[7.5rem] flex-1 !px-3";
-  const primary = shortSegment ? (
-    <button
-      type="button"
-      className={`ps-btn ps-btn-blue ${compact}`}
-      data-attr="listing-sticky-request"
-      onClick={() => scrollToShortStayCard()}
-    >
-      Request to book
-    </button>
-  ) : (
-    <MonthlyPrimaryCta property={property} newTab={newTab} className={`ps-btn ps-btn-blue ${compact}`} label={slim ? "short" : undefined} />
-  );
+  const primary = <MonthlyPrimaryCta property={property} newTab={newTab} className={`ps-btn ps-btn-blue ${compact}`} label={slim ? "short" : undefined} />;
   const tour = (
     <ProspectListingCta
       action="tour"
@@ -281,14 +245,7 @@ function StickyBar({
       className={`ps-btn ps-btn-line ${compact}`}
       newTab={newTab}
     >
-      {slim ? (
-        <>
-          <span aria-hidden>Tour</span>
-          <span className="sr-only">{BOOK_TOUR_LABEL}</span>
-        </>
-      ) : (
-        BOOK_TOUR_LABEL
-      )}
+      {BOOK_TOUR_LABEL}
     </ProspectListingCta>
   );
   const bar = "sticky bottom-0 z-[40] -mx-4 mt-6 border-t border-[var(--ps-ink)] bg-[var(--ps-paper)] px-4 lg:hidden";
@@ -600,10 +557,6 @@ function ListingDetailBody({
               <ListingStickySubnav className="mb-5" />
             ) : null}
 
-            {/* Phone: the pickers (and short-stay booking) in the page, between the title and the sections. */}
-            <div className="mb-10 empty:hidden lg:hidden @min-[900px]:hidden" data-short-stay-card data-attr="listing-phone-price-card">
-              <ListingPriceCard property={property} rich={rich} newTab={embeddedPreview} variant="inline" showActions={!phoneDock} />
-            </div>
             <div className="mb-10 hidden lg:block @min-[900px]:hidden" data-listing-price-card-stack>
               <ListingPriceCard property={property} rich={rich} newTab={embeddedPreview} availableLine={availableLine} />
             </div>

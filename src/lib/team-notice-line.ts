@@ -57,6 +57,9 @@ const PAYMENT_HEADLINE: Record<string, string> = {
   reminder_sent: "Payment reminder sent",
 };
 
+import { scrubRawPropertyIds } from "@/lib/notice-place-label";
+const NO_NAMES: ReadonlyMap<string, string> = new Map();
+
 export function teamNoticeEventLabel(domain: string | undefined): string {
   const key = (domain ?? "").trim();
   return EVENT_LABEL[key] ?? (key ? key.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()) : "Update");
@@ -109,12 +112,14 @@ export function buildTeamNoticeLine(input: {
   amount?: string | null;
   urgent?: boolean;
 }): string {
+  // A stored property id ("mgr-listing-…") is never copy: the house reads "your house" when only its id is known.
+  const noIds = (value: string) => scrubRawPropertyIds(value, NO_NAMES);
   const details = [
-    serviceSubject(input.subject),
+    noIds(serviceSubject(input.subject)),
     input.amount?.trim() ?? "",
     // "5257 Brooklyn Ave · Room 2" is a label with a separator dot; in a sentence it is a list.
-    (input.place?.trim() ?? "").replace(/\s*·\s*/g, ", "),
-    input.who?.trim() ?? "",
+    noIds((input.place?.trim() ?? "").replace(/\s*·\s*/g, ", ")),
+    noIds(input.who?.trim() ?? ""),
   ].filter(Boolean);
   const headline = headlineFor(input.domain, input.event);
   const sentence = details.length > 0 ? `${headline}: ${details.join(", ")}.` : `${headline}.`;

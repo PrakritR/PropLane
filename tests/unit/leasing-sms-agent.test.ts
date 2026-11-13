@@ -93,8 +93,9 @@ function catalogListing(over: Record<string, unknown> = {}) {
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   __resetLeasingCatalogCache();
+  (await import("@/lib/seo/public-catalog.server")).resetCrawlPublicListingsCache();
   (getPublicListings as unknown as ReturnType<typeof vi.fn>).mockReset();
   process.env.PROPLANE_SMS_LINK_ORIGIN = PROD_ORIGIN;
   process.env.CLAW_MESSENGER_LINK_ORIGIN = PROD_ORIGIN;
@@ -193,6 +194,7 @@ describe("leasing SMS agent registry", () => {
         "list_open_tour_slots",
         "lookup_property_knowledge",
         "request_tour",
+        "start_prospect_signup",
         "suppress_redundant_reply",
       ].sort(),
     );
@@ -730,7 +732,8 @@ describe("cross-catalog listing resolution (shared PropLane line)", () => {
     expect(links.applyUrl).toContain("propertyId=mgr-seed-4709a-8th-ave-ne");
     expect(links.applyUrl).toContain("phone=%2B12065559999");
     expect(links.applyUrl).not.toMatch(/localhost/);
-    expect(links.listingUrl).toBe(`${PROD_ORIGIN}/rent/listings/mgr-seed-4709a-8th-ave-ne`);
+    // The readable address URL, from the published-catalog slug index (the id URL redirects to it).
+    expect(links.listingUrl).toBe(`${PROD_ORIGIN}/rent/listings/4709a-8th-ave-ne`);
     expect(links.tourUrl).toBe(`${PROD_ORIGIN}/rent/tours-contact?propertyId=mgr-seed-4709a-8th-ave-ne`);
     expect(links.messageUrl).toBe(`${PROD_ORIGIN}/rent/tours-contact?propertyId=mgr-seed-4709a-8th-ave-ne&tab=message`);
     expect(links.browseUrl).toBe(`${PROD_ORIGIN}/rent/browse`);
@@ -749,7 +752,7 @@ describe("cross-catalog listing resolution (shared PropLane line)", () => {
     }));
 
     expect(links.ok).toBe(true);
-    expect(links.listingUrl).toBe("http://localhost:3010/rent/listings/mgr-seed-4709a-8th-ave-ne");
+    expect(links.listingUrl).toBe("http://localhost:3010/rent/listings/4709a-8th-ave-ne");
     expect(links.tourUrl).toBe("http://localhost:3010/rent/tours-contact?propertyId=mgr-seed-4709a-8th-ave-ne");
     expect(links.applyUrl).toContain("http://localhost:3010/rent/apply?");
   });
@@ -778,7 +781,9 @@ describe("per-manager line stays scoped (no cross-catalog leakage)", () => {
     const res = await listLiveListingsTool.handler(ctx, {});
     expect(res.count).toBe(1);
     expect(res.listings[0]?.propertyId).toBe("portal-demo-prop-live");
-    expect(getPublicListings).not.toHaveBeenCalled();
+    // The listing set never comes from the public catalog; the only catalog read is the published-slug index for the URL,
+    // and an unpublished own listing keeps its id URL.
+    expect(res.listings[0]?.listingUrl).toMatch(/\/rent\/listings\/portal-demo-prop-live$/);
   });
 });
 

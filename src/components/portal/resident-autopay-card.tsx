@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { PortalDialog } from "@/components/portal/portal-dialog";
+import { residentProcessingFeeDisplayLabel } from "@/lib/payment-policy";
 
 type SavedMethod = { id: string; type: "card" | "us_bank_account"; label: string; isDefault: boolean };
 
@@ -49,6 +51,8 @@ export function ResidentAutopayCard({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Turning autopay on, or moving it to another method, waits here for the resident's explicit authorization. */
+  const [pendingConsent, setPendingConsent] = useState<{ paymentMethodId: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -83,7 +87,7 @@ export function ResidentAutopayCard({
   }, [load, refreshToken]);
 
   const save = useCallback(
-    async (patch: { enabled?: boolean; paymentMethodId?: string | null; runDaysBeforeDue?: number }) => {
+    async (patch: { enabled?: boolean; paymentMethodId?: string | null; runDaysBeforeDue?: number; consent?: boolean }) => {
       if (!state) return;
       setSaving(true);
       try {
@@ -95,11 +99,14 @@ export function ResidentAutopayCard({
             enabled: patch.enabled ?? state.enabled,
             paymentMethodId: patch.paymentMethodId ?? state.paymentMethodId ?? undefined,
             runDaysBeforeDue: patch.runDaysBeforeDue ?? state.runDaysBeforeDue,
+            ...(patch.consent ? { consent: true } : {}),
           }),
         });
         const data = (await res.json().catch(() => ({}))) as Partial<AutopayState> & { error?: string };
         if (!res.ok) {
           setError(data.error ?? "Could not save autopay settings.");
+          // The optimistic toggle must not outlive a refused save.
+          void load();
           return;
         }
         setError(null);
@@ -120,7 +127,7 @@ export function ResidentAutopayCard({
         setSaving(false);
       }
     },
-    [state],
+    [load, state],
   );
 
   const methodOptions = useMemo(
@@ -159,6 +166,12 @@ export function ResidentAutopayCard({
               onManagePaymentMethods();
               return;
             }
+            if (enabled) {
+              // A saved method is not an authorization: ask first, charge never before.
+              const methodId = state.paymentMethodId ?? state.defaultMethod?.id ?? "";
+              if (methodId) setPendingConsent({ paymentMethodId: methodId });
+              return;
+            }
             setState((prev) => (prev ? { ...prev, enabled } : prev));
             void save({ enabled });
           }}
@@ -179,8 +192,8 @@ export function ResidentAutopayCard({
             options={methodOptions}
             placeholder="Select…"
             onChange={(next) => {
-              setState((prev) => (prev ? { ...prev, paymentMethodId: next } : prev));
-              void save({ paymentMethodId: next });
+              // Another method is another authorization.
+              setPendingConsent({ paymentMethodId: next });
             }}
             disabled={saving}
             dataAttr="resident-autopay-method"
@@ -256,6 +269,39 @@ export function ResidentAutopayCard({
           </div>
         </div>
       ) : null}
+      <PortalDialog
+        open={pendingConsent !== null}
+        onClose={() => {
+          if (!saving) setPendingConsent(null);
+        }}
+        title="Turn on autopay"
+        fullScreenMobile={false}
+        primaryAction={{
+          label: "I agree, turn on autopay",
+          disabled: saving,
+          dataAttr: "resident-autopay-consent-agree",
+          onClick: async () => {
+            const target = pendingConsent;
+            if (!target) return;
+            await save({ enabled: true, paymentMethodId: target.paymentMethodId, consent: true });
+            setPendingConsent(null);
+          },
+        }}
+      >
+        {pendingConsent ? (
+          <p className="text-sm text-foreground" data-attr="resident-autopay-consent-text">
+            {(() => {
+              const picked = state.savedMethods.find((m) => m.id === pendingConsent.paymentMethodId);
+              const feeLabel = residentProcessingFeeDisplayLabel(picked?.type === "us_bank_account" ? "ach" : "card");
+              const runs =
+                state.runDaysBeforeDue === 0
+                  ? "on the due date"
+                  : `${state.runDaysBeforeDue} day${state.runDaysBeforeDue === 1 ? "" : "s"} before the due date`;
+              return `You authorize PropLane to charge ${picked?.label ?? "this payment method"} for your rent and utilities ${runs}, for the amount due plus the ${feeLabel} you pay on rent. You can turn autopay off at any time.`;
+            })()}
+          </p>
+        ) : null}
+      </PortalDialog>
     </section>
   );
 }

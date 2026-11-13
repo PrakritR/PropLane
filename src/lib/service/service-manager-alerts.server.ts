@@ -43,8 +43,11 @@ export function composeServiceAlertText(input: { workspaceName: string; subject:
   const label = serviceWorkspaceLabel(input.workspaceName);
   const subject = input.subject.replace(/\s+/g, " ").trim();
   const body = input.text.replace(/\s+/g, " ").trim();
-  const detail = body && body.toLowerCase() !== subject.toLowerCase() && !body.toLowerCase().startsWith(subject.toLowerCase()) ? ` - ${body}` : "";
-  const line = toGsm7(`PropLane ${label}: ${subject}${detail}`);
+  const bodyLeadsWithSubject = Boolean(body) && body.toLowerCase().startsWith(subject.toLowerCase());
+  // A body that already leads with the subject ("New booking - 5259 Room 2, Nov 6-9") IS the line: the old rule dropped it
+  // as a repeat and the alert read "New booking" with nothing else.
+  const detail = body && body.toLowerCase() !== subject.toLowerCase() && !bodyLeadsWithSubject ? ` - ${body}` : "";
+  const line = toGsm7(`PropLane ${label}: ${bodyLeadsWithSubject && body.toLowerCase() !== subject.toLowerCase() ? body : `${subject}${detail}`}`);
   return line.length <= MAX_ALERT_CHARS ? line : `${line.slice(0, MAX_ALERT_CHARS - 3).trimEnd()}...`;
 }
 

@@ -755,8 +755,38 @@ export async function mirrorResidentTextToManagerInbox(args: {
   subject?: string | null;
   body?: string | null;
   messageId?: string | null;
+  /** The workspace the resident's text was routed to; names where the person's one thread lives. */
+  workspaceId?: string | null;
 }): Promise<void> {
   const db = createSupabaseServiceRoleClient();
+  // The spine first: the resident's ONE conversation in the workspace, tagged with their property AND room (the occupancy
+  // snapshot), readable by the staff who run it. The legacy notice below is the fallback when the spine cannot write.
+  const workspaceId = args.workspaceId?.trim() || null;
+  const eventId = args.messageId?.trim() || "";
+  if (workspaceId && eventId) {
+    try {
+      const phone = normalizeE164Us(args.from);
+      if (phone) {
+        const spineContext = await import("@/lib/prospect-spine/context.server");
+        const record = await import("@/lib/prospect-spine/record.server");
+        const context = await spineContext.resolveInboundContext(db, {
+          workspaceId, ownerUserId: args.thread.managerUserId, phoneE164: phone, body: args.text,
+        });
+        const written = await record.recordInboundWithExtras(db, {
+          workspaceId, ownerUserId: args.thread.managerUserId,
+          identity: { kind: "phone", phoneE164: phone, verified: false },
+          context,
+          body: args.body?.trim() || args.text || "(empty message)",
+          channel: "sms", eventId, occurredAt: new Date().toISOString(),
+          // The pipeline's alert already covered this inbound.
+          notify: false,
+        }, { subjectLabel: "Resident text", counterpartyRole: "resident", threadType: "claw_resident_sms" });
+        if (written.ok) return;
+      }
+    } catch (error) {
+      console.error("resident spine mirror failed", error instanceof Error ? error.message : "unknown");
+    }
+  }
   const body =
     args.body?.trim() ||
     [

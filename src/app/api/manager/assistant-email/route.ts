@@ -34,6 +34,7 @@ import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings
 import { resolveWorkspaceFromSettingsRequest, type ActiveWorkspace } from "@/lib/workspaces/active.server";
 import {
   authorizeServiceWorkEmailEditForManagerRoute,
+  isServiceStaffOfWorkspaceForManagerRoute,
   setServiceWorkspaceWorkEmailForManagerRoute,
 } from "@/lib/service/service-mode.server";
 
@@ -64,17 +65,23 @@ async function buildStatus(
   // Everything below is about the ACTIVE workspace: an owned workspace's own
   // address (none = none, never a neighbour's), a shared workspace's owner
   // address. The switcher decides; co-manager links do not.
+  //
+  // PropLane Service STAFF of a PropLane-managed workspace read it like its owner: they see the workspace's own
+  // address and its status (re-derived from membership, never from the request). They are not the owner: they never
+  // get a Request button, and the plan the status answers for is the workspace OWNER's.
+  const serviceStaff = !workspace.owned && (await isServiceStaffOfWorkspaceForManagerRoute(db, userId, workspace.id));
+  const readsAsOwner = workspace.owned || serviceStaff;
   const [entitlement, planTierResult, ownerCommunication, row, storageReady, automationSettings, all] =
     await Promise.all([
-      getEffectiveManagerSmsEntitlement(db, userId),
+      getEffectiveManagerSmsEntitlement(db, serviceStaff ? workspace.ownerUserId : userId),
       getManagerPortalNavSubscriptionTier(userId),
       assertManagerCommunicationAllowed(workspace.ownerUserId),
-      workspace.owned ? loadWorkspaceAssistantEmail(db, workspace) : Promise.resolve(null),
+      readsAsOwner ? loadWorkspaceAssistantEmail(db, workspace) : Promise.resolve(null),
       probeAssistantEmailStorageReady(db),
       loadManagerAutomationSettings(db, userId).catch(() => null),
       resolveWorkspaceWorkEmails(db, userId).catch(() => null),
     ]);
-  const pureCoManager = !workspace.owned;
+  const pureCoManager = !readsAsOwner;
 
   const planTier: ManagerAssistantEmailStatus["planTier"] =
     planTierResult === "free" ? "free" : planTierResult === null ? "unknown" : "paid";
@@ -92,7 +99,7 @@ async function buildStatus(
   // addresses were workspace-owned) still shows under `address` so Settings
   // can say it is being retired, but it is never the address the UI leads with.
   let workspaceEmail: ManagerAssistantEmailStatus["workspaceEmail"] = null;
-  if (pureCoManager) {
+  if (!workspace.owned) {
     const shared = all?.emails.find((e) => e.workspaceId === workspace.id);
     if (shared) {
       workspaceEmail = {
@@ -175,10 +182,10 @@ async function buildStatus(
     address: row?.address ?? null,
     canEditAddress,
     state,
-    // One address per workspace, exactly like the number: a pure co-manager
-    // sends from the owner's address and never sees a Request button.
-    canRequest:
-      !pureCoManager && storageReady && canRequestBilling && provisioningEnvEnabled && !row,
+    // One address per workspace, exactly like the number: only the OWNER's own reader asks for it.
+    // A pure co-manager and a PropLane Service staff reader both send from the owner's address and
+    // never see a Request button, which `workspace.owned` alone already settles.
+    canRequest: workspace.owned && storageReady && canRequestBilling && provisioningEnvEnabled && !row,
     canUse,
     requestedAtSignup: automationSettings?.workEmailRequestedAtSignup === true,
   };

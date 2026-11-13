@@ -14,6 +14,7 @@ import {
   MAX_LEADS_PER_RULE,
   MAX_LEAD_MINUTES,
   MIN_LEAD_MINUTES,
+  REMINDER_DEDUPE_KEY_VERSION,
   REMINDER_SUBJECT_KINDS,
   applyQuietHours,
   clampLeadMinutes,
@@ -345,6 +346,40 @@ describe("reminderDedupeKey", () => {
     expect(reminderDedupeKey({ ...base, recipient: "a@x.com" })).not.toBe(
       reminderDedupeKey({ ...base, leadMinutes: 1440, recipient: "a@x.com" }),
     );
+  });
+});
+
+describe("reminderDedupeKey: person-deduped counterparty copies are scoped to the workspace owner", () => {
+  const base = {
+    kind: "application" as const,
+    leadMinutes: 1440,
+    recipient: "pat@x.com",
+    recipientRole: "counterparty",
+    anchorIso: "2026-11-20T18:00:00.000Z",
+    recipientUserId: "user-pat",
+  };
+
+  it("same person, two managers -> two keys (two rows)", () => {
+    const a = reminderDedupeKey({ ...base, subjectId: "app-1", managerUserId: "mgr-a" });
+    const b = reminderDedupeKey({ ...base, subjectId: "app-9", managerUserId: "mgr-b" });
+    expect(a).not.toBe(b);
+    expect(a).toContain("manager:mgr-a|user:user-pat");
+  });
+
+  it("same person, same manager, two subjects -> one key (one row)", () => {
+    const a = reminderDedupeKey({ ...base, subjectId: "app-1", managerUserId: "mgr-a" });
+    const b = reminderDedupeKey({ ...base, subjectId: "app-2", managerUserId: "mgr-a" });
+    expect(a).toBe(b);
+  });
+
+  it("carries the current key-format version, so a row written under an older format is superseded", () => {
+    expect(reminderDedupeKey({ ...base, subjectId: "app-1", managerUserId: "mgr-a" }).startsWith(REMINDER_DEDUPE_KEY_VERSION)).toBe(true);
+  });
+
+  it("never collapses across workspaces when no manager is known", () => {
+    const a = reminderDedupeKey({ ...base, subjectId: "app-1" });
+    const b = reminderDedupeKey({ ...base, subjectId: "app-2" });
+    expect(a).not.toBe(b);
   });
 });
 

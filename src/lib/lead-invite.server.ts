@@ -5,6 +5,7 @@
  * share_property_link tool run the exact same pipeline (one implementation,
  * not two).
  */
+import { buildReadableListingUrl } from "@/lib/seo/listing-slugs.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { track } from "@/lib/analytics/posthog";
@@ -19,7 +20,6 @@ import {
 import {
   buildManagerApplyUrl,
   buildManagerLeaseSignUrl,
-  buildManagerListingUrl,
   buildManagerTourUrl,
 } from "@/lib/manager-property-links";
 import { buildListingShareSummary } from "@/lib/listing-share-summary";
@@ -129,7 +129,7 @@ export async function sendLeadInvite(
     prospectName: input.prospectName,
   });
   const tourUrl = buildManagerTourUrl(input.origin, input.propertyId);
-  const listingPageUrl = buildManagerListingUrl(input.origin, input.propertyId);
+  const listingPageUrl = await buildReadableListingUrl(input.origin, input.propertyId);
   const listingSummary =
     input.kind === "listing"
       ? buildListingShareSummary(listing, {

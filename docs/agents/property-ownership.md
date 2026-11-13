@@ -92,3 +92,10 @@ Properties remains the only surface that owns `GET /api/property-records`.
   id parked on a stranger's account at all. Standalone, it always reclaims to
   the canonical demo manager and refuses to run when `E2E_MANAGER_EMAIL` names
   a different account.
+
+## The second ownership door: the managed-workspace mover (Nov 12)
+
+`POST /api/property-records` still never moves an owned row from the body. The only other door that changes a house's
+`manager_user_id` is SQL `move_managed_workspace_to_service_owner` (service role only; never reachable from a request): it moves a
+PropLane-managed workspace, its houses and the classified operational rows from the client to the service owner and seats the client as
+Property owner. Never the listing content. See [`admin-service.md`](admin-service.md) § The ownership mover.

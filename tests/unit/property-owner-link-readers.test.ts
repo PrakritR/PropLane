@@ -21,6 +21,7 @@ function walk(dir: string, out: string[] = []): string[] {
 
 /** Reads that cannot hand an owner teammate-style reach, and why. */
 const REVIEWED: Record<string, string> = {
+  "lib/managed-finance/payee.server.ts": "reads the Property owner seat on purpose: it IS the payee resolver, scoped to one workspace",
   // Membership management: these ARE the owner-aware code (or act on rows they were handed).
   "app/api/pro/account-links/route.ts": "membership CRUD; owner role gets no members right and stores owner keys only",
   "app/api/pro/account-links/[inviteId]/route.ts": "membership CRUD; role writes strip foreign keys",
@@ -58,7 +59,9 @@ const REVIEWED: Record<string, string> = {
   // Readers that ASK about the owner role in order to exclude it: an owner seat is never manager-side.
   "lib/auth/sms-proven-session.server.ts": "counts an accepted seat as manager-side and skips property_owner explicitly (a team role, not a portal)",
   "lib/auth/team-seat-manager-role.server.ts": "asks whether any accepted seat still justifies the manager role; a property_owner seat never does",
+  "lib/service/service-alert-targets.server.ts": "asks which accepted seats are STAFF and skips property_owner explicitly (staffSeatUserIds): an owner seat is never alerted as staff",
   "lib/service/service-workspaces.server.ts": "admin-only: the Service tab lists every live member, the owner of record included, on purpose",
+  "lib/auth/managed-account-deletion-guard.server.ts": "reads property_owner seats on purpose, only to REFUSE an account deletion that would orphan a managed workspace's owner of record; returns a blocker string, never a row, grants nothing",
   "app/api/admin/managed-workspaces/[workspaceId]/policies/route.ts": "admin-only: lists every accepted member so an owner of record can be picked",
 };
 

@@ -92,6 +92,10 @@ export const EXTERNAL_EXCLUDED_TOOL_NAMES = new Set([
   "lookup_property_knowledge",
   "save_knowledge_answer",
   "get_property_location_research",
+  // Manager listing edits by text (design-1112 section 3.3): a guided draft and an availability / description change.
+  // They stay on the assistants and SMS; the API key surface keeps its own listing tools.
+  "create_listing_draft_by_text",
+  "update_listing_details",
   "list_vendor_dispatches",
   "approve_vendor_dispatch",
   "dispatch_vendor",

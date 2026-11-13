@@ -2,13 +2,15 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadManagerReportDisplayContext } from "@/lib/reports/display-context";
+import { ownerOfRecordName } from "@/lib/managed-finance/owner-of-record-name.server";
 import { LedgerError, ownerParty, readPartyLines } from "@/lib/managed-finance/ledger.server";
 import { pacificMonthStartIso } from "@/lib/owner-management/fee-math";
 import { listPoliciesForWorkspace, PolicyError } from "@/lib/owner-management/policies.server";
 import { buildTaxPackage, taxPackageCsv, type TaxPackage } from "@/lib/managed-finance/tax-package";
 import type { StatementLine } from "@/lib/managed-finance/statement";
 
-export type OwnerTaxView = { package: TaxPackage; houseLabels: Record<string, string>; csv: string };
+/** `propertyOwner` is the header's owner of record (the policy's owner), never the workspace row's owner (the admin). */
+export type OwnerTaxView = { package: TaxPackage; houseLabels: Record<string, string>; csv: string; propertyOwner: { name: string } };
 
 const VENDOR_LINE_PAGE_SIZE = 1000;
 const VENDOR_LINE_MAX_PAGES = 1000;
@@ -70,5 +72,5 @@ export async function loadOwnerTaxPackage(db: SupabaseClient, input: { ownerUser
     ? await loadManagerReportDisplayContext(db, (ws as { owner_user_id: string }).owner_user_id).catch(() => null) : null;
   const houseLabels: Record<string, string> = {};
   for (const h of pkg.houses) if (h.propertyId) houseLabels[h.propertyId] = display?.propertyLabel(h.propertyId) ?? h.propertyId;
-  return { package: pkg, houseLabels, csv: taxPackageCsv(pkg, new Map(Object.entries(houseLabels))) };
+  return { package: pkg, houseLabels, csv: taxPackageCsv(pkg, new Map(Object.entries(houseLabels))), propertyOwner: { name: await ownerOfRecordName(db, input.ownerUserId) } };
 }

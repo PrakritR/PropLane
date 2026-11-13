@@ -30,7 +30,7 @@ import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
 import { traceAgentTurn } from "@/lib/observability/langfuse";
 import { buildLeasingSmsAgentContext } from "@/lib/tools/context";
 import { leasingSmsAgentRegistry, LEASING_SMS_INLINE_WRITE_TOOLS } from "@/lib/tools";
-import { buildProspectLinksTool, escalateLeasingToManagerTool, getSiteLinksTool, suppressRedundantLeasingReplyTool } from "@/lib/tools/domains/leasing-sms";
+import { buildProspectLinksTool, escalateLeasingToManagerTool, getSiteLinksTool, startProspectSignupTool, suppressRedundantLeasingReplyTool } from "@/lib/tools/domains/leasing-sms";
 import { listOpenTourSlotsTool, leasingRequestTourTool } from "@/lib/tools/domains/tours";
 import { buildRegistry, type ToolRegistry } from "@/lib/tools/registry";
 import type { AgentContext } from "@/lib/tools/context";
@@ -71,6 +71,8 @@ export type LeasingEmailTurn = {
 /** A guest message from a booking site (Airbnb, Booking.com, PadSplit, SpareRoom) rather than a prospect's own email. */
 export type LeasingEmailChannel = {
   site: ChannelSite;
+  /** The site's name as the guest knows it, when `site` is only the policy a platform lead borrows (a Zillow lead runs under SpareRoom's rules). */
+  siteLabel?: string;
   guestName: string;
   /** "5257 Brooklyn Ave, Room 6" when the listing was matched to a room. */
   listingLine: string | null;
@@ -86,7 +88,7 @@ export type LeasingEmailChannel = {
  * (the post-check still holds anything that slips through); a channel guest is never "suppressed" as an acknowledgment.
  */
 export function channelLeasingRegistry(site: ChannelSite): ToolRegistry<AgentContext> {
-  const drop = new Set<string>([suppressRedundantLeasingReplyTool.name]);
+  const drop = new Set<string>([suppressRedundantLeasingReplyTool.name, startProspectSignupTool.name]);
   if (!channelAllowsContactDetails(site)) {
     for (const tool of [buildProspectLinksTool, getSiteLinksTool, listOpenTourSlotsTool, leasingRequestTourTool]) drop.add(tool.name);
   }
@@ -226,7 +228,7 @@ export async function runLeasingEmailAgentTurn(
       (args.channel
         ? channelAgentInstructions({
             site: args.channel.site,
-            siteLabel: CHANNEL_SITE_LABEL[args.channel.site],
+            siteLabel: args.channel.siteLabel?.trim() || CHANNEL_SITE_LABEL[args.channel.site],
             guestName: args.channel.guestName,
             listingLine: args.channel.listingLine,
             holdReason: args.channel.holdReason,

@@ -1,3 +1,4 @@
+import { accountHolderNameFromAccount } from "@/lib/stripe-account-holder";
 import { NextResponse } from "next/server";
 import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
 import { clientIpFrom } from "@/lib/rate-limit";
@@ -30,7 +31,8 @@ export async function GET() {
         allowClearStale: false,
       });
       const requirements = await getIdentityRequirements(stripe, accountId);
-      return NextResponse.json(requirements);
+      const holderName = accountHolderNameFromAccount(await stripe.accounts.retrieve(accountId));
+      return NextResponse.json({ ...requirements, holderName });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Stripe error";
       if (msg.includes("STRIPE_SECRET_KEY") || msg.includes("Missing STRIPE")) {

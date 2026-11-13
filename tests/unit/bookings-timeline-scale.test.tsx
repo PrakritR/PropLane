@@ -197,7 +197,8 @@ describe("bars: readable, and a narrow one keeps its text inside the bar", () =>
     const visual = bar.querySelector("[data-bar-visual]") as HTMLElement;
     expect(visual.className).toContain("overflow-clip");
     const name = visual.firstElementChild as HTMLElement;
-    expect(name.className).toContain("truncate");
+    expect(name.className).toContain("flex");
+    expect(name.querySelector(".truncate")).toBeTruthy();
     expect(name.style.marginLeft).toBe("0px");
     expect(name.textContent).toBe("Jordan Smith");
     const scroller = document.querySelector('[data-attr="bookings-calendar-scroll"]') as HTMLElement;

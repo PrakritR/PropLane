@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 
 /**
  * Invite to the admin team. Role, workspaces and access are requests: the verb re-derives whether this caller may make
- * the grant (Overall admin for Overall admin; their own workspaces, never above their own role, for the rest).
+ * the grant (the primary admin for Overall admin; their own workspaces, never above their own role, for the rest).
  */
 export async function POST(request: Request) {
   const gate = await requireAdminTeamActor();
@@ -16,10 +16,11 @@ export async function POST(request: Request) {
   if (!body) return NextResponse.json({ error: "Invalid request." }, { status: 400, headers: NO_STORE });
   const result = await inviteAdminTeamMember(gate.db, gate.userId, gate.actor, {
     email: body.email,
+    phone: body.phone,
     role: body.role,
     workspaceIds: body.workspaceIds,
     access: (body.access && typeof body.access === "object" ? body.access : {}) as InviteAccessInput,
   });
   if (!result.ok) return failureResponse(result);
-  return NextResponse.json({ ok: true, inviteId: result.inviteId }, { status: 201, headers: NO_STORE });
+  return NextResponse.json({ ok: true, inviteId: result.inviteId, texted: result.texted }, { status: 201, headers: NO_STORE });
 }

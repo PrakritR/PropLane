@@ -1,5 +1,6 @@
 import { NextResponse, after } from "next/server";
 import { handleGroupMessage } from "@/lib/house-groups/ra.server";
+import { handleHouseSmsGroupInbound } from "@/lib/house-sms-group/inbound.server";
 import { verifyConversationsWebhook } from "@/lib/house-groups/webhook.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -21,7 +22,12 @@ export async function POST(req: Request) {
   const message = parsed.message;
   after(async () => {
     try {
-      await handleGroupMessage(createSupabaseServiceRoleClient(), message);
+      const db = createSupabaseServiceRoleClient();
+      // A Conversation that is a house chat's SMS group becomes a line on that in-app chat; anything else
+      // is a W10 RA group.
+      const bridged = await handleHouseSmsGroupInbound(db, message);
+      if (bridged.handled) return;
+      await handleGroupMessage(db, message);
     } catch (error) {
       // Masked: no phone number or message body reaches a log.
       console.error("house group message failed", error instanceof Error ? error.name : "unknown");

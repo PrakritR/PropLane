@@ -57,7 +57,16 @@ vi.mock("@/lib/task-automation-preferences", async (importOriginal) => {
   return { ...actual, loadTaskAutomation: async () => ({}), saveTaskAutomation: async () => ({}) };
 });
 vi.mock("@/lib/manager-landlord-profile", () => ({
-  loadManagerLandlordLegalNameFromProfile: async () => "Doe Holdings LLC",
+  validateLandlordLegalName: (raw: unknown) => ({ ok: true, landlordLegalName: String(raw ?? "") }),
+}));
+vi.mock("@/lib/manager-landlord-profile.server", () => ({
+  resolveLandlordLegalNameForScope: async () => ({
+    landlordLegalName: "Doe Holdings LLC",
+    source: "owner",
+    setting: "",
+    ownerFullName: "Doe Holdings LLC",
+  }),
+  saveLandlordProfileForScope: async () => ({}),
 }));
 vi.mock("@/lib/application-fee-waiver", () => ({
   listApplicationFeeWaiverCodes: (...a: unknown[]) => listApplicationFeeWaiverCodes(...a),

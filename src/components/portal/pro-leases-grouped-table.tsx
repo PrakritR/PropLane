@@ -18,6 +18,7 @@ import { Clock, FileText, Mail, PenLine, Users } from "lucide-react";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import type { ManagerLeaseTab } from "@/data/demo-portal";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import { leaseRecipientIsPlaceholder } from "@/lib/lease-send-recipient";
 import {
   leaseRowPlaceLine,
   leaseStageFact,
@@ -59,7 +60,11 @@ export function ManagerLeasesGroupedTable({
               address={leaseRowPlaceLine(row)}
               facts={
                 <>
-                  {email && email.toLowerCase() !== name.trim().toLowerCase() ? (
+                  {leaseRecipientIsPlaceholder(row) ? (
+                    <PortalRowFact icon={Mail} srLabel="Email">
+                      no real email
+                    </PortalRowFact>
+                  ) : email && email.toLowerCase() !== name.trim().toLowerCase() ? (
                     <PortalRowFact icon={Mail} srLabel="Email">
                       {email}
                     </PortalRowFact>

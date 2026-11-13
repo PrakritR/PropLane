@@ -7,6 +7,7 @@ import {
   ToursSettingsSection,
   VendorDefaultsSettingsSection,
 } from "@/components/portal/automations-settings-sections";
+import { StayMessagesSettingsSection } from "@/components/portal/stay-messages-settings";
 import { RentAndFeesSettingsSection } from "@/components/portal/rent-and-fees-settings";
 import { ServiceFeeSplitCard } from "@/components/portal/service-fee-split-card";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
@@ -91,10 +92,8 @@ import { WorkNumberAlsoNotifyCard } from "@/components/portal/work-number-also-n
 import { DARK_MODE_ENABLED } from "@/lib/theme-storage";
 import type { PortalKind } from "@/lib/portal-types";
 import { formatProplaneIdForDisplay } from "@/lib/manager-id";
-import {
-  cacheLandlordLegalName,
-  landlordLegalNameFromAccountFullName,
-} from "@/lib/manager-landlord-profile";
+import { fetchAndCacheLandlordLegalName } from "@/lib/manager-landlord-profile";
+import { selectedWorkspaceId } from "@/lib/workspaces/selection";
 
 function dashToEmpty(v: unknown): string {
   return typeof v === "string" && v !== "—" ? v : "";
@@ -367,7 +366,8 @@ export function PortalProfileClient({
         return false;
       }
       if (variant === "manager") {
-        cacheLandlordLegalName(landlordLegalNameFromAccountFullName(next.fullName));
+        // The lease landlord is the workspace's (setting, else its owner's name), not whoever is signed in.
+        void fetchAndCacheLandlordLegalName(selectedWorkspaceId());
       }
       savedRef.current = next;
       // A different number is unverified until its own code is confirmed (the API clears phone_verified_at too).
@@ -919,6 +919,7 @@ export function PortalProfileClient({
             <MoveInFormsSettingsSection />
             <ScreeningSettingsSection />
             <VendorDefaultsSettingsSection />
+            <StayMessagesSettingsSection />
           </>
         ) : null;
       case "applicationForm":
@@ -976,7 +977,7 @@ export function PortalProfileClient({
   return (
     <ManagerPortalPageShell title="Settings" navigationProvidesTitle hideTitleOnMobileNav>
       <div ref={layoutTopRef} data-attr="settings-layout" className="lg:flex lg:h-full lg:min-h-0 lg:flex-1 lg:gap-10">
-        <nav aria-label="Settings sections" className="hidden w-[216px] shrink-0 space-y-1 lg:block">
+        <nav aria-label="Settings sections" className="hidden w-[216px] shrink-0 space-y-1 lg:block lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain">
           {settingsScope ? <SettingsScopeSwitcher scope={settingsScope} /> : null}
           {variant === "manager" ? <p className={`${groupLabelClass} pt-0`} data-attr="settings-group-profile">Profile</p> : null}
           {profileGroups.map(navButton)}
@@ -986,7 +987,7 @@ export function PortalProfileClient({
             {workspaceGroups.map(navButton)}
           </> : null}
         </nav>
-        <div ref={contentColRef} className="min-w-0 flex-1 lg:min-h-0 lg:max-w-[720px] lg:overflow-y-auto lg:overscroll-contain">
+        <div ref={contentColRef} data-attr="settings-content" className="min-w-0 flex-1 lg:min-h-0 lg:max-w-[720px] lg:overflow-y-auto lg:overscroll-contain">
           {homeVisible ? <div className="space-y-6 lg:hidden" data-attr="settings-home">
             <button type="button" aria-label="Back" data-attr="settings-home-back" className="grid h-11 w-11 place-items-center" onClick={() => (canGoBackInApp() ? router.back() : router.replace(pathname.replace(/\/profile$/, "/dashboard")))}><ChevronLeft className="h-6 w-6" /></button>
             <h2 className="text-[30px] font-semibold tracking-tight">Settings</h2>

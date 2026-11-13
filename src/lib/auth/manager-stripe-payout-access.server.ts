@@ -4,6 +4,11 @@ import { INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib
 import { coManagerModuleAllowed } from "@/lib/co-manager-permissions";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
+import {
+  STAFF_MANAGED_PAYOUT_MESSAGE,
+  activeWorkspaceIdFromCookie,
+  resolveManagedPayoutStaffContext,
+} from "@/lib/managed-finance/payout-setup.server";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -22,7 +27,7 @@ export type StripePayoutContext = {
   canViewBankAccount: boolean;
   isCoManagerForPayout: boolean;
   /** Set when the payout owner could not be decided; routes must refuse rather than guess. */
-  unresolvedReason?: "lookup_failed" | "ambiguous_owner";
+  unresolvedReason?: "lookup_failed" | "ambiguous_owner" | "staff_managed_workspace";
 };
 
 /**
@@ -84,6 +89,17 @@ export async function resolveStripePayoutContext(
   const uid = sessionUserId.trim();
   if (!uid) {
     return { payoutOwnerUserId: "", canEditBankAccount: false, canViewBankAccount: false, isCoManagerForPayout: false };
+  }
+
+  // PropLane staff in a managed workspace never resolve to a payout account of their own there: the owner's payout setup
+  // is the owner's (status + "send setup link" only). A failed read refuses rather than falling through to the viewer's own.
+  try {
+    const staffCtx = await resolveManagedPayoutStaffContext(db, uid, await activeWorkspaceIdFromCookie());
+    if (staffCtx.staff) {
+      return { payoutOwnerUserId: "", canEditBankAccount: false, canViewBankAccount: false, isCoManagerForPayout: false, unresolvedReason: "staff_managed_workspace" };
+    }
+  } catch {
+    return { payoutOwnerUserId: "", canEditBankAccount: false, canViewBankAccount: false, isCoManagerForPayout: false, unresolvedReason: "lookup_failed" };
   }
 
   const owns = await userOwnsManagerProperties(db, uid);
@@ -155,7 +171,13 @@ export async function resolveStripePayoutContext(
 
 /** The message a route shows when {@link resolveStripePayoutContext} could not decide an owner. */
 export function stripePayoutContextError(reason: StripePayoutContext["unresolvedReason"]): string {
+  if (reason === "staff_managed_workspace") return STAFF_MANAGED_PAYOUT_MESSAGE;
   return reason === "ambiguous_owner"
     ? "You co-manage properties for more than one owner, so payouts must be set up from the owner's own account."
     : "Could not resolve payout account. Try again in a moment.";
+}
+
+/** The HTTP status a route answers when {@link resolveStripePayoutContext} could not decide an owner. */
+export function stripePayoutContextStatus(reason: StripePayoutContext["unresolvedReason"]): 403 | 409 | 500 {
+  return reason === "staff_managed_workspace" ? 403 : reason === "ambiguous_owner" ? 409 : 500;
 }

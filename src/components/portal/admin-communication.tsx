@@ -15,6 +15,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MessageSquarePlus } from "lucide-react";
+import { useCommunicationFromFilter } from "@/hooks/use-communication-from-filter";
 import { CommunicationFilterSortFields } from "@/components/portal/communication-filter-sort-fields";
 import { createAdminInboxAdapter } from "@/components/portal/communication-adapters/admin-inbox-adapter";
 import { AdminComposeModal, type AdminComposeRecipient } from "@/components/portal/admin-compose-modal";
@@ -32,6 +33,7 @@ import {
   type CommunicationThreadFilters,
 } from "@/lib/communication-thread-filters";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { requestTimeoutSignal } from "@/lib/fetch-timeout";
 import { selectCommunicationSegmentUrl } from "@/lib/portal-communication-nav";
 import type { CommunicationListSort } from "@/lib/unified-inbox-merge";
 
@@ -76,6 +78,7 @@ export function AdminCommunication({
     ...EMPTY_COMMUNICATION_THREAD_FILTERS,
     status: listSegmentProp === "unread" ? "unread" : "active",
   });
+  useCommunicationFromFilter(filters, setFilters);
   useEffect(() => {
     setFilters((current) => {
       if (listSegment === "unread") {
@@ -109,16 +112,23 @@ export function AdminCommunication({
   useEffect(() => {
     // The people admin can write to are read when the compose first opens.
     if (!composeOpen || recipientsLoaded || isDemoModeActive()) return;
-    setRecipientsLoaded(true);
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch("/api/admin/portal-users", { credentials: "include" });
-        const body = (await res.json()) as { managers?: AdminComposeRecipient[]; residents?: AdminComposeRecipient[] };
-        if (!res.ok || cancelled) return;
-        setRecipients({ managers: body.managers ?? [], residents: body.residents ?? [] });
+        const signal = requestTimeoutSignal(20_000);
+        const res = await fetch("/api/admin/portal-users", { credentials: "include", ...(signal ? { signal } : {}) });
+        const body = (await res.json()) as { managers?: unknown; residents?: unknown } | null;
+        if (!res.ok || cancelled || !body || !Array.isArray(body.managers) || !Array.isArray(body.residents)) return;
+        const validRecipient = (value: unknown): value is AdminComposeRecipient =>
+          typeof value === "object" && value !== null &&
+          typeof (value as AdminComposeRecipient).id === "string" &&
+          typeof (value as AdminComposeRecipient).name === "string" &&
+          typeof (value as AdminComposeRecipient).email === "string";
+        if (!body.managers.every(validRecipient) || !body.residents.every(validRecipient)) return;
+        setRecipients({ managers: body.managers, residents: body.residents });
+        setRecipientsLoaded(true);
       } catch {
-        if (!cancelled) setRecipientsLoaded(false);
+        // Leave the load retryable the next time the compose opens.
       }
     })();
     return () => {
@@ -127,7 +137,7 @@ export function AdminCommunication({
   }, [composeOpen, recipientsLoaded]);
 
   const filterTouchCount =
-    (filters.status && filters.status !== "active" ? 1 : 0) + (listSort !== "recent" ? 1 : 0) + (workspaceFilter ? 1 : 0);
+    (filters.status && filters.status !== "active" ? 1 : 0) + (filters.from && filters.from !== "all" ? 1 : 0) + (listSort !== "recent" ? 1 : 0) + (workspaceFilter ? 1 : 0);
 
   const activeFilterChips = useMemo((): PortalActiveFilterChip[] => {
     const chips: PortalActiveFilterChip[] = [];
@@ -161,7 +171,7 @@ export function AdminCommunication({
     <PortalFilterSortSheet
       activeCount={filterTouchCount}
       compactPanel
-      filterFieldCount={3}
+      filterFieldCount={4}
       constrainDropdownToTitleBand={false}
       commandStripTrigger
       mobileFlushBody
@@ -183,6 +193,7 @@ export function AdminCommunication({
         hideHouse
         hideRole
         hideAbout
+        showFrom
         workspaceOptions={smsUiEnabled ? workspaceOptions : undefined}
         workspaceValue={workspaceFilter}
         onWorkspaceChange={setWorkspaceFilter}

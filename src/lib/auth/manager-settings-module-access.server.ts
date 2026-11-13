@@ -7,6 +7,7 @@ import type { CoManagerPermissionId, CoManagerPermissionLevel } from "@/lib/co-m
 import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
 import { REMINDER_SUBJECT_KINDS, type ReminderSubjectKind } from "@/lib/reminders/rules";
 import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
+import { serviceStaffSettingsAccess } from "@/lib/scope/settings-scope";
 
 /**
  * Co-manager module gate for the account-level manager settings surfaces
@@ -145,6 +146,45 @@ export type SettingsPropertyOwnerResult =
   | { ok: false; status: 403 | 404; error: string };
 
 /**
+ * PropLane Service staff of the workspace a house belongs to act on that workspace OWNER's settings
+ * rows at the house rung too, exactly as they already do at the workspace rung
+ * (`assertSettingsScopeOwned`). The same one staff decision answers it
+ * (`serviceStaffSettingsAccess`), re-derived from the workspace row and the caller's own seat, never
+ * from the request; only a seat that can run the workspace (Admin / Full) stands in for a per-house
+ * module grant, and every other seat falls through to the strict co-manager gate below. An
+ * unreadable property, workspace or seat is "not staff" — fail closed.
+ */
+async function serviceStaffPropertySettingsOwner(
+  db: ServiceClient,
+  userId: string,
+  propertyId: string,
+  ownerUserId: string,
+  level: CoManagerPermissionLevel,
+): Promise<string | null> {
+  try {
+    const { data, error } = await db
+      .from("manager_property_records")
+      .select("workspace_id")
+      .eq("id", propertyId)
+      .maybeSingle();
+    if (error) return null;
+    const workspaceId = String((data as { workspace_id?: unknown } | null)?.workspace_id ?? "").trim();
+    if (!workspaceId) return null;
+    const staff = await serviceStaffSettingsAccess(
+      db as never,
+      userId,
+      workspaceId,
+      level === "read" ? "read" : "edit",
+    );
+    if (staff.kind !== "ok" || !staff.fullGrant || staff.ownerUserId !== ownerUserId) return null;
+    return staff.ownerUserId;
+  } catch (error) {
+    console.error("[manager-settings-module-access] service staff house standing unreadable", error);
+    return null;
+  }
+}
+
+/**
  * The house-scoped counterpart to the module gates above (PLAN-0916-1040).
  *
  * These six settings routes are otherwise scoped ONE ROW PER MANAGER (see the
@@ -160,6 +200,10 @@ export type SettingsPropertyOwnerResult =
  * other co-manager-aware route already uses — never a wider check. This is a
  * permission-gated read/write, never an ownership transfer: every write still
  * lands on the owner's own row.
+ *
+ * PropLane Service staff of the house's workspace are the third reader, through
+ * `serviceStaffPropertySettingsOwner` — the same seat that already reaches these settings at the
+ * workspace rung, so narrowing the Settings scope picker to one house no longer refuses them.
  */
 export async function resolveSettingsPropertyOwner(
   db: ServiceClient,
@@ -171,6 +215,8 @@ export async function resolveSettingsPropertyOwner(
   const owner = await resolvePropertyOwnerUserId(db, propertyId);
   if (!owner) return { ok: false, status: 403, error: "That property is not in your workspace." };
   if (owner === userId) return { ok: true, ownerUserId: userId };
+  const staffOwner = await serviceStaffPropertySettingsOwner(db, userId, propertyId, owner, level);
+  if (staffOwner) return { ok: true, ownerUserId: staffOwner };
   const access = await assertCoManagerModuleAccess(db, userId, propertyId, permissionModule, {
     ownerManagerUserId: owner,
     level,
@@ -194,6 +240,8 @@ export async function resolveReminderKindsSettingsPropertyOwner(
   // is NOT the owner — fail closed rather than resolve a foreign owner for a
   // co-manager with zero grants on this property.
   if (kinds.length === 0) return { ok: false, status: 403, error: "You do not have access to this section for this property." };
+  const staffOwner = await serviceStaffPropertySettingsOwner(db, userId, propertyId, owner, level);
+  if (staffOwner) return { ok: true, ownerUserId: staffOwner };
   const modules = [...new Set(kinds.map(reminderKindCoManagerModule))];
   for (const permissionModule of modules) {
     const access = await assertCoManagerModuleAccess(db, userId, propertyId, permissionModule, {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
@@ -14,6 +15,7 @@ import { assertManagerPropertyListingQuota } from "@/lib/manager-property-quota.
 import { doorCountForListing } from "@/lib/billing/door-count";
 import { researchPropertyLocation } from "@/lib/property-location-research.server";
 import { acceptedPaymentMethodsForListing } from "@/lib/payment-policy";
+import { formatDateKeyLong, isDateKey, todayDateKey } from "@/lib/room-availability-timeline";
 import { leaseTemplateObjectPath, legacyLeaseTemplateObjectPath } from "@/lib/lease-template-storage";
 import { copyListingMediaBetweenSubmissions } from "@/lib/listing-media-copy";
 import {
@@ -809,6 +811,186 @@ export const updateRoomRentTool = defineWriteTool({
     };
   },
 });
+
+const MAX_LISTING_DETAIL_CHARS = 1200;
+
+function validDateKey(value: string): boolean {
+  if (!isDateKey(value)) return false;
+  const [y, m, d] = value.split("-").map(Number);
+  const date = new Date(y!, m! - 1, d!);
+  return date.getFullYear() === y && date.getMonth() === m! - 1 && date.getDate() === d;
+}
+
+/** The facts a room's availability pair stores: label renters read + the next free day ("" when free now). */
+function availabilityFacts(availableOn: string): { availability: string; moveInAvailableDate: string } {
+  const today = todayDateKey();
+  if (availableOn === "now" || availableOn <= today) return { availability: "Available now", moveInAvailableDate: "" };
+  return { availability: `Available from ${formatDateKeyLong(availableOn)}`, moveInAvailableDate: availableOn };
+}
+
+function joinDetail(existing: string, addition: string, mode: "replace" | "append"): string {
+  const next = mode === "append" && existing.trim() ? `${existing.trim()} ${addition.trim()}` : addition.trim();
+  return next.slice(0, MAX_LISTING_DETAIL_CHARS * 2);
+}
+
+/**
+ * Availability date and description detail for a listing or one of its rooms. The text-message edit path
+ * (design-1112 section 3.3) and the portal assistant share it: the write goes through the same submission
+ * normalization the portal wizard uses, so what a manager texts is what the listing page then shows.
+ */
+export const updateListingDetailsTool = defineWriteTool({
+  name: "update_listing_details",
+  description:
+    "Set when a listing's room is available (a date, or \"now\") and/or its description detail, for ONE room by name (e.g. \"Room 4\") or the whole listing when no room is named. Use update_room_rent for a room's rent and update_property for the listing rent. Pass a property id from list_properties.",
+  inputSchema: z
+    .object({
+      propertyId: z.string().min(1).describe("The property id, from list_properties."),
+      roomName: z.string().min(1).optional().describe("The room's name on the listing, e.g. \"Room 4\". Omit for the whole listing."),
+      availableOn: z
+        .string()
+        .regex(/^(now|\d{4}-\d{2}-\d{2})$/, "Use \"now\" or a date as YYYY-MM-DD.")
+        .optional()
+        .describe("The day the room is available (YYYY-MM-DD) or \"now\". Needs a room, or a listing with one room."),
+      detail: z
+        .string()
+        .trim()
+        .min(1)
+        .max(MAX_LISTING_DETAIL_CHARS)
+        .optional()
+        .describe("Description detail for the room (or the whole listing when no room is named)."),
+      mode: z.enum(["replace", "append"]).optional().describe("append adds the detail after the current text; default replace."),
+    })
+    .strict(),
+  preview: async (ctx, input) => {
+    const plan = await planListingDetails(ctx, input);
+    return {
+      kind: "update_listing_details",
+      title: "Update listing details",
+      summary: plan.summary,
+      fields: plan.fields,
+      confirmLabel: "Update listing",
+    };
+  },
+  handler: async (ctx, input) => {
+    const plan = await planListingDetails(ctx, input);
+    const dedupeKey = `update_listing_details:${ctx.landlordId}:${plan.rec.id}:${auditDayBucket()}:${createHash("sha256")
+      .update(JSON.stringify([input.roomName ?? "", input.availableOn ?? "", input.detail ?? "", input.mode ?? ""]))
+      .digest("hex")
+      .slice(0, 16)}`;
+    const audit = await writeAuditLog(ctx, {
+      action: "update_listing_details",
+      toolName: "update_listing_details",
+      inputSummary: {
+        propertyId: plan.rec.id,
+        roomId: plan.roomId,
+        availability: input.availableOn !== undefined,
+        detail: input.detail !== undefined,
+      },
+      dedupeKey,
+    });
+    if (!audit.recorded) {
+      if (audit.duplicate) return { reply: "That exact change was already made today." };
+      throw new Error("Could not record the action; nothing was updated.");
+    }
+    const payloads = writeSubmissionToRecordPayloads(plan.rec, plan.nextSubmission);
+    const { error } = await ctx.db
+      .from("manager_property_records")
+      .update({ row_data: payloads.row_data, property_data: payloads.property_data, updated_at: new Date().toISOString() })
+      .eq("id", plan.rec.id)
+      .eq("manager_user_id", ctx.landlordId);
+    if (error) {
+      await updateAuditResult(ctx, dedupeKey, { error: "update_failed" }, { clearDedupeKey: true });
+      throw new Error(error.message);
+    }
+    await updateAuditResult(ctx, dedupeKey, { propertyId: plan.rec.id, roomId: plan.roomId });
+    return { reply: plan.done, resultSummary: { propertyId: plan.rec.id, roomId: plan.roomId } };
+  },
+});
+
+async function planListingDetails(
+  ctx: AgentContext,
+  input: { propertyId: string; roomName?: string; availableOn?: string; detail?: string; mode?: "replace" | "append" },
+): Promise<{
+  rec: RawPropertyRecord;
+  roomId: string | null;
+  nextSubmission: ManagerListingSubmissionV1;
+  summary: string;
+  done: string;
+  fields: { label: string; value: string }[];
+}> {
+  if (input.availableOn === undefined && input.detail === undefined) {
+    throw new Error("Nothing to update. Pass an availability date or a description detail.");
+  }
+  if (input.availableOn !== undefined && input.availableOn !== "now" && !validDateKey(input.availableOn)) {
+    throw new Error("That date is not a real calendar day.");
+  }
+  const rec = await loadOwnedPropertyRecord(ctx, input.propertyId);
+  if (!rec) throw new Error("No property with that id belongs to this landlord. Use list_properties to get valid ids.");
+  const submission = listingSubmissionFromRecord(rec);
+  if (!submission) throw new Error("That property has no listing details to edit yet.");
+  const src = asObject(rec.property_data) ?? asObject(rec.row_data);
+  const title = str(src, "title") ?? str(src, "buildingName") ?? rec.id;
+  const mode = input.mode ?? "replace";
+  const fields: { label: string; value: string }[] = [{ label: "Property", value: title }];
+
+  let roomIndex = -1;
+  if (input.roomName) {
+    const match = findSubmissionRoomByName(submission, input.roomName);
+    if (!match) {
+      const names = submission.rooms.map((r) => r.name).filter(Boolean);
+      throw new Error(
+        names.length > 0
+          ? `That listing has no room named "${input.roomName}". Its rooms are: ${names.join(", ")}.`
+          : "That listing has no rooms to edit.",
+      );
+    }
+    roomIndex = match.index;
+  } else if (input.availableOn !== undefined) {
+    if (submission.rooms.length === 1) roomIndex = 0;
+    else {
+      throw new Error(
+        submission.rooms.length === 0
+          ? "That listing has no rooms, so there is no availability date to set."
+          : `Which room? Its rooms are: ${submission.rooms.map((r) => r.name).filter(Boolean).join(", ")}.`,
+      );
+    }
+  }
+
+  const next: ManagerListingSubmissionV1 = { ...submission, rooms: submission.rooms.map((room) => ({ ...room })) };
+  const room = roomIndex >= 0 ? next.rooms[roomIndex]! : null;
+  const parts: string[] = [];
+  if (input.availableOn !== undefined && room) {
+    const facts = availabilityFacts(input.availableOn);
+    fields.push({ label: "Room", value: room.name });
+    fields.push({ label: "Availability", value: `${room.availability || "not set"} → ${facts.availability}` });
+    room.availability = facts.availability;
+    room.moveInAvailableDate = facts.moveInAvailableDate;
+    parts.push(`${room.name} ${facts.availability.toLowerCase()}`);
+  }
+  if (input.detail !== undefined) {
+    if (room) {
+      const merged = joinDetail(room.detail ?? "", input.detail, mode);
+      if (!fields.some((f) => f.label === "Room")) fields.push({ label: "Room", value: room.name });
+      fields.push({ label: "Description", value: merged });
+      room.detail = merged;
+      parts.push(`${room.name} description`);
+    } else {
+      const merged = joinDetail(next.houseOverview ?? "", input.detail, mode);
+      fields.push({ label: "Description", value: merged });
+      next.houseOverview = merged;
+      parts.push("the listing description");
+    }
+  }
+  const nextSubmission = normalizeManagerListingSubmissionV1(next);
+  return {
+    rec,
+    roomId: room?.id ?? null,
+    nextSubmission,
+    summary: `Update ${title}: ${parts.join(", ")}.`,
+    done: `Updated ${title}: ${parts.join(", ")}.`,
+    fields,
+  };
+}
 
 export const copyListingPhotosTool = defineWriteTool({
   name: "copy_listing_photos",

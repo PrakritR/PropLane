@@ -5,6 +5,15 @@
 export const CHANNEL_CALENDAR_PROVIDERS = ["airbnb", "booking_com", "vrbo", "ical"] as const;
 export type ChannelCalendarProvider = (typeof CHANNEL_CALENDAR_PROVIDERS)[number];
 
+/**
+ * Houses one "Sync all" request may name. More than this is not one manager syncing their houses in
+ * one function invocation: the route refuses the request and the client sends sequential batches of
+ * this size, so a portfolio larger than the cap still syncs.
+ */
+export const MAX_SYNC_ALL_PROPERTY_IDS = 50;
+
+/** How much of a feed event's DESCRIPTION an imported range keeps. */
+export const CHANNEL_IMPORTED_DESCRIPTION_MAX = 500;
 export const CHANNEL_CALENDAR_IMPORTED_RANGE_PREFIX = "channel-import";
 
 export type ChannelCalendarImportedRange = {
@@ -19,6 +28,8 @@ export type ChannelCalendarImportedRange = {
   reservationCode?: string;
   /** Last four digits of the guest's phone, when the feed carries them. */
   phoneLast4?: string;
+  /** The feed event's DESCRIPTION, trimmed to {@link CHANNEL_IMPORTED_DESCRIPTION_MAX}. Manager-side only. */
+  description?: string;
 };
 
 export type ChannelCalendarConnectionPublic = {
@@ -62,6 +73,8 @@ export type ManagerChannelBookingRange = {
   /** Rebuilt on the server from `reservationCode`; never the feed's own URL. */
   reservationUrl?: string;
   phoneLast4?: string;
+  /** The feed's own DESCRIPTION for the stay (manager-side only; never on a host block). */
+  description?: string;
   /** The name the manager entered for this stay (`channel_stay_details`). */
   guestName?: string;
   /** Money typed on the booking or read from an Airbnb email (`channel_stay_details`). */
@@ -104,4 +117,21 @@ export type ManagerChannelBookingProperty = {
   propertyId: string;
   propertyLabel: string;
   rooms: ManagerChannelBookingRoom[];
+};
+
+/** One removed channel stay, as the "Removed stays" list reads it. */
+export type RemovedChannelStay = {
+  id: string;
+  propertyId: string;
+  roomId: string;
+  provider: ChannelCalendarProvider;
+  sourceUid: string;
+  start: string;
+  end: string;
+  summary: string;
+  hostBlock: boolean;
+  removedAt: string;
+  propertyLabel: string;
+  roomLabel: string;
+  channelLabel: string | null;
 };

@@ -16,6 +16,7 @@
  * a dead link. Only a portal chat, where the person is already signed in on the
  * app, gets relative paths so the link opens inside the portal they are on.
  */
+import { buildReadableListingUrl } from "@/lib/seo/listing-slugs.server";
 import { z } from "zod";
 import { defineTool } from "../registry";
 import type { AgentContext } from "../context";
@@ -26,7 +27,6 @@ import { residentPortalPath } from "@/lib/claw-resident-links";
 import { currentSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 import {
   buildManagerApplyUrl,
-  buildManagerListingUrl,
   buildManagerTourUrl,
   buildPropertyMessageHref,
 } from "@/lib/manager-property-links";
@@ -188,7 +188,7 @@ export async function buildPropertyLinksForManager(
     ok: true,
     propertyId,
     title: (property.title || property.buildingName || property.address || propertyId).trim(),
-    listingUrl: buildManagerListingUrl(origin, propertyId),
+    listingUrl: await buildReadableListingUrl(origin, propertyId),
     tourUrl: buildManagerTourUrl(origin, propertyId),
     applyUrl: buildManagerApplyUrl(origin, {
       propertyId,

@@ -164,7 +164,7 @@ describe("buildProspectRow", () => {
 describe("thingsToFinish", () => {
   it("lists contact, home and lease fields on an empty resident form — not a PDF", () => {
     const labels = thingsToFinish(emptyAddPersonForm("resident")).map((t) => t.label);
-    expect(labels).toEqual(["Resident's name", "Resident's email", "Property", "Lease term", "Move-in date", "Monthly rent"]);
+    expect(labels).toEqual(["Resident's name", "Resident's email", "A phone, or No phone", "Property", "Lease term", "Move-in date", "Monthly rent"]);
     expect(emptyAddPersonForm("resident").leaseDocument).toBe("later");
   });
 

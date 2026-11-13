@@ -92,7 +92,9 @@ export async function POST(req: Request) {
 
   // Resolve the conversation this belongs to: match an existing thread, else
   // treat the recipient as a manager (by phone). Owner is who the SMS logs to.
-  const conversations = await fetchAdminSmsConversations(auth.db);
+  // Every admin thread, placed on a workspace or not: the main list hides placed threads, but a reply to one must
+  // still find it (or it logged under an arbitrary owner and left without its workspace's line).
+  const conversations = await fetchAdminSmsConversations(auth.db, { includePlaced: true });
   const toDigits = toPhone.replace(/\D/g, "");
   // The recipient phone is the ONLY routing input. `residentUserId` used to be
   // accepted here too, which let the caller pick the conversation — and with it

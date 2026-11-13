@@ -1,93 +1,67 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Request, type Response } from "@playwright/test";
 
 /**
- * Captain 2026-09-26: "remove live demo no need" — the public site no
- * longer embeds or links the running `/demo` sandbox anywhere. `/demo` and
- * every `/demo/*` sub-path now redirect to `/` (`next.config.ts`,
- * `src/middleware.ts`); the home page's product panels
- * (`site/lifecycle-rows.tsx`, `site/switch-steps.tsx`,
- * `site/codex-hero-window.tsx`) render the real portal presentational
- * components fed static fixtures instead of a live `<iframe src="/demo">`.
- * This replaces the old iframe/postMessage network-purity spec — see
- * `docs/agents/demo-sandbox.md`.
+ * The home Software demo is the only public /demo exception. Its iframe uses
+ * synthetic local data and intercepts API calls in the browser; it must not
+ * reach real portal APIs or send writes over the network. See demo-sandbox.md.
  */
-const ALLOWED_API_PATTERNS = [/^\/api\/agent\/demo-chat/];
-
-function isBannedApiRequest(url: string): boolean {
-  let pathname: string;
-  try {
-    pathname = new URL(url).pathname;
-  } catch {
-    return false;
-  }
-  if (!pathname.startsWith("/api/") && !pathname.startsWith("/demo")) return false;
-  if (pathname.startsWith("/demo")) return true; // never requested at all any more
-  return !ALLOWED_API_PATTERNS.some((re) => re.test(pathname));
-}
-
-async function collectBannedRequests(page: Page, act: () => Promise<void>): Promise<string[]> {
-  const banned: string[] = [];
-  const onRequest = (req: { url: () => string }) => {
-    const url = req.url();
-    if (isBannedApiRequest(url)) banned.push(url);
-  };
-  page.on("request", onRequest);
-  try {
-    await act();
-    await page.waitForTimeout(1500);
-  } finally {
-    page.off("request", onRequest);
-  }
-  return banned;
-}
-
-test.describe("/demo is retired from the public site", () => {
+test.describe("public demo isolation", () => {
   test("/demo redirects home", async ({ page }) => {
     await page.goto("/demo");
     await expect(page).toHaveURL(/\/$/);
   });
 
-  test("/demo/anything redirects home", async ({ page }) => {
+  test("/demo/role/manager redirects home", async ({ page }) => {
     await page.goto("/demo/role/manager");
     await expect(page).toHaveURL(/\/$/);
   });
 
-  test("home page fires no /demo and no banned /api/ request", async ({ page }) => {
-    const banned = await collectBannedRequests(page, async () => {
-      await page.goto("/");
-      await page.locator("#lifecycle").scrollIntoViewIfNeeded();
-      await page.waitForTimeout(1000);
+  test("the home iframe keeps the three seeded portal views off real APIs", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const forbidden: string[] = [];
+    const errors: string[] = [];
+    page.on("request", (request: Request) => {
+      const url = new URL(request.url());
+      if (url.pathname.startsWith("/demo") && url.pathname !== "/demo/home-embed") {
+        forbidden.push(`${request.method()} ${url.pathname}`);
+      }
+      if (request.frame() !== page.mainFrame() && (url.pathname.startsWith("/api/") || request.method() !== "GET")) {
+        forbidden.push(`${request.method()} ${url.pathname}`);
+      }
     });
-    expect(banned, `banned requests: ${banned.join(", ")}`).toEqual([]);
-  });
+    page.on("response", (response: Response) => {
+      if (response.request().frame() !== page.mainFrame() && [401, 403].includes(response.status())) {
+        errors.push(`${response.status()} ${new URL(response.url()).pathname}`);
+      }
+    });
+    page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+    page.on("pageerror", (error) => errors.push(error.message));
 
-  test("hero renders the populated static dashboard panel", async ({ page }) => {
     await page.goto("/");
-    const hero = page.locator(".codex-hero-window");
-    await expect(hero.getByText("Occupancy").first()).toBeVisible();
-    await expect(hero.getByText("67%").first()).toBeVisible();
-    await expect(hero.getByText("Alder House").first()).toBeVisible();
-  });
-
-  test("each lifecycle row renders a filled, non-empty product panel", async ({ page }) => {
-    await page.goto("/");
-    for (const [id, expectedText] of [
-      ["tours", "Fremont Studio"],
-      ["applications", "Sample Applicant"],
-      ["leasing", "Dana Reyes"],
-      ["payments", "September rent"],
-      ["services", "Kitchen faucet drip"],
+    await page.locator("#dashboard").scrollIntoViewIfNeeded();
+    const iframe = page.locator('#dashboard iframe[title="PropLane portal demo"]');
+    await expect(iframe).toHaveCount(1);
+    await expect(iframe).toHaveAttribute("src", /^\/demo\/home-embed(?:\?.*)?$/);
+    const frame = page.frameLocator('#dashboard iframe[title="PropLane portal demo"]');
+    await expect(frame.locator("[data-home-demo-portal]")).toBeAttached({ timeout: 60_000 });
+    const tabs = page.getByRole("tablist", { name: "Portal" });
+    // Each role lands on its service view of Jordan’s seeded faucet request.
+    for (const [label, role, fixture] of [
+      ["Resident", "resident", "Leaking kitchen faucet"],
+      ["Property", "manager", "Leaking kitchen faucet"],
+      ["Vendor", "vendor", "Leaking kitchen faucet"],
     ] as const) {
-      const row = page.locator(`[data-lifecycle-row="${id}"]`);
-      await row.scrollIntoViewIfNeeded();
-      await expect(row.getByText(expectedText).first()).toBeVisible();
+      await tabs.getByRole("tab", { name: label }).click();
+      await expect(tabs.getByRole("tab", { name: label })).toHaveAttribute("aria-selected", "true");
+      await expect(frame.locator(`[data-home-demo-portal="${role}"]`)).toBeAttached({ timeout: 30_000 });
+      const panel = frame.locator("#portal-main-content");
+      await expect(panel).toBeVisible();
+      await expect(panel.getByText(fixture, { exact: true }).first()).toBeVisible({ timeout: 30_000 });
     }
-  });
-
-  test("the switching section renders the real import review panel", async ({ page }) => {
-    await page.goto("/");
-    await page.locator("#site-switch-heading").scrollIntoViewIfNeeded();
-    await expect(page.getByRole("heading", { level: 1, name: "Review what the agent found" })).toBeVisible();
-    await expect(page.getByText("Dana Reyes").first()).toBeVisible();
+    // Watch briefly after the last panel settles for delayed requests and effects.
+    await page.waitForTimeout(1_000);
+    expect(forbidden).toEqual([]);
+    expect(errors).toEqual([]);
   });
 });

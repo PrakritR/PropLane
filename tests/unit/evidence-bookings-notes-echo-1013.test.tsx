@@ -187,7 +187,7 @@ describe("evidence · the Airbnb echo is hidden, its uncovered remainder is not"
     const before = await renderPanel();
     const beforeLabels = barLabels();
     // The raw feed draws the host block on top of the PropLane resident.
-    expect(beforeLabels.filter((label) => label.includes("Not available"))).toHaveLength(1);
+    expect(beforeLabels.filter((label) => label.includes("Closed on Airbnb"))).toHaveLength(1);
     const beforeHtml = before.container.innerHTML;
     cleanup();
 
@@ -196,7 +196,7 @@ describe("evidence · the Airbnb echo is hidden, its uncovered remainder is not"
     const afterLabels = barLabels();
     expect(afterLabels.filter((label) => label.includes("Cv Ponce"))).toHaveLength(1);
     // Two uncovered pieces survive: Aug 1-3 before the stay and Aug 13-20 after it.
-    expect(afterLabels.filter((label) => label.includes("Not available"))).toHaveLength(2);
+    expect(afterLabels.filter((label) => label.includes("Closed on Airbnb"))).toHaveLength(2);
     expect(afterLabels.some((label) => label.includes("Maria Lopez"))).toBe(true);
 
     page(
@@ -318,7 +318,7 @@ describe("evidence · notes on a stay and on a host block", () => {
       860,
     );
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Remove stay" }));
+      fireEvent.click(screen.getByRole("button", { name: "Remove and open dates" }));
       await Promise.resolve();
     });
     expect(removed).toEqual([{ connectionId: "conn-a", sourceUid: "echo-1", start: "2026-08-01", end: "2026-08-20" }]);

@@ -10,6 +10,17 @@ import { X, Paperclip, Pencil } from "lucide-react";
 import { InboxComposerScheduleMenu } from "@/components/portal/inbox-composer-tools";
 import { INBOX_ATTACHMENT_ACCEPT, INBOX_MAX_ATTACHMENTS, createPendingInboxAttachment, uploadInboxAttachment, revokeInboxAttachmentPreview, type InboxComposerAttachment } from "@/lib/inbox-attachments";
 import { PortalDialog } from "@/components/portal/portal-dialog";
+import { HouseMessageTally, HouseSendSummaryDialog, useHouseRecipients } from "@/components/portal/house-message-send";
+import { track } from "@/lib/analytics/track-client";
+import {
+  fanOutHouseSend,
+  houseRecipientLabel,
+  houseSendCounts,
+  houseSendPayload,
+  personResultFromResponse,
+  sendHousePersonWithRetry,
+  type HousePersonResult,
+} from "@/lib/house-message-recipients";
 import { CheckboxMultiSelect, type CheckboxMultiSelectGroup, type CheckboxMultiSelectOption } from "@/components/ui/checkbox-multi-select";
 import {
   defaultPortalMessageChannelSelection,
@@ -23,6 +34,7 @@ import {
 import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
 import { portalMessageSelectionFromDeliverVia } from "@/lib/manager-communication-deliver-via";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { vendorDetailHref } from "@/lib/portal-detail-routes";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { mergeInboxScopedContacts } from "@/lib/manager-inbox-contacts";
@@ -167,7 +179,7 @@ export function houseBroadcastOptions(
     .sort((a, b) => a[1].label.localeCompare(b[1].label, undefined, { sensitivity: "base" }))
     .map(([id, entry]) => ({
       key: `house:${id}` as const,
-      label: `Everyone at ${entry.label} (${entry.count})`,
+      label: houseRecipientLabel(entry.label, entry.count),
     }));
 }
 
@@ -241,6 +253,21 @@ function peopleForCategory(
 const NO_LIVE_CONTACTS: InboxScopedContact[] = [];
 const NO_SMS_RECIPIENTS: ManagerSmsResidentConversation[] = [];
 
+/**
+ * The inline line for a text the server refused because the typed number is not an opted-in conversation
+ * (carrier / TCPA: that rule stays on the server). Names the number and the workspace when the workspace name is
+ * known client-side; otherwise the server's own words are kept. Every other refusal passes through unchanged.
+ */
+export function smsRefusalMessage(serverMessage: string | undefined, phone: string, workspaceName: string | null | undefined): string | null {
+  const text = serverMessage?.trim();
+  if (!text) return null;
+  const name = workspaceName?.trim();
+  if (name && /opted in to PropLane texts/i.test(text)) {
+    return `Not sent. ${phone} hasn't opted in to texts from ${name}.`;
+  }
+  return text;
+}
+
 export function ManagerCommunicationComposeModal({
   open,
   onClose,
@@ -293,6 +320,7 @@ export function ManagerCommunicationComposeModal({
     residentDraft ?? (portal === "vendor" ? (initialDraft as unknown as ResidentComposePrefill | null) : null);
   const caps = useMemo(() => roleComposeCapabilities(portal, smsUiEnabled), [portal, smsUiEnabled]);
   const { showToast } = useAppUi();
+  const activeWorkspaceName = useWorkspaces()?.active?.name ?? null;
   const [directoryContacts, setDirectoryContacts] = useState<InboxScopedContact[]>([]);
   const localContacts = useMemo(() => contactsForPortal(portal, liveContacts), [portal, liveContacts]);
   const contacts = directoryContacts.length > 0 ? directoryContacts : localContacts;
@@ -333,10 +361,20 @@ export function ManagerCommunicationComposeModal({
     managerUserId?: string;
   } | null>(null);
   const sendOperationRef = useRef<{ fingerprint: string; id: string } | null>(null);
+  /** Message a whole house: one copy per person, so each person keeps their own send id for an idempotent Retry. */
+  const houseSendIdsRef = useRef<{ fingerprint: string; ids: Map<string, string> } | null>(null);
+  const [includeHouseGuests, setIncludeHouseGuests] = useState(false);
+  const [houseSummary, setHouseSummary] = useState<{ label: string; results: HousePersonResult[] } | null>(null);
 
   const { viaEmail, viaSms } = portalMessageChannelsFromSelection(sendVia);
   const viaInbox = sendVia.includes("proplane");
   const viaPortalDelivery = viaEmail || viaInbox;
+  const houseKeys = useMemo(() => selectedKeys.filter((key) => key.startsWith("house:")), [selectedKeys]);
+  const housePropertyIds = useMemo(() => houseKeys.map((key) => key.slice("house:".length)), [houseKeys]);
+  /** A house is picked: the people it reaches come from the server (the occupancy snapshot), never the picker. */
+  const houseMode = isManager && open && houseKeys.length > 0;
+  const houseRecipients = useHouseRecipients(housePropertyIds, includeHouseGuests, houseMode);
+  const houseSendNow = houseMode && !scheduleLater;
 
   const withPhone = useMemo(
     () => smsRecipients.filter((r) => Boolean(r.phone?.trim())),
@@ -403,8 +441,25 @@ export function ManagerCommunicationComposeModal({
     };
   }, [open, isManager, localContacts]);
 
+  // The form resets when the modal OPENS, never because something it reads (the deliver-via settings finishing
+  // their load, a re-created draft object, the capabilities) changed while someone is typing: that wiped the
+  // recipient and cleared `sending`, so the first click on Send did nothing.
+  const wasOpenRef = useRef(false);
+  /** The person picked their own Communication type: a late-loading default must not overwrite it. */
+  const sendViaEditedRef = useRef(false);
+  // A draft staged a tick after the modal opens (a vendor's "message the manager", a demo) still lands: the reset
+  // also runs when the draft's CONTENT changes, never for a re-created object with the same content.
+  const appliedDraftKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!open) return;
+    const justOpened = open && !wasOpenRef.current;
+    wasOpenRef.current = open;
+    const draft = isManager ? initialDraft : nonManagerDraft;
+    const draftKey = draft ? JSON.stringify(draft) : null;
+    const draftArrived = open && draftKey !== null && draftKey !== appliedDraftKeyRef.current;
+    if (!open) appliedDraftKeyRef.current = null;
+    if (!justOpened && !draftArrived) return;
+    appliedDraftKeyRef.current = draftKey;
+    sendViaEditedRef.current = false;
     queueMicrotask(() => {
       if (!isManager) {
         if (nonManagerDraft) {
@@ -482,6 +537,17 @@ export function ManagerCommunicationComposeModal({
       smsAttemptRef.current = null;
     });
   }, [open, initialChannel, smsUiEnabled, initialDraft, channelsFor, isManager, nonManagerDraft, caps]);
+
+  // The deliver-via defaults load after the modal can already be open. Apply them to the Communication type only
+  // while the person has not chosen one, and never to a draft that named its own channel.
+  const defaultViaKey = JSON.stringify(
+    isManager && !initialDraft ? portalMessageSelectionFromDeliverVia(channelsFor("inbox_default"), smsUiEnabled) : null,
+  );
+  useEffect(() => {
+    if (!open || !isManager || initialDraft || sendViaEditedRef.current) return;
+    const next = JSON.parse(defaultViaKey) as string[] | null;
+    if (next) setSendVia((previous) => (JSON.stringify(previous) === defaultViaKey ? previous : next));
+  }, [open, isManager, initialDraft, defaultViaKey]);
 
   // A staged resident draft names its manager: pick them once the list is here.
   useEffect(() => {
@@ -790,6 +856,70 @@ export function ManagerCommunicationComposeModal({
     }
   };
 
+  /**
+   * "Everyone living there": ONE copy per person through the existing per-person send route, so each copy lands
+   * in that person's own conversation under every existing authorization (not a group text). Three at a time.
+   */
+  const submitHouse = async (text: string) => {
+    if (otherSelected || selectedKeys.some((key) => !key.startsWith("house:"))) {
+      fail("Send to a house on its own. Remove the other recipients.");
+      return;
+    }
+    const s = subject.trim();
+    if (viaEmail && !s) {
+      fail("Add a subject for email.");
+      return;
+    }
+    if (houseRecipients.status !== "ready") {
+      fail(houseRecipients.status === "error" ? houseRecipients.message : "Still loading who lives there.");
+      return;
+    }
+    const people = houseRecipients.people;
+    if (people.length === 0) {
+      fail("No one is living there to message.");
+      return;
+    }
+    const via = { app: true, email: viaEmail, sms: viaSms };
+    const attachmentUrls = attachments.flatMap((item) => (item.uploadUrl ? [item.uploadUrl] : []));
+    const fingerprint = JSON.stringify([s, text, via, attachmentUrls, people.map((person) => person.id)]);
+    if (!houseSendIdsRef.current || houseSendIdsRef.current.fingerprint !== fingerprint) {
+      houseSendIdsRef.current = { fingerprint, ids: new Map() };
+    }
+    const sendIds = houseSendIdsRef.current.ids;
+    setSending(true);
+    try {
+      const results = await fanOutHouseSend(people, async (person) => {
+        let sendId = sendIds.get(person.id);
+        if (!sendId) {
+          sendId = crypto.randomUUID();
+          sendIds.set(person.id, sendId);
+        }
+        const sent = await sendHousePersonWithRetry(async () => {
+          const res = await fetch("/api/portal/send-inbox-message", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              ...houseSendPayload(person, { subject: s, text, via, senderName, sendId }),
+              ...(attachmentUrls.length ? { attachmentUrls } : {}),
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          return { status: res.status, ok: res.ok, data };
+        });
+        return personResultFromResponse(person, via, sent);
+      });
+      track("house_message_sent", { houses: houseKeys.length, ...houseSendCounts(results) });
+      invalidatePersistedInboxCache(MANAGER_INBOX_STORAGE_KEY);
+      void syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY, { force: true });
+      if (results.every((result) => result.ok)) houseSendIdsRef.current = null;
+      const firstHouse = contacts.find((contact) => contact.propertyId?.trim() === housePropertyIds[0]);
+      setHouseSummary({ label: firstHouse?.propertyLabel?.trim() ?? "", results });
+    } finally {
+      setSending(false);
+    }
+  };
+
   const submit = async () => {
     if (attachments.some((item) => item.uploading || item.error)) {setFormError("Wait for uploads to finish or remove failed attachments."); return;}
     if (attachments.length && (scheduleLater || viaSms)) {setFormError(scheduleLater ? "Scheduled attachments are not supported. Remove the files or send now." : "Attachments can be sent by Email or PropLane. Turn off SMS to send these files."); return;}
@@ -818,6 +948,11 @@ export function ManagerCommunicationComposeModal({
     }
     if (directoryCategories.length > 0 && selectedKeys.length === 0) {
       fail("Choose a recipient.");
+      return;
+    }
+
+    if (houseSendNow) {
+      await submitHouse(text);
       return;
     }
 
@@ -920,7 +1055,7 @@ export function ManagerCommunicationComposeModal({
         }
         const results = await Promise.all(schedulePayloads.map((payload) => postScheduledInboxMessage(payload)));
         if (results.some((ok) => !ok)) {
-          showToast("Some messages could not be scheduled.");
+          fail("Some messages could not be scheduled.");
           return;
         }
         showToast(
@@ -1051,7 +1186,7 @@ export function ManagerCommunicationComposeModal({
               continue;
             }
             if (!res.ok) {
-              lastError = data.error ?? lastError;
+              lastError = smsRefusalMessage(data.error, target.phone, activeWorkspaceName) ?? lastError;
               if (data.code === "vendor_attestation_required" && target.vendorRecordId) {
                 setVendorTextStatus((previous) => ({
                   ...previous,
@@ -1075,7 +1210,7 @@ export function ManagerCommunicationComposeModal({
 
       if (smsOutcomeUnknown) {
         if (optimisticId) onClearOptimistic?.(optimisticId);
-        showToast(
+        fail(
           viaEmail && emailOk
             ? `Email sent. ${MANUAL_SMS_UNKNOWN_MESSAGE}`
             : MANUAL_SMS_UNKNOWN_MESSAGE,
@@ -1097,7 +1232,7 @@ export function ManagerCommunicationComposeModal({
           onSent?.({ email: false, sms: true, primaryRecipientEmail });
           return;
         }
-        showToast(lastError);
+        fail(lastError);
         return;
       }
 
@@ -1124,7 +1259,8 @@ export function ManagerCommunicationComposeModal({
       onSent?.({ email: viaEmail, sms: viaSms, primaryRecipientEmail });
     } catch {
       if (optimisticId) onClearOptimistic?.(optimisticId);
-      showToast(lastError);
+      fail(lastError);
+      return;
     } finally {
       setSending(false);
     }
@@ -1233,6 +1369,7 @@ export function ManagerCommunicationComposeModal({
   const sendLabel = (() => {
     if (sending) return "Sending…";
     if (scheduleLater) return "Schedule";
+    if (houseSendNow) return houseRecipients.status === "ready" ? `Send to ${houseRecipients.people.length}` : "Send";
     if (viaEmail && viaSms) return "Send message";
     if (viaSms) return "Send SMS";
     return viaEmail ? "Send email" : "Send message";
@@ -1247,12 +1384,27 @@ export function ManagerCommunicationComposeModal({
   );
 
   return (
+    <>
+    <HouseSendSummaryDialog
+      open={open && houseSummary !== null}
+      houseLabel={houseSummary?.label ?? ""}
+      results={houseSummary?.results ?? []}
+      onDone={() => {
+        const hadSent = houseSummary?.results.some((result) => result.ok) ?? false;
+        setHouseSummary(null);
+        if (hadSent) {
+          sendOperationRef.current = null;
+          onClose();
+          onSent?.({ email: viaEmail, sms: viaSms });
+        }
+      }}
+    />
     <PortalDialog
-      open={open}
+      open={open && houseSummary === null}
       title="New message"
       previewLabel="Message preview"
       contextPanel={<PopupRecordPreview rows={[{ label: "Recipients", value: recipientSummary || "Not selected" }]} />}
-      preview={<PopupMessagePreview subject={subject} body={body} recipient={recipientSummary} channel={sendLabel} sendAt={scheduleLater ? sendAt : undefined} />}
+      preview={<PopupMessagePreview subject={isManager && viaSms && !viaPortalDelivery ? undefined : subject} body={body} recipient={recipientSummary} channel={sendLabel} sendAt={scheduleLater ? sendAt : undefined} />}
       secondaryAction={null}
       onClose={() => {
         sendOperationRef.current = null;
@@ -1261,7 +1413,10 @@ export function ManagerCommunicationComposeModal({
       primaryAction={{
         label: sendLabel,
         onClick: () => (isManager ? submit() : submitScoped()),
-        disabled: sending || (!viaPortalDelivery && !viaSms),
+        disabled:
+          sending ||
+          (!viaPortalDelivery && !viaSms) ||
+          (houseSendNow && (houseRecipients.status !== "ready" || houseRecipients.people.length === 0)),
         loading: sending,
         dataAttr: "communication-compose-send",
       }}
@@ -1309,18 +1464,32 @@ export function ManagerCommunicationComposeModal({
             }}>{option.label}</button>)}
           </div> : null}
         </div>
+        {houseMode ? (
+          <HouseMessageTally
+            state={houseRecipients}
+            via={{ app: true, email: viaEmail, sms: viaSms }}
+            includeGuests={includeHouseGuests}
+            onIncludeGuests={setIncludeHouseGuests}
+          />
+        ) : null}
         {communicationTypeOptions.length > 0 ? (
           <CheckboxMultiSelect
             label="Communication type"
             labelClassName={portalMessageFieldLabel()}
             options={communicationTypeOptions}
             selected={sendVia}
-            onChange={setSendVia}
+            onChange={(next) => {
+              sendViaEditedRef.current = true;
+              setSendVia(next);
+            }}
             emptyLabel="Choose a type…"
             dataAttr="communication-compose-type"
           />
         ) : null}
-        <PortalMessageSubjectField value={subject} onChange={setSubject} dataAttr="communication-compose-subject" />
+        {/* A text has no subject: a text-only send hides the field (and it never enters the checklist or preview). */}
+        {isManager && viaSms && !viaPortalDelivery ? null : (
+          <PortalMessageSubjectField value={subject} onChange={setSubject} dataAttr="communication-compose-subject" />
+        )}
 
         <PortalMessageBodyField
           value={body}
@@ -1369,5 +1538,6 @@ export function ManagerCommunicationComposeModal({
         </div>
       </PortalMessageComposeModalBody>
     </PortalDialog>
+    </>
   );
 }

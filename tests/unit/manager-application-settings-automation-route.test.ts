@@ -112,7 +112,14 @@ vi.mock("@/lib/task-automation-preferences", async (importOriginal) => {
   };
 });
 vi.mock("@/lib/manager-landlord-profile", () => ({
-  loadManagerLandlordLegalNameFromProfile: (...a: unknown[]) => loadManagerLandlordLegalNameFromProfile(...a),
+  validateLandlordLegalName: (raw: unknown) => ({ ok: true, landlordLegalName: String(raw ?? "") }),
+}));
+vi.mock("@/lib/manager-landlord-profile.server", () => ({
+  resolveLandlordLegalNameForScope: async (db: unknown, ownerUserId: unknown) => {
+    const name = (await loadManagerLandlordLegalNameFromProfile(db, ownerUserId)) as string;
+    return { landlordLegalName: name, source: "owner", setting: "", ownerFullName: name };
+  },
+  saveLandlordProfileForScope: async () => ({}),
 }));
 vi.mock("@/lib/application-fee-waiver", () => ({
   listApplicationFeeWaiverCodes: (...a: unknown[]) => listApplicationFeeWaiverCodes(...a),

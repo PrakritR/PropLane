@@ -1,8 +1,7 @@
 import { NativeAuthHub } from "@/components/auth/native-auth-hub";
-import { loadSharedLineConfig } from "@/lib/one-number/config.server";
-import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { readPhoneSignInPreference } from "@/lib/auth/phone-sign-in-preference.server";
 
-// The shared-line rollout is a runtime switch, never a build-time snapshot.
+// Phone sign-in works in every line mode; whether it is on is a runtime read, never a build-time snapshot.
 export const dynamic = "force-dynamic";
 
 /**
@@ -10,11 +9,6 @@ export const dynamic = "force-dynamic";
  * Account creation is role-agnostic at /auth/create-account, then /auth/get-started.
  */
 export default async function SignInPage() {
-  let phoneFirst = false;
-  try {
-    phoneFirst = (await loadSharedLineConfig(createSupabaseServiceRoleClient())).mode === "shared";
-  } catch {
-    // A missing service configuration keeps the legacy sign-in surface available.
-  }
+  const phoneFirst = await readPhoneSignInPreference();
   return <NativeAuthHub defaultMode="sign-in" phoneFirst={phoneFirst} />;
 }

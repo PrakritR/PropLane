@@ -110,8 +110,11 @@ Payments · Services, current residents only · Documents · Communication, last
 Inspections is a Move in sub-tab (`/move-in/inspections`, and an old `/inspections` link redirects
 there). Forms is owned by [`move-in-forms.md`](move-in-forms.md) § Manager Forms page.
 
-The record's top-right icons are **Edit and Delete, and nothing else**, identical on every tab: the
-one `PortalRecordActions` in `pro-residents.tsx` publishes them from the registry's tab-independent
+The record's top-right icons are **Edit and Delete, and nothing else** (registry), identical on every tab,
+plus **Rate** (a star glyph, between them) for someone who is or was a tenant: `withResidentRateAction`
+(`resident-record-section-actions.ts`) adds it in `pro-residents.tsx`, it opens `ResidentRatingSheet`, and the
+server decides whether this workspace housed them ([`resident-ratings.md`](resident-ratings.md)); the "Ratings"
+card on Overview and Application shows what future managers see. The one `PortalRecordActions` in `pro-residents.tsx` publishes them from the registry's tab-independent
 `headerActions`, and no tab body may publish a second set (the slot is single, last wins). Everything
 that used to crowd that corner is an action of the tab it belongs to — Message is Communication's
 composer, Share · Archive (· Send invite, when there is no login yet) are the Overview tab's ⋯,

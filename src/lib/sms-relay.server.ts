@@ -264,7 +264,7 @@ export async function provisionRelayThread(
     "intro_counterparty",
     String(thread.id),
     counterpartyPhone,
-    `PropLane: this is your direct line${where}. Text here to reach ${input.managerName}, your property manager. Reply STOP to opt out, HELP for help.`,
+    `This is your direct line${where}. Text here to reach ${input.managerName}, your property manager.`,
     proxyPhone,
   );
   await sendRelaySms(

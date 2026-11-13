@@ -13,6 +13,7 @@ import { ManagedServiceForm } from "@/components/marketing/site/managed-service-
 import { HOME_DESCRIPTION, HOME_HEADLINE } from "@/lib/marketing/home-copy";
 import { MANAGED_INCLUDES } from "@/lib/marketing/managed-service";
 import { TRACK_RECORD } from "@/lib/marketing/track-record";
+import { liveRoomOccupancy } from "@/lib/marketing/track-record-live.server";
 import { PUBLIC_SUPPORT_EMAIL } from "@/lib/marketing/public-contact";
 import { iosAppDownloadUrl } from "@/lib/ios-app-download";
 import { homeJsonLd, jsonLdString } from "@/lib/seo/json-ld";
@@ -27,9 +28,11 @@ export const metadata: Metadata = {
   twitter: { title: HOME_HEADLINE, description: HOME_DESCRIPTION },
 };
 
-// The layout supplies the shared-line snapshot. Keep this page synchronous so
-// the complete cover and section heights are present in the first response.
-export default function HomePage() {
+// The layout supplies the shared-line snapshot. The page renders in one pass: the only await is the
+// public, hourly-cached rooms-occupied read (never viewer-scoped; falls back to the last stated
+// figure), so the complete cover and section heights are present in the first response.
+export default async function HomePage() {
+  const occupancy = await liveRoomOccupancy();
   return (
     <div className="texting-home home-swiss home-wavy">
       <ResidentLifecycleAtmosphere variant="page" staticBelow={861} />
@@ -76,8 +79,8 @@ export default function HomePage() {
                 <div className="swiss-track-label">Track record</div>
                 <p>
                   We run {TRACK_RECORD.homes === 3 ? "three" : TRACK_RECORD.homes}{" "}
-                  homes in Seattle — {TRACK_RECORD.roomsOccupied} of{" "}
-                  {TRACK_RECORD.roomsTotal} rooms occupied — at a{" "}
+                  homes in Seattle — {occupancy.roomsOccupied} of{" "}
+                  {occupancy.roomsTotal} rooms occupied — at a{" "}
                   {TRACK_RECORD.profit.toLowerCase()}.
                 </p>
               </div>

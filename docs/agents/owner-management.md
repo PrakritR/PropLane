@@ -21,6 +21,12 @@ That design is gone: no destination, no application fee, none of its plumbing is
 | **PropLane-managed** (has an active `managed_workspace_fee_policies` row; one workspace per signed owner / client / city) | Resident money is captured on PropLane's platform Stripe balance (central capture, unchanged) and **never** credited to a manager hold. It is allocated in the **party ledger**: owner payable, PropLane fee revenue, vendor payables. Owners and vendors withdraw their available balance to their own Express account. |
 | **Self-serve software workspace** (no policy) | Byte for byte today's per-workspace Stripe Connect flow (hold credited to the manager, manual payouts, vendors paid from the workspace's own balance). Nothing in this doc touches it. |
 
+A managed workspace is OWNED by the platform service owner (the admin); the client is its Property owner and the payee
+(`resolveManagedPayee`: the owner seat, the signed policy's owner before the prod move). The statement and tax-package headers name
+the Property owner of record (`propertyOwner`), never the workspace row's owner. The ledger is keyed on the policy's owner party
+(`owner:<client id>`) and is never re-keyed by the ownership move. TODO(managed-workspaces-to-admin-20261112): drop the
+"policy owner" fallback in the payee after the one-shot's read-back.
+
 Managed-ness is read from the database at the moment money is credited (the property's `workspace_id` -> active policy), never
 from a request. A workspace with no policy is not managed.
 
@@ -200,8 +206,8 @@ A workspace is PropLane-managed only while an ACTIVE `managed_workspace_fee_poli
 workspace that row is created automatically, with no signature: `ensureServiceFeePolicy` (`src/lib/owner-management/policies.server.ts`)
 is idempotent and makes an admin-attested policy (note "Automatic PropLane management fee", PropLane keeps 10%, appliesTo `rent`,
 no leasing fee or minimum) on attach, on create, and lazily wherever a service workspace is found without one (checkout, autopay,
-platform-capture decision, hold release; `unpolicied-service.server.ts`). The owner of record is the workspace's owner when a client
-owns it (attached), or its flagged owner-of-record member when the platform service owner owns it. `resolveOwnerOfRecord` fails
+platform-capture decision, hold release; `unpolicied-service.server.ts`). The owner of record is its flagged owner-of-record member (the Property owner seat; the workspace owner is the platform service
+owner). TODO(managed-workspaces-to-admin-20261112): before the one-shot an attached workspace's client OWNS it and is the owner of record. `resolveOwnerOfRecord` fails
 closed: with no `platform_service_settings` row there is no way to tell a client's workspace from PropLane's own, so the answer is
 "none" and nothing is created - PropLane is never named as the owner of record of its own workspace.
 
@@ -316,3 +322,52 @@ after. Without that pass the transfer would sit in a manual-schedule recipient's
 
 Two endpoints (platform events and connected-account events), two signing secrets, one route; and a 15-minute backstop cron
 `/api/cron/release-ready-holds`. See `docs/stripe-go-live.md` section 5.
+
+
+## Funding decision (one answer, fail closed)
+
+`src/lib/managed-finance/funding-model.server.ts` is the one place that answers "where does this workspace's resident money go?":
+`resolveWorkspaceFundingModel(db, workspaceId)` / `resolveFundingModelForProperties` -> `managed_platform` when
+`portal_workspaces.is_service`, else `connect_destination` (self-serve, unchanged). A failed read throws
+`FundingModelUnreadableError`; an unreadable flag is never read as self-serve. (This is not the `fundingModel: "platform_ledger"`
+checkout option, which credits a manager's PropLane balance; a managed capture is the platform-hold checkout plus
+`credit_managed_capture`, the rail every resident payment already uses.)
+
+Enforced at three points, so an `is_service` workspace's money can never reach a manager's own Connect account:
+
+1. **Checkout / autopay creation** (`fundingModelProblem`, household checkout 503 `FUNDING_MODEL_UNREADABLE`, autopay run fails): refuse
+   when the flag cannot be read. Application-fee and linked-form-fee checkouts already fail closed through
+   `platformCaptureRequiredForProperty`.
+2. **Hold credit** (`assertHoldAllowedForProperties`): the household checkout and autopay source credits and
+   `creditHoldFromPaidSession` / `creditHoldFromPaymentIntent` throw instead of crediting a manager hold when the house is in an
+   `is_service` workspace (or the flag is unreadable). Stripe redelivers; the money stays on the platform balance. A hold that
+   already exists is left to the release guard.
+3. **Hold release** (`holdIsServiceWorkspaceMoney` in `platform-hold-release.server.ts`): a NEW manager hold release is frozen
+   (stays held, visible) when its charge rows sit in an `is_service` workspace or the read fails. Previously only a workspace
+   with NO active fee policy froze a release.
+
+Not covered: a house with no `workspace_id` is self-serve by definition, and application-fee holds are guarded at credit time only
+(release cannot map their source id to a house).
+
+## Owner payout setup (staff never act as the owner)
+
+Payout setup in a managed workspace is the OWNER's: their own Express account, their own identity and bank, signed in as themselves.
+`resolveStripePayoutContext` returns `unresolvedReason: "staff_managed_workspace"` (403, `stripePayoutContextStatus`) for PropLane
+staff in a managed workspace, so every `/api/stripe/connect/*` and `/api/stripe/payouts/*` route refuses them before any account is
+created or touched (`managed-finance/payout-setup.server.ts`). Staff's Balance & payouts shows the owner's status read from Stripe
+(`GET /api/portal/managed-payout-status`: not set up / pending / active, bank name + last4 + status, nothing stored) and a Send setup
+link action (`POST .../send-link`: recipient derived from the workspace's active policy, email only, one per workspace per day; the
+link carries no credential). A bank token's holder name must match the verified name on the Stripe account
+(`holderNamesMatch`, checked server-side in `addPayoutDestination`); the sheet's Account holder field is read-only. Payout routes
+return Stripe's real error message and code (`stripePayoutErrorResponse`), never a generic screen.
+
+## Owner of record = the Property owner seat (Nov 12)
+
+Every managed workspace is owned by the service owner (the admin); its client is an accepted `property_owner` seat flagged
+`is_owner_of_record` (view-only: Performance, Statements, Documents, Messages). The payee is `resolveManagedPayee`
+(`managed-finance/payee.server.ts`), never the workspace row's owner; `requireManagedOwner` lets a person into
+`/api/owner/finances/*` only for workspaces whose payee they are. The fee policy, the owner party ledger (`owner:<client>`), holds, payout
+status and statements are keyed on the client and are never re-keyed by the ownership mover (KEEP class). Deleting the client's account is
+refused while they are the payee of a managed workspace with a policy or a non-zero owner payable
+(`auth/managed-account-deletion-guard.server.ts`). `resolveOwnerOfRecord` keeps one transitional arm for a client-owned workspace attached
+before the mover ran; it is dead once the mover has run for every managed workspace.

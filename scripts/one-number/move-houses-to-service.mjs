@@ -514,7 +514,7 @@ export async function run(argv, deps = {}) {
     argv,
     {
       strings: ["owner-email", "owner-name", "label", "workspace-id", "city", "expect-houses", "undo", "journal-out", "mode"],
-      booleans: ["acknowledge-unmoved"],
+      booleans: ["acknowledge-unmoved", "legacy-attach"],
     },
     { write: (f) => Boolean(f.apply || f.undo), deps },
   );
@@ -557,8 +557,14 @@ export async function run(argv, deps = {}) {
   }
 
   /* --- attach / transfer --- */
-  const mode = clean(flags.mode ?? "attach");
-  if (mode !== "attach" && mode !== "transfer") throw new UsageError("--mode must be attach (default) or transfer.");
+  const mode = clean(flags.mode ?? (flags["legacy-attach"] ? "attach" : ""));
+  if ((mode === "attach" || mode === "") && !flags["legacy-attach"]) {
+    // Nov 12 (captain): a managed workspace is the ADMIN's. Attach-with-client-ownership is retired; the one mover is the
+    // SQL function `move_managed_workspace_to_service_owner` (supabase/migrations/20261112230000_managed_workspace_mover.sql),
+    // driven by scripts/one-shot/managed-workspaces-to-admin-20261112.mts and by Admin > Service > Attach.
+    throw new UsageError("--mode attach is retired: managed workspaces are owned by the service owner. Use scripts/one-shot/managed-workspaces-to-admin-20261112.mts (existing clients) or Admin > Service > Attach (new ones). --undo of an old attach journal still works. (--legacy-attach exists only for the tests of the retired path.)");
+  }
+  if (mode !== "transfer" && !(mode === "attach" && flags["legacy-attach"])) throw new UsageError("--mode transfer is the only mode left (the old --mode attach is retired).");
   if (!flags["owner-email"]) {
     if (flags["owner-name"]) await listCandidates(db, flags["owner-name"], log);
     throw new UsageError("--owner-email <the owner's account email> is required (use --owner-name to list matching accounts).");

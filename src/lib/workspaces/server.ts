@@ -50,16 +50,35 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
   const linksRead = db.from("account_link_invites")
     .select("id,inviter_user_id,assigned_property_ids,property_co_manager_permissions,co_manager_permissions,workspace_id,workspace_permissions,team_role,house_scope")
     .eq("invitee_user_id", userId).eq("status", "accepted");
-  const [owned, links] = await Promise.all([ownedWorkspaces(), linksRead]);
-  if (owned.error || links.error) throw new Error("Could not load workspace access. Please retry.");
+  // Four reads that depend only on the viewer: their workspaces, their accepted memberships, the Service-owner
+  // seats and the properties they own. They start together; the checks below still run in the same order and
+  // any failure still fails the whole load (nothing is read as "empty" on an error).
+  const ownedPropertiesRead = db.from("manager_property_records").select("id,workspace_id,row_data,status").eq("manager_user_id", userId);
   // The owner of record of a PropLane Service workspace sees all of it, view only: derived from the seat flag and
   // `is_service` at read time (never written into the row), replacing the seat's own owner-keys-only grant.
-  let serviceOwnerSeats: Awaited<ReturnType<typeof loadServiceOwnerSeats>>;
-  try {
-    serviceOwnerSeats = await loadServiceOwnerSeats(db, userId, { strict: true });
-  } catch {
-    throw new Error("Could not load workspace access. Please retry.");
-  }
+  const serviceOwnerSeatsRead = loadServiceOwnerSeats(db, userId, { strict: true }).then(
+    (seats) => ({ ok: true as const, seats }),
+    () => ({ ok: false as const }),
+  );
+  const [owned, links, seatsResult, ownedProperties] = await Promise.all([
+    ownedWorkspaces(),
+    linksRead,
+    serviceOwnerSeatsRead,
+    ownedPropertiesRead,
+  ]);
+  if (owned.error || links.error) throw new Error("Could not load workspace access. Please retry.");
+  if (!seatsResult.ok) throw new Error("Could not load workspace access. Please retry.");
+  const serviceOwnerSeats = seatsResult.seats;
+  if (ownedProperties.error) throw new Error("Could not load workspace properties. Please retry.");
+  // Which owned Service workspaces are locked needs only the owned rows, so it overlaps the shared-workspace
+  // reads below. An unreadable plan locks (fail closed), exactly as before.
+  const ownedServiceIds = withoutArchivedWorkspaces(owned.data)
+    .filter((w) => (w as { is_service?: boolean | null }).is_service === true)
+    .map((w) => w.id);
+  const lockedOwnedServiceRead: Promise<Set<string>> = lockedOwnedServiceWorkspaceIds(db, userId, ownedServiceIds).then(
+    (ids) => new Set(ids),
+    () => new Set(ownedServiceIds),
+  );
   const derivedSeatIds = new Set(serviceOwnerSeats.map((seat) => seat.id));
   const memberLinks = [
     ...(links.data ?? []).filter((link) => !derivedSeatIds.has(String((link as { id?: unknown }).id ?? ""))),
@@ -110,8 +129,6 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
       }),
     });
   }
-  const ownedProperties = await db.from("manager_property_records").select("id,workspace_id,row_data,status").eq("manager_user_id", userId);
-  if (ownedProperties.error) throw new Error("Could not load workspace properties. Please retry.");
   const linkedProperties = assigned.size
     ? await db.from("manager_property_records").select("id,workspace_id,row_data,status").in("id", [...assigned])
     : { data: [], error: null };
@@ -174,13 +191,7 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
 
   // View-only: a PropLane Service workspace the viewer owns without a plan of her own, and a seat
   // that is the retired Property owner role. An unreadable plan locks (fail closed).
-  const ownedServiceIds = ownedRows.filter((w) => (w as { is_service?: boolean | null }).is_service === true).map((w) => w.id);
-  let lockedOwnedService: Set<string>;
-  try {
-    lockedOwnedService = new Set(await lockedOwnedServiceWorkspaceIds(db, userId, ownedServiceIds));
-  } catch {
-    lockedOwnedService = new Set(ownedServiceIds);
-  }
+  const lockedOwnedService = await lockedOwnedServiceRead;
   // The write lock itself is ACCOUNT-WIDE for the owner of a locked service workspace
   // (`managedReadOnlyOwnerLocked` / `managed_read_only_owner_locked()`): the middleware refuses every /api
   // write she makes, in her own non-service workspaces too. This flag is the UI half of that same lock, so it
@@ -318,17 +329,13 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
   });
 }
 
-/** The plan's workspace / property / team caps beside what the account already uses. */
-export async function loadWorkspacePlan(
-  db: SupabaseClient,
-  userId: string,
-  workspaces: PortalWorkspace[],
-): Promise<WorkspacePlan> {
-  const tierResult = await getEffectiveManagerSkuTier(userId);
-  const tier = tierResult.ok ? tierResult.tier : null;
-  const entitlements = tier ? WORKSPACE_PLAN_ENTITLEMENTS[tier] : null;
-  const owned = workspaces.filter((w) => w.owned);
-  const [links, vendors, addons, residents] = await Promise.all([
+/** Everything the plan reads that depends only on the account, so it can be fetched beside `loadWorkspaces`. */
+export type WorkspacePlanReads = Awaited<ReturnType<typeof readWorkspacePlanInputs>>;
+
+/** The plan's reads, started together: the tier and the four usage counts never wait on each other. */
+export async function readWorkspacePlanInputs(db: SupabaseClient, userId: string) {
+  const [tierResult, links, vendors, addons, residents] = await Promise.all([
+    getEffectiveManagerSkuTier(userId),
     db.from("account_link_invites").select("id", { count: "exact", head: true }).eq("inviter_user_id", userId).eq("status", "accepted"),
     db.from("manager_vendor_records").select("id", { count: "exact", head: true }).eq("manager_user_id", userId),
     loadManagerPlanAddonQuantities(db, userId),
@@ -338,9 +345,56 @@ export async function loadWorkspacePlan(
       .eq("manager_user_id", userId)
       .or("row_data->>bucket.eq.approved,row_data->>manuallyAdded.eq.true"),
   ]);
+  return { tierResult, links, vendors, addons, residents };
+}
+
+/**
+ * What the plan's account-wide counts include for the owner's managed workspaces: the seats they granted there and the
+ * approved residents of their houses. `null` = unreadable (the plan is then reported unknown, never undercounted as zero).
+ */
+async function readManagedUsageToSubtract(
+  db: SupabaseClient,
+  userId: string,
+  managed: PortalWorkspace[],
+): Promise<{ seats: number; residents: number } | null> {
+  if (managed.length === 0) return { seats: 0, residents: 0 };
+  const workspaceIds = managed.map((w) => w.id);
+  const houseIds = [...new Set(managed.flatMap((w) => w.propertyIds))];
+  const [seats, residents] = await Promise.all([
+    db.from("account_link_invites").select("id", { count: "exact", head: true }).eq("inviter_user_id", userId).eq("status", "accepted").in("workspace_id", workspaceIds),
+    houseIds.length === 0
+      ? Promise.resolve({ count: 0, error: null })
+      : db
+          .from("manager_application_records")
+          .select("id", { count: "exact", head: true })
+          .eq("manager_user_id", userId)
+          .or(`property_id.in.(${houseIds.join(",")}),assigned_property_id.in.(${houseIds.join(",")})`)
+          .or("row_data->>bucket.eq.approved,row_data->>manuallyAdded.eq.true"),
+  ]);
+  if (seats.error || residents.error) return null;
+  return { seats: seats.count ?? 0, residents: residents.count ?? 0 };
+}
+
+/** The plan's workspace / property / team caps beside what the account already uses. */
+export async function loadWorkspacePlan(
+  db: SupabaseClient,
+  userId: string,
+  workspaces: PortalWorkspace[],
+  /** Reads already started (or finished) for this account; omitted, they are read here. */
+  reads?: WorkspacePlanReads | Promise<WorkspacePlanReads>,
+): Promise<WorkspacePlan> {
+  const { tierResult, links, vendors, addons, residents } = await (reads ?? readWorkspacePlanInputs(db, userId));
+  const tier = tierResult.ok ? tierResult.tier : null;
+  const entitlements = tier ? WORKSPACE_PLAN_ENTITLEMENTS[tier] : null;
+  // Plan isolation (R4): a PropLane-managed (`is_service`) workspace is PropLane's own operation, owned by the admin. It
+  // never counts against the owner's plan - not as a workspace, not its houses, seats or residents - and a plan cap
+  // never strands it. A client who still owns an attached one (before the prod move) is likewise not charged for it.
+  const managed = workspaces.filter((w) => w.owned && w.isService === true);
+  const owned = workspaces.filter((w) => w.owned && w.isService !== true);
+  const managedSeatsAndResidents = await readManagedUsageToSubtract(db, userId, managed);
   // A failed add-on read is an unknown plan. Treating it as zero would reject
   // a manager who already pays for capacity, so callers must fail closed.
-  const unknown = !tierResult.ok || !addons.ok;
+  const unknown = !tierResult.ok || !addons.ok || managedSeatsAndResidents === null;
   const extra = addons.ok ? addons.quantities : EMPTY_PLAN_ADDON_QUANTITIES;
   // A legacy account with no committed plan keeps the database ceiling.
   const computedWorkspaceLimit = entitlements
@@ -360,9 +414,9 @@ export async function loadWorkspacePlan(
     usage: {
       workspaces: owned.length,
       properties: owned.reduce((sum, w) => sum + w.propertyIds.length, 0),
-      team: links.count ?? 0,
+      team: Math.max(0, (links.count ?? 0) - (managedSeatsAndResidents?.seats ?? 0)),
       vendors: vendors.count ?? 0,
-      residents: residents.count ?? 0,
+      residents: Math.max(0, (residents.count ?? 0) - (managedSeatsAndResidents?.residents ?? 0)),
     },
   };
 }

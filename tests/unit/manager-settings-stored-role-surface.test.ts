@@ -4,7 +4,8 @@ const routes = ["task-automation-settings", "reminder-settings", "automation-set
 describe("manager settings authorization surface", () => {
   it.each(routes)("%s checks a stored manager role and does not trust metadata", (route) => {
     const source = readFileSync(`src/app/api/portal/${route}/route.ts`, "utf8");
-    expect(source).toContain("userHoldsManagerRole(db, user.id)");
+    // The stored-role check is `userHoldsManagerRole` itself or its strict twin behind `resolveManagerRouteActor` (503 on a failed read).
+    expect(/userHoldsManagerRole\(db, user\.id\)|resolveManagerRouteActor\(/.test(source)).toBe(true);
     expect(source).not.toMatch(/user_metadata\?\.role/);
   });
   it("keeps promotion oversight behind a stored admin role", () => {

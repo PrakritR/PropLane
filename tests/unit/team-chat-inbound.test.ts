@@ -204,3 +204,28 @@ describe("team chat avatar", () => {
     expect(inboxInitials("+1 555 000 9253")).toBe("?");
   });
 });
+
+describe("a PropLane Service sender (staff seat) on a managed workspace", () => {
+  // The managed workspace is owned by the service owner (the admin); the staff seat is an accepted teammate of that owner.
+  const managed: Member[] = [
+    { userId: "service-owner-admin", teamRole: null, isOwner: true },
+    { userId: "staff-seat", teamRole: "property_manager", isOwner: false },
+  ];
+  const staffText = (body: string) =>
+    routeManagerInboundText(db, { ownerManagerUserId: "service-owner-admin", workspaceId: "managed-ws", actorUserId: "staff-seat", body, messageSid: "SM_STAFF" });
+
+  it("a staff text with no @assistant lands in that workspace's Team chat and is relayed", async () => {
+    members.mockResolvedValue(managed);
+    post.mockResolvedValue({ ok: true, posted: true, threadId: "team-thread:service-owner-admin:ws:managed-ws", workspaceId: "managed-ws" });
+    expect(await staffText("Plumber is booked for Friday")).toEqual({ kind: "team", ok: true });
+    expect(members.mock.calls[0]![1]).toMatchObject({ ownerManagerUserId: "service-owner-admin", workspaceId: "managed-ws" });
+    expect(post.mock.calls[0]![1]).toMatchObject({ ownerManagerUserId: "service-owner-admin", workspaceId: "managed-ws", actorUserId: "staff-seat", messageId: "team-sms:SM_STAFF", channel: "sms" });
+    expect(relay).toHaveBeenCalledTimes(1);
+  });
+
+  it("an @assistant text still reaches the agent, address stripped, nothing posted", async () => {
+    members.mockResolvedValue(managed);
+    expect(await staffText("@assistant any tours this week?")).toEqual({ kind: "agent", text: "any tours this week?" });
+    expect(post).not.toHaveBeenCalled();
+  });
+});

@@ -84,13 +84,13 @@ describe("the active workspace narrows even the caller's own deposit", () => {
     expect(refundsCreate).not.toHaveBeenCalled();
   });
 
-  it("returns the deposit when the house IS in the active workspace", async () => {
+  it("blocks a return even when the house is in the active workspace", async () => {
     resolveManagerWorkspaceRowScope.mockResolvedValue({ propertyIds: ["prop-outside"], untaggedOwnedVisible: true });
 
     const res = await post({ chargeId: "chg-1" });
 
-    expect(res.status).toBe(200);
-    expect(refundsCreate).toHaveBeenCalled();
+    expect(res.status).toBe(503);
+    expect(refundsCreate).not.toHaveBeenCalled();
   });
 
   it("never narrows when the workspace could not be resolved (fails open, matching activeWorkspacePropertyScope)", async () => {
@@ -98,7 +98,7 @@ describe("the active workspace narrows even the caller's own deposit", () => {
 
     const res = await post({ chargeId: "chg-1" });
 
-    expect(res.status).toBe(200);
-    expect(refundsCreate).toHaveBeenCalled();
+    expect(res.status).toBe(503);
+    expect(refundsCreate).not.toHaveBeenCalled();
   });
 });

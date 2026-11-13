@@ -6,6 +6,14 @@ import { InboxEventCard } from "@/components/portal/inbox-event-card";
 import type { InboxEventCard as InboxEventCardData, InboxEventKind, InboxEventViewer } from "@/lib/inbox-event-card";
 import type { RecordRef } from "@/lib/portals/record-kinds";
 import { formatInboxListNarrowTime, formatInboxStamp, isCanonicalInboxStamp } from "@/lib/portal-inbox-storage";
+import {
+  deliveryStateLabel,
+  failedDeliveries,
+  NOT_A_REAL_MAILBOX,
+  overallDeliveryState,
+  type InboxDeliveryChannel,
+  type InboxMessageDelivery,
+} from "@/lib/inbox-delivery-status";
 
 import {
   Children,
@@ -36,7 +44,7 @@ import {
   type InboxBubbleClusterPosition,
 } from "@/lib/inbox-message-timeline";
 import { inboxDisplayName } from "@/lib/inbox-display-name";
-import { ChevronDown, ChevronLeft, ChevronRight, Check, CheckCheck, Clock, FileText, Info, Mail, Maximize2, MessageSquare, Minimize2, Paperclip, Pencil, Phone, Plus, Search, Send, House, X, Activity, MessageCircle } from "lucide-react";
+import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, Check, CheckCheck, Clock, FileText, Info, Mail, Maximize2, MessageSquare, Minimize2, Paperclip, Pencil, Phone, Plus, Search, Send, House, X, Activity, MessageCircle } from "lucide-react";
 import { pickInboxColumns, type InboxColumns } from "@/lib/inbox-columns";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalEmptyIcon, PortalEmptyState } from "@/components/portal/portal-empty-state";
@@ -339,7 +347,7 @@ export function PortalInboxMessageTable({
             <div key={msg.id} className="rounded-xl border border-border bg-accent/20 px-3 py-2.5">
               <p className="text-[11px] font-semibold text-foreground">{msg.from}</p>
               <p className="text-[10px] text-muted">{msg.at}</p>
-              <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-muted">{msg.body}</p>
+              <p className="mt-1.5 whitespace-pre-wrap break-words text-sm leading-relaxed text-muted [overflow-wrap:anywhere]">{msg.body}</p>
             </div>
           ))}
         </div>
@@ -632,6 +640,8 @@ export type InboxBubbleMessage = {
   status?: string;
   /** Optimistic send lifecycle for outbound bubbles. */
   delivery?: "sending" | "sent" | "failed";
+  /** Provider-confirmed status per channel (`InboxThreadMessage.deliveries`). Absent = the plain Sent tick as before. */
+  deliveries?: InboxMessageDelivery[];
   /** True when a later inbound turn or provider observation confirms read. */
   readByRecipient?: boolean;
   /** Channel this message travelled on. Omitted = unknown: no tag, never a guessed "Email". */
@@ -1060,6 +1070,7 @@ export function InboxConversationRow({
   preview,
   time,
   unread = false,
+  notDelivered = false,
   unreadCount,
   address,
   category,
@@ -1073,6 +1084,8 @@ export function InboxConversationRow({
   listVariant = "default",
   appearance = "default",
   emailNameAsPerson = false,
+  avatar,
+  avatarShape = "circle",
 }: {
   name: string;
   subtitle?: string;
@@ -1089,9 +1102,19 @@ export function InboxConversationRow({
    * line, one-line preview, a 6px dot for unread). Every Communication list
    * passes it; `listVariant="manager"` implies it.
    */
-  appearance?: "default" | "flat";
+  appearance?: "default" | "flat" | "messages";
+  /**
+   * `messages` is the resident Messages row (Airbnb-inspired): a 48px avatar, a bold title, a one-line preview, the
+   * stamp top right and a dot bottom right when unread. Same tokens as the flat row, no pills.
+   */
+  /** Replaces the initials avatar (the PropLane agent's glyph, a house glyph). Drawn inside the 48px avatar slot. */
+  avatar?: ReactNode;
+  /** `circle` for people and agents, `tile` for a house. Only the `messages` appearance reads it. */
+  avatarShape?: "circle" | "tile";
   /** Unread threads show an Instagram-style dot on the right. */
   unread?: boolean;
+  /** The latest outbound message did not arrive: a red "Not delivered" glyph fact before the preview (never a pill). */
+  notDelivered?: boolean;
   /**
    * Unread INBOUND turns, when the surface can derive one. Renders as a filled
    * count pill instead of the dot. Falsy (or 0) keeps the dot, which is the
@@ -1133,6 +1156,92 @@ export function InboxConversationRow({
   const isEmptyPreview = /^no messages yet\.?$/i.test(preview.trim());
   const managerList = listVariant === "manager";
   const showMetaLine = !managerList && (address || category || recordChip);
+  if (appearance === "messages") {
+    const shown = emailNameAsPerson ? inboxDisplayName(name) : name;
+    return (
+      <div
+        className={cn(
+          "portal-inbox-row portal-inbox-row--messages group relative border-b border-border/60 px-4 py-3 transition-colors max-md:px-3.5",
+          selected ? "portal-inbox-row--selected bg-primary/[0.07]" : "hover:bg-foreground/[0.035]",
+        )}
+        data-unread={unread ? "true" : undefined}
+      >
+        <div className="flex items-center gap-1">
+          {leading}
+          <button
+            type="button"
+            onClick={onOpen}
+            title={subtitle || name}
+            className="flex min-w-0 flex-1 items-center gap-3 text-left"
+            data-attr="inbox-messages-row"
+          >
+            <span
+              className={cn(
+                "grid size-12 shrink-0 place-items-center overflow-hidden bg-primary/10 text-primary",
+                avatarShape === "tile" ? "rounded-[14px]" : "rounded-full",
+              )}
+              aria-hidden
+            >
+              {avatar ?? <InboxAvatar tile name={name} className="size-12 rounded-[inherit] text-[13px]" />}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-baseline gap-2">
+                <span className={`min-w-0 flex-1 truncate text-[15px] leading-tight text-foreground ${unread ? "font-bold" : "font-semibold"}`}>
+                  {shown}
+                </span>
+                <span className="shrink-0 text-xs tabular-nums text-muted">{time}</span>
+              </span>
+              <span className="mt-1 flex items-center gap-2">
+                <span
+                  className={`min-w-0 flex-1 truncate text-[13.5px] ${
+                    isEmptyPreview ? "italic text-muted/70" : unread ? "font-medium text-foreground/85" : "text-muted"
+                  }`}
+                >
+                  {notDelivered ? (
+                    <span className="mr-1.5 inline-flex items-center gap-0.5 font-medium text-rose-600" data-inbox-row-not-delivered>
+                      <AlertCircle className="size-3 shrink-0" strokeWidth={2.25} aria-hidden />
+                      Not delivered
+                    </span>
+                  ) : null}
+                  {previewPrefix ?? ""}
+                  {preview}
+                </span>
+                {unread ? <span className="size-2.5 shrink-0 rounded-full bg-primary" role="img" aria-label="Unread" /> : null}
+              </span>
+              {placeLine ? (
+                <span className="mt-0.5 block min-w-0 truncate text-xs text-muted" data-attr="inbox-row-place">
+                  {placeLine}
+                </span>
+              ) : null}
+            </span>
+          </button>
+          {trailing ? <div className="shrink-0 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">{trailing}</div> : null}
+        </div>
+        {/* Outside the button: the record chip is a link, and an anchor inside a <button> is invalid HTML. */}
+        {category || recordChip ? (
+          <div className="mt-1 flex items-center gap-2 pl-[60px]">
+            {category ? <span className="shrink-0 text-xs text-muted">{category}</span> : null}
+            {recordChip ? (
+              recordChip.href ? (
+                <Link
+                  href={recordChip.href}
+                  onClick={(event) => event.stopPropagation()}
+                  className="min-w-0 truncate text-xs text-primary hover:underline"
+                  data-attr="inbox-record-chip"
+                >
+                  {recordChip.label}
+                </Link>
+              ) : (
+                <span className="min-w-0 truncate text-xs text-muted" data-attr="inbox-record-chip">
+                  {recordChip.label}
+                </span>
+              )
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
   if (managerList || appearance === "flat") {
     return (
       <div
@@ -1168,12 +1277,18 @@ export function InboxConversationRow({
                   ) : null}
                 </span>
               </div>
-              {preview.trim() ? (
+              {preview.trim() || notDelivered ? (
                 <p
                   className={`mt-0.5 min-w-0 truncate text-[13px] ${
                     isEmptyPreview ? "italic text-muted/70" : unread ? "text-foreground/80" : "text-muted"
                   }`}
                 >
+                  {notDelivered ? (
+                    <span className="mr-1.5 inline-flex items-center gap-0.5 font-medium text-rose-600" data-inbox-row-not-delivered>
+                      <AlertCircle className="size-3 shrink-0" strokeWidth={2.25} aria-hidden />
+                      Not delivered
+                    </span>
+                  ) : null}
                   {previewPrefix ?? ""}
                   {preview}
                 </p>
@@ -1476,15 +1591,71 @@ export function inboxMessageClock(at: string): string {
   return raw;
 }
 
-/** "via" line under a message: a phone or mail glyph and the channel's word. */
-function InboxViaLine({ channel }: { channel: InboxChannel }) {
+/**
+ * "via" line under a message: a phone or mail glyph and the channel's word. With a delivery status it also
+ * says what became of it on that channel: Delivered in green, Not delivered / Failed in red.
+ */
+function InboxViaLine({
+  channel,
+  delivery,
+}: {
+  channel: InboxChannel;
+  delivery?: Pick<InboxMessageDelivery, "channel" | "status">;
+}) {
   const Glyph = channel === "email" || channel === "gmail" ? Mail : channel === "sms" || channel === "whatsapp" ? Phone : MessageSquare;
   const label = channel === "sms" ? "Text" : INBOX_CHANNEL_LABEL[channel];
+  const tone =
+    delivery?.status === "delivered" ? "text-emerald-600" : delivery?.status === "failed" ? "font-medium text-rose-600" : "";
   return (
-    <span className="inline-flex items-center gap-1" data-inbox-via={channel}>
+    <span className={`inline-flex items-center gap-1 ${tone}`} data-inbox-via={channel} data-inbox-delivery-status={delivery?.status}>
       <Glyph className="size-3 shrink-0" strokeWidth={2} aria-hidden data-inbox-channel-glyph={channel} />
       <span>{label}</span>
+      {delivery ? <span>· {deliveryStateLabel(delivery)}</span> : null}
     </span>
+  );
+}
+
+/**
+ * What a failed-delivery strip can do. Provided by the surface that owns a composer (the manager inbox);
+ * without it the strip says what went wrong and offers nothing to click.
+ */
+export type InboxDeliveryActions = {
+  /** Put the message back in the composer on the channel it failed on. */
+  retry: (message: InboxBubbleMessage, channel: InboxDeliveryChannel) => void;
+  /** Put the message in the composer on the other channel. */
+  sendAnotherWay: (message: InboxBubbleMessage, channel: InboxDeliveryChannel) => void;
+  /** Whether this person can be reached on the channel right now. */
+  canSendVia: (channel: InboxDeliveryChannel) => boolean;
+};
+
+export const InboxDeliveryActionsContext = createContext<InboxDeliveryActions | null>(null);
+
+/** The compact red strip under a bubble that did not arrive: the plain reason, then what to do about it. */
+function InboxDeliveryFailureStrip({ message, failed }: { message: InboxBubbleMessage; failed: InboxMessageDelivery }) {
+  const actions = useContext(InboxDeliveryActionsContext);
+  const noun = failed.channel === "email" ? "Email" : "Text";
+  const other: InboxDeliveryChannel = failed.channel === "email" ? "sms" : "email";
+  const canRetry = Boolean(actions?.canSendVia(failed.channel)) && failed.error !== NOT_A_REAL_MAILBOX;
+  const canSwitch = Boolean(actions?.canSendVia(other));
+  const linkClass = "font-semibold text-rose-700 underline-offset-2 hover:underline";
+  return (
+    <div
+      className="mt-1 flex max-w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-rose-50 px-2.5 py-1.5 text-xs text-rose-700"
+      role="status"
+      data-inbox-delivery-failure={failed.channel}
+    >
+      <span className="min-w-0 break-words">{noun} not delivered{failed.error ? `: ${failed.error}` : ""}.</span>
+      {actions && canRetry ? (
+        <button type="button" className={linkClass} onClick={() => actions.retry(message, failed.channel)} data-inbox-delivery-retry>
+          Retry
+        </button>
+      ) : null}
+      {actions && canSwitch ? (
+        <button type="button" className={linkClass} onClick={() => actions.sendAnotherWay(message, other)} data-inbox-delivery-switch>
+          {other === "sms" ? "Send by text" : "Send by email"}
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -1524,7 +1695,7 @@ export function InboxBubble({
   emailNameAsPerson?: boolean;
 }) {
   if (message.eventKind && message.eventCard) {
-    return <InboxEventCard kind={message.eventKind} card={message.eventCard} viewer={eventViewer} />;
+    return <InboxEventCard kind={message.eventKind} card={message.eventCard} viewer={eventViewer} recordRef={message.eventRecordRef} />;
   }
   if (message.direction === "system" || message.automated) {
     const event = inboxActivitySummary(message.eventTitle || message.subject, message.body);
@@ -1565,11 +1736,20 @@ export function InboxBubble({
     (message.delivery === "sent" || message.delivery === undefined) &&
     (message.readByRecipient === true || (message.status?.toLowerCase().includes("read") ?? false));
 
+  // Provider-confirmed status per channel replaces the plain tick: each channel says what became of it.
+  const deliveries = outbound && !sending && !failed ? message.deliveries : undefined;
+  const hasDeliveries = Boolean(deliveries?.length);
+  const failedDelivery = hasDeliveries && overallDeliveryState(deliveries) === "failed" ? failedDeliveries(deliveries)[0] : undefined;
   const statusText = failed ? "Couldn't send" : sending ? "Sending…" : message.status || "";
-  const showDeliveryTick = outbound && !sending && !failed && (message.delivery === "sent" || message.delivery === undefined);
+  const showDeliveryTick =
+    outbound && !sending && !failed && !hasDeliveries && (message.delivery === "sent" || message.delivery === undefined);
   const showViaLine =
     showMeta &&
-    ((showChannel && channel != null) || Boolean(statusText) || showDeliveryTick || Boolean(message.senderDisplayName && !signedInHeader));
+    (hasDeliveries ||
+      (showChannel && channel != null) ||
+      Boolean(statusText) ||
+      showDeliveryTick ||
+      Boolean(message.senderDisplayName && !signedInHeader));
 
   return (
     <div className="flex w-full min-w-0 gap-2.5" title={startsRun ? undefined : message.at}>
@@ -1638,7 +1818,17 @@ export function InboxBubble({
             {message.senderDisplayName && !signedInHeader ? (
               <span data-inbox-sender-display-name>{message.senderDisplayName}</span>
             ) : null}
-            {showChannel && channel ? <InboxViaLine channel={channel} /> : null}
+            {hasDeliveries ? <span data-inbox-delivery-time>{clock}</span> : null}
+            {hasDeliveries
+              ? deliveries!.map((delivery) => (
+                  <InboxViaLine key={`${delivery.channel}:${delivery.providerId ?? ""}`} channel={delivery.channel} delivery={delivery} />
+                ))
+              : showChannel && channel
+                ? <InboxViaLine channel={channel} />
+                : null}
+            {hasDeliveries && readReceipt && !failedDelivery ? (
+              <span className="text-emerald-600" data-inbox-read>Read</span>
+            ) : null}
             {statusText ? (
               <span className={sending ? "italic" : failed ? "font-medium text-rose-600" : ""}>{statusText}</span>
             ) : null}
@@ -1651,6 +1841,7 @@ export function InboxBubble({
             ) : null}
           </span>
         ) : null}
+        {failedDelivery ? <InboxDeliveryFailureStrip message={message} failed={failedDelivery} /> : null}
       </div>
     </div>
   );
@@ -3279,6 +3470,7 @@ export function InboxThreadView({
   title,
   subtitle,
   avatarName,
+  headerAvatar,
   messages,
   showAuthors = false,
   alignAssistantStart = false,
@@ -3300,6 +3492,8 @@ export function InboxThreadView({
   subtitle?: ReactNode;
   /** Shows initials avatar beside the thread title (CRM-style header). */
   avatarName?: string;
+  /** Replaces the initials tile (a house glyph, the PropLane agent's mark). Hidden on a phone like the tile. */
+  headerAvatar?: ReactNode;
   messages: InboxBubbleMessage[];
   /** Show the author name above inbound bubbles (multi-party threads). */
   showAuthors?: boolean;
@@ -3356,8 +3550,8 @@ export function InboxThreadView({
         onScroll={pageScroll ? undefined : handleThreadScroll}
         className={
           pageScroll
-            ? "portal-inbox-thread-body flex flex-col px-3 py-3 md:px-[18px] md:py-3.5"
-            : "portal-inbox-thread-body flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 py-3 [-webkit-overflow-scrolling:touch] md:px-[18px] md:py-3.5"
+            ? "portal-inbox-thread-body flex min-w-0 max-w-full flex-col overflow-x-hidden px-3 py-3 md:px-[18px] md:py-3.5"
+            : "portal-inbox-thread-body flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-contain px-3 py-3 [-webkit-overflow-scrolling:touch] md:px-[18px] md:py-3.5"
         }
       >
         {messages.length === 0 && !beforeMessages && !afterMessages ? (
@@ -3387,10 +3581,10 @@ export function InboxThreadView({
   );
 
   return (
-    <div className={pageScroll ? "flex flex-col" : "flex h-full min-h-0 flex-1 flex-col overflow-hidden"}>
+    <div className={pageScroll ? "flex min-w-0 flex-col" : "flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden"}>
       {showHeader ? (
       <header
-        className="portal-inbox-thread-header sticky top-0 z-10 flex shrink-0 items-center gap-0.5 border-b border-border bg-card px-2 py-2 max-md:py-2 md:gap-1 md:py-2.5 md:pl-[18px] md:pr-3.5 md:[padding-top:max(0.375rem,env(safe-area-inset-top,0px))] max-md:[padding-top:max(0.5rem,env(safe-area-inset-top,0px))]"
+        className="portal-inbox-thread-header sticky top-0 z-10 flex w-full min-w-0 max-w-full shrink-0 items-center gap-0.5 border-b border-border bg-card px-2 py-2 max-md:py-2 md:gap-1 md:py-2.5 md:pl-[18px] md:pr-3.5 md:[padding-top:max(0.375rem,env(safe-area-inset-top,0px))] max-md:[padding-top:max(0.5rem,env(safe-area-inset-top,0px))]"
       >
         {onBack ? (
           <button
@@ -3406,7 +3600,11 @@ export function InboxThreadView({
         ) : null}
         {!hideIdentityHeader ? (
           <div className="flex min-w-0 flex-1 items-center gap-2 px-0.5 md:gap-2.5 md:px-1">
-            {avatarName ? (
+            {headerAvatar ? (
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary max-md:hidden" aria-hidden>
+                {headerAvatar}
+              </span>
+            ) : avatarName ? (
               // Five 44px header icons leave a phone no room for the name AND a tile.
               <InboxAvatar tile name={avatarName} className="size-8 rounded-lg max-md:hidden" />
             ) : null}
@@ -3656,7 +3854,7 @@ export function InboxTwoPane({
   }, [fillParent, fillViewport, heightMode, mobileCompact, threadOpen, fullScreenDrawn]);
 
   const sectionHeight = "min(20rem, 38dvh)";
-  const fallback = isNativeRuntimeSync() ? "min(78dvh, calc(100dvh - 12rem))" : "min(68vh, 640px)";
+  const fallback = isNativeRuntimeSync() ? "min(78dvh, calc(100dvh - 12rem))" : "min(68dvh, 640px)";
   const flexFillMobile = fillViewport && threadOpen;
   const flexFillLayout = fillParent && heightMode === "viewport";
   const flowLayout = heightMode === "flow";

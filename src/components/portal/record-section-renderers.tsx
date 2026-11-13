@@ -3,6 +3,7 @@
 import { createElement, type ComponentType, type ReactNode } from "react";
 import { FileText, Clock3 } from "lucide-react";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { LeadSourceReport } from "@/components/portal/lead-source-report";
 import { RecordCommunicationSection } from "@/components/portal/record-communication-section";
 import { isRecordKind } from "@/lib/portals/record-kinds";
 import {
@@ -178,7 +179,7 @@ function CommunicationSection({ role, kind, kindLabel, recordId, recordLabel, pr
       />
     );
   }
-  return (
+  const pane = (
     <RecordCommunicationSection
       role={role}
       recordRef={{ kind, id: recordId, label: recordLabel ?? kindLabel }}
@@ -192,6 +193,17 @@ function CommunicationSection({ role, kind, kindLabel, recordId, recordLabel, pr
       autoOpenCompose={autoOpenCompose}
     />
   );
+  // A property's Communication opens with where its leads came from (design-1112 §6): per platform, how many are still there,
+  // how many moved to text, how many hold an account.
+  if (role === "manager" && kind === "property") {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <LeadSourceReport propertyId={recordId} />
+        {pane}
+      </div>
+    );
+  }
+  return pane;
 }
 
 /**

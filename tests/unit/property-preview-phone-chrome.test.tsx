@@ -86,31 +86,28 @@ afterEach(() => {
 });
 
 describe("manager preview — slim phone sticky bar", () => {
-  it("is one row: price and availability, then Apply and Tour; no contact pills", () => {
+  it("is one row: price and availability, then Book and Tour; no contact pills", () => {
     render(<ListingDetailSections property={property} rich={rich} portalEmbedded managerPreviewChrome hidePortalSubnav />);
     const bar = document.querySelector('[data-attr="listing-sticky-bar"]') as HTMLElement;
     expect(bar).not.toBeNull();
     expect(bar.hasAttribute("data-slim")).toBe(true);
     expect(bar.textContent).toContain("$1,450 / mo");
     expect(bar.textContent).toContain("5 rooms · 2 available");
-    expect(bar.querySelector('[data-attr="listing-web-apply"]')?.textContent).toContain("Apply");
-    expect(bar.querySelector('[data-attr="listing-web-tour"]')?.textContent).toContain("Tour");
-    // the full names stay for a screen reader
-    expect(bar.querySelector('[data-attr="listing-web-apply"] .sr-only')?.textContent).toBe("Apply");
-    expect(bar.querySelector('[data-attr="listing-web-tour"] .sr-only')?.textContent).toBe("Book a tour");
+    expect(bar.querySelector('[data-attr="listing-web-apply"]')?.textContent).toContain("Book");
+    expect(bar.querySelector('[data-attr="listing-web-tour"]')?.textContent).toBe("Tour");
     // Email moved into the record header menu
     expect(bar.querySelector('[data-attr="listing-sticky-contact"]')).toBeNull();
     expect(bar.querySelector('[data-attr="listing-sticky-email"]')).toBeNull();
   });
 
-  it("keeps the public listing page's own two-row bar: price, then one primary and Book a tour", () => {
+  it("keeps the public listing page's own two-row bar: price, then one primary and Tour", () => {
     render(<ListingDetailSections property={property} rich={rich} />);
     const bar = document.querySelector('[data-attr="listing-sticky-bar"]') as HTMLElement;
     expect(bar.hasAttribute("data-slim")).toBe(false);
     expect(bar.querySelector('[data-attr="listing-sticky-email"]')).toBeNull();
-    expect(bar.textContent).toContain("Apply");
+    expect(bar.textContent).toContain("Book");
     expect(bar.textContent).not.toContain("Apply long term");
-    expect(bar.textContent).toContain("Book a tour");
+    expect(bar.textContent).toContain("Tour");
   });
 });
 

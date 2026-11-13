@@ -106,6 +106,7 @@ export async function POST(req: Request) {
       axisId: result.axisId,
       leaseId: result.leaseId,
       welcomeEmailSent: result.welcomeEmailSent,
+      ...(result.welcomeError ? { welcomeError: result.welcomeError } : {}),
       ...(communicationBlocked ? { communicationBlocked } : {}),
     });
   } catch (error) {

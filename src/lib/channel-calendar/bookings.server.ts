@@ -13,6 +13,7 @@ import type {
   ManagerChannelBookingProperty,
   ManagerChannelBookingRange,
   ManagerChannelBookingRoom,
+  RemovedChannelStay,
 } from "@/lib/channel-calendar/types";
 import type { MockProperty } from "@/data/types";
 import { loadPropertyRecord } from "@/lib/channel-calendar/sync.server";
@@ -25,7 +26,7 @@ import { channelStayDetailsKey, type ChannelStayMoney } from "@/lib/channel-cale
 import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import { wallTimeOfInstant } from "@/lib/bookings/stay-stamp";
 import { propertyTimeZoneForZip } from "@/lib/property-time-zone";
-import { loadChannelStayTombstoneKeys } from "@/lib/channel-calendar/stay-tombstones.server";
+import { listRemovedChannelStays, loadChannelStayTombstoneKeys } from "@/lib/channel-calendar/stay-tombstones.server";
 
 /** The connection columns a slim read needs - everything but `imported_ranges`. */
 const SLIM_CONNECTION_COLUMNS =
@@ -83,6 +84,7 @@ export function normalizeRanges(
       ...(hostBlock ? { hostBlock: true } : {}),
       ...(reservationUrl && r.reservationCode ? { reservationCode: r.reservationCode, reservationUrl } : {}),
       ...(!hostBlock && isPhoneLast4(r.phoneLast4) ? { phoneLast4: r.phoneLast4 } : {}),
+      ...(!hostBlock && r.description?.trim() ? { description: r.description.trim() } : {}),
       ...(guestName ? { guestName } : {}),
       ...(allMoney?.notes ? { stayNotes: allMoney.notes } : {}),
       ...(money?.guestPhone ? { guestPhone: money.guestPhone } : {}),
@@ -231,6 +233,58 @@ export async function listManagerChannelCalendarBookings(
         rooms: byProperty.get(propertyId) ?? [],
       };
     });
+}
+
+/**
+ * The "Removed stays" list: each tombstone of the houses the caller may edit the calendar of, with the
+ * house, room and (for an Other calendar) site names the list draws.
+ */
+export async function listRemovedChannelStaysWithLabels(
+  db: SupabaseClient,
+  userId: string,
+  propertyIds: readonly string[],
+): Promise<RemovedChannelStay[]> {
+  // The active workspace narrows the list like it narrows the Bookings read; `null` never narrows.
+  const workspaceScope = await activeWorkspacePropertyScope(db, userId);
+  const requested = [...new Set(propertyIds.map((id) => id.trim()).filter(Boolean))];
+  const scoped = workspaceScope === null ? requested : requested.length > 0 ? requested.filter((id) => workspaceScope.includes(id)) : [...workspaceScope];
+  if (workspaceScope !== null && scoped.length === 0) return [];
+  const stays = await listRemovedChannelStays(db, userId, scoped);
+  if (stays.length === 0) return [];
+  const houseIds = [...new Set(stays.map((stay) => stay.propertyId))];
+  const [records, connectionsRead] = await Promise.all([
+    Promise.all(houseIds.map(async (id) => [id, await loadPropertyRecord(db, id)] as const)),
+    db.from("external_calendar_connections").select("id, property_id, room_id, provider, label").in("property_id", houseIds),
+  ]);
+  const recordById = new Map(records);
+  const connections = ((connectionsRead.data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+    id: String(row.id ?? ""),
+    propertyId: String(row.property_id ?? ""),
+    roomId: String(row.room_id ?? ""),
+    provider: String(row.provider ?? ""),
+    label: row.label == null ? null : String(row.label),
+  }));
+  return stays.map((stay) => {
+    const record = recordById.get(stay.propertyId) ?? null;
+    const connection =
+      connections.find((c) => c.id === stay.connectionId) ??
+      connections.find((c) => c.propertyId === stay.propertyId && c.roomId === stay.roomId && c.provider === stay.provider);
+    return {
+      id: stay.id,
+      propertyId: stay.propertyId,
+      roomId: stay.roomId,
+      provider: stay.provider,
+      sourceUid: stay.sourceUid,
+      start: stay.range.start,
+      end: stay.range.end || stay.range.start,
+      summary: stay.range.summary,
+      hostBlock: isHostBlockRange(stay.range),
+      removedAt: stay.removedAt,
+      propertyLabel: propertyLabelFromRecord(stay.propertyId, record?.property ?? null, record?.rowData ?? null),
+      roomLabel: roomLabelFromSubmission(record?.property ?? null, stay.roomId, connection?.label ?? null),
+      channelLabel: stay.provider === "ical" ? connection?.label?.trim() || null : null,
+    };
+  });
 }
 
 export { dateKeyInBookingRange };

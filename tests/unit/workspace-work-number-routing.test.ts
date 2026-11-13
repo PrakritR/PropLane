@@ -190,3 +190,15 @@ describe("the inbound webhook answers for the workspace", () => {
     expect(collapse).toBeLessThan(route.indexOf("handleClawLeasingInbound("));
   });
 });
+
+describe("a released work number is not the workspace's work number", () => {
+  it("resolveWorkspaceWorkNumbers ignores a released row and never shows it as the sender", async () => {
+    const db = seed([], {
+      manager_sms_numbers: [
+        { id: "n-old", manager_user_id: owner, workspace_id: "ws-other", phone_number: "+12065550100", provision_state: "released", released_at: "2026-10-01" },
+      ],
+    });
+    const { numbers } = await resolveWorkspaceWorkNumbers(db as never, other);
+    expect(numbers.find((n) => n.workspaceId === "ws-other")?.phoneNumber).toBeNull();
+  });
+});

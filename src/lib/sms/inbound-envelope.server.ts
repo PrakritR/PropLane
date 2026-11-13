@@ -57,6 +57,8 @@ export async function processInboundEnvelope(db: SupabaseClient, id: string, opt
    const retry = error instanceof SafeSmsIngressRetry && (stage === "safe" || stage === "control") && current.data.attempts < 3;
    const reason = stage === "delegated" ? "delegated_receipt" : retry ? ( /^[a-z0-9_]{1,64}$/.test(error.message) ? error.message : "safe_retry") : error instanceof SafeSmsIngressRetry && (stage === "safe" || stage === "control") ? "retry_exhausted" : "uncertain_effect";
    await db.from("sms_ingress_envelopes").update({ status: retry ? "accepted" : "needs_review", reason, next_attempt_at: new Date(Date.now() + Math.min(60_000, 1000 * 2 ** current.data.attempts)).toISOString(), lease_token: null, lease_until: null, updated_at: new Date().toISOString() }).eq("id", id).eq("status", "executing").eq("lease_token", token);
+   // A text that landed in review is never silent: one Attention item per envelope (best effort).
+   if (!retry) await import("@/lib/prospect-spine/delivery-issue.server").then((m) => m.reportEnvelopeIssue(db, id, reason)).catch(() => undefined);
    return;
   }
  }

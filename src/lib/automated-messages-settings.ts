@@ -34,6 +34,31 @@ export function automatedMessageKey(domain: string, event: string, audience: Aut
   return `${domain}:${event}:${audience}`;
 }
 
+/**
+ * Resident-facing events that ship with Text ON: money, access and deadlines (rent / charges, late fees,
+ * lease ready to sign, application received / approved / declined). Routine notices stay app + email.
+ * Only a default: a saved workspace setting always wins, and a text still only goes to someone with a
+ * phone who has not texted STOP (`resolveRecipientChannels`). Portal-channel stays, applications and tours
+ * keep their own rule (email + inbox, never SMS) in `emitActionEvent`, whatever this says.
+ */
+export const TEXT_BY_DEFAULT_EVENT_KEYS: ReadonlySet<string> = new Set([
+  "payment:charge_created:resident",
+  "payment:late_fee_applied:resident",
+  "lease:lease_sent:resident",
+  "application:application_submitted:resident",
+  "application:application_approved:resident",
+  "application:application_declined:resident",
+]);
+
+/** The channels an event row shows (and means) when the manager has saved nothing for it. */
+export function defaultAutomatedMessageChannels(
+  domain: string,
+  event: string,
+  audience: AutomatedMessageAudience,
+): { email: boolean; sms: boolean } {
+  return { email: true, sms: TEXT_BY_DEFAULT_EVENT_KEYS.has(`${domain}:${event}:${audience}`) };
+}
+
 /** The catalogue: which events exist, in which area they are shown, and who hears each. */
 export type AutomatedMessageCatalogEntry = {
   domain: string;
@@ -138,6 +163,16 @@ function normalizeTemplate(raw: unknown): { subject: string; body: string } | un
   return { subject, body };
 }
 
+/** A saved `channels` object; a key it does not carry keeps the catalogue default (a missing `sms` is never read as on). */
+function automatedChannelsFrom(key: string, channels: Record<string, unknown>): { email: boolean; sms: boolean } {
+  const [domain = "", event = "", audience = "resident"] = key.split(":");
+  const fallback = defaultAutomatedMessageChannels(domain, event, audience as AutomatedMessageAudience);
+  return {
+    email: typeof channels.email === "boolean" ? channels.email : fallback.email,
+    sms: typeof channels.sms === "boolean" ? channels.sms : fallback.sms,
+  };
+}
+
 export function normalizeAutomatedMessageSettings(raw: unknown): AutomatedMessageSettings {
   const row = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const out: AutomatedMessageSettings = {};
@@ -148,7 +183,7 @@ export function normalizeAutomatedMessageSettings(raw: unknown): AutomatedMessag
     const channels = entry.channels && typeof entry.channels === "object" && !Array.isArray(entry.channels) ? entry.channels as Record<string, unknown> : null;
     const timing = entry.timing === "hour" || entry.timing === "morning" || entry.timing === "immediately" ? entry.timing : undefined;
     out[key] = { enabled: typeof entry.enabled === "boolean" ? entry.enabled : true,
-      ...(channels ? { channels: { email: channels.email !== false, sms: channels.sms !== false } } : {}),
+      ...(channels ? { channels: automatedChannelsFrom(key, channels) } : {}),
       ...(timing ? { timing } : {}), ...(template ? { template } : {}) };
 
   }

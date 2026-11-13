@@ -57,20 +57,28 @@ type CapturedHold = {
   stripe_charge_id: string;
   source_allocation_mode: string | null;
   source_verified_at: string | null;
+  source_payment_intent_id?: string | null;
   source_components: Array<{ source_id: string; principal_cents: number }> | null;
 };
 
 export type HouseholdChargeRefundResult = {
   refundId: string;
+  status: "pending" | "succeeded" | "failed" | "unknown";
   rail: "central" | "destination" | "managed";
 };
+
+function refundStatus(status: string | null): HouseholdChargeRefundResult["status"] {
+  if (status === "succeeded" || status === "pending") return status;
+  if (status === "failed" || status === "canceled") return "failed";
+  return "unknown";
+}
 
 /** Which rail this payment refunds on, and the reservation it needs if central. */
 export type HouseholdChargeRefundRail =
   | { rail: "destination" }
   /** A PropLane-managed workspace's payment: refunded from the platform balance; the party ledger reverses the owner's share. */
-  | { rail: "managed"; allocationId: string }
-  | { rail: "central"; holdId: string; ownerUserId: string };
+  | { rail: "managed"; allocationId: string; paymentIntentId?: string; allocationOwnerId?: string; workspaceId?: string; propertyId?: string }
+  | { rail: "central"; holdId: string; ownerUserId: string; paymentIntentId?: string };
 
 /**
  * The rail decision on its own — reads only, no provider call, so a caller that must
@@ -92,25 +100,27 @@ export async function resolveHouseholdChargeRefundRail(
   // reverse) and let the party ledger reverse the owner's share. A read that fails is a failure, never a fall-through.
   const { data: managedRows, error: managedError } = await db
     .from("managed_rent_allocations")
-    .select("id, charge_id, stripe_charge_id, principal_cents, refunded_principal_cents")
+    .select("id, charge_id, stripe_charge_id, stripe_payment_intent_id, owner_user_id, workspace_id, property_id, principal_cents, refunded_principal_cents")
     .eq("stripe_charge_id", input.stripeChargeId)
-    .limit(50);
+    .eq("charge_id", input.chargeId)
+    .limit(2);
   if (managedError && String(managedError.code) !== "42P01" && String(managedError.code) !== "PGRST205") {
     throw new Error("Could not resolve the payment's recipient allocation.");
   }
-  const managedMatches = ((managedRows ?? []) as Array<{ id?: string; charge_id?: string; stripe_charge_id?: string; principal_cents?: number; refunded_principal_cents?: number }>)
-    .filter((r) => r.stripe_charge_id === input.stripeChargeId && r.charge_id === input.chargeId &&
-      typeof r.id === "string" && Number.isSafeInteger(r.principal_cents) && Number.isSafeInteger(r.refunded_principal_cents));
+  const managedMatches = ((managedRows ?? []) as Array<{ id?: string; charge_id?: string; stripe_charge_id?: string; stripe_payment_intent_id?: string; principal_cents?: number; refunded_principal_cents?: number }>)
+    .filter((r) => r.stripe_charge_id === input.stripeChargeId && r.charge_id === input.chargeId);
+  if (managedMatches.length > 1) throw new HouseholdChargeRefundReviewError("This payment has ambiguous recipient allocations; the refund needs review.");
   if (managedMatches.length === 1) {
-    const row = managedMatches[0] as { id: string; principal_cents: number; refunded_principal_cents: number };
+    const row = managedMatches[0] as { id: string; stripe_payment_intent_id?: string; owner_user_id?: string; workspace_id?: string; property_id?: string; principal_cents: number; refunded_principal_cents: number };
+    if (!row.id || !Number.isSafeInteger(row.principal_cents) || !Number.isSafeInteger(row.refunded_principal_cents)) throw new HouseholdChargeRefundReviewError("This payment's allocation requires review.");
     if (input.amountCents > row.principal_cents - row.refunded_principal_cents) {
       throw new HouseholdChargeRefundReviewError("A refund cannot exceed what remains of the payment.");
     }
-    return { rail: "managed", allocationId: row.id };
+    return { rail: "managed", allocationId: row.id, ...(row.stripe_payment_intent_id ? { paymentIntentId: row.stripe_payment_intent_id } : {}), ...(row.owner_user_id ? { allocationOwnerId: row.owner_user_id } : {}), ...(row.workspace_id ? { workspaceId: row.workspace_id } : {}), ...(row.property_id ? { propertyId: row.property_id } : {}) };
   }
   const { data: holds, error } = await db
     .from("platform_payment_holds")
-    .select("id,owner_user_id,owner_role,stripe_charge_id,source_allocation_mode,source_verified_at,source_components")
+    .select("id,owner_user_id,owner_role,stripe_charge_id,source_allocation_mode,source_verified_at,source_payment_intent_id,source_components")
     .eq("stripe_charge_id", input.stripeChargeId)
     .limit(2);
   if (error) throw new Error("Could not resolve the payment's recipient allocation.");
@@ -139,7 +149,7 @@ export async function resolveHouseholdChargeRefundRail(
     throw new HouseholdChargeRefundReviewError(
       "A refund cannot exceed the charge's captured principal.");
   }
-  return { rail: "central", holdId: hold.id, ownerUserId: hold.owner_user_id };
+  return { rail: "central", holdId: hold.id, ownerUserId: hold.owner_user_id, ...(hold.source_payment_intent_id ? { paymentIntentId: hold.source_payment_intent_id } : {}) };
 }
 
 export async function refundPaidHouseholdCharge(
@@ -149,6 +159,7 @@ export async function refundPaidHouseholdCharge(
     chargeId: string;
     stripeChargeId: string;
     amountCents: number;
+    expectedRail?: HouseholdChargeRefundRail;
     idempotencyKey: string;
     metadata: Record<string, string>;
     reason?: Stripe.RefundCreateParams.Reason;
@@ -159,6 +170,7 @@ export async function refundPaidHouseholdCharge(
     stripeChargeId: input.stripeChargeId,
     amountCents: input.amountCents,
   });
+  if (input.expectedRail && JSON.stringify(resolved) !== JSON.stringify(input.expectedRail)) throw new HouseholdChargeRefundReviewError("The payment allocation changed; the refund needs review.");
 
   if (resolved.rail === "managed") {
     // No reverse_transfer: the charge was captured on the platform with no transfer. The ledger reversal is posted by the
@@ -173,7 +185,7 @@ export async function refundPaidHouseholdCharge(
       { idempotencyKey: input.idempotencyKey },
     );
     if (refund.status === "succeeded") await applyManagedRefund(db, refund, input.stripeChargeId);
-    return { refundId: refund.id, rail: "managed" };
+    return { refundId: refund.id, status: refundStatus(refund.status), rail: "managed" };
   }
 
   if (resolved.rail === "destination") {
@@ -187,7 +199,7 @@ export async function refundPaidHouseholdCharge(
       },
       { idempotencyKey: input.idempotencyKey },
     );
-    return { refundId: refund.id, rail: "destination" };
+    return { refundId: refund.id, status: refundStatus(refund.status), rail: "destination" };
   }
 
   const result = await runReservedPlatformMoneyRefund(stripe, db, {
@@ -196,10 +208,8 @@ export async function refundPaidHouseholdCharge(
     principalCents: input.amountCents,
     attemptKey: input.idempotencyKey,
     components: [{ sourceId: input.chargeId, principalCents: input.amountCents }],
+    ...(input.metadata.deposit_return_attempt ? { depositReturnAttemptId: input.metadata.deposit_return_attempt } : {}),
     ...(input.reason ? { reason: input.reason } : {}),
   });
-  // A failed provider refund moved no money. Throwing keeps the caller from
-  // recording `refundedCents` against a refund that never happened.
-  if (result.status === "failed") throw new Error("Stripe refused this refund; nothing was refunded.");
-  return { refundId: result.refundId, rail: "central" };
+  return { refundId: result.refundId, status: result.status, rail: "central" };
 }

@@ -10,7 +10,8 @@
  * occupies a bed; it is never a Current resident.
  */
 
-import { addDaysToDateKey, bookingSourceLabel } from "@/lib/channel-calendar/bookings-ui";
+import { addDaysToDateKey } from "@/lib/channel-calendar/bookings-ui";
+import { channelStayName } from "@/lib/channel-calendar/booking-guest-label";
 import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
 import { channelStayCoverKey, resolveChannelLinks } from "@/lib/channel-calendar/channel-link";
 import { isShortStayRequestSource } from "@/lib/short-stay/guest-stays";
@@ -469,20 +470,16 @@ export function groupStaysByRoom<T extends { roomId: string; roomLabel: string }
   });
 }
 
-/** The channel a row came from, named by the one source-label resolver ("Other calendar" when an iCal feed gave no label). */
-function channelSourceName(entry: Pick<PropertyBookingEntry, "source"> & { channelLabel?: string }): string | undefined {
-  if (!isChannelBookingSource(entry.source)) return undefined;
-  return bookingSourceLabel(entry.source, entry.channelLabel);
-}
-
 /**
  * A day row that is only dates taken off the calendar, with no guest behind it: the manager's own
- * block, or a channel's "Not available". A channel "Reserved" is a real guest stay, so it is not one.
+ * block, or a channel's host block ("Airbnb (Not available)", "Blocked").
+ *
+ * On a channel the line is `isPersonOccupant`'s, never the wider `isIcalAvailabilityBlock`: a
+ * "Reserved" and a privacy-stripped "CLOSED - Not available" are real reservations, so a row drawn
+ * as a locked closure can never disagree with the guest name `channelStayName` gives it.
  */
 export function isAvailabilityBlockRow(entry: Pick<PropertyBookingEntry, "source" | "summary" | "residentName">): boolean {
-  if (isChannelBookingSource(entry.source)) {
-    return isIcalAvailabilityBlock(entry.summary) && entry.summary?.trim().toLowerCase() !== "reserved";
-  }
+  if (isChannelBookingSource(entry.source)) return !isPersonOccupant(entry);
   return occupancyStayKind(entry) === "block";
 }
 
@@ -492,18 +489,16 @@ export function isAvailabilityBlockRow(entry: Pick<PropertyBookingEntry, "source
  * only the manager's own block on a room reads "Blocked".
  */
 export function dayStayDisplayName(entry: Pick<PropertyBookingEntry, "source" | "summary" | "residentName"> & { channelLabel?: string }): string {
-  const channel = channelSourceName(entry);
-  if (channel && isIcalAvailabilityBlock(entry.summary)) {
-    if (entry.summary?.trim().toLowerCase() === "reserved") {
-      return entry.residentName?.trim() || `${channel} · Reserved`;
-    }
-    return `${channel} · Not available`;
+  if (isChannelBookingSource(entry.source)) {
+    const resident = entry.residentName?.trim();
+    if (resident) return resident;
+    return channelStayName({ ...entry, source: entry.source });
   }
   if (occupancyStayKind(entry) === "block") return "Blocked";
   const named = entry.residentName?.trim();
   if (named) return named;
   const raw = entry.summary?.trim() ?? "";
-  if (!raw) return `Booked (${channelSourceName(entry) ?? "Airbnb"})`;
+  if (!raw) return "Booked (Airbnb)";
   return raw;
 }
 

@@ -55,14 +55,13 @@ describe("leasing-pipeline-preferences", () => {
     ).toBe(false);
   });
 
-  it("the shared-room lease default and Application before a tour come from the workspace even when a house override stored its own", () => {
+  it("the shared-room lease default comes from the workspace even when a house override stored its own", () => {
     const state = {
-      portfolio: normalizeLeasingPipelinePreferences({ sharedRoomLease: "joint", applicationBeforeTour: "required" }),
+      portfolio: normalizeLeasingPipelinePreferences({ sharedRoomLease: "joint" }),
       byPropertyId: {
         "prop-1": normalizeLeasingPipelinePreferences({
           pipelineOrder: "application_then_lease",
           sharedRoomLease: "individual",
-          applicationBeforeTour: "not_needed",
           leaseSigningFeeCents: 2500,
           defaultLeaseTemplateId: "lease-1",
         }),
@@ -71,7 +70,6 @@ describe("leasing-pipeline-preferences", () => {
     const resolved = resolveLeasingPipelineForProperty(state, "prop-1");
     expect(resolved.pipelineOrder).toBe("application_then_lease");
     expect(resolved.sharedRoomLease).toBe("joint");
-    expect(resolved.applicationBeforeTour).toBe("required");
     // The house still owns its own fee and default template.
     expect(resolved.leaseSigningFeeCents).toBe(2500);
     expect(resolved.defaultLeaseTemplateId).toBe("lease-1");
@@ -108,11 +106,9 @@ describe("leasing-pipeline-preferences", () => {
     ).toBe("application_first");
   });
 
-  it("Application before a tour defaults to Not needed and only reads the exact value required", () => {
-    expect(DEFAULT_LEASING_PIPELINE.applicationBeforeTour).toBe("not_needed");
-    expect(normalizeLeasingPipelinePreferences({ applicationBeforeTour: "required" }).applicationBeforeTour).toBe("required");
-    expect(normalizeLeasingPipelinePreferences({ applicationBeforeTour: "yes" }).applicationBeforeTour).toBe("not_needed");
-    expect(normalizeLeasingPipelinePreferences({ applicationBeforeTour: true }).applicationBeforeTour).toBe("not_needed");
+  it("a stored applicationBeforeTour key (the removed tour gate) is dropped by the normalizer", () => {
+    expect(normalizeLeasingPipelinePreferences({ applicationBeforeTour: "required" })).not.toHaveProperty("applicationBeforeTour");
+    expect(DEFAULT_LEASING_PIPELINE).not.toHaveProperty("applicationBeforeTour");
   });
 
   it("batch-loads leasing-pipeline state for several managers in one query, keyed by manager id", async () => {

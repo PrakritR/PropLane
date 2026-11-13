@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ChevronRight, MoreHorizontal } from "lucide-react";
-import { AUTOMATED_MESSAGE_CATALOG, automatedMessageKey, normalizeAutomatedMessageSettings, type AutomatedMessageAudience, type AutomatedMessageCatalogEntry, type AutomatedMessageSettings } from "@/lib/automated-messages-settings";
+import { AUTOMATED_MESSAGE_CATALOG, automatedMessageKey, defaultAutomatedMessageChannels, normalizeAutomatedMessageSettings, type AutomatedMessageAudience, type AutomatedMessageCatalogEntry, type AutomatedMessageSettings } from "@/lib/automated-messages-settings";
 import { DEFAULT_REMINDER_RULES, REMINDER_SUBJECT_KINDS, REMINDER_SUBJECT_META, normalizeReminderSettings, type ReminderRule, type ReminderSettings, type ReminderSubjectKind } from "@/lib/reminders/rules";
 import { reminderSubjectSettingsMeta } from "@/lib/reminders/subject-settings-meta";
 import { formatTiming, parseTimingKey, timingOptions } from "@/lib/reminders/timings";
@@ -74,7 +74,7 @@ export function WhatProplaneSends() {
     } else if (row.event) {
       const key = automatedMessageKey(row.event.domain, row.event.event, who);
       const setting = events?.[key]; const template = setting?.template ?? defaults[key];
-      setChannels(selectedChannels(setting?.channels ?? { email: true, sms: false }));
+      setChannels(selectedChannels(setting?.channels ?? defaultAutomatedMessageChannels(row.event.domain, row.event.event, who)));
       setWhen([setting?.timing ?? "immediately"]); setSubject(template?.subject ?? row.label); setMessage(template?.body ?? "");
     }
   };
@@ -117,7 +117,7 @@ export function WhatProplaneSends() {
           const event = row.event; const setting = event ? events?.[automatedMessageKey(event.domain, event.event, event.audiences[0]!)] : null;
           const who = event ? event.audiences.map((a) => AUDIENCE[a]).join(" · ") : rule && row.kind ? [rule.audience.manager ? "You" : "", rule.audience.team ? "Your team" : "", rule.audience.counterparty ? REMINDER_SUBJECT_META[row.kind].counterpartyLabel : "", rule.audience.vendor ? "Vendor" : ""].filter(Boolean).join(" · ") : "";
           const timing = rule && row.kind ? timingLabel(ruleTimings(rule, row.kind)) : EVENT_TIMINGS.find((option) => option.value === setting?.timing)?.label ?? "Immediately";
-          const channelText = selectedChannels(rule ?? setting?.channels ?? { email: true }).map((value) => CHANNELS.find((c) => c.value === value)?.label).join(", ");
+          const channelText = selectedChannels(rule ?? setting?.channels ?? (event ? defaultAutomatedMessageChannels(event.domain, event.event, event.audiences[0]!) : { email: true })).map((value) => CHANNELS.find((c) => c.value === value)?.label).join(", ");
           return <div key={row.id} className="flex min-h-12 items-center gap-3 border-b border-border px-4 py-2 last:border-0">
             <div className="min-w-0 flex-1"><p className="text-[15px]">{row.label}</p><p className="text-[13px] text-muted">{who} · {channelText}<span className="sm:hidden"> · {timing}</span></p></div>
             <span className="hidden max-w-[40%] text-right text-[15px] text-muted sm:block">{timing}</span>

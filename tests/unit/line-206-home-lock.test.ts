@@ -368,11 +368,14 @@ describe("the switch question", () => {
 describe("A2 · a stranger who names nothing specific", () => {
   it("'hi' gets one 'which home' reply and waits in Admin > Unassigned, in no Communication", async () => {
     const hi = await text("hi");
-    expect(hi.reply).toBe("Hi! This is PropLane. Which home are you texting about? (street or house name)");
+    // Direct, no preamble: the one question names the houses and carries each one's own page (read from the live catalog).
+    expect(hi.reply).toMatch(/^Which house are you asking about/);
+    expect(hi.reply).toContain("https://proplane.ai/rent/listings/");
+    expect(hi.reply).not.toMatch(/This is PropLane|STOP/);
     expect(hi.workspaces).toEqual([]);
     expect(mocks.messages).toEqual([]);
     expect(lead()).toMatchObject({ status: "open", profile: expect.objectContaining({ stage: "hold" }) });
-    expect(leadTurns(String(lead().id))).toEqual(["inbound: hi", "outbound: Hi! This is PropLane. Which home are you texting about? (street or house name)"]);
+    expect(leadTurns(String(lead().id))).toEqual(["inbound: hi", `outbound: ${hi.reply}`]);
   });
 
   it("the next text naming a home locks the line to it; the hold stays out of the manager's inbox", async () => {
@@ -392,8 +395,8 @@ describe("A2 · a stranger who names nothing specific", () => {
   it("a stranger naming a paid manager's home is given that manager's number and nothing else lands anywhere else", async () => {
     const named = await text("is 12 Ravenna Pl still available?");
     const reply = "12 Ravenna Pl is listed by Marcus. To learn more or book a tour, text Marcus at (206) 555-0142.";
-    // The very first reply on the line carries the business name and the STOP notice in front.
-    expect(named.reply).toBe(`Hi, this is PropLane. Reply STOP to opt out. ${reply}`);
+    // A reply to someone who texted in is a plain text back: no business name, no STOP footer.
+    expect(named.reply).toBe(reply);
     expect(named.workspaces).toEqual([WS_MARCUS]);
     expect(named.rows[WS_MARCUS]).toEqual(["I'm interested in 12 Ravenna Pl.", reply]);
     // Asking again does not write again.
@@ -417,7 +420,7 @@ describe("A2 · a stranger who names nothing specific", () => {
     await toOffers();
     await text("2");
     const other = await text("hi", "+12065550188", "2065550188");
-    expect(other.reply).toContain("Which home are you texting about?");
+    expect(other.reply).toContain("Which house are you asking about");
     expect(other.workspaces).toEqual([]);
   });
 });

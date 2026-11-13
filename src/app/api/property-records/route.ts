@@ -486,6 +486,7 @@ export async function POST(req: Request) {
       nextStatus: body.status,
       existingStatus,
       incomingDoors,
+      workspaceId: createWorkspaceId,
     });
     if (!quota.ok) {
       return NextResponse.json(

@@ -59,6 +59,7 @@ function authDb() {
   };
 }
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => authDb() }));
+vi.mock("@/lib/test-workspaces/index.server", () => ({ resolveAuthenticatedBusinessAccess: async () => ({ kind: "normal" }) }));
 
 // Wrap (never replace) the real assertCoManagerModuleAccess: by default every
 // call exercises the REAL production logic (proving the owner/self path is

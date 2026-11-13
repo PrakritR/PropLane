@@ -6,7 +6,8 @@ import { toGsm7 } from "@/lib/one-number/lead-qualifying";
 import type { OpenJobNear } from "@/lib/open-jobs-near.server";
 
 export const VENDOR_LINE_COPY = {
-  welcome: "Hi, this is PropLane. Reply STOP to opt out.",
+  /** Gone (captain, Nov 12): no "Hi, this is PropLane" opener and no STOP footer. The vendor texted us first, so the first-text footer rule (docs/agents/sms-system.md, manager-initiated vendor texts) does not apply; STOP/HELP handling is unchanged. */
+  welcome: "",
   anyArea: "right now. Text me your neighborhood or zip to narrow them:",
   none: "No open jobs match yet. I saved your details and you will see new ones as they post.",
   help: "Text me what work you do and where, like 'plumbing in Ballard', and I will show open jobs.",
@@ -51,7 +52,7 @@ export function composeVendorJobsReply(input: {
   link: VendorLineLink;
 }): string {
   const lines: string[] = [];
-  if (input.firstReply) lines.push(VENDOR_LINE_COPY.welcome);
+  if (input.firstReply && VENDOR_LINE_COPY.welcome) lines.push(VENDOR_LINE_COPY.welcome);
   const what = input.tradeLabel ? `${input.tradeLabel.toLowerCase()} jobs` : "jobs";
   const where = input.placeLabel ? ` near ${input.placeLabel}` : input.unknownArea ? ` near ${input.unknownArea}` : "";
   if (input.jobs.length === 0) {
@@ -83,7 +84,7 @@ export function composeVendorAnswerReply(input: {
   payoutsUrl?: string;
 }): string {
   const lines: string[] = [];
-  if (input.firstReply) lines.push(VENDOR_LINE_COPY.welcome);
+  if (input.firstReply && VENDOR_LINE_COPY.welcome) lines.push(VENDOR_LINE_COPY.welcome);
   lines.push(VENDOR_ANSWERS[input.topic]);
   if (input.link.kind === "signup") lines.push(`${VENDOR_LINE_COPY.signUp} ${input.link.url}`, VENDOR_LINE_COPY.signUpByText);
   else if (input.link.kind === "findwork") {
@@ -95,7 +96,7 @@ export function composeVendorAnswerReply(input: {
 
 export function composeVendorHelpReply(input: { firstReply: boolean; link: VendorLineLink }): string {
   const lines: string[] = [];
-  if (input.firstReply) lines.push(VENDOR_LINE_COPY.welcome);
+  if (input.firstReply && VENDOR_LINE_COPY.welcome) lines.push(VENDOR_LINE_COPY.welcome);
   lines.push(VENDOR_LINE_COPY.help);
   if (input.link.kind === "signup") lines.push(`${VENDOR_LINE_COPY.signUp} ${input.link.url}`, VENDOR_LINE_COPY.signUpByText);
   else if (input.link.kind === "findwork") lines.push(`${VENDOR_LINE_COPY.findWork} ${input.link.url}`);

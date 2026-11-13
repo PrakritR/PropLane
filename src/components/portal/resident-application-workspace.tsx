@@ -1,5 +1,6 @@
 "use client";
 
+import { ResidentVerificationLink } from "@/components/portal/resident-verification-link";
 import { Button } from "@/components/ui/button";
 import { CosignerInviteCallout } from "@/components/marketing/cosigner-invite-callout";
 import { GroupShareCallout } from "@/components/marketing/rental-application-finish-panel";
@@ -10,6 +11,7 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import { applicationHasGroup } from "@/lib/rental-application/application-groups";
 import type { ResidentApplicationWorkspaceState } from "@/lib/rental-application/resident-application-workspace";
 import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
+import { ResidentPreApplyGate } from "@/components/portal/resident-preapply-gate";
 
 function rowStatusLabel(row: DemoApplicantRow): string {
   if (row.bucket === "approved") return "Approved";
@@ -96,14 +98,17 @@ export function ResidentApplicationWorkspace({
   if (showWizard) {
     return (
       <div className="mx-auto w-full max-w-5xl space-y-4">
-        <RentalApplicationWizard
-          showToast={showToast}
-          mode="portal"
-          layout="embedded"
-          exitPath="/resident/applications"
-          sessionEmail={sessionEmail}
-          linkedPropertyId={linkedPropertyId}
-        />
+        <ResidentVerificationLink />
+        <ResidentPreApplyGate propertyId={linkedPropertyId}>
+          <RentalApplicationWizard
+            showToast={showToast}
+            mode="portal"
+            layout="embedded"
+            exitPath="/resident/applications"
+            sessionEmail={sessionEmail}
+            linkedPropertyId={linkedPropertyId}
+          />
+        </ResidentPreApplyGate>
       </div>
     );
   }

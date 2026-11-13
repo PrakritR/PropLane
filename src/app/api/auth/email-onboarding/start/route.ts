@@ -40,7 +40,29 @@ async function readBoundedBody(req: Request): Promise<string | null> {
   }
 }
 
+type StartState = { createdUserId: string | null; sent: boolean };
+
+/** The unconfirmed Auth row exists only so the emailed token_hash can be minted (the handoff FKs to it). If this request
+ * created it and no link went out, it is removed, so a failed send leaves nothing behind and the person simply retries. */
 export async function POST(req: Request) {
+  const state: StartState = { createdUserId: null, sent: false };
+  let response: Response;
+  try {
+    response = await handleStart(req, state);
+  } catch {
+    response = NextResponse.json({ error: "Email verification is unavailable. Please try again." }, { status: 503 });
+  }
+  if (state.createdUserId && !state.sent) {
+    try {
+      await createSupabaseServiceRoleClient().auth.admin.deleteUser(state.createdUserId);
+    } catch {
+      console.error("Email onboarding rollback failed");
+    }
+  }
+  return response;
+}
+
+async function handleStart(req: Request, state: StartState) {
   if (!(await rateLimit(`email-onboarding:${clientIpFrom(req)}`, 5, 60_000)).ok) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   if (Number(req.headers.get("content-length") ?? "0") > MAX_BODY_BYTES) return NextResponse.json(GENERIC);
   const rawBody = await readBoundedBody(req);
@@ -144,6 +166,7 @@ export async function POST(req: Request) {
       const created = await db.auth.admin.createUser({ email, password: randomBytes(48).toString("base64url"), email_confirm: false, app_metadata: { proplane_email_onboarding: true } });
       if (created.error || !created.data.user) return NextResponse.json(GENERIC);
       id = created.data.user.id;
+      state.createdUserId = id;
     }
     if (tourConsumedUserId && tourConsumedUserId !== id) return NextResponse.json({ error: "This tour invitation has expired or was used. Request a new tour from the listing." }, { status: 410 });
     const found = await db.auth.admin.getUserById(id);
@@ -187,6 +210,7 @@ export async function POST(req: Request) {
       console.error("Email onboarding delivery failed", response.status);
       return NextResponse.json({ error: "Could not send the verification email. Please try again." }, { status: 503 });
     }
+    state.sent = true;
   } catch {
     console.error("Email onboarding could not be started");
     return NextResponse.json({ error: "Email verification is unavailable. Please try again." }, { status: 503 });

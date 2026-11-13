@@ -58,6 +58,7 @@ import {
   linkHouseholdChargesToResidentUser,
   applyHouseholdChargePatches,
   chargesImplyTenancy,
+  householdChargeDisplayTitle,
   readChargesForResident,
   syncHouseholdChargesFromServer,
   type HouseholdCharge,
@@ -82,6 +83,8 @@ import { paymentFailureCopy } from "@/lib/payments/payment-error-copy";
 import { canPayHouseholdChargeWithAxisAch } from "@/lib/household-charge-payment-eligibility";
 import {
   residentPaymentMethodLabel,
+  cartForcesResidentFee,
+  residentServiceFeeBreakdown,
   residentProcessingFeeDisplayLabel,
   RESIDENT_CARD_PAYMENT_DISPLAY_LABEL,
   type ResidentAxisPaymentMethod,
@@ -678,7 +681,7 @@ export function ResidentPaymentsPanel({
     const inBucket = bucket === "overdue" ? overdueRows : bucket === "pending" ? upcomingPendingRows : paidRows;
     const needle = paymentsQuery.trim().toLowerCase();
     if (!needle) return inBucket;
-    return inBucket.filter((row) => [row.title, row.propertyLabel].some((part) => part?.toLowerCase().includes(needle)));
+    return inBucket.filter((row) => [householdChargeDisplayTitle(row), row.propertyLabel].some((part) => part?.toLowerCase().includes(needle)));
   }, [bucket, overdueRows, upcomingPendingRows, paidRows, paymentsQuery]);
 
   const detailCharge = chargeIdProp ? charges.find((c) => c.id === chargeIdProp) : undefined;
@@ -987,6 +990,18 @@ export function ResidentPaymentsPanel({
         return;
       }
     }
+    // `&start=1` (a Pay button on a payment request card or a texted link) goes one step further: it opens the
+    // pay sheet for exactly this charge, so the resident taps Pay, confirms the amount and pays. It starts nothing
+    // by itself (no claim, no Stripe object) until they continue, and only for a charge they can pay right now.
+    if (searchParams.get("start") === "1" && linked && isPayableHouseholdCharge(linked)) {
+      const ids = filterChargesForPayMethod([linked]).map((c) => c.id);
+      if (ids.length > 0) {
+        landedOnBucket.current = true;
+        openPayConfirm(ids, paymentMethod);
+        router.replace(`${basePath}/payments`);
+        return;
+      }
+    }
     const group = moveInGroups.find((g) => g.items.some((c) => c.id === payParam));
     const target = group ? undefined : rows.find((c) => c.id === payParam);
     if (group || target) landedOnBucket.current = true;
@@ -1006,7 +1021,9 @@ export function ResidentPaymentsPanel({
     chargeIdProp,
     initialSyncDone,
     moveInGroups,
+    openPayConfirm,
     payConfirm,
+    paymentMethod,
     paymentsTerm,
     paymentsUnlocked,
     payHeaderAction,
@@ -1248,7 +1265,18 @@ export function ResidentPaymentsPanel({
     [confirmCharges],
   );
 
-  const confirmTotalLabel = useMemo(() => formatUsd(confirmSubtotalCents), [confirmSubtotalCents]);
+  // Rent's processing fee is always the resident's (`cartForcesResidentFee`), so for a rent cart the exact fee is known
+  // before anything is reserved: the same function the server quotes with. Any other cart waits for its server quote.
+  const confirmFeeEstimate = useMemo(() => {
+    if (!payConfirm || confirmCharges.length === 0 || !cartForcesResidentFee(confirmCharges.map((c) => c.kind))) return null;
+    const fee = residentServiceFeeBreakdown(confirmSubtotalCents, payConfirm.method, "resident", { coverFeeOnFee: true });
+    return { feeCents: fee.residentAddedFeeCents, totalCents: fee.totalCents };
+  }, [confirmCharges, confirmSubtotalCents, payConfirm]);
+
+  const confirmTotalLabel = useMemo(
+    () => formatUsd(confirmFeeEstimate ? confirmFeeEstimate.totalCents : confirmSubtotalCents),
+    [confirmFeeEstimate, confirmSubtotalCents],
+  );
   // The pay sheet names the move-in when the ids are exactly one group's payable lines.
   const confirmMoveInGroup = useMemo(() => {
     if (!payConfirm) return undefined;
@@ -1348,7 +1376,7 @@ export function ResidentPaymentsPanel({
       dataListRow: {
         id: row.id,
         data: row,
-        primary: row.title || "Charge",
+        primary: householdChargeDisplayTitle(row),
         meta: [
           showPropertyInMeta ? row.propertyLabel : null,
           moveInGroup
@@ -1393,7 +1421,7 @@ export function ResidentPaymentsPanel({
         onToggleSelected={toggleSelectedCharge}
         dataAttr="resident-payments-grouped-list"
         columns={[
-          { id: "charge", header: "Charge", cell: (row) => row.title || "Charge" },
+          { id: "charge", header: "Charge", cell: (row) => householdChargeDisplayTitle(row) },
           { id: "property", header: "Property", cell: (row) => row.propertyLabel || "—" },
           { id: "due", header: "Due", cell: (row) => residentChargeListDueLabel(row) },
           {
@@ -1579,7 +1607,7 @@ export function ResidentPaymentsPanel({
       title="Pay charges"
       contextPanel={<PopupRecordPreview rows={[{ label: "Selected charges", value: confirmCharges.length }]} />}
       previewLabel="Payment preview"
-      preview={<PopupRecordPreview rows={[...confirmCharges.map((charge, index) => ({ label: `${index + 1}. ${charge.title}`, value: formatChargeMoneyLabel(charge.balanceLabel) })), { label: "Amount due", value: confirmTotalLabel }]} />}
+      preview={<PopupRecordPreview rows={[...confirmCharges.map((charge, index) => ({ label: `${index + 1}. ${householdChargeDisplayTitle(charge)}`, value: formatChargeMoneyLabel(charge.balanceLabel) })), ...(confirmFeeEstimate ? [{ label: "Processing fee", value: formatUsd(confirmFeeEstimate.feeCents) }] : []), { label: "Amount due", value: confirmTotalLabel }]} />}
       scrollableContent
       panelClassName={payModalCheckoutReady ? MODAL_LARGE_PANEL_CLASS : "max-w-lg"}
     >
@@ -1591,7 +1619,10 @@ export function ResidentPaymentsPanel({
               {checkout?.totalCents != null ? formatUsd(checkout.totalCents) : confirmTotalLabel}
             </p>
             <p className="text-xs text-muted">
-              {checkout?.totalCents == null ? "Processing fee: Pending quote" :
+              {checkout?.totalCents == null
+                ? confirmFeeEstimate
+                  ? `Includes ${formatUsd(confirmFeeEstimate.feeCents)} processing fee`
+                  : "Processing fee: Pending quote" :
               (checkout.processingFeeCents ?? 0) + (checkout.axisFeeCents ?? 0) > 0
                 ? `Processing fee ${formatUsd((checkout?.processingFeeCents ?? 0) + (checkout?.axisFeeCents ?? 0))}`
                 : "Processing fee: None"}
@@ -1706,7 +1737,7 @@ export function ResidentPaymentsPanel({
             {group.items.map((item) => (
               <li key={item.id} className="flex items-center justify-between gap-3 px-4 py-3">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-foreground">{item.title || "Charge"}</p>
+                  <p className="truncate text-sm font-medium text-foreground">{householdChargeDisplayTitle(item)}</p>
                   <p className="text-xs text-muted">
                     {item.status === "processing" ? residentChargeListDueLabel(item) : chargeDueLabel(item)}
                   </p>
@@ -1743,7 +1774,7 @@ export function ResidentPaymentsPanel({
       <>
         <PortalRecordDetailPage
           pageTitle="Payments"
-          title={detailCharge.title || "Charge"}
+          title={householdChargeDisplayTitle(detailCharge)}
           subtitle={detailCharge.propertyLabel || undefined}
           backHref={residentChargesListHref(basePath, bucket)}
           hideBackText
@@ -1756,7 +1787,7 @@ export function ResidentPaymentsPanel({
             sections={chargeSections}
             recordId={detailCharge.id}
             activeId={activeChargeTab}
-            title={detailCharge.title || "Charge"}
+            title={householdChargeDisplayTitle(detailCharge)}
             backHref={residentChargesListHref(basePath, bucket)}
             backLabel="All payments"
             ariaLabel="Payment sections"
@@ -1767,7 +1798,7 @@ export function ResidentPaymentsPanel({
                 kind: "payment",
                 kindLabel: "charge",
                 recordId: detailCharge.id,
-                recordLabel: detailCharge.title,
+                recordLabel: householdChargeDisplayTitle(detailCharge),
               })
             ) : (
               <>
@@ -1776,7 +1807,7 @@ export function ResidentPaymentsPanel({
                   kind: "payment",
                   kindLabel: "charge",
                   recordId: detailCharge.id,
-                  recordLabel: detailCharge.title,
+                  recordLabel: householdChargeDisplayTitle(detailCharge),
                   overviewTiles: [
                     { id: "amount", label: "Amount", value: residentChargeAmountLabel(detailCharge) },
                     { id: "due", label: "Due", value: chargeDueLabel(detailCharge), tone: bucket === "overdue" ? "danger" : "default" },
@@ -1791,7 +1822,7 @@ export function ResidentPaymentsPanel({
                       id: "charge",
                       title: "Charge",
                       rows: [
-                        { label: "Type", value: detailCharge.title || "—" },
+                        { label: "Type", value: householdChargeDisplayTitle(detailCharge, "—") },
                         { label: "Property", value: detailCharge.propertyLabel || "—" },
                       ],
                     },

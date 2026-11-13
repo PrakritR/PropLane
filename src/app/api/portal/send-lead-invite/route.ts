@@ -1,4 +1,5 @@
 import { DEFAULT_LISTING_SHARED_INTRO, renderListingSharedIntro } from "@/lib/listing-shared-template";
+import { buildReadableListingUrl } from "@/lib/seo/listing-slugs.server";
 import { NextResponse } from "next/server";
 import { track } from "@/lib/analytics/posthog";
 import {
@@ -11,7 +12,6 @@ import {
 import {
   buildManagerApplyUrl,
   buildManagerBrowseUrl,
-  buildManagerListingUrl,
   buildManagerPortfolioApplyUrl,
   buildManagerPortfolioTourUrl,
   buildManagerTourUrl,
@@ -352,7 +352,7 @@ export async function POST(req: Request) {
       waiverCode,
     });
     const tourUrl = buildManagerTourUrl(origin, propertyId);
-    const listingPageUrl = buildManagerListingUrl(origin, propertyId);
+    const listingPageUrl = await buildReadableListingUrl(origin, propertyId);
     const listingCount = isMultiListing || isMultiApply ? authorized.length : undefined;
     const tourCount = isPortfolioTour ? authorized.length : undefined;
     const authorizedIds = authorized.map((entry) => entry.id);

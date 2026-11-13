@@ -3,6 +3,7 @@
 import { rowInActiveWorkspace, workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { airbnbPayoutLedgerRow, isAirbnbPayoutLedgerRow } from "@/lib/channel-calendar/airbnb-payouts";
 import { fetchAirbnbPayouts, type AirbnbPayoutRow } from "@/lib/channel-calendar/client";
+import { ChannelIncomeAction } from "@/components/portal/channel-income-panel";
 import { useEffect, useMemo, useState, useCallback, type ComponentProps } from "react";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
@@ -826,6 +827,7 @@ export function ManagerPayments({
 
   const paymentsListActions = (
     <>
+      {direction === "incoming" ? <ChannelIncomeAction ledgerRows={mergedRows} /> : null}
       {paymentsFilterSort}
       {paymentsSettingsMenu}
     </>

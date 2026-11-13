@@ -63,6 +63,8 @@ function makeDb() {
           return q;
         },
         async maybeSingle() {
+          // The property's workspace read (plan isolation for managed workspaces): a record with no workspace.
+          if (table === "manager_property_records") return { data: null, error: null };
           if (SETTINGS_READ_ERROR) return { data: null, error: SETTINGS_READ_ERROR };
           return { data: SETTINGS_ROW, error: null };
         },

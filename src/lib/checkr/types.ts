@@ -57,6 +57,14 @@ export type ApplicationBackgroundCheck = {
   stripePaymentIntentId?: string;
   /** Stripe Checkout session that prepaid this run (webhook idempotency key). */
   stripeCheckoutSessionId?: string;
+  /** Who paid for this run. Absent on older rows = the manager. */
+  payer?: "manager" | "applicant";
+  /** The applicant's FCRA authorization, captured before the order was paid for and placed. */
+  authorization?: { disclosureVersion: string; authorizedAt: string };
+  /** Set when this order replaced a cheaper one the applicant had already paid for. */
+  upgradedFrom?: { packageSlug: CheckrPackage; reportId: string; costCents?: number };
+  /** The ID check's result carried over from the order this one replaced, so an upgrade never re-buys it. */
+  carriedIdentity?: { status: string; orderId: string };
 };
 
 /** Options when placing a Checkr Tenant order. */

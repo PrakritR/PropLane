@@ -76,7 +76,7 @@ async function runSmsDemo(db: SupabaseClient, inbound: SharedLineInbound, deps: 
 async function landlordTurn(db: SupabaseClient, inbound: SharedLineInbound, state: OnboardingState | null, firstReply: boolean, deps: UnknownSenderDeps): Promise<UnknownSenderTurn> {
   const now = deps.now?.();
   const hints = mergeHints(state?.hints ?? {}, extractHouseHints(inbound.body));
-  const welcome = firstReply ? `${WELCOME} ` : "";
+  const welcome = firstReply && WELCOME ? `${WELCOME} ` : "";
 
   if (state?.stage === "offered" && isAccept(inbound.body)) {
     const started = await runSmsDemo(db, { ...inbound, body: "DEMO" }, deps);
@@ -181,7 +181,7 @@ async function runUnknownSenderTurn(db: SupabaseClient, inbound: SharedLineInbou
         // The FIRST unclear text ("hi", "who is this") gets one reply asking which home, and waits in Admin > Unassigned (never in a
         // workspace). A tour or booking ask with a day, or a search for homes ("what houses are in Seattle?"), is specific enough to go to the lead flow. A second unclear text gets the
         // role question, as before.
-        if (openStage !== "hold") return asksTourWithDay(inbound.body) || asksForHomes(inbound.body) ? leadPath() : handleHoldInbound(db, inbound, { now: deps.now ?? deps.lead?.now });
+        if (openStage !== "hold") return asksTourWithDay(inbound.body) || asksForHomes(inbound.body) ? leadPath() : handleHoldInbound(db, inbound, { now: deps.now ?? deps.lead?.now, listings: deps.lead?.listings, origin: deps.lead?.origin });
         // The ask is recorded BEFORE it is sent, and only one request wins it (`claimRoleQuestionAsk` is a
         // compare-and-swap on the `asked_at` just read), so a burst of unclear texts that arrives before the
         // question goes out still asks once and only once.

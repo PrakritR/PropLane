@@ -813,8 +813,22 @@ export async function writePayoutSchedule(
  * resolution errors, etc.) and must keep returning that message verbatim, at
  * their own status code, without going through this helper.
  */
+/**
+ * The real reason, never a generic screen: a Stripe error carries its own message and code (shown as-is so staff can act
+ * on it), and a PropLane refusal thrown from the payout libraries keeps its text. Anything else (a driver or parse
+ * failure) stays generic so internals are not echoed. Never a key: Stripe messages do not contain one.
+ */
 export function stripePayoutErrorResponse(context: string, e: unknown): NextResponse {
   const message = e instanceof Error ? e.message : String(e);
-  console.error(`[${context}]`, message);
+  const stripeType = typeof (e as { type?: unknown } | null)?.type === "string" ? String((e as { type: string }).type) : "";
+  const stripeCode = typeof (e as { code?: unknown } | null)?.code === "string" ? String((e as { code: string }).code) : undefined;
+  console.error(`[${context}]`, stripeType || "error", stripeCode ?? "", message);
+  if (stripeType.startsWith("Stripe")) {
+    const status = stripeType === "StripeRateLimitError" ? 429 : stripeType === "StripeInvalidRequestError" || stripeType === "StripePermissionError" ? 400 : 502;
+    return NextResponse.json({ error: message, code: stripeCode ?? stripeType, source: "stripe" }, { status });
+  }
+  if (message.startsWith("This Stripe payout account requires")) {
+    return NextResponse.json({ error: message, code: "CONNECT_ACCOUNT_NOT_EMBEDDABLE" }, { status: 409 });
+  }
   return NextResponse.json({ error: "Something went wrong processing that request. Please try again." }, { status: 500 });
 }

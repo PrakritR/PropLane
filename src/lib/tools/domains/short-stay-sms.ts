@@ -19,7 +19,8 @@ import { z } from "zod";
 import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
 import { loadShortStayHomes, publicOrigin } from "./leasing-sms";
-import { buildManagerListingUrl } from "@/lib/manager-property-links";
+import { getListingSlugIndex } from "@/lib/seo/listing-slugs.server";
+import { listingPublicPath } from "@/lib/listing-public-path";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
 import { pacificTodayKey } from "@/lib/room-availability-range";
 import {
@@ -179,6 +180,8 @@ export const quoteShortStaysTool = defineTool<z.infer<typeof quoteInput>, QuoteR
 
     // One room per home (the cheapest that is free), homes in the order the area ranked them.
     const origin = publicOrigin();
+    // One slug index for the whole offer list, not one per home.
+    const slugIndex = await getListingSlugIndex();
     const options: StayOfferOption[] = [];
     const seen = new Set<string>();
     for (const home of ranked) {
@@ -198,7 +201,7 @@ export const quoteShortStaysTool = defineTool<z.infer<typeof quoteInput>, QuoteR
         checkIn: dates.checkIn,
         checkOut: dates.checkOut,
         guests,
-        listingUrl: buildManagerListingUrl(origin, home.id),
+        listingUrl: `${origin.replace(/\/$/, "")}${listingPublicPath(home.id, slugIndex.idToSlug.get(home.id))}`,
       });
     }
     const arrival = parseArrivalTime(input.arrivalText ?? "");

@@ -25,7 +25,6 @@ import type { ResidentPersonalAgentContext } from "../resident-personal-agent-co
 import { auditDayBucket, updateAuditResult, writeAuditLog } from "../audit";
 import { searchResidentListings } from "@/lib/resident-agent/listing-search";
 import { loadOfferedSlots } from "./tours";
-import { applicationBeforeTourRefusal } from "@/lib/application-before-tour.server";
 import { createTourInquiry } from "@/lib/tour-inquiry-create.server";
 import { formatTourRangeLabel } from "@/lib/tour-inquiry.server";
 import { normalizeTourFormat } from "@/lib/tour-format";
@@ -153,11 +152,6 @@ export const requestTourTool = defineWriteTool<z.infer<typeof requestTourInput>,
   inputSchema: requestTourInput,
   preview: async (ctx, input) => {
     const listing = await requirePublicListing(ctx, input.listingId);
-    const refusal = await applicationBeforeTourRefusal(ctx.db as Parameters<typeof applicationBeforeTourRefusal>[0], {
-      propertyId: listing.id,
-      verifiedEmail: ctx.email,
-    });
-    if (refusal) throw new Error(refusal);
     const slot = await requireOpenSlot(ctx, listing, input.slotKey);
     return {
       kind: RESIDENT_AGENT_REQUEST_TOUR_TOOL,
@@ -175,11 +169,6 @@ export const requestTourTool = defineWriteTool<z.infer<typeof requestTourInput>,
   },
   handler: async (ctx, input) => {
     const listing = await requirePublicListing(ctx, input.listingId);
-    const refusal = await applicationBeforeTourRefusal(ctx.db as Parameters<typeof applicationBeforeTourRefusal>[0], {
-      propertyId: listing.id,
-      verifiedEmail: ctx.email,
-    });
-    if (refusal) throw new Error(refusal);
     // Re-derived NOW: the slot may have been taken since the preview, and the host is the server's pick.
     const slot = await requireOpenSlot(ctx, listing, input.slotKey);
 
@@ -211,6 +200,7 @@ export const requestTourTool = defineWriteTool<z.infer<typeof requestTourInput>,
         requestedWindows: [{ start: slot.start, end: slot.end, slotKey: slot.slotKey, adminUserId: slot.hostUserId }],
       },
       verifiedApplicantEmail: ctx.email,
+      verifiedApplicantUserId: ctx.userId,
       // The owner's-number agent is the Messages channel: the guest is answered by text.
       noticeChannel: "sms",
     });

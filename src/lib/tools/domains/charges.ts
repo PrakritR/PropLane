@@ -1,3 +1,4 @@
+import { MANAGED_OFFLINE_RENT_MESSAGE, offlineReceiptRefusedForManagedRent } from "@/lib/managed-finance/offline-receipt-guard.server";
 import { z } from "zod";
 import { defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
@@ -533,6 +534,9 @@ export const markChargePaidTool = defineWriteTool({
     const charge = findOwnedCharge(ctx, await loadManagerCharges(ctx), input.chargeId);
     if (!charge) throw new Error("No charge with that id belongs to this landlord.");
     if (charge.status === "paid") throw new Error("This charge is already marked paid.");
+    if (await offlineReceiptRefusedForManagedRent(ctx.db, { kind: charge.kind, propertyId: charge.propertyId })) {
+      throw new Error(MANAGED_OFFLINE_RENT_MESSAGE);
+    }
 
     // One-shot transition: marking the same charge paid twice returns already-done.
     const dedupeKey = `mark_charge_paid:${ctx.landlordId}:${charge.id}`;

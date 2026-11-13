@@ -4,77 +4,62 @@ import { signInAsManager } from "../helpers/auth";
 // Real authenticated dev/test rows — same pattern as portal-reliability.spec.ts.
 test.use({ storageState: { cookies: [], origins: [] } });
 
-test.describe("Anchored mobile row-action menu", () => {
+test.describe("Phone row-action menu", () => {
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Requires seeded dev/test manager");
   test.beforeEach(async ({ page }) => {
     await signInAsManager(page);
     await page.setViewportSize({ width: 390, height: 844 });
   });
 
-  test("the first row's ⋯ menu opens directly below and adjacent to its trigger", async ({ page }) => {
-    await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });
-    const trigger = page.getByRole("button", { name: /^Actions for / }).first();
-    await expect(trigger).toBeVisible({ timeout: 45_000 });
-    const triggerBox = (await trigger.boundingBox())!;
+  for (const which of ["first", "last"] as const) {
+    test(`${which} row opens a bottom sheet inside the viewport`, async ({ page }) => {
+      await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });
+      const triggers = page.getByRole("button", { name: /^Actions for / });
+      await expect(triggers.first()).toBeVisible({ timeout: 45_000 });
+      const trigger = which === "first" ? triggers.first() : triggers.last();
+      await trigger.scrollIntoViewIfNeeded();
+      await trigger.click();
+      const menu = page.getByRole("menu");
+      await expect(menu).toHaveAttribute("data-menu-sheet", "");
+      await expect(menu).toBeVisible();
+      // Wait for the sheet's entrance animation to settle at the viewport edge.
+      await expect.poll(async () => {
+        const box = await menu.boundingBox();
+        return box ? Math.abs(box.y + box.height - 844) : Infinity;
+      }).toBeLessThanOrEqual(1);
+      const box = (await menu.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(391);
+      expect(box.width).toBeGreaterThanOrEqual(389);
+      expect(box.height).toBeLessThanOrEqual(844 * 0.7 + 1);
+      await page.keyboard.press("Escape");
+      await expect(menu).toHaveCount(0);
+    });
+  }
+});
 
-    await trigger.click();
-    const menu = page.getByRole("menu");
-    await expect(menu).toBeVisible();
-    const menuBox = (await menu.boundingBox())!;
-
-    // Below the trigger…
-    expect(menuBox.y).toBeGreaterThanOrEqual(triggerBox.y + triggerBox.height - 2);
-    // …and ADJACENT to it, not merely somewhere on screen — this is the assertion
-    // the old bottom-pinned card would have failed.
-    expect(menuBox.y - (triggerBox.y + triggerBox.height)).toBeLessThanOrEqual(12);
-    // Inside the viewport horizontally and vertically.
-    expect(menuBox.x).toBeGreaterThanOrEqual(0);
-    expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(390);
-    expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(844);
-  });
-
-  test("the last row's ⋯ menu flips above its trigger", async ({ page }) => {
-    await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });
-    const triggers = page.getByRole("button", { name: /^Actions for / });
-    await expect(triggers.first()).toBeVisible({ timeout: 45_000 });
-
-    const lastTrigger = triggers.last();
-    await lastTrigger.scrollIntoViewIfNeeded();
-    const triggerBox = (await lastTrigger.boundingBox())!;
-
-    await lastTrigger.click();
-    const menu = page.getByRole("menu");
-    await expect(menu).toBeVisible();
-    const menuBox = (await menu.boundingBox())!;
-
-    // Above the trigger…
-    expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(triggerBox.y + 2);
-    // …and ADJACENT to it.
-    expect(triggerBox.y - (menuBox.y + menuBox.height)).toBeLessThanOrEqual(12);
-  });
-
-  test("a trigger near the bottom bar keeps its menu clear of the bar", async ({ page }) => {
-    await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });
-    const triggers = page.getByRole("button", { name: /^Actions for / });
-    await expect(triggers.first()).toBeVisible({ timeout: 45_000 });
-
-    const lowTrigger = triggers.last();
-    await lowTrigger.scrollIntoViewIfNeeded();
-    await lowTrigger.click();
-    const menu = page.getByRole("menu");
-    await expect(menu).toBeVisible();
-    const menuBox = (await menu.boundingBox())!;
-
-    const nav = page.locator(".portal-native-bottom-nav");
-    if (await nav.count()) {
-      const navBox = (await nav.boundingBox())!;
-      expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(navBox.y + 1);
-    } else {
-      // `.portal-native-bottom-nav` was not present at this width in this run —
-      // fall back to a plain viewport-clearance check and say so in the report.
-      expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(844 - 12);
-    }
-  });
+test("desktop row-action menu stays anchored to its trigger", async ({ page }) => {
+  test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Requires seeded dev/test manager");
+  await signInAsManager(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });
+  const trigger = page.getByRole("button", { name: /^Actions for / }).first();
+  await expect(trigger).toBeVisible({ timeout: 45_000 });
+  await trigger.click();
+  const menu = page.getByRole("menu");
+  await expect(menu).toBeVisible();
+  await expect(menu).not.toHaveAttribute("data-menu-sheet", "");
+  await expect.poll(async () => {
+    const triggerBox = await trigger.boundingBox();
+    const menuBox = await menu.boundingBox();
+    return triggerBox && menuBox ? Math.abs(menuBox.y - (triggerBox.y + triggerBox.height)) : Infinity;
+  }).toBeLessThanOrEqual(12);
+  const menuBox = (await menu.boundingBox())!;
+  expect(menuBox.x).toBeGreaterThanOrEqual(0);
+  expect(menuBox.y).toBeGreaterThanOrEqual(0);
+  expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(1280);
+  expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(900);
 });
 
 /**

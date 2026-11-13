@@ -109,6 +109,25 @@ function makeDbMock(options: {
   };
 }
 
+describe("signed legacy lease stage access", () => {
+  it("unlocks from an exact subject-bound application without writing the lease", async () => {
+    const app = { id: "AXIS-LEGACY", manager_user_id: "owner", property_id: "house", resident_email: "resident@example.com", row_data: { id: "AXIS-LEGACY", residentUserId: "legacy-user", bucket: "approved", stage: "Approved" } };
+    const lease = { id: "lease", manager_user_id: "owner", resident_user_id: null, property_id: "house", resident_email: "resident@example.com", row_data: { axisId: "AXIS-LEGACY", residentSignature: { name: "R", signedAtIso: "now" }, managerSignature: { name: "M", signedAtIso: "now" } } };
+    const db = makeDbMock({ applicationRows: [app] });
+    const original = db.from.getMockImplementation()!;
+    db.from.mockImplementation((table: string) => {
+      if (table !== "portal_lease_pipeline_records") return original(table);
+      const q = { select: () => q, eq: () => q, order: async () => ({ data: [], error: null }), is: () => q, ilike: () => q, limit: async () => ({ data: [lease], error: null }) };
+      return q;
+    });
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+    const access = await loadResidentPortalAccessState({ userId: "legacy-user", role: "resident", email: "resident@example.com" });
+    expect(access.leaseSigned).toBe(true);
+    expect(access.leaseAccessUnlocked).toBe(true);
+    expect(lease.resident_user_id).toBeNull();
+  });
+});
+
 describe("resident history mailbox proof", () => {
   it.each([
     [{ email: "resident@example.com" }, ""],

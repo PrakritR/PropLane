@@ -52,8 +52,9 @@ describe("inbound calls are bounded by credit, never above five minutes", () => 
     expect(wallet.reserveCommsCredit).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ meter: "voice_minute", quantity: 5, idempotencyKey: "voice_minute:CA1" }),
+      false,
     );
-    expect(twilio.update).toHaveBeenCalledWith({ timeLimit: 300 });
+    expect(twilio.update).toHaveBeenCalledWith(expect.objectContaining({ timeLimit: 300, statusCallback: expect.stringContaining("/api/twilio/voice/status") }));
   });
 
   it("shortens the call when the balance funds fewer than five minutes", async () => {
@@ -63,8 +64,9 @@ describe("inbound calls are bounded by credit, never above five minutes", () => 
     expect(wallet.reserveCommsCredit).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ meter: "voice_minute", quantity: 3 }),
+      false,
     );
-    expect(twilio.update).toHaveBeenCalledWith({ timeLimit: 180 });
+    expect(twilio.update).toHaveBeenCalledWith(expect.objectContaining({ timeLimit: 180 }));
   });
 
   it("declines the call when less than one funded minute remains, and reserves nothing", async () => {
@@ -189,5 +191,55 @@ describe("a failed model turn is retried under a fresh credit key, never replaye
   it("ignores unrelated keys that merely share the prefix", async () => {
     const db = keyFamilyDb([{ idempotency_key: `${base}0`, credit_state: "released" }]);
     await expect(commsTurnKey(db, "owner", base)).resolves.toBe(base);
+  });
+});
+
+describe("PropLane's own line is never blocked by an empty wallet", () => {
+  it("a client wallet that cannot fund the call falls back to PropLane's, with no wallet limit", async () => {
+    const { reserveVoiceCallFunding } = await import("@/lib/comms-billing/voice-credit.server");
+    wallet.loadCommsWallet.mockResolvedValue({ paused: false, remainingCents: 0 });
+    const payer = await reserveVoiceCallFunding(
+      dbWithoutExistingHold(),
+      { primary: { ownerId: "client", workspaceId: "ws-client" }, platform: { ownerId: "platform", workspaceId: "ws-platform" } },
+      "CA10",
+    );
+    expect(payer).toEqual({ ownerId: "platform", workspaceId: "ws-platform", allowUnfunded: true });
+    expect(wallet.reserveCommsCredit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ managerUserId: "platform", meter: "voice_minute", quantity: 5 }),
+      true,
+    );
+    expect(twilio.update).toHaveBeenCalledWith(expect.objectContaining({ timeLimit: 300 }));
+  });
+
+  it("a funded client wallet pays first", async () => {
+    const { reserveVoiceCallFunding } = await import("@/lib/comms-billing/voice-credit.server");
+    wallet.loadCommsWallet.mockResolvedValue({ paused: false, remainingCents: 10_000 });
+    const payer = await reserveVoiceCallFunding(
+      dbWithoutExistingHold(),
+      { primary: { ownerId: "client", workspaceId: "ws-client" }, platform: { ownerId: "platform", workspaceId: "ws-platform" } },
+      "CA11",
+    );
+    expect(payer).toEqual({ ownerId: "client", workspaceId: "ws-client", allowUnfunded: false });
+  });
+
+  it("a self-serve workspace with an empty wallet is still refused: there is no PropLane backstop", async () => {
+    const { reserveVoiceCallFunding } = await import("@/lib/comms-billing/voice-credit.server");
+    wallet.loadCommsWallet.mockResolvedValue({ paused: false, remainingCents: 0 });
+    const payer = await reserveVoiceCallFunding(
+      dbWithoutExistingHold(),
+      { primary: { ownerId: "client", workspaceId: "ws-client" }, platform: null },
+      "CA12",
+    );
+    expect(payer).toBeNull();
+    expect(wallet.reserveCommsCredit).not.toHaveBeenCalled();
+  });
+
+  it("the PropLane line itself (the platform is the primary) reserves unfunded", async () => {
+    const { reserveVoiceCallFunding } = await import("@/lib/comms-billing/voice-credit.server");
+    const target = { ownerId: "platform", workspaceId: "ws-platform" };
+    const payer = await reserveVoiceCallFunding(dbWithoutExistingHold(), { primary: target, platform: target }, "CA13");
+    expect(payer).toEqual({ ...target, allowUnfunded: true });
+    expect(wallet.loadCommsWallet).not.toHaveBeenCalled();
   });
 });

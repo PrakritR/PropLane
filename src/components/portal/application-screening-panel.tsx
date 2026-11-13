@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Download, FileSearch, RefreshCw } from "lucide-react";
+import { Download, FileSearch, RefreshCw, ShieldCheck } from "lucide-react";
+import { AdverseActionFact } from "@/components/portal/adverse-action-decline";
 import { Button } from "@/components/ui/button";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spec";
 import { PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { applicationIdentityVerified } from "@/lib/checkr/identity";
 import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
 import { applicationShowsBackgroundCheck } from "@/lib/application-background-check";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -764,6 +766,13 @@ export function ApplicationScreeningPanel({
 
   const panelTail = (
     <>
+      {applicationIdentityVerified(bg) ? (
+        <p className="flex items-center gap-1.5 text-sm font-medium text-foreground" data-attr="application-id-verified">
+          <ShieldCheck className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+          <span aria-label="ID verified">Verified</span>
+        </p>
+      ) : null}
+      {activeCosignerSubmissionId ? null : <AdverseActionFact row={row} />}
       {screening?.adverseActionRequired ? (
         <p className="rounded-xl border px-3 py-2 text-xs portal-banner-pending">
           Adverse action may be required before denying based on this consumer report (FCRA).

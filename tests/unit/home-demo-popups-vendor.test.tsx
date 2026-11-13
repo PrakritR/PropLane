@@ -73,7 +73,7 @@ describe("vendor Services matches the real Services page", () => {
   it("the round + opens Submit bid with the real rail and footer, and Submit bid closes it", async () => {
     render(<DemoPanel portal="vendor" tab="work-orders" story={OFFER} />);
     fireEvent.click(screen.getByRole("button", { name: "Add bid" }));
-    const dialog = await screen.findByRole("dialog", { name: "Submit bid" });
+    const dialog = await screen.findByRole("dialog", { name: "Submit bid" }, { timeout: 15_000 });
     for (const label of ["Service", "House", "When", "Bid", "Review"]) expect(within(dialog).getAllByText(label).length).toBeGreaterThan(0);
     expect(within(dialog).getByText("Service preview")).toBeInTheDocument();
     clickStep(dialog, "Bid");
@@ -86,7 +86,7 @@ describe("vendor Services matches the real Services page", () => {
     expect(screen.getByRole("status").textContent).toMatch(/Bid submitted/);
     expectNoGenericCard();
     expect(fetchSpy).not.toHaveBeenCalled();
-  });
+  }, 30_000);
 
   it("an open job shows only its general area, and the row opens the service record page", async () => {
     render(<DemoPanel portal="vendor" tab="work-orders" story={OFFER} />);

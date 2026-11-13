@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
 /**
  * Server-owned withdrawal stamp on POST /api/manager-applications.
@@ -16,6 +17,7 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 const getUser = vi.fn();
 let PROFILE: { role: string; email: string } | null;
 let WITHDRAW_BEFORE_UPDATE = false;
+let UPDATE_ERROR: { code: string; message: string } | null = null;
 let STORED_ROWS: { id: string; row_data: DemoApplicantRow }[];
 let STORED_ERROR: { message: string } | null;
 let UPSERTS: { id: string; row_data: DemoApplicantRow }[];
@@ -72,7 +74,7 @@ function makeDb() {
           return Promise.resolve({ error: null });
         },
         upsert(values: { id: string; row_data: DemoApplicantRow }) {
-          UPSERTS.push(values);
+          if (table === "manager_application_records") UPSERTS.push(values);
           return Promise.resolve({ error: null });
         },
         delete() {
@@ -82,6 +84,8 @@ function makeDb() {
         ilike() {
           return builder;
         },
+        or() { return builder; },
+        neq() { return builder; },
         in(column: string, values: string[]) {
           if (column === "id") {
             state.ids = values;
@@ -96,11 +100,13 @@ function makeDb() {
           return builder;
         },
         maybeSingle() {
+          if (table === "manager_property_records") return Promise.resolve({ data: filters.id === "mgr-demo-pioneer" && filters.manager_user_id === "mgr-1" ? { property_data: { listingSubmission: createDefaultListingSubmission() } } : null, error: null });
           if (table === "profiles") return Promise.resolve({ data: PROFILE, error: null });
           return Promise.resolve({ data: null, error: null });
         },
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
           if (table === "manager_application_records" && pending) {
+            if (UPDATE_ERROR) return Promise.resolve({ data: null, error: UPDATE_ERROR }).then(resolve);
             const match = STORED_ROWS.find((row) => Object.entries(filters).every(([column, expected]) => {
               const value = column.startsWith("row_data->>")
                 ? (row.row_data as unknown as Record<string, unknown>)[column.slice("row_data->>".length)]
@@ -129,6 +135,7 @@ function appRow(over: Partial<DemoApplicantRow>): DemoApplicantRow {
     name: "Withdrawn Applicant",
     property: "The Pioneer",
     propertyId: "mgr-demo-pioneer",
+    managerUserId: "mgr-1",
     stage: "Submitted",
     bucket: "pending",
     detail: "",
@@ -148,6 +155,7 @@ function post(body: unknown) {
 describe("POST /api/manager-applications — withdrawnAt is server-owned on a manager write", () => {
   beforeEach(() => {
     WITHDRAW_BEFORE_UPDATE = false;
+    UPDATE_ERROR = null;
     getUser.mockReset();
     getUser.mockResolvedValue({ data: { user: { id: "mgr-1", email: "mgr@example.com", user_metadata: {} } } });
     PROFILE = { role: "manager", email: "mgr@example.com" };
@@ -186,6 +194,21 @@ describe("POST /api/manager-applications — withdrawnAt is server-owned on a ma
     expect(STORED_ROWS[0]?.row_data.withdrawnAt).toBe("2026-07-22T00:00:00.000Z");
   });
 
+  it.each([
+    [{ code: "P4001", message: "This room is blocked for the requested dates." }, 409, "This room is blocked for the requested dates.", "capacity"],
+    [{ code: "P4001", message: "private database detail" }, 409, "The selected room is unavailable for these dates.", "capacity"],
+    [{ code: "23514", message: "private database detail" }, 422, "Could not save application.", undefined],
+  ] as const)("returns safe manager update refusals", async (error, status, message, blocked) => {
+    const approved = appRow({ bucket: "approved", stage: "Approved" });
+    STORED_ROWS = [{ id: approved.id, row_data: approved }];
+    UPDATE_ERROR = error;
+    const { POST } = await import("@/app/api/manager-applications/route");
+    const res = await POST(post({ row: approved }));
+    expect(res.status).toBe(status);
+    expect(await res.json()).toEqual({ error: message, ...(blocked ? { blocked } : {}) });
+    expect(UPSERTS).toHaveLength(0);
+  });
+
   it("fails CLOSED when the stored row cannot be read", async () => {
     STORED_ERROR = { message: "connection reset" };
     const { POST } = await import("@/app/api/manager-applications/route");
@@ -199,7 +222,7 @@ describe("POST /api/manager-applications — withdrawnAt is server-owned on a ma
     STORED_ROWS = [{ id: "AXIS-9001", row_data: appRow({}) }];
     const { POST } = await import("@/app/api/manager-applications/route");
     const res = await POST(post({ row: appRow({ bucket: "approved", stage: "Approved" }) }));
-    expect(res.status).toBe(200);
+    expect(res.status, await res.text()).toBe(200);
     expect(UPSERTS).toHaveLength(1);
     expect(provisionApprovedResidentAccount).toHaveBeenCalledTimes(1);
   });
@@ -223,6 +246,7 @@ describe("POST /api/manager-applications — withdrawnAt is server-owned on a ma
 describe("POST /api/manager-applications action:\"replace\" — the path the manager Approve actually takes", () => {
   beforeEach(() => {
     WITHDRAW_BEFORE_UPDATE = false;
+    UPDATE_ERROR = null;
     getUser.mockReset();
     getUser.mockResolvedValue({ data: { user: { id: "mgr-1", email: "mgr@example.com", user_metadata: {} } } });
     PROFILE = { role: "manager", email: "mgr@example.com" };
@@ -297,7 +321,7 @@ describe("POST /api/manager-applications action:\"replace\" — the path the man
     const res = await POST(
       post({ action: "replace", rows: [appRow({ bucket: "approved", stage: "Approved" })] }),
     );
-    expect(res.status).toBe(200);
+    expect(res.status, await res.text()).toBe(200);
     expect(UPSERTS).toHaveLength(1);
     expect(provisionApprovedResidentAccount).toHaveBeenCalledTimes(1);
   });

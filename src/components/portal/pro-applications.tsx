@@ -61,6 +61,7 @@ import {
   writeManagerApplicationRows,
 } from "@/lib/manager-applications-storage";
 
+import { useAdverseActionDecline } from "@/components/portal/adverse-action-decline";
 import { ApproveApplicationDialog } from "@/components/portal/approve-application-dialog";
 import { SharedRoomCard } from "@/components/portal/shared-room-card";
 import { PortalRowFact } from "@/components/portal/portal-record-row";
@@ -616,6 +617,8 @@ export function ManagerApplications({
   // server re-derives inside the write that takes the bed, so a stale picker can never land a taken one.
   const [approveRow, setApproveRow] = useState<DemoApplicantRow | null>(null);
   const [rejectBusy, setRejectBusy] = useState(false);
+  // FCRA: declining an application with a consumer report asks "is this based on the background check?" first.
+  const adverseAction = useAdverseActionDecline();
   const [reminderBusyId, setReminderBusyId] = useState<string | null>(null);
   const [reminderPreviewBusyId, setReminderPreviewBusyId] = useState<string | null>(null);
   const [reminderPreview, setReminderPreview] = useState<
@@ -1177,6 +1180,7 @@ export function ManagerApplications({
       await declineApplicationWithUndo({
         row,
         showToast,
+        confirm: () => adverseAction.confirmDecline(row),
         run: (id, next) => setRowBucket(id, next, { skipNavigate: true, quiet: true }),
         onChanged: (event) => {
           if (event === "declined" && applicationIdProp) router.push(applicationsListHref("pending"));
@@ -1680,6 +1684,7 @@ export function ManagerApplications({
           }}
         />
       ) : null}
+      {adverseAction.dialog}
       <ApproveApplicationDialog
         row={approveRow}
         userId={userId ?? null}

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { loadConfig, createService, getUser, redirect } = vi.hoisted(() => ({
   loadConfig: vi.fn(), createService: vi.fn(), getUser: vi.fn(),
@@ -19,16 +19,62 @@ beforeEach(() => {
   loadConfig.mockReset().mockResolvedValue({ mode: "per_workspace" });
   getUser.mockReset().mockResolvedValue({ data: { user: { id: "signed-in" } } });
   redirect.mockClear();
+  vi.stubEnv("TWILIO_DEFAULT_FROM", "");
+  vi.stubEnv("PHONE_SIGN_IN_DISABLED", "");
 });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
 
 describe("phone auth page mode and identity gates", () => {
-  it.each(["per_workspace", "shadow"])("keeps phone sign-in off in %s", async (mode) => {
+  it.each(["per_workspace", "shadow"])("keeps phone sign-in off in %s without a platform sender", async (mode) => {
     loadConfig.mockResolvedValue({ mode });
+    vi.stubEnv("TWILIO_DEFAULT_FROM", "");
+    expect((await SignInPage()).props.phoneFirst).toBe(false);
+  });
+  it.each(["per_workspace", "shadow"])("shows phone sign-in in %s when a platform sender exists", async (mode) => {
+    loadConfig.mockResolvedValue({ mode });
+    vi.stubEnv("TWILIO_DEFAULT_FROM", "+12065550999");
+    expect((await SignInPage()).props.phoneFirst).toBe(true);
+  });
+  it("the kill switch hides phone sign-in even in shared mode", async () => {
+    loadConfig.mockResolvedValue({ mode: "shared" });
+    vi.stubEnv("PHONE_SIGN_IN_DISABLED", "1");
     expect((await SignInPage()).props.phoneFirst).toBe(false);
   });
   it("shows phone sign-in first in shared mode", async () => {
     loadConfig.mockResolvedValue({ mode: "shared" });
     expect((await SignInPage()).props.phoneFirst).toBe(true);
+  });
+  it("returns the legacy surface after 1500ms when the preference read stalls", async () => {
+    vi.useFakeTimers();
+    let reject!: (error: Error) => void;
+    loadConfig.mockReturnValue(new Promise((_resolve, fail) => { reject = fail; }));
+    const page = SignInPage();
+    await vi.advanceTimersByTimeAsync(1500);
+    expect((await page).props.phoneFirst).toBe(false);
+    reject(new Error("late failure"));
+    await Promise.resolve();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("does not change the returned mode when a stalled read resolves late", async () => {
+    vi.useFakeTimers();
+    let resolve!: (value: { mode: string }) => void;
+    loadConfig.mockReturnValue(new Promise((done) => { resolve = done; }));
+    const page = SignInPage();
+    await vi.advanceTimersByTimeAsync(1500);
+    const result = await page;
+    expect(result.props.phoneFirst).toBe(false);
+    resolve({ mode: "shared" });
+    await Promise.resolve();
+    expect(result.props.phoneFirst).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("clears the timeout when the preference resolves or rejects promptly", async () => {
+    vi.useFakeTimers();
+    loadConfig.mockResolvedValueOnce({ mode: "shared" }).mockRejectedValueOnce(new Error("unavailable"));
+    expect((await SignInPage()).props.phoneFirst).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    expect((await SignInPage()).props.phoneFirst).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
   });
   it("keeps legacy sign-in accessible when service credentials are unavailable", async () => {
     createService.mockImplementation(() => { throw new Error("unavailable"); });

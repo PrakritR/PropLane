@@ -30,6 +30,10 @@ Numbers held by accounts with no entitlement are released once per environment a
 run that lists them). It asks the same `managerPersonalNumberEntitlement` the product does and skips every
 grandfathered number, so today it releases nothing — see § Who may hold a personalized number below.
 
+## PropLane-managed workspaces: operations alerts are the platform's cost (Nov 12)
+
+Texts about a PropLane-managed (`is_service`) workspace to PropLane's own phones (alert phones, staff seats, the daily digest, inbound-text alerts) are billed to the PropLane service owner's wallet through `sendTextFromServiceOwner`, never to the client workspace's wallet (prod: Vinod's pool is $0 and every alert for it was refused). The money gate is not bypassed: an empty PropLane wallet still refuses, and that refusal raises an Attention item. Self-serve workspaces are unchanged and fail closed on their own wallet.
+
 ## Vendor work number (Oct 6): covered by the service fee, not a wallet
 
 (Superseded when `NUMBER_SUBSCRIPTION_ENABLED=1`: the number is then the $5/month PropLane Number, see

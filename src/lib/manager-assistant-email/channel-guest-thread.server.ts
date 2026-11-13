@@ -47,3 +47,30 @@ export async function stampChannelGuestOnThread(
   }
   return false;
 }
+
+/**
+ * Merge a patch into a thread's `row_data` (free-form jsonb, no migration), compare-and-set on `updated_at` like the guest tag.
+ * `platformState` is never downgraded: once a thread is `moved` to text, a late platform mail cannot flip it back to active.
+ */
+export async function stampThreadRowData(db: SupabaseClient, threadId: string, patch: Record<string, unknown>): Promise<boolean> {
+  for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
+    const { data, error } = await db
+      .from("portal_inbox_thread_records")
+      .select("id, row_data, updated_at")
+      .eq("id", threadId)
+      .maybeSingle();
+    if (error || !data) return false;
+    const row = data as { row_data: Record<string, unknown> | null; updated_at: string | null };
+    const current = row.row_data ?? {};
+    const next: Record<string, unknown> = { ...current, ...patch };
+    const before = current.platformState as { state?: string } | undefined;
+    if (before?.state === "moved" && patch.platformState) next.platformState = { ...(patch.platformState as object), ...before };
+    const base = db.from("portal_inbox_thread_records").update({ row_data: next }).eq("id", threadId);
+    const { data: written, error: writeError } = await (row.updated_at ? base.eq("updated_at", row.updated_at) : base.is("updated_at", null))
+      .select("id")
+      .maybeSingle();
+    if (writeError) return false;
+    if (written) return true;
+  }
+  return false;
+}

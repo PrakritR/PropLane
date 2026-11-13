@@ -1,9 +1,7 @@
-import { userHoldsManagerRole } from "@/lib/manager-route-guard.server";
+import { resolveManagerRouteActor } from "@/lib/auth/route-actor.server";
 import { NextResponse } from "next/server";
 import type { ManagerSmsMessageStorageTable } from "@/lib/manager-sms-messages";
 import { deleteManagerSmsMessage } from "@/lib/manager-sms-messages.server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
 
@@ -14,14 +12,9 @@ const STORAGE_TABLES = new Set<ManagerSmsMessageStorageTable>([
 ]);
 
 async function requireManager() {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: NextResponse.json({ error: "Unauthorized." }, { status: 401 }) };
-  const db = createSupabaseServiceRoleClient();
-  if (!(await userHoldsManagerRole(db, user.id))) return { error: NextResponse.json({ error: "Manager access required." }, { status: 403 }) };
-  return { user, db };
+  const actor = await resolveManagerRouteActor({ route: "manager/sms-messages" });
+  if (!actor.ok) return { error: NextResponse.json({ error: actor.error }, { status: actor.status }) };
+  return { user: { id: actor.userId }, db: actor.db };
 }
 
 /** Delete one stored SMS row from a manager conversation thread. */

@@ -15,7 +15,7 @@ import { reviewInspectionDepositTool, disposeInspectionDepositTool } from "./dom
 import { suggestStatementMatchesTool } from "./domains/statement-matching";
 import { buildRegistry, type ToolRegistry } from "./registry";
 import type { AgentContext } from "./context";
-import { CO_MANAGER_SCOPED_TOOLS, scopeManagerTool } from "./manager-co-manager-tool-scope";
+import { CO_MANAGER_SCOPED_TOOLS, DELEGATED_LISTING_EDIT_TOOLS, scopeManagerTool } from "./manager-co-manager-tool-scope";
 import {
   delegatedSmsWithholdsTool,
   type ManagerSmsAccess,
@@ -81,6 +81,7 @@ import {
   createPropertyTool,
   updatePropertyTool,
   updateRoomRentTool,
+  updateListingDetailsTool,
   updatePropertyLeaseConfigTool,
   listPropertyLeaseTemplateSectionsTool,
   proposePropertyLeaseTemplateSectionEditTool,
@@ -90,6 +91,7 @@ import {
 import {
   getListingCreationChecklistTool,
   createListingDraftTool,
+  createListingDraftByTextTool,
   updateListingDraftTool,
 } from "./domains/listing-draft";
 import { applyListingPhotosTool, getListingMediaInventoryTool } from "./domains/listing-media";
@@ -155,6 +157,7 @@ import { lookupPropertyKnowledgeTool, saveKnowledgeAnswerTool } from "./domains/
 import { portfolioImportStatusTool } from "./domains/portfolio-import";
 import {
   buildProspectLinksTool,
+  startProspectSignupTool,
   checkRoomAvailabilityTool,
   escalateLeasingToManagerTool,
   getListingDetailsTool,
@@ -259,10 +262,12 @@ export const agentRegistry = buildRegistry([
   inviteVendorTool,
   createPropertyTool,
   createListingDraftTool,
+  createListingDraftByTextTool,
   updateListingDraftTool,
   applyListingPhotosTool,
   updatePropertyTool,
   updateRoomRentTool,
+  updateListingDetailsTool,
   updatePropertyLeaseConfigTool,
   listPropertyLeaseTemplateSectionsTool,
   proposePropertyLeaseTemplateSectionEditTool,
@@ -388,7 +393,7 @@ export function buildManagerSmsRegistry(
     ));
   }
   return forAccess(buildRegistry(
-    [...managerSmsRegistry.values()].filter((tool) => CO_MANAGER_SCOPED_TOOLS.has(tool.name) && !delegatedSmsWithholdsTool(tool.name)),
+    [...managerSmsRegistry.values()].filter((tool) => (CO_MANAGER_SCOPED_TOOLS.has(tool.name) || DELEGATED_LISTING_EDIT_TOOLS.has(tool.name)) && !delegatedSmsWithholdsTool(tool.name)),
   ));
 }
 
@@ -422,6 +427,7 @@ export const leasingSmsAgentRegistry = buildRegistry([
   getNearbyTransitTool,
   getProspectPropertyLocationResearchTool,
   buildProspectLinksTool,
+  startProspectSignupTool,
   getSiteLinksTool,
   suppressRedundantLeasingReplyTool,
   escalateLeasingToManagerTool,

@@ -63,7 +63,7 @@ describe("the owner's email for every booking", () => {
     expect(sent.fromAddress).toBe("PropLane Assistant · Brooklyn <work@mail.test>");
     expect(sent.senderUserId).toBe("m1");
     expect(sent.subject).toBe("New booking · 5259 Brooklyn Ave · Room 3");
-    for (const line of ["House: 5259 Brooklyn Ave", "Room: Room 3", "Guest: Booked (Airbnb)", "Dates: Oct 12 – Oct 15 (3 nights)", "Source: Airbnb", "Open in PropLane: https://app.test/portal/bookings/"]) {
+    for (const line of ["House: 5259 Brooklyn Ave", "Room: Room 3", "Guest: Airbnb guest", "Dates: Oct 12 – Oct 15 (3 nights)", "Source: Airbnb", "Open in PropLane: https://app.test/portal/bookings/"]) {
       expect(sent.text).toContain(line);
     }
   });

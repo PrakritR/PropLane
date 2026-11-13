@@ -1,6 +1,9 @@
 import path from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
+import { assertVitestNodeVersion } from "./tests/setup/assert-vitest-node";
+
+assertVitestNodeVersion();
 
 export default defineConfig({
   plugins: [react()],

@@ -5,6 +5,8 @@ import { ADMIN_INVITE_SUBJECT, buildAdminInviteBody } from "@/lib/co-manager-lin
 import { inviteLinkUrl } from "@/lib/invite-links/invite-link-model";
 import { mintAdminInviteToken, hashInviteLinkToken } from "@/lib/invite-links/invite-links.server";
 import { sharedPortalFromAddress } from "@/lib/manager-outbound-identity.server";
+import { buildAdminInviteText } from "@/lib/admin-team/admin-team-notices";
+import { sendServiceInviteText } from "@/lib/service/service-invite-delivery.server";
 import { rateLimit } from "@/lib/rate-limit";
 import { postResendEmail } from "@/lib/resend-delivery.server";
 import { auditAdminTeam, type AdminTeamFailure } from "@/lib/admin-team/admin-team-audit.server";
@@ -32,7 +34,7 @@ import { checkAdminTeamSeatGrant } from "@/lib/service/service-workspaces.server
 export const ADMIN_INVITES_PER_HOUR = 20;
 export const ADMIN_INVITE_RATE_ERROR = "You have sent a lot of invites. Try again in an hour.";
 
-export type InviteAdminResult = { ok: true; inviteId: string; emailed: true } | AdminTeamFailure;
+export type InviteAdminResult = { ok: true; inviteId: string; emailed: true; texted: boolean } | AdminTeamFailure;
 const fail = (status: number, error: string): AdminTeamFailure => ({ ok: false, status, error });
 
 export type InviteAdminInput = {
@@ -41,6 +43,8 @@ export type InviteAdminInput = {
   workspaceIds: unknown;
   /** Houses / module levels exactly as the sheet sent them; re-validated per workspace at redemption. */
   access: InviteAccessInput | null | undefined;
+  /** An optional mobile: ONE text beside the email, sent only where the consent rules allow it. Never stored on the grant. */
+  phone?: unknown;
 };
 
 async function workspaceNames(db: SupabaseClient, ids: string[]): Promise<Map<string, string>> {
@@ -52,7 +56,7 @@ async function workspaceNames(db: SupabaseClient, ids: string[]): Promise<Map<st
 async function sendAdminInviteEmail(
   db: SupabaseClient,
   input: { inviterUserId: string; to: string; token: string; roleLabel: string; workspaceNames: string[] },
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; inviterName: string; acceptUrl: string } | { ok: false; error: string }> {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) return { ok: false, error: "Email delivery is not configured (set RESEND_API_KEY)." };
   const { data } = await db.from("profiles").select("full_name, email").eq("id", input.inviterUserId).maybeSingle();
@@ -80,14 +84,14 @@ async function sendAdminInviteEmail(
       const body = (await res.json().catch(() => ({}))) as { message?: string };
       return { ok: false, error: body.message ?? "The email could not be sent." };
     }
-    return { ok: true };
+    return { ok: true, inviterName, acceptUrl };
   } catch {
     return { ok: false, error: "The email could not be sent." };
   }
 }
 
 /**
- * Invite someone to the admin team. Overall admin is Overall-admin-only (decision 1); a workspace role stays inside the
+ * Invite someone to the admin team. Overall admin is the primary admin's alone (decision 1, Nov 12); a workspace role stays inside the
  * workspaces the inviter manages. The audit row is written before the link exists.
  */
 export async function inviteAdminTeamMember(
@@ -167,8 +171,17 @@ export async function inviteAdminTeamMember(
     await audited.finish(false, { error: "email_failed" });
     return fail(502, `The invite could not be emailed: ${sent.error}`);
   }
+  // At most one text, after the email, only when a mobile was typed. The dispatcher refuses it without consent.
+  const phone = typeof input.phone === "string" ? input.phone : null;
+  const text = phone
+    ? await sendServiceInviteText(db, {
+        toPhone: phone,
+        text: buildAdminInviteText({ inviterName: sent.inviterName, roleLabel: adminTeamRoleLabel(role), workspaceNames: workspaceIds.map((id) => names.get(id) ?? ""), acceptUrl: sent.acceptUrl }),
+        dedupeKey: `admin-invite:${inviteId}`,
+      })
+    : { texted: false };
   await audited.finish(true);
-  return { ok: true, inviteId, emailed: true };
+  return { ok: true, inviteId, emailed: true, texted: text.texted };
 }
 
 /**
@@ -198,6 +211,8 @@ export async function resendAdminInvite(
     role: grant.role,
     workspaceIds: grant.workspaceIds,
     access: grant.access as InviteAccessInput,
+    // The first invite's number was never stored (it is not part of the grant), so a resend is an email only.
+    phone: null,
   });
   if (!result.ok) return result;
   await db.from("manager_invite_links").update({ revoked_at: new Date().toISOString() }).eq("id", inviteId).eq("kind", "admin");

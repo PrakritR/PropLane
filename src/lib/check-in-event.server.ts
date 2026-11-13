@@ -106,7 +106,7 @@ export async function recordResidentCheckIn(
   if (input.key.kind === "stay") {
     const stay = await loadStayCheckIn(db, input.userId, input.key.id, now);
     if (!stay) return { ok: false, status: 404, error: "Stay not found." };
-    if (!stay.reveal.revealed) return { ok: false, status: 403, error: "Check-in opens 24 hours before your stay." };
+    if (!stay.reveal.revealed) return { ok: false, status: 403, error: "Check-in opens at 10:00 am the day before your stay." };
     managerUserId = stay.managerUserId;
     propertyId = stay.propertyId;
     residentName = stay.guestName;
@@ -120,7 +120,7 @@ export async function recordResidentCheckIn(
       (await loadResidentLeaseSignedStatus(input.email, context.managerUserId, input.userId)) ||
       (await loadResidentManagerAttestedTenancy(input.email, context.managerUserId, input.userId));
     const reveal = tenancyReveal(context, leaseUnlocked, now);
-    if (!reveal.revealed) return { ok: false, status: 403, error: "Check-in opens 24 hours before your move-in." };
+    if (!reveal.revealed) return { ok: false, status: 403, error: "Check-in opens at 10:00 am the day before your move-in." };
     managerUserId = context.managerUserId;
     propertyId = context.propertyId ?? "";
     const resolved = await loadResidentMoveInForEmail(input.email, { db, managerUserId, residentUserId: input.userId });

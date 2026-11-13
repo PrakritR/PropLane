@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 import { track } from "@/lib/analytics/posthog";
 import { getStripe } from "@/lib/stripe";
+import { assertHoldAllowedForProperties, propertyIdForHouseholdCharge } from "@/lib/managed-finance/funding-model.server";
 import {
   canCreditPlatformHold,
   directInvoiceHoldSourceId,
@@ -321,6 +322,10 @@ export async function creditHoldFromPaidSession(
           ? directInvoiceHoldSourceId(session.metadata.invoice_id?.trim() || session.id)
           : (session.metadata.work_order_id?.trim() || session.id))
       : session.id;
+  // A managed (is_service) workspace's money is never a manager hold. Resident and application-fee sources carry the house.
+  if (source !== "vendor_invoice" && !(await findPlatformHold(db, source, sourceId))) {
+    await assertHoldAllowedForProperties(db, [session.metadata.property_id]);
+  }
   const result = await creditPlatformHold(db, {
     ownerUserId,
     ownerRole,
@@ -351,6 +356,9 @@ export async function creditHoldFromPaymentIntent(
       : paymentIntent.latest_charge?.id ?? null;
   if (!chargeId?.startsWith("ch_")) {
     throw new Error("Succeeded payment has no actual Stripe charge for its hold.");
+  }
+  if (!(await findPlatformHold(db, source, paymentIntent.id))) {
+    await assertHoldAllowedForProperties(db, [metadata.property_id?.trim() || await propertyIdForHouseholdCharge(db, metadata.charge_id)]);
   }
   const result = await creditPlatformHold(db, {
     ownerUserId,

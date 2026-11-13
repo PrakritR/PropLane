@@ -71,7 +71,7 @@ const MEMBERS: AdminTeamMemberRow[] = [
   },
   { key: "inv-maya", userId: null, name: "maya@proplane.test", email: "maya@proplane.test", phoneVerified: false, role: "overall_admin", state: "invited", seats: [], inviteId: "inv-1", isSelf: false, canManage: true },
 ];
-const PAYLOAD: AdminTeamPayload = { viewer: { userId: "u-ambika", overall: true }, workspaces: WORKSPACES, members: MEMBERS };
+const PAYLOAD: AdminTeamPayload = { viewer: { userId: "u-ambika", overall: true, primary: true }, workspaces: WORKSPACES, members: MEMBERS };
 
 describe("evidence: admin team (plan admin-team-1027)", () => {
   it("10 Settings > Admin team lists the Overall admin, a seated Property manager and an invited person", async () => {
@@ -88,7 +88,7 @@ describe("evidence: admin team (plan admin-team-1027)", () => {
   });
 
   it("11 Invite with Overall admin hides Workspaces and locks the access grid", async () => {
-    render(<AdminTeamSheet workspaces={WORKSPACES} member={null} onClose={() => {}} onChanged={() => {}} />);
+    render(<AdminTeamSheet workspaces={WORKSPACES} canMakeOverall member={null} onClose={() => {}} onChanged={() => {}} />);
     expect(document.querySelector('[data-attr="admin-team-workspaces"]')).not.toBeNull();
     fireEvent.click(document.querySelector('[data-attr="admin-team-role"]') as HTMLElement);
     fireEvent.click(await screen.findByRole("option", { name: /Overall admin/ }));
@@ -99,7 +99,7 @@ describe("evidence: admin team (plan admin-team-1027)", () => {
   });
 
   it("12 Invite with a workspace role shows Workspaces, Houses and the module grid", () => {
-    render(<AdminTeamSheet workspaces={WORKSPACES} member={null} onClose={() => {}} onChanged={() => {}} />);
+    render(<AdminTeamSheet workspaces={WORKSPACES} canMakeOverall member={null} onClose={() => {}} onChanged={() => {}} />);
     expect(document.querySelector('[data-attr="admin-team-workspaces"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="admin-team-houses"]')).not.toBeNull();
     expect((document.querySelector('[data-attr="admin-team-send"]') as HTMLButtonElement).disabled).toBe(true); // no email yet
@@ -109,7 +109,7 @@ describe("evidence: admin team (plan admin-team-1027)", () => {
   });
 
   it("13 Change role opens on an existing member", () => {
-    render(<AdminTeamSheet workspaces={WORKSPACES} member={MEMBERS[1]!} onClose={() => {}} onChanged={() => {}} />);
+    render(<AdminTeamSheet workspaces={WORKSPACES} canMakeOverall member={MEMBERS[1]!} onClose={() => {}} onChanged={() => {}} />);
     expect(document.body.textContent).toContain("Change role · Kumaran");
     expect((document.querySelector('[data-attr="admin-team-email"]') as HTMLInputElement).disabled).toBe(true);
     expect((document.querySelector('[data-attr="admin-team-send"]') as HTMLButtonElement).textContent).toBe("Save role");

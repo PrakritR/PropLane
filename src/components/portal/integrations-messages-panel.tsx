@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { workspaceWorkNumber, type ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 import { isManagerAssistantEmailStatus } from "@/lib/manager-assistant-email/manager-assistant-email-status";
 
-type Channel = { value: string | null; loaded: boolean };
+type Channel = { value: string | null; loaded: boolean; /** The read itself failed: that is "could not load", never "not set up". */ failed?: boolean };
 
 /** `+12065550001` → `(206) 555-0001`; anything else is shown as stored. */
 export function formatWorkNumber(raw: string): string {
@@ -52,9 +52,14 @@ export function ManagerMessageChannelsPanel({ onManage }: { onManage?: () => voi
         read(`/api/manager/assistant-email${query}`),
       ]);
       if (controller.signal.aborted) return;
-      setNumber({ value: workspaceWorkNumber(numberBody as ManagerMessagingNumberStatus | null), loaded: true });
-      const address = isManagerAssistantEmailStatus(emailBody) && emailBody.canUse ? emailBody.address?.trim() || null : null;
-      setEmail({ value: address, loaded: true });
+      setNumber({ value: workspaceWorkNumber(numberBody as ManagerMessagingNumberStatus | null), loaded: true, failed: numberBody === null });
+      // The same source Communication settings reads (`/api/manager/assistant-email`): an address that exists is shown whether or not
+      // this plan may send from it today (Communication says "Ready" or why not); only an unreadable answer or no address at all differs,
+      // and a failed read is "Couldn't load", never a false "Not set up".
+      const address = isManagerAssistantEmailStatus(emailBody)
+        ? emailBody.address?.trim() || emailBody.workspaceEmail?.address?.trim() || null
+        : null;
+      setEmail({ value: address, loaded: true, failed: !isManagerAssistantEmailStatus(emailBody) });
     })();
     return () => controller.abort();
   }, [workspaceId]);
@@ -65,7 +70,7 @@ export function ManagerMessageChannelsPanel({ onManage }: { onManage?: () => voi
     </Button>
   );
   const fact = (channel: Channel, format: (v: string) => string) =>
-    !channel.loaded ? "" : channel.value ? format(channel.value) : "Not set up";
+    !channel.loaded ? "" : channel.value ? format(channel.value) : channel.failed ? "Couldn't load" : "Not set up";
 
   return (
     <PortalSettingsGroup>

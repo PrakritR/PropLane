@@ -6,7 +6,6 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  chargeRefundIdempotencyKey,
   chargeRefundRemainingCents,
   decideChargeRefund,
   type ChargeRefundContext,
@@ -105,13 +104,5 @@ describe("what it will not touch", () => {
 describe("chargeRefundRemainingCents", () => {
   it("never goes below zero", () => {
     expect(chargeRefundRemainingCents({ paidCents: 100, alreadyRefundedCents: 500 })).toBe(0);
-  });
-});
-
-describe("chargeRefundIdempotencyKey", () => {
-  it("varies by charge, amount and attempt so a genuine second refund is still possible", () => {
-    const a = chargeRefundIdempotencyKey({ chargeId: "c1", amountCents: 100, attempt: 1 });
-    const b = chargeRefundIdempotencyKey({ chargeId: "c1", amountCents: 100, attempt: 2 });
-    expect(a).not.toBe(b);
   });
 });

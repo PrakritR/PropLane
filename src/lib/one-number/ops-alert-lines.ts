@@ -7,8 +7,8 @@
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-/** A label a feed or the app makes up when it has no real name ("Booked (Airbnb)", "Airbnb guest · HM12", "Reserved"). */
-const GENERIC_GUEST = /^(booked\b|reserved\b|not available\b|blocked\b|.*\bguest\s*·|.*\bblock$)/i;
+/** A label a feed or the app makes up when it has no real name ("Booked (Airbnb)", "Booking.com guest", "CLOSED - Not available", "Reserved"). */
+const GENERIC_GUEST = /^(booked\b|reserved\b|closed\b|not available\b|blocked\b|.*\bguest(\s*·|$)|.*\bblock$)/i;
 
 /** "Anthony" from "Anthony Rivera"; "Guest" when the name is a placeholder or empty. First names only in a text. */
 export function guestFirstName(name: string | null | undefined): string {

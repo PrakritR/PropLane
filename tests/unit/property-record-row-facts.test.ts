@@ -55,4 +55,9 @@ describe("property record row facts", () => {
       video: "Video added",
     });
   });
+
+  it("saved house access info is not 'No instructions yet'", () => {
+    expect(moveInFactTexts({ instructions: "", photoCount: 0, hasVideo: false, hasAccessInfo: true }).instructions).toBe("Access info");
+    expect(moveInFactTexts({ instructions: "Hi", photoCount: 0, hasVideo: false, hasAccessInfo: true }).instructions).toBe("Instructions written");
+  });
 });

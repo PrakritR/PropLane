@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveWorkspaceForProperty } from "@/lib/one-number/link-destinations.server";
 import { sendWorkspaceText, type WorkspaceTextResult } from "@/lib/one-number/link-text.server";
+import { residentNoticeChannel } from "@/lib/resident-notice-channel.server";
 
 /**
  * One rent text to a resident, from the line of the workspace that holds their house: its own work
@@ -28,6 +29,12 @@ export async function sendResidentRentText(
     residentEmail: string | null;
   },
 ): Promise<WorkspaceTextResult> {
+  // A resident who came in through the portal is answered by email and the resident inbox, never a text with a pay
+  // link (`notice-channel.ts`). This is the one door every rent text leaves through, so the rule holds for the
+  // weekly and rent-due-day texts as well as the daily reminder.
+  if (input.residentEmail && (await residentNoticeChannel(db, { managerUserId: input.ownerUserId, email: input.residentEmail })) === "portal") {
+    return { ok: false, error: "portal_channel_no_sms" };
+  }
   const workspaceId = await resolveWorkspaceForProperty(db, input.propertyId, input.ownerUserId).catch(() => null);
   if (!workspaceId) return { ok: false, error: "workspace_unavailable" };
   return sendWorkspaceText(db, {

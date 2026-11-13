@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { DoorOpen, FileText, Home, Image as ImageIcon, KeyRound, Pencil, Users, Video, Wifi } from "lucide-react";
+import { DoorOpen, FileText, Home, Image as ImageIcon, KeyRound, Lock, Pencil, Users, Video, Wifi } from "lucide-react";
 import { CopyIconAction, PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Textarea } from "@/components/ui/input";
 import { MoveInMediaFields } from "@/components/portal/move-in-media-fields";
@@ -90,29 +90,38 @@ export function MoveInCardFields({
 }
 
 /**
- * The staff-only Internal card (amber): pantry, lockbox and mailbox codes and notes, with a copy button
- * on each. Drawn only for a manager with Properties edit access or PropLane staff; a resident, guest,
- * owner viewer or vendor is never sent this data, so there is nothing here for them to find.
+ * The staff-only Internal card: pantry, lockbox and mailbox codes and notes, with a copy button on each.
+ * A standard section card (surface + border tokens, like House details); the lock glyph marks it staff-only.
+ * Drawn only for a manager with Properties edit access or PropLane staff; a resident, guest, owner viewer
+ * or vendor is never sent this data, so there is nothing here for them to find.
  */
 function InternalHouseCard({ info, canEdit, onEdit }: { info: HouseInfoV1; canEdit: boolean; onEdit: () => void }) {
   const rows = houseInfoInternalRows(info);
   if (rows.length === 0 && !canEdit) return null;
   return (
     <section
-      className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-500/40 dark:bg-amber-500/10"
+      className="rounded-2xl border border-border bg-card px-4 py-3"
       data-attr="property-internal-card"
       aria-label="Internal (staff only)"
     >
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-amber-950 dark:text-amber-100">Internal (staff only)</h3>
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+          <Lock className="size-3.5 text-muted" aria-hidden data-attr="property-internal-lock" />
+          Internal (staff only)
+        </h3>
         {canEdit ? <PortalIconAction icon={Pencil} label="Edit internal info" onClick={onEdit} data-attr="property-internal-edit" /> : null}
       </div>
-      <dl className="mt-1 divide-y divide-amber-200/70 dark:divide-amber-500/20">
+      <dl className="mt-1">
         {rows.map((row) => (
-          <div key={row.label} className="flex items-center justify-between gap-3 py-2">
-            <dt className="text-xs font-semibold text-amber-900/80 dark:text-amber-200/80">{row.label}</dt>
-            <dd className="flex items-center gap-1.5">
-              <span className="ph-no-capture ph-no-record font-mono text-base font-semibold text-amber-950 dark:text-amber-50">{row.value}</span>
+          <div
+            key={row.label}
+            className="flex flex-wrap items-start gap-x-3 gap-y-1 border-b border-border/50 py-2.5 last:border-0"
+          >
+            <dt className="w-full shrink-0 text-xs text-muted sm:w-40">{row.label}</dt>
+            <dd className="flex min-w-0 flex-1 items-start gap-1.5">
+              <span className="ph-no-capture ph-no-record min-w-0 flex-1 whitespace-pre-wrap break-words text-sm tabular-nums text-foreground">
+                {row.value}
+              </span>
               {row.copyable ? (
                 <CopyIconAction
                   label={`Copy ${row.label.toLowerCase()}`}
@@ -246,7 +255,9 @@ export function ManagerPropertyRoomMoveInPanel({
 
   /** Plain text of the row's fact line — also what the search matches against. */
   const moveRowFactTexts = (instructions: string, photos: string[], video: string | null, withHouseAccess = false) => {
-    const t = moveInFactTexts({ instructions, photoCount: photos.length, hasVideo: Boolean(video) });
+    const hasAccessInfo =
+      withHouseAccess && Object.values(houseInfoDraft.access ?? {}).some((v) => typeof v === "string" && v.trim() !== "");
+    const t = moveInFactTexts({ instructions, photoCount: photos.length, hasVideo: Boolean(video), hasAccessInfo });
     const out: { key: string; icon: typeof FileText; text: string }[] = [
       { key: "instructions", icon: FileText, text: t.instructions },
       { key: "photos", icon: ImageIcon, text: t.photos },
@@ -254,7 +265,7 @@ export function ManagerPropertyRoomMoveInPanel({
     ];
     if (withHouseAccess) {
       if (getHouseInfoValue(houseInfoDraft, "access", "doorCode").trim()) out.push({ key: "door", icon: KeyRound, text: "Door code" });
-      if (getHouseInfoValue(houseInfoDraft, "wifi", "wifiNetwork").trim()) out.push({ key: "wifi", icon: Wifi, text: "Wi-Fi" });
+      if ((getHouseInfoValue(houseInfoDraft, "wifi", "network") || getHouseInfoValue(houseInfoDraft, "wifi", "wifiNetwork")).trim()) out.push({ key: "wifi", icon: Wifi, text: "Wi-Fi" });
     }
     return out;
   };

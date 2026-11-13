@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { houseThreadId } from "@/lib/house-thread-id";
 import { assertHouseThreadAccess, type HouseAccess } from "./access.server";
+import { queueHouseSmsGroupRelay } from "@/lib/house-sms-group/relay.server";
 import { housemateLabel } from "./model";
 import { appendHouseLine, loadHouseThread } from "./store.server";
 
@@ -67,6 +68,18 @@ export async function postToHouseChat(
     actorUserId: input.userId,
   });
   if (!appended.ok) return { ok: false, status: 500, error: "Could not post to the house chat." };
+  // The SMS door of the same chat: when the house has a live group text, the line goes out to it too.
+  if (appended.posted) {
+    queueHouseSmsGroupRelay(db, {
+      rowData: stored.rowData,
+      ownerUserId: access.parsed.ownerManagerUserId,
+      workspaceId: access.parsed.workspaceId,
+      propertyId: access.parsed.propertyId,
+      from,
+      body: text,
+      messageId: input.messageId,
+    });
+  }
   return { ok: true, posted: appended.posted };
 }
 

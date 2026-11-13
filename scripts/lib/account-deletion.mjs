@@ -83,6 +83,13 @@ export const EMAIL_COLUMNS = [
 export const DELETE_ORDER = [
   "email_onboarding_handoffs",
   "tour_signup_capabilities",
+  // Identity children and return attempts precede their referenced subject or deposit.
+  "resident_identity_webhook_events",
+  "resident_identity_manual_reviews",
+  "resident_identity_inquiries",
+  "resident_identity_subjects",
+  "resident_evidence_policies",
+  "security_deposit_return_attempts",
   // 1. child rows, and the GL/vendor chains that must clear first
   "gl_journal_lines",
   "ledger_entries",
@@ -203,6 +210,11 @@ export const DELETE_ORDER = [
   // link rows reference the requests, so they clear first.
   "resident_account_links",
   "application_form_requests",
+  // Pre-apply Checkr order, FCRA adverse-action trail and resident ratings (ratings are only deleted for the
+  // rated resident: `rater_user_id` is not an ownership column here, matching the manifest's detach).
+  "applicant_preapply_checks",
+  "application_adverse_actions",
+  "resident_ratings",
   // 2. the account's own rows
   "manager_property_access",
   "manager_property_owners",
@@ -267,11 +279,15 @@ export const DELETE_ORDER = [
   "payout_destination_cache_refreshes",
   // Guest names typed for channel stays; cascades from the connection below (no ownership column of its own).
   "channel_stay_details",
+  // Channel income: the mail row references its payout record (set null), so it goes first.
+  "channel_finance_mail",
+  "channel_payout_records",
   "external_calendar_connections",
   "account_link_invites",
   // Before `manager_invite_links` below, which it references.
   "resident_invite_claims",
   "portal_pro_relationship_records",
+  "household_charge_refund_attempts",
   "portal_household_charge_records",
   "portal_recurring_rent_profile_records",
   "payment_reminder_occurrences",
@@ -344,6 +360,29 @@ export const DELETE_ORDER = [
   "manager_property_records",
   "portal_workspaces",
 ];
+
+/**
+ * Tables whose rows are provider reconciliation evidence of money that actually moved. They stay in
+ * DELETE_ORDER (the purge-manifest coverage test needs every table named once) but the script never
+ * deletes their rows: it nulls the deleted account's id columns instead, exactly as the in-app purge
+ * manifest (`detachIds`) does, so the refund evidence survives the account.
+ */
+export const DETACH_ONLY_TABLES = {
+  security_deposit_return_attempts: ["manager_user_id"],
+  household_charge_refund_attempts: ["manager_user_id"],
+};
+
+/**
+ * One `{ column, filter }` per id column to null for a detach-only table: only the manifest's columns, only
+ * when the table has them and the account has an id. Never an email column, never an unfiltered write.
+ */
+export function detachSteps(table, columns, { userId }) {
+  const detach = DETACH_ONLY_TABLES[table];
+  if (!detach || !userId) return [];
+  return detach
+    .filter((col) => columns.includes(col) && ID_COLUMNS.includes(col))
+    .map((column) => ({ column, filter: `${column}=eq.${userId}` }));
+}
 
 /** Tables holding the login itself, removed only when the caller is not keeping it. */
 export const IDENTITY_TABLES = ["profile_roles", "profiles"];

@@ -14,8 +14,8 @@
  * opted in, and `confirm_tour_inquiry` is what actually books. That is the
  * approval-first invariant in docs/agents/tours-scheduling.md.
  *
- * Callers own two things this function does not: rate limiting, and linking a
- * signed-in resident to the inquiry afterwards.
+ * Callers own rate limiting and resident linking; a trusted hook can link the
+ * newly created inquiry before notifications begin.
  */
 import type { NoticeChannel } from "@/lib/notice-channel";
 import "server-only";
@@ -30,7 +30,7 @@ import {
   managerHasPublishedSlot,
   managerMayHostPropertyTour,
 } from "@/lib/public-tour-booking-guard";
-import { applicationBeforeTourRefusal } from "@/lib/application-before-tour.server";
+import { resolveBaselineResidentIdentity } from "@/lib/resident-identity/baseline.server";
 import { listPropertyTourHostUserIds } from "@/lib/tour-host-enumeration.server";
 import { notifyManagerTourRequest, notifyTenantTourRequestReceived } from "@/lib/tour-notification-delivery.server";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
@@ -41,6 +41,7 @@ import { anchorTourWindowToSlotKey, isActivePlannedTourEvent } from "@/lib/tour-
 import { REQUESTED_TOUR_KIND, resolveRequestedTourWindow } from "@/lib/tour-request-time";
 import { listOpenTourSlots } from "@/lib/tour-availability.server";
 import { rateLimit } from "@/lib/rate-limit";
+import { raiseTourFeeCharge, settleTourFeeOnCancel, type TourFeeInfo } from "@/lib/tour-fee.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -58,7 +59,7 @@ export type CreateTourInquiryResult =
   | { ok: true; row: Record<string, unknown>; inquiryId: string }
   | {
       ok: false;
-      reason: "invalid_contact" | "missing_host" | "slot_unavailable" | "application_required" | "sign_in_required";
+      reason: "invalid_contact" | "missing_host" | "slot_unavailable" | "sign_in_required" | "identity_required" | "identity_unavailable";
       error: string;
     }
   | { ok: false; reason: "duplicate_request" | "rate_limited"; error: string }
@@ -342,11 +343,12 @@ export async function createTourInquiry(
     smsOrigin?: { senderPhoneE164: string } | null;
     /**
      * The applicant's email as VERIFIED by the caller (the signed-in session). It is the only email
-     * "Application before a tour" trusts; `incoming.email` is a request body and proves nothing.
-     * Absent = nobody is verified (an anonymous guest, an SMS prospect), which a workspace that
-     * requires an application before a tour reads as "no application".
+     * trusted as the account's; `incoming.email` is a request body and proves nothing.
+     * Absent = nobody is verified (an anonymous guest, an SMS prospect).
      */
     verifiedApplicantEmail?: string | null;
+    /** Server-authenticated resident ID, never supplied in the request body. */
+    verifiedApplicantUserId?: string | null;
     /** Listing site the prospect came from (the `pl_src` cookie); re-validated against the allowlist here. */
     sourceChannel?: string | null;
     /**
@@ -354,6 +356,8 @@ export async function createTourInquiry(
      * text, otherwise the web channel. A request carrying `smsOrigin` is always `sms`.
      */
     noticeChannel?: NoticeChannel;
+    /** Trusted server caller may establish resident access before notifications begin. */
+    beforeTourNotifications?: (created: { row: Record<string, unknown>; inquiryId: string }) => Promise<void>;
   },
 ): Promise<CreateTourInquiryResult> {
   // Strip this internal provenance key before copying public input. It is set
@@ -373,6 +377,8 @@ export async function createTourInquiry(
   // property and time in the shared payload, and have that resident receive the notices for
   // the tour they just overwrote. The id is minted here and never read from input.
   delete incoming.id;
+  // Server-owned too: the fee stamp below is set only when a fee charge was really raised.
+  delete incoming.tourFee;
   const notify = args.notify !== false;
 
   const id = crypto.randomUUID();
@@ -403,6 +409,11 @@ export async function createTourInquiry(
   row.noticeChannel = args.smsOrigin?.senderPhoneE164 || args.noticeChannel === "sms" ? "sms" : "portal";
   const propertyId = typeof row["propertyId"] === "string" ? row["propertyId"] : null;
   const isTour = textValue(row.kind) === "tour";
+  if (isTour) {
+    const identity = await resolveBaselineResidentIdentity(db, args.verifiedApplicantUserId ?? null);
+    if (identity === "required") return { ok: false, reason: "identity_required", error: "Sign in and verify your identity to request a tour." };
+    if (identity === "unavailable") return { ok: false, reason: "identity_unavailable", error: "Identity verification is unavailable." };
+  }
 
   // A window's `slotKey` is the authority for WHEN (PRP-368). The client
   // builds `start`/`end` in the prospect's own browser zone, so a guest booking
@@ -448,14 +459,6 @@ export async function createTourInquiry(
   }
   const proposedStart = typeof row["proposedStart"] === "string" ? row["proposedStart"] : null;
   const proposedEnd = typeof row["proposedEnd"] === "string" ? row["proposedEnd"] : null;
-
-  if (isTour && propertyId) {
-    const refusal = await applicationBeforeTourRefusal(db, {
-      propertyId,
-      verifiedEmail: args.verifiedApplicantEmail ?? null,
-    });
-    if (refusal) return { ok: false, reason: "application_required", error: refusal };
-  }
 
   if (isTour) {
     const contactErrors = validateTourContactFields({
@@ -532,6 +535,27 @@ export async function createTourInquiry(
   // The id is freshly minted, so this replaces nothing. Kept as a guard: a row already under
   // this id would mean a UUID collision, and the new tour must not silently inherit its link.
   if (existing.some((item) => item.id === id)) return { ok: false, reason: "write_failed", error: "Could not file this tour request. Please try again." };
+  // The optional tour fee (default $0: nothing happens). A signed-in guest's request raises one pending fee charge BEFORE the
+  // request is stored: the pending request is the slot's hold, and the confirm gate keeps it from being confirmed until the
+  // fee is paid. If the fee is owed and cannot be written, the request is refused rather than stored as a free tour.
+  let tourFee: TourFeeInfo | null = null;
+  if (isTour && args.verifiedApplicantUserId && !args.smsOrigin?.senderPhoneE164) {
+    try {
+      tourFee = await raiseTourFeeCharge(db, {
+        inquiry: row,
+        inquiryId: id,
+        residentUserId: args.verifiedApplicantUserId,
+        residentEmail: args.verifiedApplicantEmail ?? null,
+        hostUserId: textValue(row.managerUserId) || textValue(requestedWindows[0]?.adminUserId),
+      });
+    } catch {
+      return { ok: false, reason: "write_failed", error: "Could not set up the tour fee. Please try again." };
+    }
+    if (tourFee) row.tourFee = { chargeId: tourFee.chargeId, amountCents: tourFee.amountCents, amountLabel: tourFee.amountLabel };
+  }
+  const dropTourFee = async () => {
+    if (tourFee) await settleTourFeeOnCancel(db, { inquiryId: id, reason: "request_not_saved" });
+  };
   const next = [row, ...existing];
 
   const leadSource = normalizeLeadSource(args.sourceChannel);
@@ -594,6 +618,7 @@ export async function createTourInquiry(
   }
 
   if (writeError) {
+    await dropTourFee();
     if ("code" in writeError && writeError.code === "23505") {
       return {
         ok: false,
@@ -611,6 +636,14 @@ export async function createTourInquiry(
   const consentPhone = textValue(row.phone);
   if (smsConsent && consentPhone) {
     await recordOptIn(db, consentPhone, null, "tours-contact").catch(() => undefined);
+  }
+
+  if (isTour && args.beforeTourNotifications) {
+    try {
+      await args.beforeTourNotifications({ row, inquiryId: id });
+    } catch {
+      // Linking is best-effort; the durable booking must still succeed.
+    }
   }
 
   if (isTour && notify) {

@@ -20,10 +20,12 @@ export type ResidentLifecycleSummaryRow = { label: string; value: string };
 export function ResidentLifecycleStatusPanel({
   input,
   summary = [],
+  detailHref,
 }: {
   input: ResidentLifecycleInput;
   /** "Your move" facts — Home, Move-in, Rent, fee, Contact. Empty rows are left out. */
   summary?: ResidentLifecycleSummaryRow[];
+  detailHref?: string;
 }) {
   const base = input.basePath?.trim() || "/resident";
   const steps = residentLifecycleSteps(input);
@@ -32,6 +34,7 @@ export function ResidentLifecycleStatusPanel({
   const upcoming = steps.filter((step) => step.state === "upcoming").slice(0, 3);
   const rows = summary.filter((row) => row.value.trim());
   const youTurn = action.who === "You";
+  const primaryIsApplication = !allDone && action.ctaLabel === "View application";
 
   return (
     <div className="space-y-3.5" data-jr-status>
@@ -59,8 +62,11 @@ export function ResidentLifecycleStatusPanel({
         </h2>
         <div className="flex flex-wrap gap-2.5">
           <Button asChild variant="primary">
-            <Link href={allDone ? `${base}/move-in` : action.href}>{allDone ? "Open my home" : action.ctaLabel}</Link>
+            <Link href={allDone ? `${base}/move-in` : primaryIsApplication && detailHref ? detailHref : action.href}>{allDone ? "Open my home" : action.ctaLabel}</Link>
           </Button>
+          {detailHref && !primaryIsApplication ? (
+            <Button asChild variant="outline"><Link href={detailHref}>View application</Link></Button>
+          ) : null}
         </div>
       </section>
 

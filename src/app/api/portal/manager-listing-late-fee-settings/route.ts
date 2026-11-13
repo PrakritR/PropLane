@@ -66,14 +66,24 @@ export async function POST(req: Request) {
     }
     const graceDays = clampGraceDays(Number(body.lateFeeGraceDays));
 
+    // The account these listings belong to, re-derived by the scope check — the caller themselves, or the owner whose
+    // PropLane-managed workspace they hold a seat on. One request never spans two accounts.
+    let ownerUserId: string | null = null;
     for (const propertyId of propertyIds) {
       const access = await assertSettingsScopeOwned(ctx.db, ctx.userId, { propertyId });
       if (!access.ok) {
         return NextResponse.json({ error: access.error }, { status: access.status });
       }
+      if (ownerUserId && ownerUserId !== access.ownerUserId) {
+        return NextResponse.json({ error: "Pick properties from one workspace at a time." }, { status: 400 });
+      }
+      ownerUserId = access.ownerUserId;
+    }
+    if (!ownerUserId) {
+      return NextResponse.json({ error: "Pick at least one property." }, { status: 400 });
     }
 
-    const result = await applyLateFeeToListings(ctx.db, ctx.userId, propertyIds, { amount, graceDays });
+    const result = await applyLateFeeToListings(ctx.db, ownerUserId, propertyIds, { amount, graceDays });
     if (result.missingPropertyIds.length > 0) {
       return NextResponse.json({ error: "One or more of those properties could not be found." }, { status: 404 });
     }
@@ -82,7 +92,7 @@ export async function POST(req: Request) {
     await trackSettingsScopeChanged(ctx.db, ctx.userId, {
       module: ANALYTICS_MODULE,
       rung: "property",
-      ownerUserId: ctx.userId,
+      ownerUserId,
       workspaceId,
       count: result.listingsUpdated,
     });

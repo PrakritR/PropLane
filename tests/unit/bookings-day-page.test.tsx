@@ -160,9 +160,9 @@ describe("BookingsDayPage", () => {
       document.querySelector(`[data-attr="bookings-day-row-${bookingEntryKey(entry)}"]`)!.closest("[data-record-row]") as HTMLElement;
     const blockRow = rowFor(notAvailable);
     const guestRow = rowFor(guest);
-    expect(blockRow.textContent).toContain("Airbnb · Not available");
+    expect(blockRow.textContent).toContain("Closed on Airbnb");
     expect(blockRow.querySelector('[data-slot="portal-row-glyph-tile"]')).toBeTruthy();
-    expect(guestRow.textContent).toContain("Airbnb · Reserved");
+    expect(guestRow.textContent).toContain("Airbnb guest");
     expect(guestRow.querySelector('[data-slot="portal-row-glyph-tile"]')).toBeNull();
 
     fireEvent.keyDown(within(blockRow).getByRole("button", { name: /^Actions for / }), { key: "ArrowDown" });

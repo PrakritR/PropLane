@@ -39,6 +39,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/stay-messages",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/vendor-dispatch-sweep",
       "schedule": "*/2 * * * *"
     },

@@ -1,20 +1,23 @@
 import { NextResponse } from "next/server";
 import { resolveManagerWorkspaceRowScope, rowInWorkspaceScope } from "@/lib/auth/co-manager-module-scope";
 import { coManagerHasOwnerBankAccountAccess } from "@/lib/auth/manager-stripe-payout-access.server";
+import { randomUUID } from "node:crypto";
 import {
-  chargeRefundIdempotencyKey,
   decideChargeRefund,
   type ChargeRefundContext,
 } from "@/lib/charge-refund";
+import { runHouseholdChargeRefund } from "@/lib/household-charge-refund-coordinator.server";
 import { getStripe } from "@/lib/stripe";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveChargePaidCents } from "@/lib/charge-paid-cents.server";
-import { HouseholdChargeRefundReviewError,
-  refundPaidHouseholdCharge } from "@/lib/household-charge-refund-rail.server";
+import { HouseholdChargeRefundReviewError } from "@/lib/household-charge-refund-rail.server";
 import { resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
+
+/** One submission's own id, retained by the client across its retries of that submission. */
+const OPERATION_ID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Refund a paid rent or fee charge (C023) — the general counterpart to Return deposit for
@@ -113,44 +116,56 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: decision.message, reason: decision.reason }, { status: 422 });
     }
 
-    const attempt = Number(charge.refundAttempts ?? 0) + 1;
-    const stripe = getStripe();
-    // One rail decision, made by the payment: a central platform capture is
-    // refunded through its reservation, a legacy destination charge reverses
-    // its transfer. See `household-charge-refund-rail.server.ts`.
-    const refund = await refundPaidHouseholdCharge(stripe, db, {
-      chargeId,
-      stripeChargeId: decision.stripeChargeId,
-      amountCents: decision.amountCents,
-      // Two clicks, or a retry after a timeout that actually succeeded, must not send it twice.
-      idempotencyKey: chargeRefundIdempotencyKey({ chargeId, amountCents: decision.amountCents, attempt }),
-      metadata: { proplane_charge_id: chargeId, kind: "charge_refund" },
-    });
+    // The operation identity, not the amount: a key built from charge + amount would make two
+    // LEGITIMATE separate refunds of the same figure collide, and a fresh key on every call
+    // makes the reservation's own replay branch unreachable. One id per submission, retained by
+    // the client across its retries of that submission.
+    const operationKey = typeof body.operationId === "string" && OPERATION_ID_SHAPE.test(body.operationId.trim())
+      ? body.operationId.trim()
+      : randomUUID();
 
-    const now = new Date().toISOString();
-    await db.from("portal_household_charge_records").upsert(
-      {
-        id: chargeId,
-        manager_user_id: row.manager_user_id,
-        resident_email: String(charge.residentEmail ?? "").trim().toLowerCase(),
-        status: row.status,
-        row_data: {
-          ...charge,
-          refundedCents: ctx.alreadyRefundedCents + decision.amountCents,
-          refundAttempts: attempt,
-          lastRefundedAt: now,
+    // One durable coordinator for every initiator: the budget is reserved against the payment
+    // ledger under the charge's row lock and acknowledged before the provider is called, the
+    // provider idempotency key is the reserved attempt's own id, and the money is projected onto
+    // the charge by the refund webhook from re-read terminal evidence. Nothing here writes
+    // `refundedCents`, because a provider `succeeded` is not yet verified terminal accounting.
+    let outcome: Awaited<ReturnType<typeof runHouseholdChargeRefund>>;
+    try {
+      outcome = await runHouseholdChargeRefund(getStripe(), db, {
+        ownerUserId,
+        chargeId,
+        stripeChargeId: decision.stripeChargeId,
+        paymentIntentId: null,
+        amountCents: decision.amountCents,
+        operationKey,
+        basis: {
+          kind: "charge_refund",
+          actorUserId: user.id,
+          chargeKind: ctx.kind,
+          paidCents: ctx.paidCents,
+          baselineRefundedCents: ctx.alreadyRefundedCents,
+          stripeChargeId: decision.stripeChargeId,
         },
-        updated_at: now,
-      },
-      { onConflict: "id" },
-    );
+        metadata: { proplane_charge_id: chargeId, kind: "charge_refund" },
+      });
+    } catch {
+      // The reservation is already recorded uncertain. Nothing about the provider's own message
+      // reaches the client.
+      return NextResponse.json({ status: "unknown", error: "Refund status requires reconciliation before retrying." }, { status: 202 });
+    }
 
+    if (outcome.kind === "review") {
+      return NextResponse.json({ error: outcome.message }, { status: 409 });
+    }
+    if (outcome.kind === "unknown") {
+      return NextResponse.json({ status: "unknown", error: outcome.message, refundId: outcome.refundId }, { status: 202 });
+    }
     return NextResponse.json({
-      ok: true,
-      refundId: refund.refundId,
+      status: "pending",
+      refundId: outcome.refundId,
       amountCents: decision.amountCents,
       remainingCents: decision.remainingAfterCents,
-    });
+    }, { status: 202 });
   } catch (error) {
     if (error instanceof HouseholdChargeRefundReviewError) {
       return NextResponse.json({ error: error.message }, { status: error.status });

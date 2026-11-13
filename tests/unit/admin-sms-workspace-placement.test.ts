@@ -69,13 +69,37 @@ beforeEach(() => {
 
 describe("workspace stamping on admin text threads", () => {
   it("puts each thread on the service workspace it was routed to, and the rest on Unassigned", async () => {
-    const payload = await run();
-    const byBody = new Map(payload.residents.map((r) => [r.messages[0]?.body, r]));
+    const byBody = new Map<string | undefined, ManagerSmsResidentConversation>();
+    for (const workspaceId of [WS_SVC, WS_SVC2, ADMIN_SMS_UNASSIGNED_FILTER]) {
+      for (const r of (await run({ workspaceId })).residents) byBody.set(r.messages[0]?.body, r);
+    }
     expect(byBody.get("tour request for Ambika")).toMatchObject({ workspaceId: WS_SVC, workspaceName: "1. Ambika" });
     expect(byBody.get("prospect routed to Vinod")).toMatchObject({ workspaceId: WS_SVC2, workspaceName: "2. Vinod" });
     expect(byBody.get("line stranger")).toMatchObject({ workspaceId: null, workspaceName: null });
     // A stamp on a workspace that is not a service workspace is never named.
     expect(byBody.get("stamped with a non-service workspace")).toMatchObject({ workspaceId: null, workspaceName: null });
+  });
+
+  it("a thread that lives in a workspace leaves the admin's main list and shows only under that workspace", async () => {
+    const main = bodies(await run());
+    expect(main).toEqual(["line stranger", "stamped with a non-service workspace"]);
+    expect(main).not.toContain("tour request for Ambika");
+    expect(main).not.toContain("prospect routed to Vinod");
+    expect((await run()).residents.every((r) => !r.workspaceId && !r.workspaceName)).toBe(true);
+    expect(bodies(await run({ workspaceId: WS_SVC }))).toEqual(["tour request for Ambika"]);
+  });
+
+  it("a lead the admin assigns (status no longer open, its thread now stamped on the workspace) is gone from the main list", async () => {
+    // Before: open lead shows in the main list.
+    expect((await run({ includeLeads: true })).residents.some((r) => r.unassignedLeadId === "lead-1")).toBe(true);
+    // Assign: the lead closes and its conversation is stamped with the workspace.
+    const leads = db.__tables.sms_unassigned_leads as Array<Record<string, unknown>>;
+    leads.find((l) => l.id === "lead-1")!.status = "assigned";
+    (db.__tables.inbound_sms_log as Array<Record<string, unknown>>).push(inbound("9", SO, "+12065550199", "what about 4709A?", WS_SVC, "2026-10-19T21:00:00Z"));
+    const after = await run({ includeLeads: true });
+    expect(after.residents.some((r) => r.unassignedLeadId)).toBe(false);
+    expect(bodies(after)).not.toContain("what about 4709A?");
+    expect(bodies(await run({ includeLeads: true, workspaceId: WS_SVC }))).toContain("what about 4709A?");
   });
 
   it("lists every service workspace for the filter, by name", async () => {
@@ -135,6 +159,18 @@ describe("PropLane-line leads in admin Communication", () => {
   });
 });
 
+describe("a sender that is not a phone number (short code)", () => {
+  it("is listed as its own thread titled by the sender, history only (no reply)", async () => {
+    (db.__tables.inbound_sms_log as Array<Record<string, unknown>>).push({
+      id: "sc1", manager_user_id: SO, from_phone: "78156", to_phone: "+12066781909", body: "Roomies code 483920", message_sid: "SMsc1",
+      matched_sender_user_id: null, counterparty_role: "unknown", conversation_key: `${SO}:unknown:sender:78156`, created_at: "2026-10-19T22:00:00Z", workspace_id: null,
+    });
+    const thread = (await run()).residents.find((r) => r.messages.some((m) => m.body === "Roomies code 483920"));
+    expect(thread).toMatchObject({ name: "78156", phone: "78156", sendDisabled: true, workspaceId: null });
+    expect(thread!.messages).toHaveLength(1);
+  });
+});
+
 describe("placeAdminSmsConversations", () => {
   const row = (workspaceId: string | null | undefined, at: string): ManagerSmsResidentConversation => ({
     residentUserId: null,
@@ -148,9 +184,17 @@ describe("placeAdminSmsConversations", () => {
 
   it("orders newest first across rows and leads", () => {
     const out = placeAdminSmsConversations(
-      { workNumber: null, personalPhone: null, phoneVerified: false, forwardInbound: true, smsConfigured: false, residents: [row(WS_SVC, "2026-10-19T10:00:00Z")] },
+      { workNumber: null, personalPhone: null, phoneVerified: false, forwardInbound: true, smsConfigured: false, residents: [row(null, "2026-10-19T10:00:00Z")] },
       { names: new Map([[WS_SVC, "A"]]), leads: [row(null, "2026-10-19T11:00:00Z")], workspaceId: null },
     );
     expect(out.residents.map((r) => r.name)).toEqual(["2026-10-19T11:00:00Z", "2026-10-19T10:00:00Z"]);
+  });
+
+  it("hides placed threads from the main list but keeps them for routing a reply (includePlaced)", () => {
+    const payload = { workNumber: null, personalPhone: null, phoneVerified: false, forwardInbound: true, smsConfigured: false, residents: [row(WS_SVC, "2026-10-19T10:00:00Z"), row(null, "2026-10-19T09:00:00Z")] };
+    const main = placeAdminSmsConversations(payload, { names: new Map([[WS_SVC, "A"]]), leads: [], workspaceId: null });
+    expect(main.residents.map((r) => r.name)).toEqual(["2026-10-19T09:00:00Z"]);
+    const routing = placeAdminSmsConversations(payload, { names: new Map([[WS_SVC, "A"]]), leads: [], workspaceId: null, includePlaced: true });
+    expect(routing.residents.map((r) => [r.name, r.workspaceId])).toEqual([["2026-10-19T10:00:00Z", WS_SVC], ["2026-10-19T09:00:00Z", null]]);
   });
 });

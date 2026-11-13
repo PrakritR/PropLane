@@ -18,7 +18,7 @@
  * Sort by Name or Recently updated is the same rows as one flat list.
  */
 
-import { CalendarDays, Mail, Plane, Users } from "lucide-react";
+import { CalendarDays, Mail, Phone, Plane, Users } from "lucide-react";
 import { PortalGroupedRecordList } from "@/components/portal/portal-grouped-record-list";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import {
@@ -141,9 +141,18 @@ export function ManagerResidentsGroupedTable({
         address={residentHousingMeta(row, includeProperty)}
         facts={
           <>
-            {email ? (
+            {row.noRealEmail ? (
+              <PortalRowFact icon={Mail} srLabel="Email">
+                no real email
+              </PortalRowFact>
+            ) : email ? (
               <PortalRowFact icon={Mail} srLabel="Email">
                 {email}
+              </PortalRowFact>
+            ) : null}
+            {row.missingPhone ? (
+              <PortalRowFact icon={Phone} srLabel="Phone">
+                none
               </PortalRowFact>
             ) : null}
             {row.residentSlotFact ? (

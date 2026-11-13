@@ -30,6 +30,9 @@ import {
 import { applyAirbnbEmailToStay, applyForwardedAirbnbConfirmation } from "@/lib/channel-calendar/airbnb-email-intake.server";
 import { isAirbnbSenderAddress, parseAirbnbEmail, parseAirbnbGuestMessage } from "@/lib/inbound-email/airbnb-parser";
 import { channelSiteOfAddress, isChannelGuestKeyAddress } from "@/lib/inbound-email/channel-senders";
+import { leadSiteOfAddress } from "@/lib/inbound-email/platform-lead-parsers";
+import { handlePlatformLeadEmail } from "@/lib/platform-leads/ingest.server";
+import { ingestChannelFinanceMail } from "@/lib/channel-finance/ingest.server";
 import { handleChannelGuestEmail, storeChannelMailUnanswered } from "@/lib/manager-assistant-email/channel-guest-message.server";
 import type { ParsedInboundEmail } from "@/lib/inbound-email/inbound-email.server";
 import { resolveInboundEmailBody } from "@/lib/inbound-email/inbound-email.server";
@@ -133,8 +136,16 @@ async function handleAirbnbNotification(
     authenticated = false;
   }
   if (authenticated) {
+    /* Money first: a reservation / payout mail becomes a channel finance record (certain parses count, the rest wait for a
+       person). A payout the parser would not vouch for must not also reach the stay's payout field. */
+    let finance: Awaited<ReturnType<typeof ingestChannelFinanceMail>> | null = null;
+    try {
+      finance = await ingestChannelFinanceMail(db, { ownerUserId: managerUserId, workspaceId, platform: "airbnb", emailId: parsed.emailId, subject: parsed.subject, text: rawBody, receivedAt: parsed.receivedAt, authenticated });
+    } catch (cause) {
+      console.error("channel finance ingest failed", cause);
+    }
     const facts = parseAirbnbEmail({ subject: parsed.subject, text: rawBody, receivedAt: parsed.receivedAt });
-    if (facts) {
+    if (facts && !(facts.kind === "payout" && finance?.status !== "recorded")) {
       const applied = await applyAirbnbEmailToStay(db, managerUserId, facts, parsed.receivedAt);
       if (applied.applied) return { handled: true, replied: false };
     }
@@ -224,7 +235,38 @@ export async function processManagerAssistantInboundEmail(
      the manager: it has its own front door, run BEFORE the sender is classified. It answers only a mail the receiving
      server proved came from the site; anything else from a site's domain is stored and left alone. Airbnb's booking and
      payout notifications keep their own handler below. */
+  /* A prospect writing on SpareRoom, Roomies, Zillow, Craigslist, Facebook or Roomster is a LEAD (design-1112 §6): one
+     thread tagged with the site and the exact listing/room, notified like a text, stitched to the phone-keyed record. Run
+     first, so SpareRoom (also a booking-site sender) takes the lead path too. */
+  if (leadSiteOfAddress(parsed.fromEmail)) {
+    return handlePlatformLeadEmail(db, {
+      parsed,
+      managerUserId,
+      workspaceId,
+      rawBody,
+      inboundText,
+      managerEmail: await loadManagerProfileEmail(db, managerUserId),
+      mailbox: await loadReplyMailbox(),
+    });
+  }
   const channelSite = channelSiteOfAddress(parsed.fromEmail);
+  /* Booking.com reservation / payout / invoice mail is money data, not a guest to answer. A record it makes ends here; a mail
+     the parser would not vouch for is flagged for review and still falls through to be stored in Communication, unanswered. */
+  if (channelSite === "booking_com") {
+    try {
+      let authenticated = false;
+      try {
+        const headers = parsed.headers ?? (await fetchResendReceivedEmailHeaders(parsed.emailId));
+        authenticated = inboundSenderAuthenticated(headers, parsed.fromEmail);
+      } catch {
+        authenticated = false;
+      }
+      const finance = await ingestChannelFinanceMail(db, { ownerUserId: managerUserId, workspaceId, platform: "booking_com", emailId: parsed.emailId, subject: parsed.subject, text: rawBody, receivedAt: parsed.receivedAt, authenticated });
+      if (finance.status === "recorded") return { handled: true, replied: false };
+    } catch (cause) {
+      console.error("booking.com finance ingest failed", cause);
+    }
+  }
   if (
     channelSite &&
     (channelSite !== "airbnb" ||

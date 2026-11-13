@@ -32,6 +32,8 @@ const CREDENTIAL_TABLES = [
   "mcp_oauth_tokens",
   // PropLane's own books (admin Finances): service-role routes only, no browser policy, not even SELECT.
   "platform_expenses",
+  // A manager's rating of a resident: read and written only by server routes that authorize the stay (docs/agents/resident-ratings.md).
+  "resident_ratings",
 ] as const;
 
 const CLIENT_ROLES = ["anon", "authenticated"] as const;

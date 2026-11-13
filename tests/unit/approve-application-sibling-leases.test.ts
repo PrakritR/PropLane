@@ -19,6 +19,10 @@ import {
 } from "@/lib/lease-pipeline-storage";
 import { transitionApplicationBucket } from "@/lib/application-review";
 
+vi.mock("@/lib/demo-property-pipeline", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/demo-property-pipeline")>()), syncPropertyPipelineFromServer: async () => true }));
+vi.mock("@/lib/rental-application/data", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/rental-application/data")>()), getPropertyById: () => ({ listingSubmission: {} }) }));
+vi.mock("@/lib/application-approval-placement", () => ({ approvalPlacementBlocker: () => null }));
+
 const MANAGER_ID = "mgr-prp-385";
 
 function leaseRow(

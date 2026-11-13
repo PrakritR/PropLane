@@ -90,6 +90,8 @@ export type PropertyBookingEntry = {
   reservationCode?: string;
   reservationUrl?: string;
   phoneLast4?: string;
+  /** The feed's own DESCRIPTION for the stay; the record page shows it to manager-side viewers only. */
+  description?: string;
   guestName?: string;
   /** The manager's note on a channel stay or host block. */
   stayNotes?: string;
@@ -558,6 +560,7 @@ export function airbnbBookingEntries(
           ...(range.reservationCode ? { reservationCode: range.reservationCode } : {}),
           ...(range.reservationUrl ? { reservationUrl: range.reservationUrl } : {}),
           ...(range.phoneLast4 ? { phoneLast4: range.phoneLast4 } : {}),
+          ...(range.description ? { description: range.description } : {}),
           ...(range.guestName ? { guestName: range.guestName } : {}),
           ...(range.stayNotes ? { stayNotes: range.stayNotes } : {}),
           ...(range.guestPhone ? { guestPhone: range.guestPhone } : {}),

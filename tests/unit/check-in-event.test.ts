@@ -126,7 +126,7 @@ describe("the stay guide a guest is served", () => {
     const { db } = makeDb();
     const early = await loadStayCheckIn(db, GUEST, "block-1", TOO_EARLY);
     expect(early?.reveal.revealed).toBe(false);
-    expect(early?.guide.unlockLabel).toBe("Thu 3:00 PM");
+    expect(early?.guide.unlockLabel).toBe("Thu 10:00 AM");
     expect(JSON.stringify(early?.guide)).not.toMatch(/7500|9921|pw-123|2410/);
 
     const open = await loadStayCheckIn(db, GUEST, "block-1", REVEALED);

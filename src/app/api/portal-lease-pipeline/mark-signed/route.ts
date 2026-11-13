@@ -144,6 +144,15 @@ export async function POST(req: Request) {
     if (!suppliedPdf && !storedPdf) {
       return NextResponse.json({ error: "Attach the signed PDF first." }, { status: 400 });
     }
+    // A lease that already went out for e-signature holds the UNSIGNED copy that was sent. Filing that
+    // as the executed document would put an unsigned PDF behind "Signed", so the signed one must come
+    // with this request (captain, 2026-11-10: "Mark as signed" needs the signed PDF).
+    if (stored.sentToResidentAt && (!suppliedPdf || suppliedPdf.dataUrl === storedPdf)) {
+      return NextResponse.json(
+        { error: "Attach the signed PDF first. The copy on file is the unsigned one that was sent.", blocked: "signed-pdf-required" },
+        { status: 400 },
+      );
+    }
 
     const iso = new Date().toISOString();
     const managerName = String(profile?.full_name ?? "").trim() || "Property Manager";

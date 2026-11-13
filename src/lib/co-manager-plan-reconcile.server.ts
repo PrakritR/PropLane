@@ -22,7 +22,8 @@ async function revokeInviteRow(svc: ReturnType<typeof createSupabaseServiceRoleC
       .from("portal_pro_relationship_records")
       .delete()
       .eq("manager_user_id", scope.managerUserId)
-      .filter("row_data->>linkedAxisId", "eq", scope.linkedAxisId);
+      .filter("row_data->>linkedAxisId", "eq", scope.linkedAxisId)
+      .filter("row_data->>id", "eq", invite.id);
   }
 }
 

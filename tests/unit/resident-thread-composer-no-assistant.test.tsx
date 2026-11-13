@@ -125,11 +125,13 @@ describe("resident thread composer", () => {
     );
   });
 
-  it("titles the thread with the manager and offers manager icon actions", async () => {
+  it("titles the thread with the house, shows the work number copyable, and offers manager icon actions", async () => {
     mount();
     await screen.findByPlaceholderText(/reply/i);
-    expect(screen.getByText("Cascade Lofts Management")).toBeTruthy();
-    expect(screen.getByText(/Property manager · Cascade Lofts/)).toBeTruthy();
+    // The HOUSE is the title; the manager and the work number are the line under it, never the title.
+    expect(screen.getByText("Cascade Lofts")).toBeTruthy();
+    expect(screen.getByText(/Cascade Lofts Management · \+1 \(510\) 309-8345/)).toBeTruthy();
+    expect(document.querySelector("[data-attr=inbox-thread-copy-work-number]")).toBeTruthy();
     // The portal is the web channel: no sms: link to the manager.
     expect(document.querySelector("[data-attr=inbox-thread-text-manager]")).toBeNull();
     expect(document.querySelector("[data-attr=inbox-thread-email-manager]")).toBeTruthy();

@@ -4,6 +4,10 @@
  * without polling — preferred once check volume grows. Point Checkr's webhook
  * at `{NEXT_PUBLIC_APP_URL}/api/webhooks/screening/checkr`.
  *
+ * Host-independent: the signature is the only check, so the same endpoint answers on every host that serves this
+ * app (proplane.ai and the legacy axis-seattle-housing.com). The legacy-host redirect in middleware never touches
+ * `/api/**` or a non-GET request (`shouldRedirectLegacyHostVisitor`), so a webhook is never 308'd off the host.
+ *
  * Untrusted input: verify the signature before trusting the payload, then
  * re-fetch the order/report by id from Checkr rather than trusting any
  * status/result fields in the payload itself.
@@ -13,6 +17,7 @@ import { NextResponse } from "next/server";
 import { applyBackgroundCheckReport } from "@/lib/checkr/background-check";
 import { fetchBackgroundCheckReport } from "@/lib/checkr/client";
 import { checkrWebhookSecrets } from "@/lib/checkr/config";
+import { applyPreApplyCheckReport } from "@/lib/screening/preapply.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -70,11 +75,14 @@ export async function POST(req: Request) {
     const orderId =
       typeof payload.data?.order_id === "string" ? payload.data.order_id : typeof payload.data?.id === "string" ? payload.data.id : null;
 
-    // Only report.completed carries a finished order; other event types just ack.
-    if (payload.type !== "report.completed") return NextResponse.json({ ok: true, ignored: true });
+    // Any report.* / order.* event names an order. Nothing in the payload is trusted for state: the order and its
+    // report are re-fetched from Checkr below and THAT status is applied (completion, cancellation, still pending).
+    // Anything else (candidate/account events) is acknowledged and ignored.
+    const type = typeof payload.type === "string" ? payload.type : "";
+    if (!/^(report|order)\./.test(type)) return NextResponse.json({ ok: true, ignored: true });
 
     if (!orderId) {
-      console.error("checkr webhook: report.completed event had no resolvable orderId", { type: payload.type });
+      console.error("checkr webhook: order event had no resolvable orderId", { type: payload.type });
       return NextResponse.json({ ok: true, ignored: true });
     }
 
@@ -82,12 +90,17 @@ export async function POST(req: Request) {
     if (!report) return NextResponse.json({ ok: true, ignored: true });
 
     const db = createSupabaseServiceRoleClient();
-    const row = await applyBackgroundCheckReport(db, orderId, {
+    const reportFacts = {
       status: report.status,
       result: report.result,
       reportSnapshot: report.reportSnapshot,
       reportResourceId: report.reportResourceId,
-    });
+    };
+    // An order the applicant placed before applying lives in its own record (and keeps it after it is stamped onto
+    // an application); the application row, once there is one, is updated below as always.
+    const preApplyHeld = await applyPreApplyCheckReport(db, orderId, reportFacts);
+    const row = await applyBackgroundCheckReport(db, orderId, reportFacts);
+    if (!row && preApplyHeld) return NextResponse.json({ ok: true, preapply: true });
     if (!row) {
       console.error("checkr webhook: report.completed resolved orderId but no matching application", { orderId });
       return NextResponse.json({ ok: true, ignored: true });

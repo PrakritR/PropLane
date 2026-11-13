@@ -61,7 +61,9 @@ export function LeaseMarkSignedModal({
   const storedPdf = row?.managerUploadedPdf?.originalDataUrl || row?.managerUploadedPdf?.dataUrl || "";
   const storedFileName = row?.managerUploadedPdf?.fileName?.trim() || "Uploaded lease.pdf";
   const hasGeneratedOnly = Boolean(row?.generatedHtml && !storedPdf);
-  const hasPdf = Boolean(file || storedPdf);
+  // A lease already sent for e-signature holds the unsigned copy: the signed PDF has to be attached here.
+  const storedIsUnsignedSendCopy = Boolean(row?.sentToResidentAt);
+  const hasPdf = Boolean(file || (storedPdf && !storedIsUnsignedSendCopy));
   const residentName = row?.residentName?.trim() || "The resident";
   const unit = row?.unit?.trim() || "";
 
@@ -121,7 +123,7 @@ export function LeaseMarkSignedModal({
 
         <div>
           <div className={MODAL_FIELD_LABEL_CLASS}>Signed document</div>
-          {file || storedPdf ? (
+          {file || (storedPdf && !storedIsUnsignedSendCopy) ? (
             <div
               className="flex items-center gap-3 rounded-xl border border-primary/40 bg-primary/5 px-3 py-2.5"
               data-attr="lease-mark-signed-document"

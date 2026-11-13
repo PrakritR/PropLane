@@ -9,12 +9,14 @@ import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-s
 import {
   axisPaymentsEnabledOnListing,
   acceptedPaymentMethodsForListing,
+  cartForcesResidentFee,
   resolveServiceFeePayerFor,
   residentServiceFeeBreakdown,
   type ResidentAxisPaymentMethod,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
 import { getStripe } from "@/lib/stripe";
+import { ensureResidentStripeCustomerId } from "@/lib/stripe-resident-customer";
 import {
   listingPaymentWaiverCodeMatchesServer,
   resolveAccountOrListingWaiverGrantedServer,
@@ -27,6 +29,7 @@ import {
 } from "@/lib/stripe-connect";
 import { householdChargeAmountCents, HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE } from "@/lib/stripe-household-charge";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+import { fundingModelProblem } from "@/lib/managed-finance/funding-model.server";
 import { managedCartProblem } from "@/lib/managed-finance/resolve.server";
 import { serviceSetupPendingProblem } from "@/lib/managed-finance/unpolicied-service.server";
 import { assertResidentCheckoutAttemptTerms, assertResidentCheckoutSession,
@@ -67,8 +70,16 @@ export async function resolveHouseholdChargeFeePayer(
   loaded: Pick<LoadedHouseholdChargeForCheckout, "charge" | "propertyFeePayer" | "propertyFeeWaiverCode">[],
 ): Promise<{ ok: true; feePayer: ServiceFeePayer; managerTier: string } | HouseholdChargeCheckoutFailure> {
   const { tier: managerTierRaw, promoCode, readFailed } = await getManagerPurchaseSku(managerUserId);
-  if (readFailed) return { ok: false, status: 500, error: "Payment plan could not be verified. Try again." };
   const managerTier = normalizeManagerSkuTier(managerTierRaw) ?? "free";
+  /* Rent: the resident pays the processing fee, always (captain, 2026-11-12). Decided from the charges
+     themselves, before any plan, workspace, listing or staff setting is read, so no setting - and no
+     setting that fails to load - can move a rent fee onto the manager or PropLane. Every money path that
+     pays a household charge (pay page, pay link, autopay, the agent, a manager-assisted card) resolves
+     here, so this is the one place it has to hold. */
+  if (cartForcesResidentFee(loaded.map((row) => row.charge.kind))) {
+    return { ok: true, feePayer: "resident", managerTier };
+  }
+  if (readFailed) return { ok: false, status: 500, error: "Payment plan could not be verified. Try again." };
   const managerSettings = await loadManagerManualPaymentSettings(db, managerUserId);
   const propertyChoices = [...new Set(loaded.map((row) => row.propertyFeePayer ?? "inherit"))];
   if (propertyChoices.length > 1) {
@@ -298,6 +309,12 @@ export async function createHouseholdChargeCheckout(
     appOrigin: string;
     /** Server-owned return path (path + query only). Never accept a full client URL here. */
     returnPath?: string;
+    /**
+     * Show the resident the cards they saved in Settings inside the card Checkout. Only the resident's own signed-in
+     * session sets it; a manager-assisted or link-opened checkout never does (the saved cards would be shown to the
+     * holder of the client secret).
+     */
+    useSavedPaymentMethods?: boolean;
   },
 ): Promise<HouseholdChargeCheckoutResult> {
   try {
@@ -335,6 +352,9 @@ export async function createHouseholdChargeCheckout(
 
     // One Checkout is one payee. A cart that mixes a PropLane-managed workspace's charges with another workspace's (or a
     // house with no workspace) would need two allocations, so it is refused before any money moves.
+    // The funding decision is read first and fails closed: an unreadable `is_service` flag refuses the charge.
+    const fundingProblem = await fundingModelProblem(db, loaded.map((row) => row.charge.propertyId));
+    if (fundingProblem) return { ok: false, status: 503, code: "FUNDING_MODEL_UNREADABLE", error: fundingProblem };
     const managedProblem = await managedCartProblem(db, loaded.map((row) => row.charge.propertyId));
     if (managedProblem) return { ok: false, status: 422, code: "MIXED_PAYMENT_SETUP", error: managedProblem };
     // A PropLane Service workspace with no management fee is not managed yet: its rent must not be captured for the manager of
@@ -366,7 +386,8 @@ export async function createHouseholdChargeCheckout(
     const chargeIds = ordered.map(row => row.id);
     const chargeIdsCsv = chargeIds.join(",");
     const attemptToken = randomUUID();
-    const fee = residentServiceFeeBreakdown(amountCents, input.paymentMethod, feePayer);
+    // A resident-paid fee also covers Stripe's price of the fee line itself, so PropLane keeps none of it.
+    const fee = residentServiceFeeBreakdown(amountCents, input.paymentMethod, feePayer, { coverFeeOnFee: true });
     if (fee.managerPayoutCents <= 0 || fee.applicationFeeCents >= fee.totalCents) {
       return { ok: false, status: 422, error: "Service fee configuration prevents this charge." };
     }
@@ -384,7 +405,13 @@ export async function createHouseholdChargeCheckout(
       ...(input.paymentMethod === "ach"
         ? { resident_payment_flow: "manual_ach", manual_ach: "1" } : {}),
     };
+    let customerId: string | null = null;
+    if (input.useSavedPaymentMethods === true && input.paymentMethod === "card" && input.mode === "embedded") {
+      // Best effort: a customer that cannot be resolved falls back to the blank card form, never to a failed payment.
+      customerId = await ensureResidentStripeCustomerId(getStripe(), db, input.userId, input.userEmail).catch(() => null);
+    }
     const providerParams: AxisAchCheckoutInput = {
+      ...(customerId ? { customerId } : {}),
       residentEmail,
       lineItems,
       metadata,

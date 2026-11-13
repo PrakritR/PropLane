@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { ApplicantChecksSettingsRows } from "@/components/portal/applicant-checks-settings";
 import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
 import { TourSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
 import { SettingsPropertyScope, useWorkspacePropertyOptions } from "@/components/portal/settings-property-scope-picker";
@@ -271,6 +272,9 @@ export function ScreeningSettingsSection() {
           />
         </PortalSettingsRow>
       </PortalSettingsGroup>
+      <SettingsPropertyScope>
+        <ApplicantChecksSettingsRows />
+      </SettingsPropertyScope>
     </PortalSettingsSection>
   );
 }

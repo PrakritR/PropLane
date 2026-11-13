@@ -22,9 +22,12 @@ import { mintInviteLink } from "@/lib/invite-links/invite-links.server";
 import {
   SERVICE_INVITE_LABEL_PREFIX,
   sendServiceInviteLinkEmail,
+  sendServiceInviteText,
+  serviceInviteAcceptUrl,
   serviceInviteEmailFromLabel,
   serviceInviteLabel,
 } from "@/lib/service/service-invite-delivery.server";
+import { buildOwnerInviteText, buildServiceTeamInviteText } from "@/lib/co-manager-link-email";
 import { cleanOwnerOfRecord, cleanServiceCity, cleanServiceName } from "@/lib/service/service-input";
 import { updateAuditResult, writeAuditLog } from "@/lib/tools/audit";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
@@ -326,7 +329,7 @@ async function insertAdminMembership(
     ensureProfileProplaneId(db as never, userId),
   ]);
   if (!inviter.ok || !invitee.ok) return fail(503, "Could not read the accounts. Please retry.");
-  const ownerHouseMap = stampTeamRoleOnProperties("property_owner", ownerHouseIds, {});
+  const ownerHouseMap = asOwner ? managedOwnerHouseStamp(ownerHouseIds) : stampTeamRoleOnProperties("property_owner", ownerHouseIds, {});
   const stamp = asOwner ? (flatTeamRoleGrant("property_owner", ownerHouseMap) ?? {}) : (stampTeamRolePermissions("admin") ?? {});
   // An explicit grant (the Invite sheet's role, houses and module levels) replaces the Admin default for a teammate.
   // The owner of record keeps the owner shape above whatever was asked: the role is not a choice there.
@@ -370,6 +373,16 @@ async function insertAdminMembership(
     return fail(503, "Could not add the teammate.");
   }
   return { ok: true, linkId: String((data as { id: unknown }).id) };
+}
+
+/**
+ * The owner keys a managed workspace's client (its Property owner of record) holds on every house: Performance, Statements,
+ * Documents and Messages, all view (D3, captain Nov 12: the client can write to PropLane). The SQL mover stamps the same
+ * object (`move_managed_workspace_to_service_owner`); a change here changes both.
+ */
+export function managedOwnerHouseStamp(houseIds: string[]): PropertyCoManagerPermissions {
+  const keys = { ownerPerformance: { read: true, notification: true }, ownerStatements: { read: true, notification: true }, ownerDocuments: { read: true, notification: true }, ownerMessages: { read: true, notification: true } };
+  return Object.fromEntries(houseIds.map((id) => [id, { ...keys }])) as PropertyCoManagerPermissions;
 }
 
 /** + : a new service workspace owned by the service owner; the creating operator joins it as Admin. */
@@ -459,10 +472,10 @@ async function ensureAdminMember(db: SupabaseClient, workspaceOwnerId: string, w
 }
 
 /**
- * Attach an existing workspace to PropLane Service. PropLane Service is a FLAG on a workspace plus memberships,
- * not ownership: this sets `is_service`, the city and the label (the workspace's name), and seats the service owner
- * (and the operator) as accepted Admin members. The workspace's own owner is its owner of record by being its owner.
- * It never changes `owner_user_id` and writes no property, lease or charge row. The caller proves the operator is a platform admin
+ * Attach an existing workspace to PropLane Service. A managed workspace is the ADMIN's: this sets `is_service`, the city
+ * and the label, then moves ownership to the service owner through the one SQL mover (houses and in-scope rows follow;
+ * the client is seated as the Property owner of record, view-only), and seats the operator as an Admin member. The mover
+ * is the only door that changes `owner_user_id`; `property_data` and `row_data` are never written. The caller proves the operator is a platform admin
  * (`requireAdminRoute`); the audit row is written BEFORE anything changes, so no audit row means no change.
  */
 export async function attachWorkspaceToService(
@@ -510,7 +523,7 @@ export async function attachWorkspaceToService(
   const audit = await writeAuditLog(actor, {
     action: ADMIN_SERVICE_ATTACH_AUDIT_ACTION,
     toolName: ADMIN_SERVICE_ATTACH_AUDIT_ACTION,
-    inputSummary: { workspaceId: workspace.id, workspaceOwnerUserId: workspaceOwnerId, serviceOwnerUserId: serviceOwner.ownerUserId, city, label, reason, ownerIsOwnerOfRecord: !ownedByServiceOwner },
+    inputSummary: { workspaceId: workspace.id, workspaceOwnerUserId: workspaceOwnerId, serviceOwnerUserId: serviceOwner.ownerUserId, city, label, reason, ownerIsOwnerOfRecord: !ownedByServiceOwner, movesOwnership: !ownedByServiceOwner },
     resultSummary: { applied: false },
     dedupeKey: auditKey,
   });
@@ -533,17 +546,26 @@ export async function attachWorkspaceToService(
   };
   if (flagged.error) return undo("Could not attach the workspace. Please retry.");
 
-  // The service owner and the attaching operator become Admin members (the workspace's own owner is not a member).
-  const seats = [...new Set([serviceOwner.ownerUserId, operatorUserId])].filter((id) => id !== workspaceOwnerId);
-  const seated: string[] = [];
-  for (const userId of seats) {
-    const seat = await ensureAdminMember(db, workspaceOwnerId, workspace.id, userId);
+  // Ownership moves to the service owner through the ONE mover (SQL: `move_managed_workspace_to_service_owner`): the
+  // workspace, its houses and every in-scope row are the admin's, and the client is seated as the Property owner of record
+  // (view-only). A stop (open checkout, unclassified table, another live workspace...) refuses the whole attach and writes
+  // nothing. A workspace the service owner already owns has nothing to move.
+  let moved = false;
+  if (!ownedByServiceOwner) {
+    const mover = await db.rpc("move_managed_workspace_to_service_owner", { p_workspace: workspace.id, p_expected_from: workspaceOwnerId, p_dry_run: false });
+    if (mover.error) {
+      const stops = /managed move refused, nothing written: (.*)$/.exec(mover.error.message ?? "")?.[1];
+      return undo(stops ? `This workspace cannot be moved to PropLane yet (${stops.slice(0, 300)}). Nothing was changed.` : "Could not move the workspace to PropLane. Please retry.", stops ? 409 : 503);
+    }
+    moved = true;
+  }
+  // The attaching operator becomes an Admin member under the workspace's (now) owner, the service owner.
+  if (operatorUserId !== serviceOwner.ownerUserId) {
+    const seat = await ensureAdminMember(db, serviceOwner.ownerUserId, workspace.id, operatorUserId);
     if (!seat.ok) {
-      // Withdraw only the seats this attach added, then the flag.
-      for (const linkId of seated) await db.from("account_link_invites").delete().eq("id", linkId).eq("workspace_id", workspace.id);
+      if (moved) await db.rpc("undo_managed_workspace_move", { p_workspace: workspace.id });
       return undo(seat.error, seat.status);
     }
-    if (seat.added && seat.linkId) seated.push(seat.linkId);
   }
   await updateAuditResult(actor, auditKey, { applied: true });
   // The automatic management fee (no signature): the client who owns the attached workspace is its owner of record.
@@ -643,7 +665,11 @@ export async function listServiceAttachCandidates(
  * Overall admin stands as the owner of every PropLane Service workspace for team changes, member or not. Left out, the
  * operator must hold a seat in the workspace, exactly as before.
  */
-export type OperatorOpts = { overall?: boolean };
+export type OperatorOpts = {
+  overall?: boolean;
+  /** The caller tells the person itself (one notice for a whole change), so this verb sends none. */
+  silent?: boolean;
+};
 
 async function operatorStanding(db: SupabaseClient, operatorUserId: string, workspaceId: string, opts: OperatorOpts = {}) {
   const workspace = await loadServiceWorkspace(db, workspaceId);
@@ -1047,6 +1073,8 @@ export type ServiceInviteInput = InviteAccessInput & {
   replaceOwner?: unknown;
   /** The name typed beside the email, for the greeting of an email to someone with no account yet. Never a grant. */
   inviteeName?: unknown;
+  /** An optional mobile for ONE text beside the email (new-account invites). Sent only where the consent rules allow it. */
+  phone?: unknown;
 };
 
 /**
@@ -1187,6 +1215,7 @@ export async function inviteServiceClient(
     name: targetName || (hintedName ?? ""),
     ownerInvite: flag,
     grant,
+    phone: typeof input.phone === "string" ? input.phone : null,
   });
   if (!sent.ok) return sent;
   const withdrawn = await withdrawOutgoingOwner(db, operatorUserId, who.workspace, outgoingOwner);
@@ -1309,7 +1338,7 @@ async function inviteByLink(
   db: SupabaseClient,
   operatorUserId: string,
   workspace: { id: string; ownerUserId: string },
-  input: { email: string; name: string; ownerInvite: boolean; grant: ServiceSeatGrant | undefined },
+  input: { email: string; name: string; ownerInvite: boolean; grant: ServiceSeatGrant | undefined; phone?: string | null },
 ): Promise<ServiceResult<{ linkId: string; delivery: "account" | "link" }>> {
   const email = input.email.trim().toLowerCase();
   // One live service invite per email per workspace.
@@ -1326,7 +1355,7 @@ async function inviteByLink(
     label: serviceInviteLabel(email),
     workspaceId: workspace.id,
     assignedPropertyIds: houseIds,
-    propertyPermissions: input.ownerInvite ? stampTeamRoleOnProperties("property_owner", houseIds, {}) : input.grant!.propertyCoManagerPermissions,
+    propertyPermissions: input.ownerInvite ? managedOwnerHouseStamp(houseIds) : input.grant!.propertyCoManagerPermissions,
     teamRole: role,
     houseScope: input.ownerInvite ? "selected" : input.grant!.houseScope,
     workspacePermissions: input.ownerInvite ? {} : input.grant!.workspacePermissions,
@@ -1353,6 +1382,18 @@ async function inviteByLink(
       .eq("id", minted.link.id)
       .eq("owner_user_id", workspace.ownerUserId);
     return fail(502, `The invite could not be emailed: ${sent.error}`);
+  }
+  // At most one text, after the email has gone, only when a phone was typed. The dispatcher refuses it without consent.
+  if (input.phone?.trim()) {
+    const acceptUrl = serviceInviteAcceptUrl(minted.token);
+    const roleLabel = input.ownerInvite ? "Owner" : (TEAM_ROLE_LABELS[role === "full" ? "admin" : role] ?? "Teammate");
+    await sendServiceInviteText(db, {
+      toPhone: input.phone,
+      text: input.ownerInvite
+        ? buildOwnerInviteText({ workspaceName, acceptUrl })
+        : buildServiceTeamInviteText({ workspaceName, roleLabel, acceptUrl }),
+      dedupeKey: `invite:${minted.link.id}`,
+    });
   }
   return { ok: true, linkId: minted.link.id, delivery: "link" };
 }
@@ -1526,7 +1567,7 @@ export async function setServiceOwnerOfRecord(
       const houses = await db.from("manager_property_records").select("id").eq("manager_user_id", who.workspace.ownerUserId).eq("workspace_id", who.workspace.id);
       if (houses.error) return fail(503, "Could not update. Please retry.");
       const ids = ((houses.data ?? []) as { id: unknown }[]).map((h) => String(h.id));
-      const map = stampTeamRoleOnProperties("property_owner", ids, {});
+      const map = managedOwnerHouseStamp(ids);
       patch = {
         ...patch,
         team_role: "property_owner",
@@ -1629,7 +1670,7 @@ export async function removeServiceTeamMember(
   if (!who.ok) return who;
   const link = await db
     .from("account_link_invites")
-    .select("id, team_role, status")
+    .select("id, team_role, status, invitee_user_id, is_service_seat, is_owner_of_record")
     .eq("id", linkId)
     .eq("inviter_user_id", who.workspace.ownerUserId)
     .eq("workspace_id", who.workspace.id)
@@ -1657,6 +1698,13 @@ export async function removeServiceTeamMember(
     .eq("inviter_user_id", who.workspace.ownerUserId)
     .eq("workspace_id", who.workspace.id);
   if (res.error) return fail(503, "Could not remove the teammate. Please retry.");
+  // The seat is cancelled, so its alerts (`resolveServiceAlertTargets` reads accepted seats only) have already stopped. A
+  // PropLane-issued staff seat that was live gets ONE notice; the admin-team verbs pass `silent` and send their own, once.
+  const removed = link.data as { status?: string; invitee_user_id?: string | null; is_service_seat?: boolean | null; is_owner_of_record?: boolean | null };
+  if (!opts.silent && removed.status === "accepted" && removed.is_service_seat === true && removed.is_owner_of_record !== true && removed.invitee_user_id) {
+    const { notifySeatRevoked } = await import("@/lib/admin-team/admin-team-notify.server");
+    await notifySeatRevoked(db, { actorUserId: operatorUserId, userId: removed.invitee_user_id, workspaceIds: [who.workspace.id] });
+  }
   return { ok: true };
 }
 

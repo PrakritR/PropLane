@@ -234,12 +234,22 @@ export function inboxEventTitleFor(viewer: InboxEventViewer, kind: InboxEventKin
 }
 
 /** The one action link: label and a section path the viewer's portal already serves. */
-export function inboxEventAction(viewer: InboxEventViewer, kind: InboxEventKind): { label: string; href: string } | null {
+export function inboxEventAction(
+  viewer: InboxEventViewer,
+  kind: InboxEventKind,
+  recordRef?: RecordRef | null,
+): { label: string; href: string } | null {
   const base = viewer === "manager" ? "/portal" : "/resident";
   switch (kind) {
     case "charge_created":
     case "payment_failed":
     case "late_fee_applied":
+      // A resident's Pay opens the pay sheet for exactly this charge (`?pay=<id>&start=1`), the way a request to pay
+      // works in a booking app: tap, confirm the amount, pay. The id is a label the Payments page re-resolves against
+      // the resident's own charges, so a card can never open someone else's.
+      if (viewer === "resident" && recordRef?.kind === "payment" && recordRef.id) {
+        return { label: "Pay", href: `${base}/payments?pay=${encodeURIComponent(recordRef.id)}&start=1` };
+      }
       return { label: viewer === "resident" ? "Pay" : "View", href: `${base}/payments` };
     case "payment_received":
       return { label: "View", href: `${base}/payments` };

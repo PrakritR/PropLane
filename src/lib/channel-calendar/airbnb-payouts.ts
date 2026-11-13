@@ -6,12 +6,46 @@ import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
 import { airbnbBookingEntries } from "@/lib/channel-calendar/property-bookings";
 import type { ManagerChannelBookingProperty } from "@/lib/channel-calendar/types";
 import { formatCentsAsUsd } from "@/lib/money-label-totals";
+import type { ChannelIncomeRow } from "@/lib/channel-finance/income";
 
 export const AIRBNB_PAYOUT_ROW_PREFIX = "airbnb:";
 export const AIRBNB_PAYOUT_CHARGE_KIND = "airbnb_payout";
+export const BOOKING_COM_PAYOUT_CHARGE_KIND = "booking_com_payout";
 
+/** An Airbnb or Booking.com payout row (never a resident charge). The name is historic: it covers both channels. */
 export function isAirbnbPayoutLedgerRow(row: Pick<DemoManagerPaymentLedgerRow, "chargeKind">): boolean {
-  return row.chargeKind === AIRBNB_PAYOUT_CHARGE_KIND;
+  return row.chargeKind === AIRBNB_PAYOUT_CHARGE_KIND || row.chargeKind === BOOKING_COM_PAYOUT_CHARGE_KIND;
+}
+
+const platformLabel = (row: Pick<AirbnbPayoutRow, "platform">) => (row.platform === "booking_com" ? "Booking.com" : "Airbnb");
+
+/** Channel income rows read from mail / CSV (paid, or pending with known stay dates) as payout rows. Rows needing a room or review are not payments yet. */
+export function recordPayoutRows(rows: readonly ChannelIncomeRow[]): AirbnbPayoutRow[] {
+  const out: AirbnbPayoutRow[] = [];
+  for (const row of rows) {
+    if (!row.recordId || row.payoutCents === null || row.payoutCents <= 0) continue;
+    if (row.status === "needs_room" || row.status === "needs_review") continue;
+    if (row.status !== "paid" && (!row.checkIn || !row.checkOut)) continue;
+    const start = row.checkIn ?? row.paidOn!;
+    const end = row.checkOut ? addDaysToDateKey(row.checkOut, -1) : start;
+    out.push({
+      id: `${row.platform}:record:${row.recordId}`,
+      connectionId: row.connectionId ?? "",
+      sourceUid: row.sourceUid ?? "",
+      propertyId: row.propertyId ?? "",
+      propertyLabel: row.propertyLabel,
+      roomLabel: row.roomLabel,
+      guestLabel: row.guestLabel || `${row.platform === "booking_com" ? "Booking.com" : "Airbnb"} guest`,
+      start,
+      end,
+      payoutCents: row.payoutCents,
+      paidAt: row.paidOn ? `${row.paidOn}T12:00:00Z` : null,
+      bookingKey: "",
+      platform: row.platform,
+      recordId: row.recordId,
+    });
+  }
+  return out;
 }
 
 /** Every Airbnb stay that has a payout amount, as a payout row. Host blocks and stays without a payout never project. */
@@ -50,10 +84,13 @@ export function airbnbPayoutDueKey(row: Pick<AirbnbPayoutRow, "end">): string {
   return addDaysToDateKey(row.end, 2);
 }
 
-/** "Airbnb · Juan" - the guest's name, or the reservation code when no name was typed. */
-export function airbnbPayoutTitle(row: Pick<AirbnbPayoutRow, "guestLabel">): string {
-  const label = row.guestLabel.replace(/^Airbnb guest · /, "").trim();
-  return `Airbnb · ${label || "Guest"}`;
+/**
+ * "Airbnb · Juan" - the guest's name, or the reservation code when no name was typed. A bare
+ * "Airbnb guest" (nothing known but the channel) is no name at all, so it reads "Airbnb · Guest".
+ */
+export function airbnbPayoutTitle(row: Pick<AirbnbPayoutRow, "guestLabel" | "platform">): string {
+  const label = row.guestLabel.replace(/^(?:Airbnb|Booking\.com) guest(?: · )?/, "").trim();
+  return `${platformLabel(row)} · ${label || "Guest"}`;
 }
 
 /** "Payout · 4709a 8th Ave · Room 4 · Oct 7 – Oct 15" */
@@ -82,9 +119,9 @@ export function airbnbPayoutLedgerRow(row: AirbnbPayoutRow): DemoManagerPaymentL
     propertyId: row.propertyId,
     propertyName: row.propertyLabel,
     roomNumber: row.roomLabel,
-    chargeKind: AIRBNB_PAYOUT_CHARGE_KIND,
+    chargeKind: row.platform === "booking_com" ? BOOKING_COM_PAYOUT_CHARGE_KIND : AIRBNB_PAYOUT_CHARGE_KIND,
     residentName: airbnbPayoutTitle(row),
-    chargeTitle: "Airbnb payout",
+    chargeTitle: `${platformLabel(row)} payout`,
     lineAmount: amount,
     amountPaid: paid ? amount : "$0.00",
     balanceDue: paid ? "$0.00" : amount,

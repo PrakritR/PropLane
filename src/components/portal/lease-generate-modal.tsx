@@ -212,7 +212,7 @@ export function LeaseGenerateModal({
       return;
     }
     if (landlordNameMissing || draftShowsPlaceholder) {
-      showToast("Add your full name in Settings → Profile, then regenerate this lease.");
+      showToast("Add the landlord in Settings → Workspace → Leases, then regenerate this lease.");
       return;
     }
     void commitGenerate();

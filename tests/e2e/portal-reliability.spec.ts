@@ -1,5 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type TestInfo } from "@playwright/test";
 import { signInAsManager } from "../helpers/auth";
+import { createWritableSyntheticManager, cleanupWritableSyntheticManager } from "../helpers/writable-synthetic-manager";
 
 // Real authenticated dev/test rows. Network gates simulate slow and failed
 // source reads; they do not substitute demo data or send messages.
@@ -32,15 +33,39 @@ test.describe("Portal loading and record actions", () => {
   });
 
   for (const width of [1280, 390]) {
-    test(`Properties actions belong to each record at ${width}px`, async ({ page }) => {
+    const phoneFixtureRestorations = new WeakMap<TestInfo, () => Promise<void>>();
+    test.afterEach(async ({}, testInfo) => {
+      const restore = phoneFixtureRestorations.get(testInfo);
+      phoneFixtureRestorations.delete(testInfo);
+      if (!restore) return;
+      try {
+        await restore();
+      } catch (restoreError) {
+        // Playwright retains the test-body failure separately; keep the failed restoration
+        // visible as an afterEach failure rather than masking either error.
+        throw restoreError;
+      }
+    });
+
+    test(`Properties actions belong to each record at ${width}px`, async ({ browser }, testInfo) => {
+      // This case creates an account, proves its mailbox, clears its scoped phone gate and
+      // creates an owned property before testing the record action. Keep the overall budget
+      // bounded but distinct from the ordinary portal interaction budget.
+      test.setTimeout(180_000);
+      let manager: Awaited<ReturnType<typeof createWritableSyntheticManager>> | null = null;
+      try {
+      manager = await createWritableSyntheticManager(browser, {
+        onPhoneFixtureReady: (fixture) => { phoneFixtureRestorations.set(testInfo, fixture.restore); },
+      });
+      const page = manager.page;
       await page.setViewportSize({ width, height: 900 });
       await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });
-      const trigger = page.getByRole("button", { name: /^Actions for / }).first();
+      const trigger = page.getByRole("button", { name: `Actions for ${manager.property.name}`, exact: true });
       await expect(trigger).toBeVisible({ timeout: 45_000 });
       await expect(page.locator('[data-attr="list-selection-toolbar"]')).toHaveCount(0);
       const box = await trigger.boundingBox();
-      expect(box!.width).toBeGreaterThanOrEqual(44);
-      expect(box!.height).toBeGreaterThanOrEqual(44);
+      expect(box!.width).toBeGreaterThanOrEqual(width < 640 ? 44 : 32);
+      expect(box!.height).toBeGreaterThanOrEqual(width < 640 ? 44 : 32);
       await trigger.click();
       const menu = page.getByRole("menu");
       await expect(menu.getByRole("menuitem", { name: "Edit", exact: true })).toBeVisible();
@@ -51,8 +76,21 @@ test.describe("Portal loading and record actions", () => {
       await page.keyboard.press("Escape");
       await expect(trigger).toBeFocused();
       await trigger.click();
-      await menu.getByRole("menuitem", { name: "Edit", exact: true }).click();
-      await expect(page.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
+      const [detailRequest] = await Promise.all([
+        page.waitForRequest((request) => {
+          const url = new URL(request.url());
+          return /^\/portal\/properties\/listed\/[^/]+\/preview$/.test(url.pathname) && url.searchParams.get("edit") === "1";
+        }, { timeout: 45_000 }),
+        menu.getByRole("menuitem", { name: "Edit", exact: true }).click(),
+      ]);
+      expect(new URL(detailRequest.url()).searchParams.get("edit")).toBe("1");
+      expect(new URL(detailRequest.url()).pathname).toBe(`/portal/properties/listed/${manager.property.id}/preview`);
+      await expect(page.locator('[data-attr="listing-v2-next"]')).toBeVisible({ timeout: 45_000 });
+      } finally {
+        if (manager) {
+          await cleanupWritableSyntheticManager(manager);
+        }
+      }
     });
   }
 

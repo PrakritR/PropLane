@@ -104,12 +104,12 @@ describe("the provider name is read from the row's label", () => {
 
   it("status lines, guest labels, source labels and booking alerts all say the typed name", () => {
     expect(channelStatusLine({ hasImportUrl: true, lastSyncedAt: null }, new Date(), "ical", "Houfy")).toBe("Waiting for Houfy");
-    expect(bookingGuestLabel("Reserved", "ical", "Houfy")).toBe("Booked (Houfy)");
-    expect(bookingGuestLabel("Houfy (Not available)", "ical", "Houfy")).toBe("Houfy block");
-    expect(bookingEntryGuestLabel({ source: "ical", summary: "Reserved", channelLabel: "Houfy" })).toBe("Booked (Houfy)");
+    expect(bookingGuestLabel("Reserved", "ical", "Houfy")).toBe("Houfy guest");
+    expect(bookingGuestLabel("Houfy (Not available)", "ical", "Houfy")).toBe("Closed on Houfy");
+    expect(bookingEntryGuestLabel({ source: "ical", summary: "Reserved", channelLabel: "Houfy" })).toBe("Houfy guest");
     expect(bookingSourceLabel("ical", "Furnished Finder")).toBe("Furnished Finder");
     expect(bookingSourceLabel("ical")).toBe("Other calendar");
-    expect(dayStayDisplayName({ source: "ical", summary: "", channelLabel: "Houfy" })).toBe("Booked (Houfy)");
+    expect(dayStayDisplayName({ source: "ical", summary: "", channelLabel: "Houfy" })).toBe("Houfy guest");
     const alert = renderChannelBookingEvent("channel_booking_created", { provider: "ical", channelLabel: "Houfy", start: "2026-10-20", end: "2026-10-23" });
     expect(alert.subject).toBe("New Houfy booking");
   });

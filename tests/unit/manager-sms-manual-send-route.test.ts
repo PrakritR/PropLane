@@ -38,6 +38,14 @@ vi.mock("@/lib/auth/portal-access", () => ({
   hasAdminRole: vi.fn(() => false),
   hasRole: vi.fn(() => true),
 }));
+vi.mock("@/lib/auth/route-actor.server", () => ({
+  resolveManagerRouteActor: async () => {
+    const ctx = await (async () => ({ user: { id: "11111111-1111-4111-8111-111111111111" } }))();
+    return ctx?.user
+      ? { ok: true, userId: ctx.user.id, db: (await import("@/lib/supabase/service")).createSupabaseServiceRoleClient() }
+      : { ok: false, status: 401, error: "Sign in again." };
+  },
+}));
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => db,
 }));

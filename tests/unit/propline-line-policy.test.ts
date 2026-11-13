@@ -448,7 +448,7 @@ describe("rule 6: an unknown number's first text", () => {
     const result = await ask(text);
     expect(result).toEqual({ handled: true, sent: true });
     expect(state.sent).toHaveLength(1);
-    expect(state.sent[0]!.text).toBe("Hi, this is PropLane. Are you a resident, a vendor, looking for a place, or want to manage your own property with PropLane?");
+    expect(state.sent[0]!.text).toBe("Are you a resident, a vendor, looking for a place, or want to manage your own property with PropLane?");
     expect(state.sent[0]!.text).toBe(PROPLANE_ROLE_QUESTION);
     expect(state.sent[0]!.to).toBe(PHONES.stranger);
     expect(state.sent[0]!.fromNumber).toBe(LINE);

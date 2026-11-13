@@ -18,7 +18,18 @@ type LinkRow = {
   co_manager_permissions?: unknown;
   house_scope?: string | null;
   team_role?: string | null;
+  workspace_id?: string | null;
 };
+
+async function expandAllHousesSeat(db: SupabaseClient, ownerId: string, workspaceId: string): Promise<string[]> {
+  if (!workspaceId) return [];
+  try {
+    const { workspaceHouseIds } = await import("@/lib/workspaces/membership.server");
+    return await workspaceHouseIds(db, ownerId, workspaceId);
+  } catch {
+    return [];
+  }
+}
 
 async function loadIncomingAssignedProperties(
   db: SupabaseClient,
@@ -42,7 +53,7 @@ async function loadIncomingAssignedProperties(
 
   let query = db
     .from("account_link_invites")
-    .select(`inviter_user_id, ${INVITE_PERMISSION_COLUMNS}`)
+    .select(`inviter_user_id, workspace_id, ${INVITE_PERMISSION_COLUMNS}`)
     .eq("status", "accepted")
     .eq("invitee_user_id", invitee);
   if (inviterUserId?.trim()) query = query.eq("inviter_user_id", inviterUserId.trim());
@@ -79,14 +90,19 @@ async function loadIncomingAssignedProperties(
     const ownerId = String(row.inviter_user_id ?? "").trim();
     if (!ownerId) continue;
     if (isCrossSandboxPortalPair(viewerEmail, inviterEmailById.get(ownerId) ?? "")) continue;
-    const assigned = Array.isArray(row.assigned_property_ids)
+    let assigned = Array.isArray(row.assigned_property_ids)
       ? row.assigned_property_ids
           .filter((id): id is string => typeof id === "string" && Boolean(id.trim()))
           .map((id) => id.trim())
       : [];
+    // A seat stored as house_scope = 'all' carries no explicit ids: it reaches every house of its workspace (the same
+    // expansion Communication applies). A failed read stays empty, never "all".
+    if (assigned.length === 0 && String(row.house_scope ?? "").trim() === "all") {
+      assigned = await expandAllHousesSeat(db, ownerId, String(row.workspace_id ?? "").trim());
+    }
     if (assigned.length === 0) continue;
     ownerIds.add(ownerId);
-    permissionsByOwner[ownerId] = readPropertyPermissionsFromRow(row);
+    permissionsByOwner[ownerId] = readPropertyPermissionsFromRow({ ...row, assigned_property_ids: assigned });
     for (const id of assigned) propertyIds.add(id);
   }
 

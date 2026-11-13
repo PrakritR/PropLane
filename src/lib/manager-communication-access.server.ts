@@ -84,12 +84,23 @@ export async function resolveCommunicationOwnerId(
   }
 }
 
-/** Assert for an actor sending from a workspace: resolve its owner, then check that owner's plan. */
+/**
+ * Assert for an actor sending from a workspace: resolve its owner, then check that owner's plan.
+ *
+ * Plan isolation: a PropLane-managed (`is_service`) workspace is PropLane's own operation and PropLane pays for what it
+ * sends (`sendAsPropLaneAfterRefusal`, the service wallet). The admin who owns it is therefore never refused over their
+ * OWN plan (a trial or lapsed account) for sending from it. A workspace whose managed flag cannot be read is not assumed
+ * managed: the owner's plan decides, fail closed as before.
+ */
 export async function assertManagerCommunicationAllowedForWorkspace(
   db: Parameters<typeof resolveCommunicationOwnerId>[0],
   actorUserId: string,
   workspaceId?: string | null,
 ): Promise<ManagerCommunicationAccess> {
+  if (String(workspaceId ?? "").trim()) {
+    const { isManagedWorkspace } = await import("@/lib/service/managed-plan-isolation.server");
+    if (await isManagedWorkspace(db, workspaceId).catch(() => false)) return { allowed: true };
+  }
   const owner = await resolveCommunicationOwnerId(db, actorUserId, workspaceId);
   if (!owner) {
     return {

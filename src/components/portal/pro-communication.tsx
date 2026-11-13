@@ -9,6 +9,7 @@ import { useSearchParams } from "next/navigation";
 import { consumeComposeQueryParam } from "@/lib/portals/compose-query";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
+import { useCommunicationFromFilter } from "@/hooks/use-communication-from-filter";
 import { CommunicationFilterSortFields } from "@/components/portal/communication-filter-sort-fields";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { ManagerUnifiedInbox } from "@/components/portal/pro-unified-inbox";
@@ -72,6 +73,7 @@ export function communicationFilterTouches(
   if (filters.propertyIds.length > 0) n += 1;
   if (filters.roles.length > 0) n += 1;
   if (filters.contactIds.length > 0) n += 1;
+  if (filters.from && filters.from !== "all") n += 1;
   if (listSort !== "recent") n += 1;
   return n;
 }
@@ -116,10 +118,13 @@ export function ManagerCommunication({
   const isPhone = useIsPhoneViewport();
   const inboxRef = useRef<ManagerInboxHandle>(null);
   const smsRef = useRef<ManagerSmsPanelHandle>(null);
+  // The dashboard's "N messages didn't deliver" item lands here with ?filter=not-delivered.
+  const wantsNotDelivered = useSearchParams()?.get("filter") === "not-delivered";
   const [filters, setFilters] = useState<CommunicationThreadFilters>({
     ...EMPTY_COMMUNICATION_THREAD_FILTERS,
-    status: listSegmentProp === "unread" ? "unread" : "active",
+    status: listSegmentProp === "unread" ? "unread" : wantsNotDelivered ? "notDelivered" : "active",
   });
+  useCommunicationFromFilter(filters, setFilters);
   useEffect(() => {
     setFilters((current) => {
       if (listSegment === "unread") {
@@ -289,7 +294,14 @@ export function ManagerCommunication({
     if (filters.status && filters.status !== "active" && filters.status !== "archived") {
       chips.push({
         id: "status",
-        label: filters.status === "read" ? "Read" : filters.status === "scheduled" ? "Scheduled" : "Unread",
+        label:
+          filters.status === "read"
+            ? "Read"
+            : filters.status === "scheduled"
+              ? "Scheduled"
+              : filters.status === "notDelivered"
+                ? "Not delivered"
+                : "Unread",
         onRemove: () => setFilters((f) => ({ ...f, status: "active" })),
       });
     }
@@ -338,6 +350,8 @@ export function ManagerCommunication({
       listSort={listSort}
       onListSortChange={setListSort}
       hideArchived
+      hideRole
+      showFrom
       showScheduled={isPhone}
     />
   );

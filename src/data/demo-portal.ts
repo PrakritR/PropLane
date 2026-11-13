@@ -127,6 +127,10 @@ export type DemoApplicantRow = {
     vehicles?: number;
     /** Where automatic messages to this resident go first. Absent = email. */
     preferredContact?: "email" | "sms";
+    /** How this person can be reached (the app is always implied). Absent = they never chose, so every channel they can receive. */
+    reachBy?: Array<"app" | "email" | "sms">;
+    /** The manager recorded that this person has no phone, so a blank Phone is a choice and not an omission. */
+    noPhone?: boolean;
     /** Files the manager attached at Add resident beyond ID / income: application PDF, other. Bytes live in the private application-documents bucket. */
     documents?: Array<{ kind: string; storagePath: string; fileName: string; mimeType: string; sizeBytes: number; uploadedAt: string }>;
     /** Set on a manager-added prospect (Residents › Potential) who has not applied yet. */

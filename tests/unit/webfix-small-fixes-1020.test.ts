@@ -29,12 +29,16 @@ describe("a stored price never reads $$ in the bed picker", () => {
 });
 
 describe("the web channel never carries the PropLane number", () => {
-  it("/rent has its own layout with no texting snapshot", () => {
+  it("/rent has its own layout: the chrome gets no texting snapshot, only the page content gets the configured line (design-1112 §5.1)", () => {
     expect(existsSync(join(process.cwd(), "src/app/(rent)/layout.tsx"))).toBe(true);
     expect(existsSync(join(process.cwd(), "src/app/(public)/rent"))).toBe(false);
     const layout = read("src/app/(rent)/layout.tsx");
-    expect(layout).toContain("phone: null, smsHref: null");
-    expect(layout).not.toContain("getPublicTextingConfig");
+    // The shell (navbar, footer) is handed an EMPTY snapshot, so the number never reaches the menu or the footer.
+    expect(layout).toMatch(/<PublicShell texting=\{\{ phone: null, smsHref: null \}\}>/);
+    // The configured line reaches the content only, for the listing's Text us control, and is never a literal.
+    expect(layout).toContain("getPublicTextingConfig");
+    expect(layout).toContain("<PublicTextingProvider value={texting}>{children}</PublicTextingProvider>");
+    expect(layout).not.toMatch(/\+1\d{10}|206[\s).-]*678/);
   });
 
   it("the auth brand panel shows no number and the shell reads none", () => {
@@ -42,11 +46,12 @@ describe("the web channel never carries the PropLane number", () => {
     expect(read("src/components/auth/auth-split-shell.tsx")).not.toContain("getPublicTextingConfig");
   });
 
-  it("the short-stay card is found by a data hook, not a duplicated id", () => {
+  it("the listing page carries no short-stay card (captain, Nov 12), and never a duplicated id for one", () => {
     const sections = read("src/components/marketing/listing-detail-sections.tsx");
     expect(sections).not.toContain('id="short-stay-card"');
     expect(sections).not.toContain('getElementById("short-stay-card")');
-    expect(sections).toContain("data-short-stay-card");
+    expect(sections).not.toContain("data-short-stay-card");
+    expect(sections).not.toContain("scrollToShortStayCard");
   });
 });
 

@@ -10,7 +10,7 @@ import {
 } from "@/lib/channel-calendar/reservation-details";
 import { icalEventsToImportedRanges } from "@/lib/channel-calendar/sync.server";
 import { parseConnectionRow } from "@/lib/channel-calendar/connections.server";
-import { bookingEntryGuestLabel, bookingEntryNamedLabel } from "@/lib/channel-calendar/booking-guest-label";
+import { bookingEntryGuestLabel, channelStayName } from "@/lib/channel-calendar/booking-guest-label";
 
 const FEED = [
   "BEGIN:VCALENDAR",
@@ -94,11 +94,12 @@ describe("reservation code and phone suffix", () => {
 });
 
 describe("icalEventsToImportedRanges", () => {
-  it("stores the code and phone suffix, never the raw description", () => {
+  it("stores the code and phone suffix, and the description (trimmed, manager-side) on a reservation only", () => {
     const [reserved, block] = icalEventsToImportedRanges(parseIcsCalendar(FEED));
     expect(reserved).toMatchObject({ sourceUid: "uid-reserved@airbnb.com", summary: "Reserved", reservationCode: "HMABCDEFGH", phoneLast4: "1234" });
-    expect(JSON.stringify(reserved)).not.toContain("Reservation URL");
-    expect(reserved).not.toHaveProperty("description");
+    expect(reserved!.description).toContain("Reservation URL");
+    expect(reserved!.description!.length).toBeLessThanOrEqual(500);
+    expect(block).not.toHaveProperty("description");
     expect(block).toMatchObject({ hostBlock: true });
     expect(block).not.toHaveProperty("reservationCode");
   });
@@ -123,14 +124,14 @@ describe("guest label precedence", () => {
   it("is typed name, then Airbnb guest + code, then the existing label", () => {
     expect(bookingEntryGuestLabel({ ...stay, guestName: "  Maria Lopez " })).toBe("Maria Lopez");
     expect(bookingEntryGuestLabel(stay)).toBe("Airbnb guest · HMABCDEFGH");
-    expect(bookingEntryGuestLabel({ source: "airbnb", summary: "Reserved" })).toBe("Booked (Airbnb)");
-    expect(bookingEntryGuestLabel({ source: "booking_com", summary: "Reserved" })).toBe("Booked (Booking.com)");
+    expect(bookingEntryGuestLabel({ source: "airbnb", summary: "Reserved" })).toBe("Airbnb guest");
+    expect(bookingEntryGuestLabel({ source: "booking_com", summary: "Reserved" })).toBe("Booking.com guest");
   });
 
   it("keeps a real feed name over the code label, and host blocks over everything", () => {
     expect(bookingEntryGuestLabel({ ...stay, summary: "Alex M." })).toBe("Alex M.");
-    expect(bookingEntryGuestLabel({ source: "airbnb", summary: "Airbnb (Not available)", guestName: "Nope", reservationCode: "HMABCDEFGH" })).toBe("Airbnb block");
-    expect(bookingEntryNamedLabel({ source: "airbnb", summary: "Airbnb (Not available)", guestName: "Nope" })).toBeNull();
+    expect(bookingEntryGuestLabel({ source: "airbnb", summary: "Airbnb (Not available)", guestName: "Nope", reservationCode: "HMABCDEFGH" })).toBe("Closed on Airbnb");
+    expect(channelStayName({ source: "airbnb", summary: "Airbnb (Not available)", guestName: "Nope" })).toBe("Closed on Airbnb");
   });
 
   it("leaves PropLane stays alone", () => {

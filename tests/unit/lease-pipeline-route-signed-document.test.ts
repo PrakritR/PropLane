@@ -931,6 +931,32 @@ describe("POST /api/portal-lease-pipeline: signed documents are immutable server
     expect(storedRowData().status).toBe("Resident Signature Pending");
   });
 
+  // A lease "sent" to an import placeholder address reaches nobody yet flips to Resident Signature Pending.
+  // The server refuses the transition itself (the browser gate is a convenience).
+  it("refuses sending a lease to an import placeholder email, with the reason", async () => {
+    const legacy = executedRow({
+      bucket: "manager",
+      status: "Manager Review",
+      residentEmail: "jordan-lee-ab12cd@import.proplane.local",
+      residentSignature: null,
+      managerSignature: null,
+      fullySignedAt: null,
+      generatedHtml: "<html><body>Legacy lease body</body></html>",
+    });
+    seedExecuted(legacy);
+    state.leases[0]!.status = "manager_review";
+
+    const send = await post({
+      action: "upsert",
+      row: { ...legacy, status: "Resident Signature Pending", bucket: "resident", sentToResidentAt: "2026-09-24T01:00:00.000Z" },
+    });
+    expect(send.status).toBe(409);
+    const body = (await send.json()) as { error?: string; blocked?: string };
+    expect(body.blocked).toBe("placeholder-email");
+    expect(body.error).toMatch(/no real email/i);
+    expect(storedRowData().status).toBe("Manager Review");
+  });
+
   // Sendable with no application named, but it is not an imported document either: a link it DOES name is
   // still measured, so the two gates read the same one classification of the stored row.
   it("measures the terms of a legacy lease that names an application", async () => {

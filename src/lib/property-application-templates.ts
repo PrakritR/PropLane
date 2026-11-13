@@ -79,12 +79,7 @@ export type PropertyApplicationTemplate = {
    * link; never set on a cosigner-variant template itself.
    */
   linkedCosignerApplicationTemplateId?: string | null;
-  /**
-   * When a prospect applies with this form relative to a tour: "before_tour" (apply, then book the
-   * tour), "after_tour" (tour first, then apply) or "workspace" / absent = follow the workspace
-   * setting (Settings -> Workspace -> Automations, "Application before a tour").
-   * Enforced SERVER-SIDE with the workspace setting in `application-before-tour.server.ts`.
-   */
+  /** Dead field: stored and shown by the Forms library, never read for a decision (there is no application-before-tour gate). */
   tourOrder?: ApplicationTourOrder;
   /**
    * Set when this copy was added from the workspace Forms library (`leasing-forms-library.ts`): the

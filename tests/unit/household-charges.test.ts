@@ -301,6 +301,58 @@ describe("syncHouseholdChargesFromServer", () => {
 });
 
 describe("mergeHouseholdChargesWithServer", () => {
+  it.each(["paid", "succeeded"])("keeps the verified %s provider receipt on the exact paid charge without a mirror write", (stripePaymentStatus) => {
+    const local = makeCharge({ id: "exact", status: "pending", paidMethod: "Cash" });
+    const server = makeCharge({ id: "exact", status: "paid", stripeCheckoutSessionId: "cs_verified", stripePaymentStatus, paidAmountCents: 100, paidAt: "2026-10-01" });
+    const result = mergeHouseholdChargesWithServer([server], [local]);
+    expect(result.merged[0]).toMatchObject({ id: "exact", status: "paid", stripeCheckoutSessionId: "cs_verified", stripePaymentStatus, paidAmountCents: 100 });
+    expect(result.merged[0]?.paidMethod).toBeUndefined();
+    expect(result.hasUpdated).toBe(false);
+  });
+
+  it("keeps a legacy settled provider source when payment status is absent", () => {
+    const local = makeCharge({ id: "exact", status: "pending" });
+    const server = makeCharge({ id: "exact", status: "paid", stripeCheckoutSessionId: "cs_legacy" });
+    const result = mergeHouseholdChargesWithServer([server], [local]);
+    expect(result.merged[0]).toMatchObject({ status: "paid", stripeCheckoutSessionId: "cs_legacy" });
+    expect(result.merged[0]?.stripePaymentStatus).toBeUndefined();
+    expect(result.hasUpdated).toBe(false);
+  });
+
+  it("preserves a locally confirmed refund against a stale paid snapshot", () => {
+    const local = makeCharge({ id: "exact", status: "refunded", refundedCents: 100, stripeCheckoutSessionId: "cs_verified" });
+    const server = makeCharge({ id: "exact", status: "paid", refundedCents: 40, stripeCheckoutSessionId: "cs_verified" });
+    const result = mergeHouseholdChargesWithServer([server], [local]);
+    expect(result.merged[0]).toMatchObject({ status: "refunded", refundedCents: 100 });
+    expect(result.hasUpdated).toBe(false);
+  });
+
+  it("takes settled refund status and monotonic refund totals without a mirror write", () => {
+    const local = makeCharge({ id: "exact", status: "paid", refundedCents: 70 });
+    const server = makeCharge({ id: "exact", status: "refunded", stripeCheckoutSessionId: "cs_verified", stripePaymentStatus: "paid", refundedCents: 50 });
+    const result = mergeHouseholdChargesWithServer([server], [local]);
+    expect(result.merged[0]).toMatchObject({ status: "refunded", refundedCents: 70, stripeCheckoutSessionId: "cs_verified" });
+    expect(result.hasUpdated).toBe(false);
+    expect(mergeHouseholdChargesWithServer([{ ...server, status: "paid", refundedCents: undefined }], [local]).merged[0]?.refundedCents).toBe(70);
+    expect(mergeHouseholdChargesWithServer([{ ...server, status: "paid", refundedCents: 90 }], [local]).merged[0]?.refundedCents).toBe(90);
+  });
+
+  it("does not transfer provider evidence to a business-key alias or another owner", () => {
+    const server = makeCharge({ id: "server", managerUserId: "owner", status: "paid", stripeCheckoutSessionId: "cs_server", stripePaymentStatus: "paid" });
+    const alias = makeCharge({ id: "alias", managerUserId: "owner", status: "paid" });
+    const other = makeCharge({ id: "server", managerUserId: "other", status: "paid" });
+    const result = mergeHouseholdChargesWithServer([server], [alias, other]);
+    expect(result.merged.some((row) => row.id === "alias" && row.managerUserId === "owner")).toBe(true);
+    expect(result.merged.some((row) => row.managerUserId === "other")).toBe(true);
+    expect(result.merged.find((row) => row.id === "alias")?.stripeCheckoutSessionId).toBeUndefined();
+    expect(result.merged.find((row) => row.managerUserId === "other")?.stripeCheckoutSessionId).toBeUndefined();
+  });
+
+  it("does not adopt provider evidence when both owner identities are missing", () => {
+    const local = makeCharge({ id: "exact", managerUserId: null, status: "pending" });
+    const server = makeCharge({ id: "exact", managerUserId: null, status: "paid", stripeCheckoutSessionId: "cs_verified", stripePaymentStatus: "paid" });
+    expect(mergeHouseholdChargesWithServer([server], [local]).merged[0]?.stripeCheckoutSessionId).toBeUndefined();
+  });
   it("carries the server-stamped residentVisibleAt through the local-wins merge", () => {
     const server = makeCharge({ id: "chg-1", status: "pending", residentVisibleAt: "2026-09-20T18:00:00.000Z" });
     const local = makeCharge({ id: "chg-1", status: "pending", title: "Edited locally" });

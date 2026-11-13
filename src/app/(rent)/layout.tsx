@@ -1,7 +1,9 @@
 import { PublicShell } from "@/components/layout/public-shell";
 import "@/components/public-site/public-site.css";
 import type { Metadata } from "next";
+import { PublicTextingProvider } from "@/components/marketing/public-texting-context";
 import { IOS_APP_STORE_APP_ID } from "@/lib/ios-app-download";
+import { getPublicTextingConfig } from "@/lib/marketing/public-texting.server";
 // The same first-flush styles as the (public) layout: /rent is the same public site, minus the texting number.
 import "@/components/marketing/texting-home.css";
 import "@/components/marketing/home-scroll-stage.css";
@@ -23,10 +25,17 @@ export const metadata: Metadata = {
 };
 
 /**
- * `/rent/*` is the WEB channel (captain, Oct 20): a request made on the website is answered on the website, so this
- * layout never reads the PropLane number. It is the (public) shell with no texting snapshot, which keeps the number
- * and the sms href out of every /rent payload (the footer's `isRentPath` guard only hid them in the browser).
+ * `/rent/*` is the WEB channel: a request made on the website is answered on the website. The chrome (navbar, footer)
+ * still takes no number, so the sms href stays out of the menu and the footer. The configured PropLane line reaches
+ * the page CONTENT only, through the nested texting provider, for the listing's "Text us" control and nothing else
+ * (captain, Nov 12, design-1112 §5.1): `getPublicTextingConfig()` is the one source, never a literal, and with no
+ * number configured "Text us" is not drawn.
  */
-export default function RentLayout({ children }: { children: React.ReactNode }) {
-  return <PublicShell texting={{ phone: null, smsHref: null }}>{children}</PublicShell>;
+export default async function RentLayout({ children }: { children: React.ReactNode }) {
+  const texting = await getPublicTextingConfig().catch(() => ({ phone: null, smsHref: null }));
+  return (
+    <PublicShell texting={{ phone: null, smsHref: null }}>
+      <PublicTextingProvider value={texting}>{children}</PublicTextingProvider>
+    </PublicShell>
+  );
 }

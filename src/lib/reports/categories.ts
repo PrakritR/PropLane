@@ -52,6 +52,8 @@ const KIND_TO_CATEGORY: Record<HouseholdChargeKind, string> = {
   prorated_last_month_rent: "rent_income",
   late_fee: "late_fees",
   application_fee: "application_fee",
+  // An optional fee for booking a tour: income the manager earns (never a liability, never rent).
+  tour_fee: "other_income",
   holding_deposit: "security_deposit_liability",
   utilities: "other_income",
   prorated_utilities: "other_income",

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { stripSmsMarkdown } from "@/lib/agent/conversation-style-rules";
 
@@ -11,8 +13,33 @@ describe("stripSmsMarkdown", () => {
     expect(stripSmsMarkdown("## Plan\nline # two")).toBe("Plan\nline # two");
   });
 
+  it("flattens a markdown link so the URL is textable", () => {
+    expect(stripSmsMarkdown("See [the listing](https://proplane.ai/rent/listings/4709a-8th-ave-ne) for photos.")).toBe(
+      "See the listing: https://proplane.ai/rent/listings/4709a-8th-ave-ne for photos.",
+    );
+    expect(stripSmsMarkdown("[https://proplane.ai/rent](https://proplane.ai/rent)")).toBe("https://proplane.ai/rent");
+    expect(stripSmsMarkdown("[](https://proplane.ai/rent)")).toBe("https://proplane.ai/rent");
+  });
+
   it("leaves lone asterisks, underscores and addresses alone", () => {
     expect(stripSmsMarkdown("Unit 4* at 5th_Ave, 2 * 3")).toBe("Unit 4* at 5th_Ave, 2 * 3");
+    expect(stripSmsMarkdown("Room [A] costs $900 (really)")).toBe("Room [A] costs $900 (really)");
     expect(stripSmsMarkdown(null)).toBeNull();
+  });
+});
+
+describe("stripSmsMarkdown at the reply choke points", () => {
+  it("unwraps bold, keeps a URL and a bullet list intact", () => {
+    const reply = "**4709A** has 1 of 10 rooms open:\n- Room 1\n- Room 2\nSee https://proplane.ai/rent/listings/4709a-8th-ave-ne?src=sms_1&a=b_c";
+    expect(stripSmsMarkdown(reply)).toBe(
+      "4709A has 1 of 10 rooms open:\n- Room 1\n- Room 2\nSee https://proplane.ai/rent/listings/4709a-8th-ave-ne?src=sms_1&a=b_c",
+    );
+  });
+
+  it("runs before toGsm7 on the leasing delivery and on every agent-turn reply", () => {
+    const leasing = readFileSync(join(process.cwd(), "src/lib/agent/leasing-sms-agent.server.ts"), "utf8");
+    expect(leasing).toMatch(/toGsm7\(stripSmsMarkdown\(/);
+    const turn = readFileSync(join(process.cwd(), "src/lib/agent/sms-agent-turn.server.ts"), "utf8");
+    expect(turn).toContain("stripSmsMarkdown(stripLongDashes(turn.reply))");
   });
 });

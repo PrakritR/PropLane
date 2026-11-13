@@ -12,12 +12,24 @@ const buckets = new Map<string, Bucket>();
  * tests use memory. A database/configuration failure denies the request; it must
  * never fall back to a per-instance bucket on a deployed server.
  * Apply the rate_limit_buckets migration BEFORE deploying this change.
+ *
+ * `cost` is how many tokens ONE request spends — a send to several new addresses
+ * spends one per address. It is all-or-nothing: a request that cannot have the
+ * whole cost is refused having spent nothing, so a refusal never eats the budget
+ * of the work it did not do. Asking for the tokens one call at a time cannot give
+ * that, because the calls already granted cannot be handed back. A cost above 1 runs
+ * on `consume_rate_limit_cost` (migration `20261111120000_rate_limit_cost`), which must
+ * be applied before deploying a multi-token caller; one token stays on the original
+ * three-argument function, so nothing already deployed depends on the new migration.
  */
-export async function rateLimit(key: string, limit: number, windowMs: number): Promise<RateLimitResult> {
+export async function rateLimit(key: string, limit: number, windowMs: number, cost = 1): Promise<RateLimitResult> {
   if (!key || !Number.isSafeInteger(limit) || limit < 1 || limit > 100_000 ||
-      !Number.isSafeInteger(windowMs) || windowMs < 1 || windowMs > 86_400_000) {
+      !Number.isSafeInteger(windowMs) || windowMs < 1 || windowMs > 86_400_000 ||
+      !Number.isSafeInteger(cost) || cost < 1) {
     throw new Error("Invalid rate limit configuration.");
   }
+  // More than the whole window's budget can never be served, and must never be stored.
+  if (cost > limit) return { ok: false };
   if (process.env.NODE_ENV !== "test" &&
       (process.env.NODE_ENV === "production" || process.env.VERCEL === "1" ||
        process.env.VERCEL_ENV === "production" || process.env.VERCEL_ENV === "preview")) {
@@ -28,8 +40,15 @@ export async function rateLimit(key: string, limit: number, windowMs: number): P
       // policy parameters so two independently configured policies never collide.
       const bucketKey = createHmac("sha256", secret)
         .update(JSON.stringify(["rate-limit-v1", key, limit, windowMs])).digest("hex");
+      // The one-token call stays on the three-argument function every deployed caller
+      // already uses; only a multi-token request needs the cost-aware one.
       const { data, error } = await createSupabaseServiceRoleClient()
-        .rpc("consume_rate_limit", { p_bucket_key: bucketKey, p_limit: limit, p_window_ms: windowMs })
+        .rpc(
+          cost === 1 ? "consume_rate_limit" : "consume_rate_limit_cost",
+          cost === 1
+            ? { p_bucket_key: bucketKey, p_limit: limit, p_window_ms: windowMs }
+            : { p_bucket_key: bucketKey, p_limit: limit, p_window_ms: windowMs, p_cost: cost },
+        )
         .abortSignal(AbortSignal.timeout(3000));
       if (error || typeof data !== "boolean") throw new Error("Rate limit store unavailable.");
       return { ok: data };
@@ -47,15 +66,15 @@ export async function rateLimit(key: string, limit: number, windowMs: number): P
   const existing = buckets.get(key);
 
   if (!existing || now >= existing.resetAt) {
-    buckets.set(key, { count: 1, resetAt: now + windowMs });
+    buckets.set(key, { count: cost, resetAt: now + windowMs });
     return { ok: true };
   }
 
-  if (existing.count >= limit) {
+  if (existing.count + cost > limit) {
     return { ok: false };
   }
 
-  existing.count += 1;
+  existing.count += cost;
   return { ok: true };
 }
 

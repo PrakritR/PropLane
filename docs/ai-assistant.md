@@ -15,6 +15,9 @@ resident route, registry, persona or row scoping changed; the same tools also
 serve resident SMS and the inbox agents (`set_autopay` is portal-only). Guards:
 `tests/unit/agent/portal-assistant-wiring.test.ts`,
 `tests/unit/resident-portal-top-bar-assistant.test.tsx`.
+(Nov 12) The resident's Communication list pins this SAME conversation as its first row, named "PropLane": its thread
+pane is the shared dock panel on this endpoint, so the top bar, the dashboard card, the phone's Ask tab and the list
+are one history. See `communication-inbox.md` § What a resident's conversations are called.
 
 All conversational surfaces assemble their runtime prompt through
 `src/lib/agent/system-prompts.ts`. It is the catalog for portal, public-site,
@@ -761,3 +764,21 @@ The prospect leasing registry includes `get_nearby_transit`, a read-only,
 property-scoped OpenStreetMap lookup. Model input supplies only a listing id and
 fixed mode; the server owns coordinates, address geocoding, query radius, and
 provider request construction.
+
+## Resident handoff: "Resident asked for you" (Nov 10)
+
+`send_message_to_manager` from the in-app resident assistant (`ctx.channel === "portal"` only, never SMS, email or voice) writes, AFTER the message is
+delivered, a manager Needs-attention item through the existing manager-notice source: `recordResidentHandoff` (`resident-handoff.server.ts`) calls
+`notifyManagerFromAgent` once per distinct linked manager with `threadType: "resident_handoff"` (stamped `noticeType` on the message in the manager's
+PropLane Assistant thread, plus a push), idempotent per resident, manager, message and day. `buildManagerAttentionRows` shows "Resident asked for you"
+(`residentHandoffCount`, from `countResidentHandoffs` over the inbox mirror; counted while that thread is unread and back to the manager's own reply, so
+reading or replying clears it). The tool result says "They have been notified" and returns `managerNotified: true` only when a notice row was written; the
+resident system prompt allows the assistant to say the manager was notified only after that confirmed result. Tests: `resident-handoff.test.ts`.
+
+The resident phone bar has an **Ask** tab in the center slot (`residentBarWithAsk`; the fourth stage tab, Messages, moves into More, which sums its badge)
+and the dashboard has a desktop Ask PropLane card. Ask is the assistant, not a section, so it is in neither `RESIDENT_BOTTOM_NAV_PRIMARY` nor
+`STAGE_UNLOCKED_SECTIONS`; an unread dot reads the resident's own assistant thread. Tests: `resident-ask-nav.test.tsx`.
+
+## Listings by text (manager SMS)
+
+The manager SMS agent and the deterministic command layer (`src/lib/manager-sms-commands/`, `docs/agents/sms-system.md` § Manager commands by text) share the same typed tools: `create_listing_draft_by_text` (a DRAFT from address, rooms and rent; never public), `update_room_rent` / `update_property` (rent), `update_listing_details` (a room's or the listing's availability date and description detail) and `apply_listing_photos` (MMS photos filed into a room or the house gallery). Each write is a preview plus the confirmation (the 4-digit code on the PropLane line); none is destructive, so `buildManagerSmsRegistry` carries them. Publishing a listing and approving an application are still portal-only.

@@ -10,9 +10,13 @@ import { getListingRichContent } from "@/data/listing-rich-content";
 import { loadPublicPropertyLeadFromServer, PROPERTY_PIPELINE_EVENT } from "@/lib/demo-property-pipeline";
 import { getPropertyForPublicLink } from "@/lib/rental-application/data";
 
-export function PublicListingPageClient() {
+/**
+ * `listingId` is the property id the server resolved from the URL (the URL segment may be a readable address slug);
+ * without it the segment is read as the id, as before.
+ */
+export function PublicListingPageClient({ listingId: resolvedId }: { listingId?: string } = {}) {
   const params = useParams();
-  const listingId = typeof params.id === "string" ? params.id.trim() : "";
+  const listingId = resolvedId?.trim() || (typeof params.id === "string" ? params.id.trim() : "");
   const [tick, setTick] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { loadManagerTourSettings, saveManagerTourSettings, normalizeManagerTourSettings, type ManagerTourSettings } from "@/lib/manager-tour-settings";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { TOUR_FEE_SETTING_ENABLED } from "@/lib/tour-fee";
 import { assertTourSettingsCoManagerAccess } from "@/lib/auth/manager-settings-module-access.server";
 import {
   clearPropertyOverride,
@@ -71,7 +72,7 @@ export async function GET(req: Request) {
     const access = await assertTourSettingsCoManagerAccess(ctx.db, ctx.userId, "read");
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     const scope = resolveSettingsScopeParams(req.url);
-    const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope);
+    const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope, { intent: "read" });
     if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });
     const { ownerUserId, propertyId, workspaceId } = scopeAccess;
     const [{ settings, source }, overriddenPropertyIds] = await Promise.all([
@@ -120,6 +121,9 @@ export async function PATCH(req: Request) {
     delete patch.propertyId;
     delete patch.workspaceId;
     delete patch.reset;
+    // The tour fee is not offered until a prospect has a safe place to pay it (`TOUR_FEE_SETTING_ENABLED`): until then a
+    // stored fee can only be the 0 it defaults to, whatever a request says.
+    if (!TOUR_FEE_SETTING_ENABLED) delete patch.tourFeeCents;
     const normalized = normalizeManagerTourSettings({ ...current, ...patch });
     const rung: "property" | "workspace" | "account" = propertyId ? "property" : workspaceId ? "workspace" : "account";
     if (propertyId) {

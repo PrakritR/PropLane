@@ -81,6 +81,9 @@ it does not change the semantics of `request_tour`.
   before presenting the offer and again in the booking handler. Only explicitly
   published slots are eligible; defaults, stale slot ids, ambiguous listings,
   unavailable listings, and expired offers are never auto-confirmed.
+  When no published slot exists the agent never says "no tour slots are
+  published": it sends the listing's tour link, where the website's open grid
+  (published windows or the default grid) can be requested.
 - The inbound texting number is the trusted contact identity. A name is required
   and email is optional. The property, room, host eligibility, exact offer, and
   scope are re-derived server-side; model-supplied ids do not grant access.
@@ -155,7 +158,9 @@ signup handoff: `email_onboarding_handoffs.tour_slot_key` (+ `property_id`, `lis
 (slot-mode and requested-time) without a signed-in session: 401 `sign_in_required`, before anything is read or written, failing closed when
 the session cannot be read; the body's `email` is never an identity. The only anonymous use left is `kind: "partner"` (the partner-meeting
 scheduler, no tour). Server callers do not use this route: the assistant's tour tools and the leasing SMS agent call `createTourInquiry`
-directly. Guards: `tests/unit/partner-inquiry-sms-consent.test.ts`, `tests/unit/tour-application-gate-routes.test.ts`.
+directly. Guards: `tests/unit/partner-inquiry-sms-consent.test.ts`, `tests/unit/tour-verified-session-context.test.ts`.
+
+There is no application-before-tour gate (removed Nov 10, captain); anyone signed in can request a tour.
 
 ## Requested time: a house with no open slot (`requestKind: "requested_time"`)
 
@@ -491,6 +496,12 @@ inquiry id, recipient email, manager and property; redeeming it goes through
 `/api/auth/email-onboarding/start` with intent `tour`, which reserves the exact tour context before Auth
 can mint an OTP and retries only the same still-pending handoff.
 
+### Optional tour fee (Nov 12; setting hidden)
+
+Applications, leases and tours are free through PropLane by default; a manager can charge for a tour. `tourFeeCents` lives on the tour settings (property override, workspace row or account row, same resolver as the notice days), default 0, and **0 changes nothing anywhere**. Above 0 (`src/lib/tour-fee.server.ts`): a signed-in guest's request raises ONE pending `tour_fee` household charge before the request is stored (id `hc_tour_fee_<inquiryId>`, through `persistHouseholdChargeRows`, so the ledger sync and `charge_created` notice follow); the pending request is the slot's hold; `confirmTourInquiry` refuses (402) while the fee is unpaid (an unreadable fee refuses, 503); a manager cancel (`cancelPlannedTour`), decline/delete, or a confirm that removes a sibling request settles the fee: paid -> full refund through `runHouseholdChargeRefund` on operation key `tour-fee-refund:<inquiryId>`, unpaid -> the charge is cancelled. An SMS prospect has no account and owes nothing. `tour_fee` is income (`other_income`), not rent (the fee payer follows the ordinary resolver), and a prospect who owes one is not evidence of a tenancy (`PRE_TENANCY_CHARGE_KINDS`).
+
+**The setting is hidden (`TOUR_FEE_SETTING_ENABLED = false` in `src/lib/tour-fee.ts`) and the settings route ignores `tourFeeCents` until it is flipped**, because a prospect has no safe place to pay yet: the resident Payments page is stage-locked for them and the notice's link would be a dead click. Turning it on needs a prospect pay surface (a `/l/` link or an embedded checkout reachable at stage 0) first. Tests: `tour-fee`, `tour-fee-wiring`.
+
 ## Tour tools, and who may do what
 
 | Tool | Registries | What it does |
@@ -587,27 +598,3 @@ lives in `src/lib/calendar-availability-window.ts`; the hatched bands and the gr
 - **A channel calendar is a WRITE on the house**, not the read access this availability row grants —
   see [`integrations.md`](integrations.md) § A channel calendar is a WRITE on the house, which owns
   the Integrations page, the Connect popup and the channel calendars' access levels.
-
-## Application before a tour (workspace setting, Oct 3 2026)
-
-Settings -> Workspace -> Automations -> "Application before a tour" (Not needed by
-default / Required, `leasingPipeline.applicationBeforeTour`). When Required a prospect cannot
-request a tour of a property until they have an **APPROVED** application for it — `tourBlockReason`
-(`application-before-tour-policy.ts`) is the one matrix: setting off, scheduling is open whatever the
-application says (a denial included); setting on, only `approved` passes, and the other three answer
-in their own words (`apply_first`, `pending_approval`, `denied` — `TOUR_BLOCK_LABELS` is the
-one-line heading each inline blocked state shows, with no sentence under it). The rule lives in
-`src/lib/application-before-tour.server.ts` and is re-derived server-side: the property's owner
-and their saved setting, then the caller's `manager_application_records` (scoped on the
-`resident_email` column). `createTourInquiry` is the one enforcement point (web form, resident
-assistant, leasing SMS), and it trusts only `verifiedApplicantEmail`: the signed-in session's email
-from `POST /api/public/partner-inquiries` (which since Nov 3 refuses a tour without one), the account
-email for the resident tool, and nothing for an SMS prospect (a body's `email` proves nothing). The refusal is a 403
-`application_required` with a clear message. Manager-scheduled tours (`createManualPlannedTour`,
-`book_tour`, accepting an inquiry) never pass through it. The page half: the public projection
-stamps `applicationBeforeTour: true` (only when Required), `buildProspectTourHref` sends a visitor
-to Apply, and `TourScheduleFlow` shows `TourApplicationFirstPanel` until
-`GET /api/public/tour-application-gate` says the caller may book; the panel offers the Apply link on
-`apply_first` alone, since there is nothing to apply for on the other two. Coverage:
-`tests/unit/application-before-tour.test.ts`, `tour-application-gate-routes.test.ts`,
-`tour-application-first-ui.test.tsx`, `tools/tours.test.ts`.

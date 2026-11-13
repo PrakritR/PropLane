@@ -170,6 +170,28 @@ describe("resolveManagerSmsAccess", () => {
     });
   });
 
+  it("a house_scope=all seat with no explicit ids reaches every house of ITS workspace only (never another workspace)", async () => {
+    const db = seed({
+      account_link_invites: [
+        { id: "l-all", status: "accepted", inviter_user_id: OWNER, invitee_user_id: CO, assigned_property_ids: [], house_scope: "all", workspace_id: "ws-svc", team_role: "property_manager" },
+      ],
+      manager_property_records: [
+        { id: "h1", manager_user_id: OWNER, workspace_id: "ws-svc" },
+        { id: "h2", manager_user_id: OWNER, workspace_id: "ws-svc" },
+        { id: "h3", manager_user_id: OWNER, workspace_id: "ws-other" },
+      ],
+    });
+    const access = await resolveManagerSmsAccess(db, { actorUserId: CO, workNumberOwnerId: OWNER });
+    expect(access).toMatchObject({ mode: "delegated", assignedPropertyIds: ["h1", "h2"] });
+  });
+
+  it("a house_scope=all seat whose workspace cannot be read reaches nothing", async () => {
+    const db = seed({
+      account_link_invites: [{ id: "l-all", status: "accepted", inviter_user_id: OWNER, invitee_user_id: CO, assigned_property_ids: [], house_scope: "all", workspace_id: null }],
+    });
+    expect(await resolveManagerSmsAccess(db, { actorUserId: CO, workNumberOwnerId: OWNER })).toBeNull();
+  });
+
   it("returns null when the actor has no assignment from this owner", async () => {
     const access = await resolveManagerSmsAccess(seed(), {
       actorUserId: STRANGER,

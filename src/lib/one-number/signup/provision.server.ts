@@ -206,6 +206,11 @@ export async function provisionSmsSignupAccount(db: Db, input: SmsSignupInput): 
       return { ok: false, reason: "unavailable" };
     }
     track(`${input.role}_account_created`, created.id, { signup_method: "sms" });
+    // The signup proved this phone by its texted code: link the prospect record on it (earlier texts, listing messages). A
+    // no-op unless the profile now holds the number verified; never fails the signup.
+    await import("@/lib/prospect-spine/link.server")
+      .then((m) => m.linkAccountToProspectRecord(db, { userId: created.id, phoneE164: input.phoneE164 }))
+      .catch(() => undefined);
     return { ok: true, userId: created.id, email: fresh.email ?? "" };
   } catch (error) {
     console.error("sms signup provisioning failed", error instanceof Error ? error.name : "unknown");

@@ -133,6 +133,31 @@ and the vendor record header open this modal on that vendor by text (a staged
 `vendorRecordId` prefill). Hidden with the rest of the SMS compose when
 `SMS_COMM_UI_ENABLED` is off.
 
+## Message a whole house
+
+A house recipient in New message ("⌂ <address> · everyone living there (N)") is ONE copy per person, never a
+group text: the sheet reads the people from `GET /api/portal/house-recipients` (the occupancy snapshot, the house
+re-checked against the workspace and the viewer's Communication grant) ONCE per pick - that answer is everyone
+living there with the short-stay guests flagged, and "Include short-stay guests" filters it in place rather than
+re-running the snapshot - and sends each person through the existing `/api/portal/send-inbox-message`, three at
+a time, so every copy lands in that person's own conversation under the same authorization and a reply stays
+one-to-one. Each person's send carries its own `sendId`, kept per content fingerprint: the send route derives
+that turn's message ids from it, so a fan-out refused part-way (the per-minute send cap) is re-tried - by the
+fan-out itself for a 429, or by the manager pressing Send again - without a second copy, email or text for
+anyone it already reached. The tally (Text / Email / App "n of N", one amber line for who lacks a phone or real
+email) and the summary sheet come from `house-message-recipients.ts`; the in-app House chat is unchanged and
+stays in-app only.
+
+**A house text is ABOUT the house's workspace.** Each copy carries `houseSendPropertyId` (a name, never
+authorization); the send route re-derives the workspace, its OWNER and the actor's Communication grant on that house
+(`resolveHouseSendTarget`, `house-message-send.server.ts`) and texts from that workspace's line
+(`resolveHouseSmsLine` over `resolveWorkspaceSendLine` / `resolveServiceLine`: a self-serve workspace's own number,
+the PropLane line for an `is_service` workspace, the shared line when it is live), billed to the owner's wallet - never
+the sender's default workspace, legacy `sms_from_number` or own number; no sendable line REFUSES the text. A wanted
+channel with no recorded delivery reads "Not sent" with its reason (`skipped` in the route's response), never "Sent";
+nothing is mirrored to the manager's own phone, and a text the outbox only deferred is followed to its inbox message
+through `inbox_message_provider_refs` (`outbox:<id>`) so it stops reading "Sending…".
+
 ## Tests
 
 A new send surface fails if it does not import the shared compose fields, or

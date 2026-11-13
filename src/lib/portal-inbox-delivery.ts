@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { hasRealEmailAddress, resolveRecipientChannels } from "@/lib/recipient-channels";
+import { loadReachByForEmails } from "@/lib/recipient-channels.server";
 import { aiDraftFieldsAfterReply } from "@/lib/communication/shared-thread-merge";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { sendPortalConversationEmails } from "@/lib/portal-email-send.server";
@@ -15,6 +17,7 @@ import {
   type ResidentSmsLinkKind,
 } from "@/lib/claw-resident-links";
 import { canSendResidentOutboundSms, sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
+import { resolvePropertySendPin } from "@/lib/sms/property-send-pin.server";
 import { sendPushToUser } from "@/lib/push-notifications.server";
 import { inboxDeepLinkForRole } from "@/lib/platform/parity";
 import { enqueueWebhookEvent } from "@/lib/webhooks/deliver.server";
@@ -57,6 +60,14 @@ import {
   resolveThreadAlias,
   upsertKeyedThreadRow,
 } from "@/lib/communication/conversation-thread.server";
+
+import {
+  recordEmailAttempt,
+  recordPlaceholderEmailFailures,
+  recordSmsAttempt,
+  type InboxMessageTarget,
+} from "@/lib/inbox-delivery-status.server";
+import { isPlaceholderMailbox } from "@/lib/inbox-delivery-status";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 /** Re-reads a stale compare-and-set append may spend before it reports a failure the bus retries. */
@@ -627,6 +638,25 @@ export function stablePersonThreadId(prefix: string, ...parts: (string | null | 
   return `${prefix}_${digest}`;
 }
 
+/**
+ * Deterministic ids for the two turns ONE per-person send writes (the sender's sent copy and the
+ * recipient's inbox copy), derived from the composer's `sendId` and the recipient it was authorized for.
+ * Pressing Send again after a partial failure re-sends with the same `sendId`, and `messageId` dedupe then
+ * makes the retry append nothing a second time — a browser operation id only identifies a retry once the
+ * server has bound it to the destination, so the recipient rides in the digest.
+ */
+export function inboxSendMessageIds(
+  senderUserId: string,
+  sendId: string,
+  recipientEmail: string,
+): { sent: string; inbox: string } {
+  const operation = createHash("sha256")
+    .update([senderUserId.trim(), sendId.trim().toLowerCase(), recipientEmail.trim().toLowerCase()].join("\0"))
+    .digest("hex")
+    .slice(0, 32);
+  return { sent: `send:${operation}:sent`, inbox: `send:${operation}:inbox` };
+}
+
 function advanceAfter(previous: string | null, nowIso: string): string {
   const prev = Date.parse(previous ?? "");
   if (!Number.isFinite(prev) || Date.parse(nowIso) > prev) return nowIso;
@@ -1089,6 +1119,11 @@ export async function deliverPortalInboxMessage(
      * the two global booleans apply uniformly to every recipient.
      */
     eventCategory?: NotificationCategory;
+    /**
+     * The channels the automation itself sends on (the manager's saved setting for this event). Only ever
+     * narrows what a recipient's own preferences allow; absent = no restriction from the automation.
+     */
+    eventChannels?: { email?: boolean; sms?: boolean } | null;
     /** Keep durable inbox/email fanout, but defer automated SMS in quiet hours or a digest window. */
     suppressSms?: boolean;
     /** Retry a deferred SMS without re-sending already-delivered inbox/email legs. */
@@ -1301,6 +1336,27 @@ export async function deliverPortalInboxMessage(
     }
   }
 
+  // Reach by: the automation's own channels ∩ the person's Reach by, on top of what they can receive.
+  // Only narrows, so a person who never chose and an automation with no saved channels change nothing.
+  if (channelByEmail && eventCategory) {
+    const narrowable = recipients.filter((r) => !["manager", "owner", "pro", "admin"].includes(String(r.role ?? "").toLowerCase()));
+    const reachByEmail = await loadReachByForEmails(db, narrowable.map((r) => r.email));
+    for (const recipient of narrowable) {
+      const resolved = channelByEmail.get(recipient.email);
+      const reachBy = reachByEmail.get(recipient.email);
+      if (!resolved || (!reachBy && !opts.eventChannels)) continue;
+      const allowed = resolveRecipientChannels({
+        eventChannels: opts.eventChannels,
+        reachBy,
+        // `resolved.sms` already means: a phone on file, no STOP, and the category preference allows a text.
+        hasVerifiedOrKnownPhone: resolved.sms,
+        optedOut: false,
+        hasRealEmail: hasRealEmailAddress(recipient.email),
+      });
+      channelByEmail.set(recipient.email, { inbox: resolved.inbox, email: resolved.email && allowed.email, sms: resolved.sms && allowed.sms });
+    }
+  }
+
   const emailWanted = (recipient: InboxDeliveryRecipient): boolean =>
     !opts.suppressEmail && (channelByEmail ? channelByEmail.get(recipient.email)?.email === true : deliverViaEmail);
 
@@ -1308,13 +1364,18 @@ export async function deliverPortalInboxMessage(
   // In legacy mode this collapses to "all non-skip recipients when deliverViaEmail",
   // preserving the previous meaning of `toEmails`.
   const willEmail = new Set<string>(
-    recipients.filter((r) => emailWanted(r) && !shouldSkipOutboundEmail(r.email)).map((r) => r.email),
+    // A placeholder import address is recorded "Not a real mailbox" on its message; Resend is never handed it.
+    recipients.filter((r) => emailWanted(r) && !shouldSkipOutboundEmail(r.email) && !isPlaceholderMailbox(r.email)).map((r) => r.email),
   );
   const toEmails = [...willEmail];
   const emailOutcomes: InboxEmailOutcome[] = recipients.map((recipient) => ({
     recipientEmail: recipient.email,
     status: willEmail.has(recipient.email) ? "failed" : "skipped",
   }));
+
+  // Where each recipient's sent copy of this message lives, so provider delivery status can be stamped on it.
+  const sentTargets = new Map<string, InboxMessageTarget>();
+  const sendKey = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
   if (deliverToPortalInbox) {
     const senderScope = scopeForRole(senderRole);
@@ -1332,7 +1393,8 @@ export async function deliverPortalInboxMessage(
       const recipientLower = recipient.email;
 
       // Sender's "Sent" copy — one thread per recipient; repeated sends append.
-      await deliverPortalMessageThreadSide(db, {
+      const sentMessageId = opts.messageId ? `${opts.messageId}:sent:${recipientLower}` : `msg-${sendKey}:${recipientLower}`;
+      const sentSide = await deliverPortalMessageThreadSide(db, {
         scope: senderScope,
         folder: "sent",
         ownerUserId: opts.senderUserId,
@@ -1365,9 +1427,12 @@ export async function deliverPortalInboxMessage(
         automated: opts.automated,
         event: opts.event,
         senderDisplayName: opts.senderDisplayName,
-        messageId: opts.messageId ? `${opts.messageId}:sent:${recipientLower}` : undefined,
+        messageId: sentMessageId,
         recordRef: opts.recordRef,
       });
+      if (sentSide.action !== "skipped" || opts.messageId) {
+        sentTargets.set(recipientLower, { threadId: sentSide.threadId, messageId: sentMessageId });
+      }
 
       if (recipientLower === senderEmail) continue;
 
@@ -1465,12 +1530,19 @@ export async function deliverPortalInboxMessage(
       // SMS leg to continue while every attempted email remains failed.
     }
     for (const email of toEmails) {
+      await recordEmailAttempt(db, sentTargets.get(email), email, emailResults?.get(email));
       const sent = emailResults?.get(email)?.sent === true;
       if (!sent) willEmail.delete(email);
       const outcome = emailOutcomes.find((candidate) => candidate.recipientEmail === email);
       if (outcome) outcome.status = sent ? "submitted" : "failed";
     }
   }
+
+  await recordPlaceholderEmailFailures(
+    db,
+    sentTargets,
+    recipients.filter((r) => emailWanted(r)).map((r) => r.email),
+  );
 
   const sentAt = new Date().toISOString();
   for (const recipient of recipients) {
@@ -1532,11 +1604,22 @@ export async function deliverPortalInboxMessage(
     if (status !== "skipped") smsOutcomes.push({ recipientEmail: recipient.email, status });
   }
   if (residentPathSmsRecipients.length > 0) {
-    const smsFromNumber = String(senderProfile?.sms_from_number ?? "").trim();
+    // A text about one HOUSE (a charge, a reminder) leaves from that house's workspace line, resolved from the stored
+    // house and not from the sender's cached number: a PropLane-managed workspace answers with the PropLane line, any other
+    // workspace with its own. The owner's wallet pays. An unreadable line refuses the text for this attempt (it is reported
+    // as failed and retried), never a fallback to another line.
+    const sendPin = await resolvePropertySendPin(db, {
+      ownerUserId: opts.ownerManagerUserId?.trim() || opts.senderUserId,
+      propertyId: opts.propertyId,
+    });
+    const pinned = sendPin.kind === "pinned" ? sendPin : null;
+    const smsFromNumber = pinned?.line?.phoneNumber || String(senderProfile?.sms_from_number ?? "").trim();
     // The managed dispatcher derives the authoritative work number from the
     // owner. An explicit, server-resolved thread proves that it exists even if
     // the old profiles.sms_from_number cache is blank.
-    if (canSendResidentOutboundSms(smsFromNumber) || opts.smsConversationByEmail !== undefined) {
+    if (sendPin.kind === "unreadable") {
+      for (const recipient of residentPathSmsRecipients) smsOutcomes.push({ recipientEmail: recipient.email, status: "failed" });
+    } else if (canSendResidentOutboundSms(smsFromNumber) || opts.smsConversationByEmail !== undefined || pinned?.line) {
       const recipientEmails = residentPathSmsRecipients.map((r) => r.email);
       const { data: phones } = await db.from("profiles").select("email, phone").in("email", recipientEmails);
       const phoneByEmail = new Map((phones ?? []).map((p) => [String(p.email).toLowerCase(), String(p.phone ?? "").trim()]));
@@ -1583,7 +1666,8 @@ export async function deliverPortalInboxMessage(
         const openThread =
           recipientIsResident
             ? {
-                managerUserId: opts.senderUserId,
+                // A house-pinned text is logged against the workspace OWNER (the line's and wallet's owner).
+                managerUserId: pinned ? opts.ownerManagerUserId?.trim() || opts.senderUserId : opts.senderUserId,
                 residentUserId: recipient.userId,
                 residentEmail: recipient.email,
                 topic:
@@ -1613,11 +1697,22 @@ export async function deliverPortalInboxMessage(
             linkKind: null, // already appended above
             sendClass: eventCategory ? "automated" : "transactional",
             openThread,
+            ...(pinned
+              ? {
+                  propertyId: pinned.propertyId,
+                  workspaceId: pinned.workspaceId,
+                  actorUserId: opts.senderUserId,
+                  selectedWorkLineId: pinned.line?.numberId ?? null,
+                  recipientUserId: recipient.userId,
+                }
+              : {}),
           });
         } catch {
+          await recordSmsAttempt(db, sentTargets.get(recipient.email), { sent: false });
           smsOutcomes.push({ recipientEmail: recipient.email, status: "failed" });
           continue;
         }
+        await recordSmsAttempt(db, sentTargets.get(recipient.email), result);
         const outboxStatus = String(result.outboxStatus ?? "").toLowerCase();
         const outcome = outboxStatus === "queued" || outboxStatus === "deferred" || outboxStatus === "unknown"
           ? outboxStatus

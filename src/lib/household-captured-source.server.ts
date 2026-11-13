@@ -9,6 +9,7 @@ import { enrichLedgerPaymentFromStripeCharge } from "@/lib/stripe-ledger-fees";
 import { verifyPlatformHoldSourceRefundHistory, type HeldSourceRow } from "@/lib/platform-hold-release.server";
 import { verifiedCapturedChargeAvailability } from "@/lib/platform-owner-recovery.server";
 import { releaseCreditedHoldAfterCommit } from "@/lib/platform-post-credit-release.server";
+import { assertHoldAllowedForProperties } from "@/lib/managed-finance/funding-model.server";
 import { creditManagedCapture, managedCaptureExistsForPaymentIntent, type ManagedCaptureComponent } from "@/lib/managed-finance/capture.server";
 import { resolveManagedForProperties } from "@/lib/managed-finance/resolve.server";
 
@@ -362,6 +363,9 @@ export async function creditVerifiedHouseholdCheckoutSource(
   const components = allocateComponents(paid, principal, net);
   if (await creditManagedIfApplicable(db, stripe, { pi, chargeId: charge.id, grossCents: gross, sourceId: session.id, paid, components })) return;
   const existing = await findPlatformHoldByPaymentIntent(db, pi.id);
+  // Not managed by the policy resolver and no hold yet: the self-serve hold path. An is_service workspace (or an unreadable
+  // flag) must never reach it - throw so Stripe redelivers and the money stays on the platform balance.
+  if (!existing) await assertHoldAllowedForProperties(db, paid.map((p) => p.charge.propertyId));
   if (existing) {
     const { data: verified, error: verifiedError } = await db.from("platform_payment_holds")
       .select("id,owner_user_id,owner_role,source,source_id,amount_cents,status,stripe_charge_id,original_amount_cents,source_charge_gross_cents,source_payment_intent_id,source_verified_at")
@@ -452,6 +456,7 @@ export async function creditVerifiedHouseholdAutopaySource(
     pi, chargeId: charge.id, grossCents: pi.amount_received, sourceId: pi.id, paid: [{ id: chargeId, charge: saved }], components,
   })) return;
   const existing = await findPlatformHoldByPaymentIntent(db, pi.id);
+  if (!existing) await assertHoldAllowedForProperties(db, [saved.propertyId]);
   if (existing) {
     const { data: verified, error: verifiedError } = await db.from("platform_payment_holds")
       .select("id,owner_user_id,owner_role,source,source_id,amount_cents,status,stripe_charge_id,original_amount_cents,source_charge_gross_cents,source_payment_intent_id,source_verified_at")

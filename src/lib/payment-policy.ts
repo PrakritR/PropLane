@@ -47,6 +47,34 @@ export const RESIDENT_CARD_PAYMENT_DISPLAY_LABEL = "Card · Apple Pay";
  */
 export type ServiceFeePayer = "resident" | "manager" | "proplane";
 
+/**
+ * Charge kinds that are rent: the money a resident owes every month (and the first/last-month and nightly
+ * equivalents). Captain, 2026-11-12: the processing fee on rent is paid by the RESIDENT, always. No plan,
+ * manager choice, listing code or staff override moves it, because it is the one place a resident can
+ * see PropLane's price of taking a card. Everything else (deposits, move-in lines, application fees)
+ * still follows {@link resolveServiceFeePayerFor}.
+ */
+const RENT_FEE_CHARGE_KINDS: ReadonlySet<string> = new Set([
+  "rent",
+  "first_month_rent",
+  "prorated_rent",
+  "prorated_last_month_rent",
+  "utilities",
+  "prorated_utilities",
+  "prorated_last_month_utilities",
+  "stay_total",
+]);
+
+/** True when a charge of this kind is rent for fee purposes: the resident always pays its processing fee. */
+export function isResidentPaysFeeChargeKind(kind: string | null | undefined): boolean {
+  return RENT_FEE_CHARGE_KINDS.has(String(kind ?? "").trim());
+}
+
+/** True when ANY charge in a cart is rent: one Checkout bills one total, so one rent line puts the fee on the resident. */
+export function cartForcesResidentFee(kinds: ReadonlyArray<string | null | undefined>): boolean {
+  return kinds.some((kind) => isResidentPaysFeeChargeKind(kind));
+}
+
 /** @deprecated Use {@link ServiceFeePayer} — kept for older call sites. */
 export type ProServiceFeeChoice = "resident" | "manager";
 
@@ -382,6 +410,31 @@ export function residentProcessingFeeCents(subtotalCents: number, method: Reside
   return Math.floor((subtotalCents * bps) / 10_000) + fixed;
 }
 
+/** What Stripe actually takes from a payment of `totalCents` (the amount charged, fee included). */
+function stripeCostOfCharge(totalCents: number, method: ResidentAxisPaymentMethod): number {
+  if (method === "ach") return Math.min(Math.round((totalCents * 80) / 10_000), 500);
+  return Math.round((totalCents * RESIDENT_PROCESSING_FEE_BPS.card) / 10_000) + RESIDENT_PROCESSING_FEE_FIXED_CENTS.card;
+}
+
+/**
+ * The fee a resident is charged so that PropLane keeps ZERO of Stripe's cost.
+ *
+ * Stripe prices the whole charge, and the resident's total includes the fee line itself, so a fee computed on the
+ * subtotal alone (2.9% of rent + $0.30) is short by 2.9% of the fee - about $1.27 on $1,500 of rent, paid out of
+ * PropLane's pocket on every card payment. This finds the smallest fee that covers Stripe's price of
+ * `subtotal + fee`. A bank debit is unchanged once the $5.00 cap applies. Pure, deterministic, whole cents.
+ */
+export function residentGrossedUpProcessingFeeCents(subtotalCents: number, method: ResidentAxisPaymentMethod): number {
+  let fee = residentProcessingFeeCents(subtotalCents, method);
+  if (fee <= 0) return 0;
+  for (let i = 0; i < 12; i += 1) {
+    const needed = stripeCostOfCharge(subtotalCents + fee, method);
+    if (needed <= fee) break;
+    fee = needed;
+  }
+  return fee;
+}
+
 /** Platform take rate (0 bps on every tier). Kept separate from the service fee. */
 export function residentAxisPlatformFeeCents(subtotalCents: number, managerTier?: string | null): number {
   return platformFeeCents(subtotalCents, "rent", managerTier);
@@ -425,8 +478,14 @@ export function residentServiceFeeBreakdown(
   subtotalCents: number,
   method: ResidentAxisPaymentMethod,
   feePayer: ServiceFeePayer,
+  options?: { coverFeeOnFee?: boolean },
 ): ResidentServiceFeeBreakdown {
-  const serviceFeeCents = feePayer === "proplane" ? 0 : residentProcessingFeeCents(subtotalCents, method);
+  const serviceFeeCents =
+    feePayer === "proplane"
+      ? 0
+      : feePayer === "resident" && options?.coverFeeOnFee === true
+        ? residentGrossedUpProcessingFeeCents(subtotalCents, method)
+        : residentProcessingFeeCents(subtotalCents, method);
   const residentAddedFeeCents = feePayer === "resident" ? serviceFeeCents : 0;
   const applicationFeeCents = feePayer === "proplane" ? 0 : serviceFeeCents;
   const managerPayoutCents = subtotalCents - (feePayer === "manager" ? serviceFeeCents : 0);

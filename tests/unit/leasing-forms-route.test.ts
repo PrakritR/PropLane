@@ -30,7 +30,7 @@ function put(body: unknown) {
 
 beforeEach(() => {
   signedIn = { db: fakeDb(), userId: "mgr-1" };
-  row = { leasingPipeline: { applicationBeforeTour: "required" } };
+  row = { leasingPipeline: { sharedRoomLease: "joint" } };
   upserts.length = 0;
 });
 
@@ -50,7 +50,7 @@ describe("/api/portal/leasing-forms", () => {
     const saved = await put({ library: { applications: [form], leases: [] } });
     expect(saved.status).toBe(200);
     // Other workspace settings on the same row are left alone.
-    expect((upserts[0]!.row_data as Record<string, unknown>).leasingPipeline).toEqual({ applicationBeforeTour: "required" });
+    expect((upserts[0]!.row_data as Record<string, unknown>).leasingPipeline).toEqual({ sharedRoomLease: "joint" });
     const read = (await (await GET()).json()) as { library: { applications: Array<{ label: string; tourOrder: string }> } };
     expect(read.library.applications.map((item) => [item.label, item.tourOrder])).toEqual([["Standard application", "after_tour"]]);
   });

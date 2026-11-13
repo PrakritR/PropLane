@@ -62,6 +62,8 @@ export async function resolveServiceOwner(
   try {
     const stored = await readStoredOwner(db);
     if (stored) {
+      // Every managed workspace is OWNED by the service owner. That it holds the admin role is enforced where ownership
+      // moves (the SQL mover's `service_owner_lacks_admin_role` stop and the one-shot's assertion), not on every read.
       return (await userIsPropertyPortalManager(db, stored))
         ? { ok: true, ownerUserId: stored }
         : { ok: false, reason: "not_configured" };
@@ -125,9 +127,9 @@ export type ServiceWorkspaceRow = {
 
 /**
  * The workspace when - and only when - it carries the `is_service` flag. The one test every Service route runs on
- * the id it was given: a body id of an ordinary workspace is null. PropLane Service is a flag on a workspace plus
- * memberships, so the owner is whoever owns it (the service owner, or a client who stays the owner of an attached
- * workspace); what an operator may do inside it is decided by their own membership, not by this row.
+ * the id it was given: a body id of an ordinary workspace is null. Every managed workspace is owned by the service owner
+ * (a client of an attached one is its Property owner seat, after the ownership mover); what an operator may do inside it is
+ * decided by their own membership, not by this row.
  */
 export async function loadServiceWorkspace(db: SupabaseClient, workspaceId: string): Promise<ServiceWorkspaceRow | null> {
   const id = workspaceId.trim();

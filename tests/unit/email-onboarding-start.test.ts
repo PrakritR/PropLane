@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const m = vi.hoisted(() => ({ find: vi.fn(), create: vi.fn(), get: vi.fn(), link: vi.fn(), insert: vi.fn(), send: vi.fn(), inquiry: vi.fn(), purchase: vi.fn(), invite: vi.fn(), property: vi.fn(), effective: vi.fn(), pin: vi.fn(), rpc: vi.fn(), rate: vi.fn(), capability: vi.fn(), eligible: vi.fn(), recent: vi.fn() }));
+const m = vi.hoisted(() => ({ find: vi.fn(), create: vi.fn(), get: vi.fn(), link: vi.fn(), insert: vi.fn(), send: vi.fn(), inquiry: vi.fn(), purchase: vi.fn(), invite: vi.fn(), property: vi.fn(), effective: vi.fn(), pin: vi.fn(), rpc: vi.fn(), rate: vi.fn(), capability: vi.fn(), eligible: vi.fn(), recent: vi.fn(), del: vi.fn() }));
 vi.mock("@/lib/rate-limit", () => ({ clientIpFrom: (req: Request) => req.headers.get("x-test-ip") ?? "test", rateLimit: m.rate }));
 vi.mock("@/lib/app-url", () => ({ resolveEmailLinkBaseUrl: () => "https://example.test" }));
 vi.mock("@/lib/auth/find-auth-user-id-by-email", () => ({ findAuthUserIdByEmail: m.find }));
@@ -8,7 +8,7 @@ vi.mock("@/lib/send-forms", () => ({ applicationPinForLinkedForm: m.pin }));
 vi.mock("@/lib/auth/provision-vendor-account", () => ({ findPendingVendorInviteByToken: m.invite }));
 vi.mock("@/lib/tour-resident-link.server", () => ({ loadTourInquiryById: m.inquiry, tourCapabilityEligible: m.eligible }));
 vi.mock("@/lib/auth/resident-setup-token", () => ({ findApplicationForResidentSetup: vi.fn() }));
-vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ rpc: m.rpc, auth: { admin: { createUser: m.create, getUserById: m.get, generateLink: m.link } }, from: (table: string) => table === "email_onboarding_handoffs" ? { insert: m.insert, select: () => { const q = { eq: () => q, in: () => q, gte: () => q, gt: () => q, limit: m.recent }; return q; } } : table === "tour_signup_capabilities" ? { select: () => { const q = { eq: () => q, is: () => q, gt: () => q, maybeSingle: m.capability }; return q; } } : ({ insert: m.insert, select: () => ({ eq: () => ({ maybeSingle: table === "manager_property_records" ? m.property : m.purchase }) }) }) }) }));
+vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ rpc: m.rpc, auth: { admin: { createUser: m.create, getUserById: m.get, generateLink: m.link, deleteUser: m.del } }, from: (table: string) => table === "email_onboarding_handoffs" ? { insert: m.insert, select: () => { const q = { eq: () => q, in: () => q, gte: () => q, gt: () => q, limit: m.recent }; return q; } } : table === "tour_signup_capabilities" ? { select: () => { const q = { eq: () => q, is: () => q, gt: () => q, maybeSingle: m.capability }; return q; } } : ({ insert: m.insert, select: () => ({ eq: () => ({ maybeSingle: table === "manager_property_records" ? m.property : m.purchase }) }) }) }) }));
 import { POST } from "@/app/api/auth/email-onboarding/start/route";
 const request = () => new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", password: "attacker-known" }) });
 m.rpc.mockResolvedValue({ data: 0, error: null });
@@ -328,5 +328,29 @@ describe("email onboarding start", () => {
     const req = new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", intent: "resident", propertyId: "property", tourSlotKey: "javascript:alert(1)" }) });
     expect((await POST(req)).status).toBe(200);
     expect(m.create).not.toHaveBeenCalled(); expect(m.link).not.toHaveBeenCalled();
+  });
+  it("removes the unconfirmed Auth row it created when the send fails, and tells the person to retry", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test"); vi.stubGlobal("fetch", m.send.mockResolvedValue({ ok: false, status: 403 }));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    m.find.mockResolvedValue(null); m.create.mockResolvedValue({ data: { user: { id: "new-user" } }, error: null });
+    m.get.mockResolvedValue({ data: { user: { id: "new-user", email_confirmed_at: null, app_metadata: { proplane_email_onboarding: true } } } });
+    m.link.mockResolvedValue({ data: { user: { id: "new-user" }, properties: { hashed_token: "synthetic", verification_type: "signup" } } });
+    m.insert.mockResolvedValue({ error: null }); m.del.mockResolvedValue({ error: null });
+    const response = await POST(request());
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toMatch(/try again/i);
+    expect(m.del).toHaveBeenCalledWith("new-user");
+  });
+  it("keeps the row when the link went out, and never deletes a pre-existing account", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test"); vi.stubGlobal("fetch", m.send.mockResolvedValue({ ok: true }));
+    m.find.mockResolvedValue("old-user");
+    m.get.mockResolvedValue({ data: { user: { id: "old-user", email_confirmed_at: "2026-01-01" } } });
+    m.link.mockResolvedValue({ data: { user: { id: "old-user" }, properties: { hashed_token: "synthetic", verification_type: "magiclink" } } });
+    m.insert.mockResolvedValue({ error: null });
+    expect((await POST(request())).status).toBe(200);
+    expect(m.del).not.toHaveBeenCalled();
+    m.send.mockResolvedValue({ ok: false, status: 500 }); vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect((await POST(request())).status).toBe(503);
+    expect(m.del).not.toHaveBeenCalled();
   });
 });

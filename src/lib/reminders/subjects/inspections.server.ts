@@ -8,6 +8,15 @@ import { loadReminderSettingsResolver } from "../settings.server";
 import { loadManagerReminderRecipients } from "../manager-recipients.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { hasSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
+import { residentRecordMoveInHref } from "@/lib/portal-detail-routes";
+
+/**
+ * The manager's copy opens THIS residency's Inspections tab. The inspections list address
+ * (`/portal/move-in/inspections/<kind>`) carries no report id and redirects to the whole Residents
+ * list, so a card about one room's missing photos used to land nowhere in particular.
+ */
+const managerInspectionsUrl = (origin: string, applicationId: string) =>
+  `${origin}${residentRecordMoveInHref("/portal", "current", applicationId, "inspections")}`;
 
 type Placement = { id: string; manager_user_id: string; resident_email: string; property_id: string | null; assigned_property_id: string | null; row_data: Record<string, unknown> };
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -95,21 +104,28 @@ export async function sweepInspectionReminders(db: SupabaseClient, now = new Dat
         const subjectId = `${row.id}:${kind}:${createHash("sha256").update(`${anchorIso}:${canonicalAssignment(row, rooms)}`).digest("hex").slice(0, 20)}`;
         // The resident is asked until their own first photo lands.
         if (!forKind.some(report => photosBy(report, "resident") > 0)) {
-          queued += await materializeReminders(db, { managerUserId: row.manager_user_id, kind: "inspection", subjectId, anchorIso,
-            // Both sides. The rule's audience decides who actually receives it, but the
-            // manager has to be OFFERED here or "remind me too" is unreachable from Settings.
-            recipients: [{ email: row.resident_email, role: "counterparty" },
-              ...(manager ? [{ email: manager.email, userId: row.manager_user_id, role: "manager" as const }] : [])],
-            payload: { applicationId: row.id, inspectionKind: kind, roomAssignment: assignment(row), required: required.includes(kind),
-              title: `${kind === "move-in" ? "Move-in" : "Move-out"} room photos`, url: `${origin}/resident/move-in/inspections` },
-          }, config, now);
+          // Both sides. The rule's audience decides who actually receives it, but the
+          // manager has to be OFFERED here or "remind me too" is unreachable from Settings.
+          // Each side gets its own portal's link: a manager's card never opens /resident/, and it
+          // opens the ROOM the photos are missing for, not an unfiltered Residents list.
+          const sides = [
+            { recipients: [{ email: row.resident_email, role: "counterparty" as const }], url: `${origin}/resident/move-in/inspections` },
+            ...(manager ? [{ recipients: [{ email: manager.email, userId: row.manager_user_id, role: "manager" as const }], url: managerInspectionsUrl(origin, row.id) }] : []),
+          ];
+          for (const side of sides) {
+            queued += await materializeReminders(db, { managerUserId: row.manager_user_id, kind: "inspection", subjectId, anchorIso,
+              recipients: side.recipients,
+              payload: { applicationId: row.id, inspectionKind: kind, roomAssignment: assignment(row), required: required.includes(kind),
+                title: `${kind === "move-in" ? "Move-in" : "Move-out"} room photos`, url: side.url },
+            }, config, now);
+          }
         }
         // The manager hears about it only when NOBODY has photographed the room.
         if (manager && !forKind.some(report => photosBy(report) > 0)) {
           queued += await materializeReminders(db, { managerUserId: row.manager_user_id, kind: "inspection_manager", subjectId, anchorIso,
             recipients: [{ email: manager.email, userId: row.manager_user_id, role: "manager" }],
             payload: { applicationId: row.id, inspectionKind: kind, roomAssignment: assignment(row),
-              title: `No ${kind} photos yet`, url: `${origin}/portal/move-in/inspections/${kind}` },
+              title: `No ${kind} photos yet`, url: managerInspectionsUrl(origin, row.id) },
           }, config, now);
         }
       }

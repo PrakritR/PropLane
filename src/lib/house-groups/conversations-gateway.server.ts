@@ -80,6 +80,13 @@ export function createConversationsGateway(): ConversationsGateway | null {
         return fail("post message", error);
       }
     },
+    async removeParticipant(conversationSid, participantSid) {
+      try {
+        await conversations(conversationSid).participants(participantSid).remove();
+      } catch (error) {
+        fail("remove participant", error);
+      }
+    },
     async closeConversation(conversationSid) {
       try {
         await conversations(conversationSid).update({ state: "closed" });

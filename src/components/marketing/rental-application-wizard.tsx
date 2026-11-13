@@ -593,6 +593,7 @@ function RentalApplicationWizardInner({
     linkedForms?: LinkedFormListItem[];
   } | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [identityHandoff, setIdentityHandoff] = useState<string | null>(null);
   const [availabilityChecking, setAvailabilityChecking] = useState(false);
   const availabilityCheckingRef = useRef(false);
   const [showAvailabilityWarnings, setShowAvailabilityWarnings] = useState(false);
@@ -1871,6 +1872,7 @@ function RentalApplicationWizardInner({
     const bedTaken = result.fieldErrors.roomChoice1?.toLowerCase().includes("bed is taken");
     if (bedTaken && form.propertyId.trim()) {
       const options = firstChoiceRoomOptions(form.propertyId, {
+        includeUnnamed: true,
         leaseStart: form.leaseStart,
         leaseEnd: form.leaseEnd,
         leaseTerm: form.leaseTerm,
@@ -2229,6 +2231,13 @@ function RentalApplicationWizardInner({
 
       const sync = await upsertApplicationRowToServerAwait(applicationRow);
       if (!sync.ok) {
+        if (sync.blocked === "identity" && !residentUserId && !isDemoModeActive()) {
+          const saved = await upsertApplicationRowToServerAwait({ ...applicationRow, stage: "In progress" });
+          if (saved.ok && saved.setupHref) setIdentityHandoff(saved.setupHref);
+          else showToast(saved.error ?? "Could not save your application for account setup.");
+        } else if (sync.blocked === "identity" && residentUserId) {
+          setIdentityHandoff("/resident/profile?tab=profile#verification");
+        }
         // Nothing was submitted: keep the answers on screen so the applicant can
         // retry, instead of clearing them behind an "Application submitted" panel.
         unmarkApplicationSubmitInitiated(axisId);
@@ -2823,6 +2832,28 @@ function RentalApplicationWizardInner({
     }
     if (step === 1 && form.applicantRole === "cosigner") return;
     void (async () => {
+      // Validation first: empty or invalid fields show their errors instantly,
+      // never behind a "Checking rooms…" spinner. Only a valid step pays for
+      // the occupancy refresh below.
+      const validateStepNow = (): boolean => {
+        const storedProperty = form.propertyId.trim() ? getPropertyById(form.propertyId) : undefined;
+        const previewProperty = storedProperty && templatePreview && templatePreviewSubmission
+          ? { ...storedProperty, listingSubmission: { ...templatePreviewSubmission, propertyApplicationTemplates: [] } }
+          : storedProperty;
+        const e = validateRentalWizardStep(step, form, { property: previewProperty, guestApplicant, configOverride: templatePreview && templatePreviewSubmission ? applicationConfigForVariant(templatePreviewSubmission, templatePreviewVariant ?? applicationRentalTypeFor(form.rentalType)) : undefined });
+        setErrors(e);
+        if (countValidationErrors(e) > 0) {
+          showToast("Please fix the highlighted fields before continuing.");
+          // The property, lease type, dates and room all live on step 1 ("Your lease"), so a missing date
+          // is an error there and never a later surprise.
+          queueMicrotask(() =>
+            scrollToFirstWizardFieldError(RENTAL_WIZARD_STEP_FIELD_ORDER[step] ?? [], e),
+          );
+          return false;
+        }
+        return true;
+      };
+      if (!validateStepNow()) return;
       if (step === 1 && form.roomChoice1.trim() && !templatePreview) {
         if (availabilityCheckingRef.current) return;
         availabilityCheckingRef.current = true;
@@ -2837,6 +2868,8 @@ function RentalApplicationWizardInner({
           return;
         }
         setOccupancySyncEpoch((n) => n + 1);
+        // The refresh can reveal a room that just filled: judge the step again.
+        if (!validateStepNow()) return;
       }
       if (step === 1 && form.applyingAsGroup === "yes" && form.groupLeaderAppId.trim()) {
         const preview = await fetchGroupLeaderLinkPreview(form.groupLeaderAppId);
@@ -2852,21 +2885,6 @@ function RentalApplicationWizardInner({
         }
       }
 
-      const storedProperty = form.propertyId.trim() ? getPropertyById(form.propertyId) : undefined;
-      const previewProperty = storedProperty && templatePreview && templatePreviewSubmission
-        ? { ...storedProperty, listingSubmission: { ...templatePreviewSubmission, propertyApplicationTemplates: [] } }
-        : storedProperty;
-      const e = validateRentalWizardStep(step, form, { property: previewProperty, guestApplicant, configOverride: templatePreview && templatePreviewSubmission ? applicationConfigForVariant(templatePreviewSubmission, templatePreviewVariant ?? applicationRentalTypeFor(form.rentalType)) : undefined });
-      setErrors(e);
-      if (countValidationErrors(e) > 0) {
-        showToast("Please fix the highlighted fields before continuing.");
-        // The property, lease type, dates and room all live on step 1 ("Your lease"), so a missing date
-        // is an error there and never a later surprise.
-        queueMicrotask(() =>
-          scrollToFirstWizardFieldError(RENTAL_WIZARD_STEP_FIELD_ORDER[step] ?? [], e),
-        );
-        return;
-      }
       if (step === 1 && maxStepReached < 2) {
         track("rental_application_started", { property_id: form.propertyId || undefined });
       }
@@ -3114,6 +3132,8 @@ function RentalApplicationWizardInner({
                 onApplySavedAutofill={handleApplySavedAutofill}
               />
             </fieldset>
+
+            {identityHandoff && <div role="status" className="mt-4 rounded-xl border border-border p-4"><Link href={identityHandoff} className="text-sm font-semibold text-primary">{"Continue to identity verification"}</Link></div>}
 
             {variantRestorePending ? (
               <p role="status" className="mt-4 text-sm text-muted">

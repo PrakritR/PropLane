@@ -16,6 +16,8 @@
  * unit is what lets the same control drive every subject.
  */
 
+import { hasRealEmailAddress } from "@/lib/recipient-channels";
+import { normalizeE164 } from "@/lib/phone-e164";
 import {
   DEFAULT_AUTOMATION_SEND_MODE_SETTINGS,
   normalizeAutomationSendModeSettings,
@@ -411,7 +413,7 @@ const PLAN_0915_DEFAULT_RULES: Omit<
   // ON by default (A3 decision 4): the welcome IS the Move-in details card in the resident's conversation
   // (`emitMoveInDetails`), sent once. One timing, because the card is idempotent per resident and home: a
   // second and third send would be dropped duplicates, never a second card.
-  resident_welcome: rule({ timings: ["after:5"], audience: COUNTERPARTY }),
+  resident_welcome: rule({ timings: ["after:5"], audience: COUNTERPARTY, sms: true }),
   inspection_acknowledge: rule({ timings: ["after:7200"], audience: COUNTERPARTY }),
   // Stay times (bookings-times-1018). The guest of a confirmed short stay, never the manager.
   // The timing here is nominal: the sweeper (`subjects/stay-times.server.ts`) anchors each row on
@@ -659,7 +661,8 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     teamUserIds: [],
     inbox: true,
     email: true,
-    sms: false,
+    // Lease ready to sign: a deadline the resident acts on, so it texts by default (a text still needs a phone, no STOP, and their Reach by).
+    sms: true,
   },
   lease_manager: {
     enabled: true,
@@ -1001,19 +1004,97 @@ export function reminderSendTimes(
 }
 
 /**
+ * Kinds that speak to ONE PERSON about their own thing: a second row for the same person (a duplicated
+ * application, a lease and a tenancy for the same resident) must not become a second message, so the
+ * counterparty copy is keyed on the person instead of the subject row.
+ */
+export const PERSON_DEDUPED_KINDS: ReadonlySet<ReminderSubjectKind> = new Set<ReminderSubjectKind>([
+  "application",
+  "application_post_tour",
+  "lease",
+  "resident_welcome",
+  "move_in",
+  "move_in_payment_method",
+  "move_out",
+  "lease_ending",
+  "renewal_offer_expiry",
+  "lease_renewal_offer",
+  "move_out_instructions",
+  "deposit_return_notice",
+  "inspection_acknowledge",
+]);
+
+/** The calendar date `iso` falls on in Pacific time (YYYY-MM-DD), the zone every anchor is read in. */
+export function pacificDateKey(iso: string): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return "unknown";
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
+}
+
+/**
+ * Who a reminder is about, as one stable string: the Auth user id, else the lowercased REAL email (an
+ * import placeholder is not a person), else the normalized phone, else the subject row itself.
+ */
+export function reminderPersonRef(input: { userId?: string | null; email?: string | null; phone?: string | null; subjectId: string }): string {
+  const userId = (input.userId ?? "").trim();
+  if (userId) return `user:${userId}`;
+  const email = (input.email ?? "").trim().toLowerCase();
+  if (hasRealEmailAddress(email)) return `email:${email}`;
+  const phone = normalizeE164(input.phone ?? "");
+  if (phone) return `phone:${phone}`;
+  return `subject:${input.subjectId.trim()}`;
+}
+
+/**
+ * Key prefix of a row written with the person + anchor-date identity. Bumped whenever the key FORMAT
+ * changes, so `supersedeStaleReminders` cancels every row queued under the older format instead of
+ * leaving it scheduled beside the new one (two reminders, same person, same anchor, both firing).
+ */
+export const REMINDER_DEDUPE_KEY_VERSION = "v3|";
+
+/**
  * Stable identity for one reminder.
  *
  * The dispatcher enforces this as a unique key, so re-materializing a subject
  * (a tour edited twice, a cron overlapping itself) can never queue a duplicate.
  * Recipient is part of the key because the manager and the guest each get their
  * own copy of the same reminder.
+ *
+ * Given `anchorIso` (the queue always does), the key is the versioned identity: kind + who it is about (a person-keyed
+ * kind is scoped to the workspace owner, `manager:<id>|<person>`) + the
+ * anchor DATE (Pacific) + lead + recipient role. For a person-keyed kind the person replaces both the
+ * subject row and the address, so two rows of the same person collapse to one reminder; a moved anchor
+ * date is a new key, which is what lets a changed date re-queue.
  */
 export function reminderDedupeKey(input: {
   kind: ReminderSubjectKind;
   subjectId: string;
   leadMinutes: number;
   recipient: string;
+  recipientRole?: string;
+  anchorIso?: string;
+  recipientUserId?: string | null;
+  recipientPhone?: string | null;
+  /** The workspace owner this reminder is queued for. Scopes a person-deduped key so another workspace's reminder for the same person never suppresses this one. */
+  managerUserId?: string | null;
 }): string {
   const recipient = input.recipient.trim().toLowerCase();
-  return `${input.kind}:${input.subjectId.trim()}:${input.leadMinutes}:${recipient}`;
+  if (!input.anchorIso) return `${input.kind}:${input.subjectId.trim()}:${input.leadMinutes}:${recipient}`;
+  const role = input.recipientRole ?? "counterparty";
+  const managerId = (input.managerUserId ?? "").trim();
+  // The unique index is global, so a person key must carry the workspace owner or workspace B's reminder for a
+  // person silently suppresses workspace A's. With no owner to scope it, fall back to the subject row (never
+  // collapse across workspaces).
+  const personKeyed = role === "counterparty" && PERSON_DEDUPED_KINDS.has(input.kind) && managerId !== "";
+  const who = personKeyed
+    ? `manager:${managerId}|${reminderPersonRef({ userId: input.recipientUserId, email: recipient, phone: input.recipientPhone, subjectId: input.subjectId })}`
+    : `subject:${input.subjectId.trim()}`;
+  return [
+    `${REMINDER_DEDUPE_KEY_VERSION}${input.kind}`,
+    who,
+    pacificDateKey(input.anchorIso),
+    String(input.leadMinutes),
+    role,
+    personKeyed ? "" : recipient,
+  ].join("|");
 }

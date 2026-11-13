@@ -9,6 +9,7 @@
  */
 import Link from "next/link";
 import { BedDouble, CalendarCheck, CircleCheck, CreditCard, FileSignature, House, KeyRound } from "lucide-react";
+import type { RecordRef } from "@/lib/portals/record-kinds";
 import {
   inboxEventAction,
   inboxEventGlyph,
@@ -33,14 +34,17 @@ export function InboxEventCard({
   kind,
   card,
   viewer,
+  recordRef,
 }: {
   kind: InboxEventKind;
   card: InboxEventCardData;
   viewer: InboxEventViewer;
+  /** The record the turn is about: a payment card's Pay opens that charge's pay sheet. */
+  recordRef?: RecordRef | null;
 }) {
   const Glyph = GLYPHS[inboxEventGlyph(kind)];
   const title = inboxEventTitleFor(viewer, kind, card.title);
-  const action = inboxEventAction(viewer, kind);
+  const action = inboxEventAction(viewer, kind, recordRef);
   return (
     <div
       className="my-1 flex min-h-11 w-full min-w-0 items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-foreground"

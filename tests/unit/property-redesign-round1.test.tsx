@@ -315,4 +315,12 @@ describe("Pricing rows are a title, one fact line, and the rent", () => {
     expect(row.textContent).toContain("Not offered");
     expect(row.textContent).not.toContain("—");
   });
+
+  it("opens whole-house pricing for an unpriced entire home", () => {
+    const unpriced = listing([], { listingPlaceCategoryId: "entire_home", entireHomeOffered: false, entireHomeMonthlyRent: 0 });
+    render(<PropertyPricingPanel submission={unpriced} saveTarget={{ mode: "listing", saveId: "p1" }} managerUserId="mgr-1" propertyLabel="X" onUpdated={() => {}} showToast={() => {}} workspacePricingDefaults={{ currency: "usd" } as never} />);
+    fireEvent.click(screen.getByRole("button", { name: /Whole house/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Add whole house price" }));
+    expect(screen.getByLabelText("Whole house rent")).toBeTruthy();
+  });
 });

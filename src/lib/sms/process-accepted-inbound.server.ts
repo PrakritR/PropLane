@@ -25,6 +25,8 @@ import { isOldNumberOnSharedLine, sendMovedAutoReply } from "@/lib/one-number/ol
 import { recordShadowDecision } from "@/lib/one-number/shadow.server";
 import { redactSensitiveNumbers } from "@/lib/one-number/redact";
 
+import { classifyNonPhoneSender } from "@/lib/sms/non-phone-sender";
+import { ingestNonPhoneSenderText } from "@/lib/sms/non-phone-sender.server";
 import { durableSmsCheckpoint, getDurableSmsCheckpoint, SafeSmsIngressRetry, isDurableSmsIngress } from "@/lib/sms/durable-ingress-context.server";
 import type { PreparedBubble } from "@/lib/sms/inbound-envelope.server";
 const SMS_STOP_KEYWORDS = new Set(["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"]);
@@ -56,6 +58,17 @@ export async function processInboundParams(params: Record<string, string>, prepa
 
   const db = createSupabaseServiceRoleClient();
   if (getDurableSmsCheckpoint()?.stage === "unstarted") await durableSmsCheckpoint({ stage: "safe" });
+  // A short code / alphanumeric sender: stored as its own conversation and announced, never answered, no agent, no STOP/HELP.
+  const nonPhoneSender = classifyNonPhoneSender(fromPhone);
+  if (nonPhoneSender) {
+    try {
+      await ingestNonPhoneSenderText(db, { from: nonPhoneSender, toPhone, body, messageSid });
+    } catch (error) {
+      if (isDurableSmsIngress()) throw new SafeSmsIngressRetry("non_phone_inbound_unavailable");
+      throw error;
+    }
+    return twimlOk();
+  }
   // Durable acceptance must never reinterpret an unreadable shared line as an owned line.
   let resolvedNumber: Awaited<ReturnType<typeof resolveOwnedWorkNumber>>;
   let lineConfig: Awaited<ReturnType<typeof loadSharedLineConfig>>;
@@ -145,6 +158,8 @@ export async function processInboundParams(params: Record<string, string>, prepa
   // workspace here, before any agent runs. A routed text then continues below exactly as a work-number
   // text would, as that workspace's owner. Only live in `shared` mode; every other mode skips this.
   let sharedLine = false;
+  // The house the router matched for this text (home lock, entry code, residency). Rides the stored payload so a recovery rerun tags the same house.
+  let routedPropertyId: string | null = null;
   // An OLD per-workspace number whose workspace now answers on the shared line (not a dedicated one):
   // the sender is told once per 30 days where we moved (PropLane's cost), and the text goes through the
   // shared-line router below as if it had arrived there, so nothing is lost. Dedicated workspaces and
@@ -167,6 +182,11 @@ export async function processInboundParams(params: Record<string, string>, prepa
           config: lineConfig, phoneKey: sharedKey, fromPhone, workspaceId: resolvedNumber.workspaceId, messageSid: messageSid!,
         }).catch((error) => console.error("moved-number reply failed", messageSid, error instanceof Error ? error.name : "unknown"));
       }
+      // A platform inquiry's stitch code in the text merges that thread into this phone's and routes the text to that workspace.
+      // Best-effort and guarded: a failure here is "no code", never a failed inbound.
+      await import("@/lib/prospect-spine/inbound-hook.server")
+        .then((m) => m.applyStitchCodeFromText(db, { fromPhone, body }))
+        .catch(() => false);
       try {
         const seam = await handleSharedLineInbound(db, {
           config: lineConfig,
@@ -177,6 +197,21 @@ export async function processInboundParams(params: Record<string, string>, prepa
           phoneKey: sharedKey,
         });
         if (seam.kind === "handled") {
+          // A stranger or an unassigned lead on the PropLane line: PropLane's admin phones hear it (who, what they want, link).
+          if (messageSid) {
+            const alertSid = messageSid;
+            const alertTask = async () => {
+              await import("@/lib/one-number/inbound-alert.server")
+                .then((m) => m.alertOpsOfInboundText(db, { workspaceId: null, fromPhone, body, messageSid: alertSid, onPropLaneLine: true }))
+                .catch(() => undefined);
+            };
+            // Best-effort: a post-reply alert never fails the inbound (`after` throws outside a request scope).
+            try {
+              after(alertTask);
+            } catch {
+              void alertTask();
+            }
+          }
           const bubbles: Array<{ body: string; mediaUrl?: string }> = seam.bubbles ?? (seam.messages?.map((body) => ({ body })) ?? (seam.twiml ? [{ body: seam.twiml, mediaUrl: seam.mediaUrl }] : []));
           state.sender = lineConfig.sharedNumber ?? undefined;
           prepared.push(...bubbles.map((bubble) => ({ body: bubble.body, ...(bubble.mediaUrl ? { mediaUrls: [bubble.mediaUrl] } : {}) })));
@@ -185,6 +220,7 @@ export async function processInboundParams(params: Record<string, string>, prepa
         if (seam.kind === "continue") {
           ownedNumber = { ...seam.owned };
           sharedLine = true;
+          routedPropertyId = seam.propertyId ?? null;
         }
       } catch (error) {
         if (isDurableSmsIngress()) throw error;
@@ -328,6 +364,7 @@ export async function processInboundParams(params: Record<string, string>, prepa
     runtime: inboundRuntime(),
     // Stored with the receipt so a recovery rerun still honors a HUMAN pause on the shared line.
     ...(sharedLine ? { sharedLine: true } : {}),
+    ...(routedPropertyId ? { propertyId: routedPropertyId } : {}),
   };
   const { data: inboundClaimed, error: inboundClaimError } = await db.rpc("claim_sms_inbound", {
     p_message_sid: messageSid,

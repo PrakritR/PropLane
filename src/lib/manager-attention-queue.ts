@@ -30,6 +30,12 @@ export type ManagerAttentionInput = {
   draftPropertyCount: number;
   draftsHref: string;
   unreadConversationCount: number;
+  /** Conversations whose latest outbound message failed on every channel (`latestOutboundDeliveryFailed`). */
+  undeliveredConversationCount?: number;
+  /** Residents who used the in-app assistant to ask for the manager and have not been read (`countResidentHandoffs`). */
+  residentHandoffCount?: number;
+  /** Signed leases whose resident has never been billed rent (`leasesWithoutRentCharges`): money silently not flowing. */
+  unbilledResidencyCount?: number;
 };
 
 export const MANAGER_ATTENTION_MAX_ROWS = 6;
@@ -47,14 +53,35 @@ export function buildManagerAttentionRows(input: ManagerAttentionInput): Manager
     draftPropertyCount,
     draftsHref,
     unreadConversationCount,
+    undeliveredConversationCount = 0,
+    residentHandoffCount = 0,
+    unbilledResidencyCount = 0,
   } = input;
   const rows: ManagerAttentionRow[] = [];
+  if (undeliveredConversationCount > 0) {
+    rows.push({
+      id: "undelivered",
+      title: `${undeliveredConversationCount} ${undeliveredConversationCount === 1 ? "message" : "messages"} didn't deliver`,
+      actionLabel: "Review",
+      href: `${BASE}/communication/active?filter=not-delivered`,
+      tone: "danger",
+    });
+  }
   if (overdueChargeCount > 0) {
     rows.push({
       id: "overdue",
       title: `${overdueChargeCount} overdue ${overdueChargeCount === 1 ? "charge" : "charges"} · ${overdueBalanceLabel}`,
       actionLabel: "Remind",
       href: `${BASE}/payments/incoming/overdue`,
+      tone: "danger",
+    });
+  }
+  if (unbilledResidencyCount > 0) {
+    rows.push({
+      id: "unbilled-residency",
+      title: `${unbilledResidencyCount} signed ${unbilledResidencyCount === 1 ? "lease has" : "leases have"} no rent charged`,
+      actionLabel: "Review",
+      href: `${BASE}/payments/incoming/pending`,
       tone: "danger",
     });
   }
@@ -82,6 +109,15 @@ export function buildManagerAttentionRows(input: ManagerAttentionInput): Manager
       title: `${pendingTourCount} tour ${pendingTourCount === 1 ? "request" : "requests"} to confirm`,
       actionLabel: "Confirm",
       href: `${BASE}/tours/pending`,
+      tone: "pending",
+    });
+  }
+  if (residentHandoffCount > 0) {
+    rows.push({
+      id: "resident-handoff",
+      title: residentHandoffCount === 1 ? "Resident asked for you" : `${residentHandoffCount} residents asked for you`,
+      actionLabel: "Reply",
+      href: `${BASE}/communication/active`,
       tone: "pending",
     });
   }

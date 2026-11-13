@@ -82,6 +82,8 @@ export type ConversationsGateway = {
   addProplane(conversationSid: string, sharedNumberE164: string): Promise<void>;
   postMessage(conversationSid: string, body: string): Promise<{ messageSid: string }>;
   closeConversation(conversationSid: string): Promise<void>;
+  /** The house SMS group (`src/lib/house-sms-group`) adds and removes people in a live Conversation. */
+  removeParticipant?(conversationSid: string, participantSid: string): Promise<void>;
 };
 
 export const PROPLANE_IDENTITY = "proplane";

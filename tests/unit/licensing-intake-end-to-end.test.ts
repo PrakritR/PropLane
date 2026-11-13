@@ -110,7 +110,7 @@ describe("Every workspace is application first, even one that stored lease first
   });
 
   it("the listing's call to action says Apply", () => {
-    expect(listingApplyLabel(false, signingOrderForPipeline(marc))).toBe("Apply online");
-    expect(listingApplyLabel(false, signingOrderForPipeline(DEFAULT_LEASING_PIPELINE))).toBe("Apply online");
+    expect(listingApplyLabel(false, signingOrderForPipeline(marc))).toBe("Book");
+    expect(listingApplyLabel(false, signingOrderForPipeline(DEFAULT_LEASING_PIPELINE))).toBe("Book");
   });
 });

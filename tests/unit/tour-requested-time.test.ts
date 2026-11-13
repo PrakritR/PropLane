@@ -109,6 +109,27 @@ afterEach(() => {
   process.env.TZ = originalTz;
 });
 
+describe("no application-before-tour gate", () => {
+  it("a tour request is not refused when the workspace's stored row still says leasingPipeline.applicationBeforeTour = required, and the normalizer drops the key", async () => {
+    const stored = { leasingPipeline: { applicationBeforeTour: "required" } };
+    const rows = { data: [], error: null };
+    const builder = {
+      select: () => builder,
+      eq: () => builder,
+      // Every read answers with the owner AND the stale settings row; the applicant has no application at all.
+      maybeSingle: async () => ({ data: { manager_user_id: "owner-1", row_data: stored, property_data: {} }, error: null }),
+      then(resolve: (v: typeof rows) => unknown) {
+        return Promise.resolve(rows).then(resolve);
+      },
+    };
+    const db = { from: () => ({ ...builder, upsert: async () => ({ error: null }) }) } as never;
+    const result = await createTourInquiry(db, { incoming: requested(THU_4PM), verifiedApplicantEmail: "prakrit@example.com" });
+    expect(result.ok).toBe(true);
+    const { normalizeLeasingPipelinePreferences } = await import("@/lib/leasing-pipeline-preferences");
+    expect(normalizeLeasingPipelinePreferences(stored.leasingPipeline)).not.toHaveProperty("applicationBeforeTour");
+  });
+});
+
 describe("requested time: accepted only when the house has no open slot", () => {
   it("files a pending request with requestKind, a derived slotKey, the owner as host, and no published slot needed", async () => {
     const result = await create(requested(THU_4PM));

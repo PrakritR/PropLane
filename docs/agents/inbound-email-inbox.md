@@ -398,3 +398,21 @@ and the host points the site's notification address (or a Gmail auto-forward) at
   complaint messages, a reply carrying contact details the site forbids (Airbnb and Booking.com: no link, phone or email; PadSplit/SpareRoom: the listing
   link and the PropLane line only), no relay address, the approval setting, or no credit. Credit is reserved before the model, as for texts.
 - Tests: `channel-guest-parsers`, `channel-reply-policy`, `channel-guest-inbound`, `channel-relay-delivery`, `channel-checked-availability`.
+
+## Platform inquiries are leads (design-1112 §6)
+
+A prospect writing on SpareRoom, Roomies, Zillow, Craigslist, Facebook or Roomster reaches PropLane only as the site's own
+notification / relay email, on the workspace work email. `process-assistant-inbound` routes a sender on one of those domains
+(`leadSiteOfAddress`, `src/lib/inbound-email/platform-lead-parsers/`) to `src/lib/platform-leads/ingest.server.ts`, BEFORE the
+sender is classified. DKIM/SPF (`inboundSenderAuthenticated`) gates everything: an unproven mail is stored and never answered.
+
+- One writer: `recordInbound` (the prospect spine). Identity is the platform handle (relay address or thread id, hashed), never a
+  name; the tag reads "SpareRoom · 4709a Room 9" from the workspace's OWN listings (`loadLeadRoomCandidates` + `matchChannelListing`).
+- Parsers: a verified site's own parser first, the generic fallback otherwise. Only SpareRoom is marked verified
+  (`PLATFORM_LEAD_PARSER_VERIFIED`); the others stay OFF until the captain forwards a real mail and
+  `PLATFORM_LEAD_PARSERS=roomies,zillow,...` switches them on. Off or unreadable = the generic reader, so nothing is dropped.
+- Replies go through `composePlatformReply` + `CHANNEL_CAPABILITIES`: strips what the site forbids, adds the property line and
+  "Please TEXT (206) 678-1909 and mention <CODE>". `email_relay` sends only to a relay address ON THE SITE'S OWN DOMAIN;
+  everything else is a draft on the thread (`row_data.platformDraft`) the manager copies. Nothing posts to a platform.
+- A stitch code quoted in a text to the line, or a phone number inside the platform message, merges the thread into the
+  phone-keyed record; once they text, `row_data.platformState.state = "moved"` and this path never answers on the platform again.

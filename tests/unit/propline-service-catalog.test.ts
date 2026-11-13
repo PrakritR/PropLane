@@ -154,7 +154,7 @@ describe("leasing tools on the PropLane line", () => {
     };
     expect(mocks.publicListings).toHaveBeenCalledWith({ workspaceIds: [WS_SERVICE] });
     expect(result.listings.map((l) => l.propertyId)).toEqual(["brooklyn", "eighth"]);
-    expect(result.listings.every((l) => l.areaMatch.near && l.areaMatch.distanceMiles > 0 && l.listingUrl.endsWith(`/rent/listings/${l.propertyId}`))).toBe(true);
+    expect(result.listings.every((l) => l.areaMatch.near && l.areaMatch.distanceMiles > 0 && /\/rent\/listings\/[a-z0-9-]+$/.test(l.listingUrl))).toBe(true);
     expect(result.area).toMatchObject({ resolved: true, nearCount: 2 });
     expect(result.browseUrl).toMatch(/\/rent\/browse$/);
   });

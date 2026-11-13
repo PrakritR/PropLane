@@ -85,6 +85,11 @@ export feed leaves out only ITS OWN connection's imports (`ownConnectionId` in
 `importedRangesForFeed`): Houfy's feed carries Furnished Finder's stays and the reverse.
 Removed-stay tombstones are keyed by provider, so two `ical` feeds on one room share a
 tombstone namespace (a UID collision across two sites is the only way to cross-prune).
+A removed stay is not permanent: a manual **Sync now / Sync all now** (`force`) re-imports a removed
+reservation the channel still lists, the cron never does, and a host's "Not available" block, a failed or empty
+fetch, and a stay still in the feed all keep their tombstone. A tombstone whose UID left the feed and whose stay
+ended is cleaned on the next non-empty sync. Restore lives in the Connect popup's **Removed stays**
+(`docs/agents/bookings.md` § Removed channel stays).
 
 **The popup opens at once.** It used to read every stay of every linked room on open
 (`fetchManagerChannelBookings`, capped at `PORTAL_READ_TIMEOUT_MS`), which on a 28-room
@@ -357,3 +362,27 @@ Workspace insights product area (`src/lib/mcp/capabilities.ts`).
 Coverage for the page itself: `tests/unit/manager-integrations-panel.test.tsx`,
 `integrations-channel-rows.test.tsx`, `integrations-messages-panel.test.tsx`,
 `channel-calendar-link-modal.test.tsx`, `channel-calendar-ical*.test.ts*`.
+
+## Channel finances (Airbnb, Booking.com payouts)
+
+Reporting rows, never resident charges or party-ledger movements. `channel_payout_records` and `channel_finance_mail`
+(last mail, review queue) are service-role only.
+
+- **A booking's record is identified INSIDE its workspace:** one row per owner + platform + confirmation code + kind
+  (`reservation|payout`) + `workspace_key` (the stored generated column, a NULL workspace folded to the nil uuid), so an
+  import run while another workspace is active can never re-point an existing row. A read and every room/review write stay
+  in that scope. Rows filed before any workspace was known are "unplaced": the first read that has a workspace adopts one
+  **in place** (an update by id, never a second row), and an unplaced row's matched room carries over only when its house
+  belongs to this workspace.
+- **Feed:** the host's one Gmail filter forwards the channel's reservation / payout / invoice mail to the workspace work address
+  (`src/lib/channel-finance/gmail-filter.ts`; rows in Integrations > Bookings). `ingestChannelFinanceMail` runs from
+  `process-assistant-inbound`, only for a DKIM/SPF-proven sender.
+- **Never guess an amount:** an amount is read only from a labelled line. Parsers are UNVERIFIED (`CHANNEL_FINANCE_PARSER_VERIFIED`,
+  built from documented wording, no real samples). A read counts only when certain AND (cross-checked gross - fee = payout, or the
+  parser is switched on via `CHANNEL_FINANCE_PARSERS=airbnb,booking_com`, or no money stated). Otherwise it is stored `needs_review`
+  and counts nowhere until the manager confirms. An unreadable mail is stored flagged; an unmatched booking is `needs_room`.
+- **Backfill:** Payments > Channel income > Import CSV (Airbnb Transaction history, Booking.com Payouts / Reservations), preview
+  with per-row errors, idempotent on the same key. Airbnb's `Type` is matched EXACTLY: only `Reservation` is that booking's
+  payout. "Reservation adjustment" / "Reservation resolution" carry the booking's own confirmation code, so a substring test
+  let one stand in for the real reservation line; every other type is skipped with its own reason.
+- **One source:** `channelIncomeRows` (`income.ts`) feeds the Payments list rows and the report; only paid payouts total.

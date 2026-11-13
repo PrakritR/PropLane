@@ -25,12 +25,13 @@ const MISSING_SCHEMA_CODES = new Set(["42703", "42P01", "PGRST204", "PGRST205"])
  *   * the platform service owner, for the workspaces they own;
  *   * an accepted team seat, granted by the workspace's own owner, that `serviceSeatVerdict` calls staff.
  *
- * An ATTACHED workspace keeps its CLIENT as the owner (`attachWorkspaceToService` never moves `owner_user_id`), so
- * "the owner granted it" cannot tell PropLane's own helper invite from a co-manager the client invited herself. The
- * seat's own provenance does: `is_service_seat`, written only by the admin Service path. A seat without it on an
- * attached workspace (a row from before the column, or the client's own invite) counts only for a PropLane person -
- * the platform service owner or a platform admin. Either way the client who owns an attached workspace keeps the
- * view-only Property portal.
+ * Every managed workspace is owned by the service owner (the primary admin), so the owner arm lists them all for the
+ * admin and a seat the owner granted is staff. The client is the workspace's `property_owner` seat and is never staff.
+ *
+ * TODO(managed-workspaces-to-admin-20261112): until the prod one-shot moves the two attached workspaces, an ATTACHED
+ * workspace still has its CLIENT as owner, so "the owner granted it" cannot tell PropLane's own helper invite from a
+ * co-manager the client invited herself. The seat's provenance (`is_service_seat`) does, and a seat without it on such a
+ * workspace counts only for a PropLane person (`platform_person_only`). Delete that arm after the move.
  *
  * Read-only and cheap for an ordinary manager: one membership read that comes back empty, one settings read.
  * Throws on a read failure; callers decide what a failure means (the layouts fail to the Property portal).
@@ -63,6 +64,14 @@ export async function loadServiceStaffWorkspaces(
   // workspace read as "attached", so only a PropLane person is staff of it.
   const serviceOwnerId = await platformServiceOwnerId(db);
   const owner = serviceOwnerId !== null && serviceOwnerId === userId;
+  // `platformServiceOwnerId` answers null for an unreadable settings row too. A viewer who OWNS service workspaces
+  // while the owner is unknown cannot be told apart from the admin whose workspaces must stay out of the Property
+  // portal, so the read fails (callers fail closed) instead of reading as "not staff".
+  if (serviceOwnerId === null) {
+    const owned = await db.from("portal_workspaces").select("id").eq("is_service", true).eq("owner_user_id", userId).limit(1);
+    const missing = owned.error && MISSING_SCHEMA_CODES.has(String(owned.error.code ?? ""));
+    if ((owned.error && !missing) || (owned.data ?? []).length > 0) throw new Error("Could not read the service owner.");
+  }
 
   const [bySeat, byOwner] = await Promise.all([
     seatIds.length
@@ -223,6 +232,25 @@ export async function authorizeServiceWorkEmailEditForManagerRoute(
 ): Promise<{ ok: boolean }> {
   const { authorizeServiceWorkEmailEdit } = await import("@/lib/service/service-workspaces.server");
   return { ok: (await authorizeServiceWorkEmailEdit(db, operatorUserId, workspaceId)).ok };
+}
+
+/**
+ * Is this viewer PropLane Service STAFF of `workspaceId` (any seat role: a Viewer reads the status, only
+ * `authorizeServiceWorkEmailEditForManagerRoute` lets them change it)? The one staff decision
+ * (`loadServiceStaffWorkspaces`), re-derived from membership every call; the id is a name, never a grant. A read that
+ * fails answers false - fail closed. Returns the bare boolean, like the rest of this bridge.
+ */
+export async function isServiceStaffOfWorkspaceForManagerRoute(
+  db: SupabaseClient,
+  userId: string,
+  workspaceId: string,
+): Promise<boolean> {
+  try {
+    return (await loadServiceStaffWorkspaces(db, userId)).some((w) => w.id === workspaceId);
+  } catch (error) {
+    console.error("[service-mode] staff workspaces unreadable", error);
+    return false;
+  }
 }
 
 export async function setServiceWorkspaceWorkEmailForManagerRoute(

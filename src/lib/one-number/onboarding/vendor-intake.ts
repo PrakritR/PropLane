@@ -17,7 +17,7 @@ export type VendorProfile = {
 export const VENDOR_STEPS: readonly VendorStep[] = ["trade", "area", "rates", "insurance"];
 
 export const VENDOR_COPY = {
-  welcome: "Hi, this is PropLane. Reply STOP to opt out.",
+  welcome: "",
   trade: "What kind of work do you do? For example cleaning, plumbing or handyman.",
   area: "Which city or zip codes do you cover?",
   rates: "What are your rates? Per hour or per job is fine.",

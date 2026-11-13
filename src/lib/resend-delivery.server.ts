@@ -23,6 +23,8 @@ type ResendDeliveryArgs = {
   effectSummary: string;
   metadata?: Record<string, string | number | boolean | null>;
   signal?: AbortSignal;
+  /** Resend's `Idempotency-Key` header: the same key within 24 h returns the first send instead of sending again. */
+  idempotencyKey?: string;
 } & (
   | {
       /** Trusted actor/owner identity for ordinary portal and delayed-worker calls. */
@@ -64,7 +66,11 @@ export async function postResendEmail(args: ResendDeliveryArgs): Promise<Respons
   }
   return fetch("https://api.resend.com/emails", {
     method: "POST",
-    headers: { Authorization: `Bearer ${args.apiKey}`, "Content-Type": "application/json" },
+    headers: {
+      Authorization: `Bearer ${args.apiKey}`,
+      "Content-Type": "application/json",
+      ...(args.idempotencyKey?.trim() ? { "Idempotency-Key": args.idempotencyKey.trim().slice(0, 256) } : {}),
+    },
     body: JSON.stringify(args.payload),
     signal: args.signal,
   });

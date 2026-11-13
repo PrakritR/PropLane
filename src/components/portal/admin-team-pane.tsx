@@ -116,6 +116,7 @@ export function AdminTeamPane() {
         <AdminTeamSheet
           key={sheet.member?.key ?? "new"}
           workspaces={payload.workspaces}
+          canMakeOverall={payload.viewer.primary}
           member={sheet.member}
           onClose={() => setSheet(null)}
           onChanged={load}

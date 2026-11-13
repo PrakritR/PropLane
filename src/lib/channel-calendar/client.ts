@@ -1,10 +1,12 @@
 "use client";
 
 import { PORTAL_READ_TIMEOUT_MS, fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
+import { MAX_SYNC_ALL_PROPERTY_IDS } from "@/lib/channel-calendar/types";
 import type {
   ChannelCalendarConnectionPublic,
   ChannelCalendarProvider,
   ManagerChannelBookingProperty,
+  RemovedChannelStay,
 } from "@/lib/channel-calendar/types";
 import type { OccupancyRoomOption } from "@/lib/occupancy/snapshot";
 
@@ -110,28 +112,82 @@ export async function deleteChannelCalendarConnection(connectionId: string): Pro
   if (!res.ok) throw new Error(data.error ?? "Could not remove connection.");
 }
 
-export async function syncAllChannelCalendarConnections(
+async function postSyncAll(
   propertyIds: string[],
+  force: boolean,
 ): Promise<{ synced: number; failed: number; skipped: number }> {
   const res = await fetch(`/api/portal/channel-calendar/sync-all`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ propertyIds }),
+    body: JSON.stringify({ propertyIds, ...(force ? { force: true } : {}) }),
   });
   const data = (await res.json()) as { synced?: number; failed?: number; skipped?: number; error?: string };
   if (!res.ok) throw new Error(data.error ?? "Sync failed.");
   return { synced: data.synced ?? 0, failed: data.failed ?? 0, skipped: data.skipped ?? 0 };
 }
 
+export type SyncAllChannelCalendarsResult = {
+  synced: number;
+  failed: number;
+  skipped: number;
+  /** Houses whose own request never answered (a 429, a 500, a dropped connection). */
+  unsynced: number;
+  /** Why those houses went unanswered. Absent when every batch answered. */
+  error?: string;
+};
+
+/**
+ * `force` (the manager's own Sync all now) also brings back a removed reservation the channel still lists.
+ *
+ * A portfolio larger than one request's house cap goes out as sequential batches whose counts are
+ * merged — one at a time, because each batch is itself a pool of feed fetches on the server. A batch
+ * that fails (the shared `channel-sync` rate limit is the likely one) costs only its own houses: the
+ * counts the other batches earned are kept and reported beside `unsynced`, since those houses really
+ * did sync. Only a run where NOTHING answered throws, which is the one case that is a total failure.
+ */
+export async function syncAllChannelCalendarConnections(
+  propertyIds: string[],
+  options: { force?: boolean } = {},
+): Promise<SyncAllChannelCalendarsResult> {
+  const ids = propertyIds.map((id) => String(id).trim()).filter(Boolean);
+  const force = options.force === true;
+  // No ids at all means "every connection I own", which the route answers in one request.
+  const batches: string[][] = [];
+  if (ids.length <= MAX_SYNC_ALL_PROPERTY_IDS) batches.push(ids);
+  else {
+    for (let start = 0; start < ids.length; start += MAX_SYNC_ALL_PROPERTY_IDS) {
+      batches.push(ids.slice(start, start + MAX_SYNC_ALL_PROPERTY_IDS));
+    }
+  }
+  const total: SyncAllChannelCalendarsResult = { synced: 0, failed: 0, skipped: 0, unsynced: 0 };
+  let answered = 0;
+  let firstError: string | null = null;
+  for (const batch of batches) {
+    try {
+      const result = await postSyncAll(batch, force);
+      total.synced += result.synced;
+      total.failed += result.failed;
+      total.skipped += result.skipped;
+      answered += 1;
+    } catch (e) {
+      total.unsynced += batch.length;
+      firstError ??= e instanceof Error ? e.message : "Sync failed.";
+    }
+  }
+  if (answered === 0) throw new Error(firstError ?? "Sync failed.");
+  return firstError ? { ...total, error: firstError } : total;
+}
+
 export async function syncChannelCalendarConnection(
   connectionId: string,
+  options: { force?: boolean } = {},
 ): Promise<ChannelCalendarConnectionPublic> {
   const res = await fetch(`/api/portal/channel-calendar/sync`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ connectionId }),
+    body: JSON.stringify({ connectionId, ...(options.force ? { force: true } : {}) }),
   });
   const data = (await res.json()) as { connection?: ChannelCalendarConnectionPublic; error?: string };
   if (!res.ok) throw new Error(data.error ?? "Sync failed.");
@@ -225,6 +281,30 @@ export function restoreChannelStay(input: { connectionId: string; sourceUid: str
   return postChannelStayTombstone("restore", input);
 }
 
+/** The stays a manager removed from the channel calendars of these houses (Calendar edit only). */
+export async function fetchRemovedChannelStays(propertyIds: readonly string[]): Promise<RemovedChannelStay[]> {
+  const ids = propertyIds.filter(Boolean);
+  const res = await fetch(`/api/portal/channel-calendar/stay-tombstones?propertyIds=${encodeURIComponent(ids.join(","))}`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  const data = (await res.json().catch(() => ({}))) as { removed?: RemovedChannelStay[]; error?: string };
+  if (!res.ok) throw new Error(data.error ?? "Could not load removed stays.");
+  return data.removed ?? [];
+}
+
+/** Restore a removed stay by its tombstone id; the server re-syncs that calendar so it reappears at once. */
+export async function restoreRemovedChannelStay(tombstoneId: string): Promise<void> {
+  const res = await fetch("/api/portal/channel-calendar/stay-tombstones", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "restore", tombstoneId }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(data.error ?? "Could not restore that stay.");
+}
+
 /** Save the guest name a manager types for a channel stay (empty clears it). */
 export async function saveChannelStayGuestName(input: { connectionId: string; sourceUid: string; guestName: string }): Promise<string> {
   const res = await fetch("/api/portal/channel-calendar/stay-details", {
@@ -284,8 +364,12 @@ export type AirbnbPayoutRow = {
   end: string;
   payoutCents: number;
   paidAt: string | null;
-  /** Key of the booking record page. */
+  /** Key of the booking record page. Empty for a payout read from mail / CSV that no synced stay carries. */
   bookingKey: string;
+  /** Absent = Airbnb (the original stay-detail payouts). */
+  platform?: "airbnb" | "booking_com";
+  /** The channel_payout_records row behind a payout read from mail / CSV. */
+  recordId?: string;
 };
 
 export async function fetchAirbnbPayouts(): Promise<AirbnbPayoutRow[]> {

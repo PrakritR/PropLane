@@ -55,16 +55,16 @@ async function pick(trigger: string, option: string) {
 }
 
 describe("WorkspaceApplicationsLeasesSettings", () => {
-  it("renders the workspace rows, with Application before a tour defaulting to Not needed and no Signing order row", async () => {
+  it("renders the workspace rows, with no Application before a tour and no Signing order row", async () => {
     render(<WorkspaceApplicationsLeasesSettings />);
     expect(await screen.findByRole("heading", { name: "Applications" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Leases" })).toBeTruthy();
     expect(screen.queryByText("Applications & leases")).toBeNull();
     expect(screen.queryByText("Signing order")).toBeNull();
-    for (const label of ["Application before a tour", "Auto-approve applications", "Roommates in a shared room sign", "Deposit accounting", "Auto-send the lease to the resident"]) {
+    for (const label of ["Auto-approve applications", "Roommates in a shared room sign", "Deposit accounting", "Auto-send the lease to the resident"]) {
       expect(screen.getByText(label, { selector: "div, span, p, dt, label" })).toBeTruthy();
     }
-    await waitFor(() => expect(screen.getByRole("button", { name: "Application before a tour" })).toHaveTextContent("Not needed"));
+    expect(screen.queryByText("Application before a tour")).toBeNull();
   });
 
   it("no longer lists per-template mappings or co-signers", async () => {
@@ -76,14 +76,6 @@ describe("WorkspaceApplicationsLeasesSettings", () => {
     expect(screen.queryByRole("button", { name: /^(Lease|Application|Co-signer form|Co-signer \/ guarantor addendum) for / })).toBeNull();
   });
 
-  it("saves Application before a tour once on the workspace record, and the order stays application first", async () => {
-    render(<WorkspaceApplicationsLeasesSettings />);
-    await screen.findByRole("heading", { name: "Applications" });
-    await pick("Application before a tour", "Required");
-    await waitFor(() => expect(pipeline.applicationBeforeTour).toBe("required"));
-    expect(pipeline.pipelineOrder).toBe("application_then_lease");
-  });
-
   it("saves the shared-room default on the workspace record", async () => {
     render(<WorkspaceApplicationsLeasesSettings />);
     await screen.findByRole("heading", { name: "Applications" });
@@ -91,11 +83,11 @@ describe("WorkspaceApplicationsLeasesSettings", () => {
     await waitFor(() => expect(pipeline.sharedRoomLease).toBe("joint"));
   });
 
-  it("puts Application before a tour + Auto-approve under Applications and the other three under Leases", async () => {
+  it("puts Auto-approve under Applications and the other three under Leases", async () => {
     render(<WorkspaceApplicationsLeasesSettings />);
     const apps = (await screen.findByRole("heading", { name: "Applications" })).closest("section")!;
     const leases = screen.getByRole("heading", { name: "Leases" }).closest("section")!;
-    expect(apps.textContent).toContain("Application before a tour");
+    expect(apps.textContent).not.toContain("Application before a tour");
     expect(apps.textContent).toContain("Auto-approve applications");
     expect(leases.textContent).toContain("Roommates in a shared room sign");
     expect(leases.textContent).toContain("Deposit accounting");

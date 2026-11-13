@@ -19,6 +19,8 @@ import {
   portalMessageFieldLabel,
 } from "@/components/portal/portal-message-compose-fields";
 import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
+import { requestTimeoutSignal } from "@/lib/fetch-timeout";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { Select } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { appendInboxMessage, type AdminComposeSendMode } from "@/lib/demo-admin-partner-inbox";
@@ -61,6 +63,7 @@ export function AdminComposeModal({
   const [topic, setTopic] = useState("");
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
   const [sendMode, setSendMode] = useState<"now" | "schedule">("now");
   const [sendAtLocal, setSendAtLocal] = useState(defaultScheduleAtLocal());
   const wasOpen = useRef(false);
@@ -116,9 +119,38 @@ export function AdminComposeModal({
     return pool.filter((p) => selectedIds.has(p.id));
   };
 
-  const submitSendNow = (topicTrim: string, bodyTrim: string) => {
-    let toUserIds: string[] = [];
-
+  const submitSendNow = async (topicTrim: string, bodyTrim: string) => {
+    const picked = resolvePicked();
+    const toUserIds = picked.map((person) => person.id).filter(Boolean);
+    if (toUserIds.length === 0) {
+      showToast("Select at least one recipient.");
+      return false;
+    }
+    if (!isDemoModeActive()) {
+      try {
+        // Admin sends explicitly request oversight; the server still verifies the admin role.
+        const signal = requestTimeoutSignal(20_000);
+        const res = await fetch(adminOversightUrl("/api/portal/send-inbox-message"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            fromName: "PropLane Admin",
+            toUserIds,
+            subject: topicTrim,
+            text: bodyTrim,
+            deliverViaEmail: false,
+            senderPortal: "manager",
+          }),
+          ...(signal ? { signal } : {}),
+        });
+        const response = await res.json().catch(() => null) as { ok?: boolean } | null;
+        if (!res.ok || response?.ok !== true) throw new Error("Send failed");
+      } catch {
+        showToast("Message could not be sent. Please try again.");
+        return false;
+      }
+    }
     if (mode === "all_portal" || mode === "all_managers" || mode === "all_residents") {
       const label =
         mode === "all_portal"
@@ -142,13 +174,7 @@ export function AdminComposeModal({
         composeAudience: mode === "all_portal" ? "all" : mode,
         composeRecipientLabel: label,
       });
-      toUserIds = resolvePicked().map((p) => p.id);
     } else {
-      const picked = resolvePicked();
-      if (picked.length === 0) {
-        showToast("Select at least one recipient.");
-        return false;
-      }
       const roleLabel = mode === "pick_managers" ? "Manager" : "Resident";
       appendInboxMessage({
         name: picked.length === 1 ? picked[0]!.name : `${picked.length} recipients`,
@@ -163,32 +189,8 @@ export function AdminComposeModal({
             ? `${picked[0]!.name} (${roleLabel})`
             : `${picked.length} ${roleLabel.toLowerCase()}s (${picked.map((p) => p.name).join(", ")})`,
       });
-      toUserIds = picked.map((p) => p.id);
     }
-
-    // Deliver to each recipient's real portal inbox (admin's own "Sent" record above is separate).
-    if (toUserIds.length > 0) {
-      // Admin Communication operates the admin surface, so its sends ASK for oversight
-      // (`?oversight=admin`); the server still confirms the stored admin role
-      // (`resolveAdminOversight`). Without it a seated Overall admin — who holds the admin row and
-      // no manager row — is refused on the manager portal send, and the picker above would have
-      // invited a compose that always 403s.
-      void fetch(adminOversightUrl("/api/portal/send-inbox-message"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          fromName: "PropLane Admin",
-          toUserIds,
-          subject: topicTrim,
-          text: bodyTrim,
-          deliverViaEmail: false,
-          senderPortal: "manager",
-        }),
-      }).catch(() => undefined);
-    }
-
-    showToast("Message sent. It appears under Sent.");
+    showToast("Message sent.");
     return true;
   };
 
@@ -240,6 +242,7 @@ export function AdminComposeModal({
   };
 
   const submit = async () => {
+    if (inFlight.current) return;
     const isPick = mode.startsWith("pick");
     if (isPick && selectedIds.size === 0) {
       showToast("Select at least one recipient.");
@@ -253,14 +256,16 @@ export function AdminComposeModal({
       return;
     }
 
+    inFlight.current = true;
     setBusy(true);
     try {
       const ok =
-        sendMode === "schedule" ? await submitSchedule(topicTrim, bodyTrim) : submitSendNow(topicTrim, bodyTrim);
+        sendMode === "schedule" ? await submitSchedule(topicTrim, bodyTrim) : await submitSendNow(topicTrim, bodyTrim);
       if (!ok) return;
       onSent();
       onClose();
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   };

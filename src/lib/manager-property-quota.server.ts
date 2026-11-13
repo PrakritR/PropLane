@@ -10,6 +10,7 @@ import {
 } from "@/lib/persisted-property-records";
 import { RATE_CARD } from "@/lib/billing/rate-card";
 import { loadManagerDoorCount } from "@/lib/billing/door-count.server";
+import { isManagedWorkspace, managedWorkspaceIdsOwnedBy, notInManagedWorkspacesFilter } from "@/lib/service/managed-plan-isolation.server";
 
 /**
  * Server-side enforcement of the plan's listing gate (PLAN-DOOR step 2).
@@ -63,11 +64,19 @@ export async function countManagerListingSlots(
   ownerUserId: string,
   excludeRecordId?: string,
 ): Promise<{ ok: true; count: number } | { ok: false; error: string }> {
+  // A PropLane-managed house is PropLane's operation, never a slot of the owner's own plan (plan isolation).
+  let managedFilter: string | null;
+  try {
+    managedFilter = notInManagedWorkspacesFilter(await managedWorkspaceIdsOwnedBy(db, ownerUserId));
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Could not read managed workspaces." };
+  }
   let query = db
     .from("manager_property_records")
     .select("id", { count: "exact", head: true })
     .eq("manager_user_id", ownerUserId)
     .in("status", [...LISTING_SLOT_PROPERTY_STATUSES]);
+  if (managedFilter) query = query.or(managedFilter);
   if (excludeRecordId?.trim()) query = query.neq("id", excludeRecordId.trim());
 
   const { count, error } = await query;
@@ -100,6 +109,8 @@ export async function assertManagerPropertyListingQuota(
     nextStatus: ManagerPropertyRecordStatus;
     existingStatus: ManagerPropertyRecordStatus | string | null;
     incomingDoors?: number;
+    /** The workspace the record sits in (a create names it); an existing record's is read here. Managed = never limited. */
+    workspaceId?: string | null;
   },
 ): Promise<ManagerPropertyQuotaVerdict | { ok: false; status: 500; error: string }> {
   // The write does not land in a listing slot (draft, unlisted, rejected,
@@ -112,6 +123,20 @@ export async function assertManagerPropertyListingQuota(
   // own authorization, which is what already governs who may touch it.
   const ownerUserId = params.ownerUserId?.trim();
   if (!ownerUserId) return { ok: true };
+
+  // Plan isolation: a house in a PropLane-managed workspace is never limited by the owner's own plan or override
+  // (the admin owns every managed workspace). A workspace we cannot read fails closed, like an unreadable plan.
+  try {
+    let workspaceId = params.workspaceId?.trim() || "";
+    if (!workspaceId && params.recordId?.trim()) {
+      const { data, error } = await db.from("manager_property_records").select("workspace_id").eq("id", params.recordId.trim()).maybeSingle();
+      if (error) throw new Error("Could not read the property's workspace.");
+      workspaceId = String((data as { workspace_id?: unknown } | null)?.workspace_id ?? "").trim();
+    }
+    if (workspaceId && (await isManagedWorkspace(db, workspaceId))) return { ok: true };
+  } catch (error) {
+    return { ok: false, status: 500, error: error instanceof Error ? error.message : "Could not read the workspace." };
+  }
 
   // A plan we could not read is not the Free plan. Zero purchase rows come back
   // both when the account never bought anything and when the read failed, and

@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 /**
  * The listing price card offers three separate, differently-labelled doors:
- * Book a tour, Apply, and — only when the manager has a real work number — Text.
+ * Tour, Book, and — only when the manager has a real work number — Text.
  *
  * It used to SWAP instead of add: a work number replaced "Schedule a tour" with
- * "Text to tour" and "Apply online" with "Text to apply", so a prospect on a
+ * "Text to tour" and "Book" with "Text to book", so a prospect on a
  * desktop browser was offered two SMS links and could reach the booking form only
  * through a footnote ("No texting on this device?"). Booking and applying now come
  * first always, and texting is additive.
@@ -76,13 +76,13 @@ afterEach(() => {
 });
 
 describe("listing price card CTAs", () => {
-  it("offers Book a tour and Apply even when the manager can be texted", () => {
+  it("offers Tour and Book even when the manager can be texted", () => {
     render(<ListingDetailSections property={property(WORK_NUMBER)} rich={rich} />);
-    expect(screen.getAllByText("Book a tour").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Apply").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Tour").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Book").length).toBeGreaterThan(0);
     expect(screen.queryByText("Apply long term")).toBeNull();
     expect(screen.queryByText("Text to tour")).toBeNull();
-    expect(screen.queryByText("Text to apply")).toBeNull();
+    expect(screen.queryByText("Text to book")).toBeNull();
     expect(screen.queryByText(/No texting on this device/)).toBeNull();
   });
 
@@ -90,15 +90,15 @@ describe("listing price card CTAs", () => {
     render(<ListingDetailSections property={property(WORK_NUMBER)} rich={rich} />);
     expect(document.querySelector('[data-attr="listing-text-tour"]')).toBeNull();
     expect(document.querySelector('a[href^="sms:"], a[href^="tel:"]')).toBeNull();
-    expect(screen.getAllByText("Book a tour").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Tour").length).toBeGreaterThan(0);
   });
 
   it("shows no Text button when the manager has no work number", () => {
     render(<ListingDetailSections property={property(null)} rich={rich} />);
     expect(screen.queryByText(/^Text\b/)).toBeNull();
     expect(document.querySelector('[data-attr="listing-text-tour"]')).toBeNull();
-    expect(screen.getAllByText("Book a tour").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Apply").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Tour").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Book").length).toBeGreaterThan(0);
   });
 });
 

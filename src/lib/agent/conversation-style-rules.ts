@@ -20,12 +20,18 @@ export function stripLongDashes<T extends string | null | undefined>(text: T): T
 }
 
 /**
- * A text message has no markdown: "**4966**" arrives with literal asterisks. Unwraps bold and drops heading marks;
- * nothing else is touched (a lone * or underscore in a name or address is left alone). Applied at the SMS outbox.
+ * A text message has no markdown: "**4966**" arrives with literal asterisks, and "[the listing](https://…)" arrives
+ * with brackets no SMS client turns into a link. Unwraps bold, drops heading marks and flattens a markdown link to
+ * "label: url" (the bare url when the label adds nothing); nothing else is touched (a lone * or underscore in a name
+ * or address, and a bare URL, are left alone). Applied at the SMS outbox.
  */
 export function stripSmsMarkdown<T extends string | null | undefined>(text: T): T {
   if (typeof text !== "string") return text;
   return text
     .replace(/\*\*([^*\n]+?)\*\*/g, "$1")
+    .replace(/\[([^\]\n]*)\]\((https?:\/\/[^\s)]+)\)/g, (_match, label: string, url: string) => {
+      const shown = label.trim();
+      return !shown || shown === url ? url : `${shown}: ${url}`;
+    })
     .replace(/^#{1,3}[ \t]+/gm, "") as T;
 }

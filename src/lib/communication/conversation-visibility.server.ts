@@ -37,6 +37,9 @@ import { parseTeamThreadId } from "@/lib/team-thread-id";
  * dependency can hide a co-manager's rows but can never leak an owner's.
  */
 
+import { isSystemOnlyOwnerThread } from "@/lib/communication/managed-owner-thread";
+import { loadManagedOwnerIdentity } from "@/lib/communication/managed-owner-thread.server";
+
 export type CommunicationLevel = "read" | "edit" | "delete";
 
 export type ConversationHouseRef = { propertyId: string; label: string };
@@ -66,6 +69,13 @@ export type CommunicationScope = {
    * (everyone but a Viewer). Empty when none or when the read failed: no chat.
    */
   teamWorkspacesByOwner?: Map<string, Map<string, { canPost: boolean }>>;
+  /**
+   * PropLane Service STAFF only: the ACTIVE service workspace -> its client owner, when the viewer runs that workspace
+   * (an Admin / Full seat, or any PropLane-issued seat reaching every house) at this scope's level. A house-less
+   * conversation of that workspace (a stranger's first text, a lead that named no house) is the staff's to read.
+   * Empty when the viewer is not staff of the active workspace or a read failed: nothing widens.
+   */
+  staffWorkspaceOwners?: Map<string, string>;
   /**
    * True when no workspace could be named for a surface that has no browser
    * cookie (API key, MCP, SMS / email assistant). Nothing is visible: a
@@ -158,8 +168,11 @@ export function conversationVisible(scope: CommunicationScope, input: Visibility
     if (scope.activeWorkspaceId && scope.activeWorkspaceId !== team.workspaceId) return false;
     if (ownerId === scope.viewerId) return true;
     const membership = scope.teamWorkspacesByOwner?.get(ownerId)?.get(team.workspaceId);
-    if (!membership) return false;
-    return scope.level === "read" || membership.canPost;
+    // PropLane staff who run this service workspace (`staffWorkspaceOwners`, already re-derived from their seat)
+    // are in its Team chat even when the membership read found no row for them.
+    const staffRuns = scope.staffWorkspaceOwners?.get(team.workspaceId) === ownerId;
+    if (!membership && !staffRuns) return false;
+    return scope.level === "read" || (membership ? membership.canPost : staffRuns);
   }
   const isAssistant =
     input.threadType === "agent_notice" || (threadId.length > 0 && threadId.startsWith(AGENT_NOTICE_PREFIX));
@@ -204,12 +217,35 @@ export function conversationVisible(scope: CommunicationScope, input: Visibility
   if (lineHolders && scope.activeWorkspaceId && !lineHolders.has(scope.activeWorkspaceId)) {
     return false;
   }
+  // PropLane Service staff run a managed workspace for its client owner: that workspace's conversations are theirs
+  // whether or not a house is tagged (the client owner's row is the same thread staff read). Only the ACTIVE workspace,
+  // only the owner that workspace names; a self-serve co-manager never passes this.
+  const activeId = clean(scope.activeWorkspaceId);
+  if (
+    activeId &&
+    scope.staffWorkspaceOwners?.get(activeId) === ownerId &&
+    (stampedWorkspaceId === activeId || sharedWorkspaceId === activeId || (houses.length > 0 && houses.some(inWorkspace)))
+  ) {
+    return true;
+  }
   const granted = scope.grantedHousesByOwner.get(ownerId);
   if (!granted || granted.size === 0 || houses.length === 0) return false;
   if (input.untaggedTurns) {
     return houses.every((houseId) => granted.has(houseId)) && houses.some(inWorkspace);
   }
   return houses.some((houseId) => granted.has(houseId) && inWorkspace(houseId));
+}
+
+/**
+ * Every owner whose SMS summaries this viewer may be asked about: the owners whose houses they hold the inbox for
+ * (`scope.ownerIds`) plus, for PropLane Service STAFF only, the client owner of the ACTIVE workspace they run
+ * (`staffWorkspaceOwners`, re-derived from their seat) even when no house is granted. This is only a candidate
+ * pre-filter: `conversationVisible` stays the decision. A self-serve co-manager has no staff entry, so nothing widens.
+ */
+export function communicationCandidateOwnerIds(scope: CommunicationScope): string[] {
+  const active = String(scope.activeWorkspaceId ?? "").trim();
+  const staffOwner = active ? scope.staffWorkspaceOwners?.get(active) : undefined;
+  return staffOwner && !scope.ownerIds.includes(staffOwner) ? [...scope.ownerIds, staffOwner] : [...scope.ownerIds];
 }
 
 async function readSelectedWorkspaceId(): Promise<string | undefined> {
@@ -295,6 +331,7 @@ export async function resolveCommunicationScope(
     scope.workspaceHouseIds = new Set(active.propertyIds.map(clean).filter(Boolean));
     scope.untaggedOwnedVisible = active.owned && active.isDefault;
     scope.activeWorkspaceId = active.id;
+    await loadStaffWorkspaceOwners(db, scope, active.id);
     // The viewer's own lines, one per owned workspace. A failure here leaves
     // the map empty, which is the default-workspace rule — never wider.
     const ownedIds = workspaces.filter((w) => w.owned).map((w) => w.id);
@@ -337,6 +374,32 @@ export async function resolveCommunicationScope(
     scope.workspaceByLine = new Map();
   }
   return scope;
+}
+
+/**
+ * Is the viewer PropLane Service STAFF of the active workspace at this scope's level? Re-derived from membership
+ * (`loadServiceStaffWorkspaces`, the one staff decision) and the viewer's own seat on THAT workspace. A failed read
+ * leaves the map empty: never wider.
+ */
+async function loadStaffWorkspaceOwners(db: SupabaseClient, scope: CommunicationScope, activeWorkspaceId: string): Promise<void> {
+  scope.staffWorkspaceOwners = new Map();
+  if (!scope.viewerId || !activeWorkspaceId) return;
+  try {
+    const { loadServiceStaffWorkspaces } = await import("@/lib/service/service-mode.server");
+    const staff = await loadServiceStaffWorkspaces(db, scope.viewerId);
+    const match = staff.find((w) => w.id === activeWorkspaceId);
+    if (!match?.ownerUserId || match.ownerUserId === scope.viewerId) return;
+    const { actorWorkspaceStanding } = await import("@/lib/workspaces/membership.server");
+    const standing = await actorWorkspaceStanding(db, scope.viewerId, activeWorkspaceId);
+    if (!standing || standing.role === null || standing.ownerUserId !== match.ownerUserId) return;
+    const runsIt = standing.role === "admin" || standing.role === "full" || standing.houseScope === "all";
+    if (!runsIt) return;
+    // A write level also needs a role that can act (a Viewer seat reads only).
+    if (scope.level !== "read" && standing.role === "viewer") return;
+    scope.staffWorkspaceOwners.set(activeWorkspaceId, match.ownerUserId);
+  } catch {
+    scope.staffWorkspaceOwners = new Map();
+  }
 }
 
 /**
@@ -599,7 +662,11 @@ export async function filterVisibleInboxThreadRecords<T extends StoredInboxThrea
       visible.push({ ...record, houses });
     }
   }
-  return restrictOtherOwnersThreads(db, scope, visible, houseLabels);
+  const restricted = await restrictOtherOwnersThreads(db, scope, visible, houseLabels);
+  // A PropLane-managed workspace's client owner is not a conversation until they write in: hide (never delete) a thread that
+  // holds only system notices. Read side only, so nothing is lost and a later reply from the owner brings it back.
+  const owner = await loadManagedOwnerIdentity(db, scope.activeWorkspaceId);
+  return owner ? restricted.filter((record) => !isSystemOnlyOwnerThread(record, owner)) : restricted;
 }
 
 /**
@@ -616,9 +683,12 @@ export function grantedHouseIdsForOwner(scope: CommunicationScope, ownerId: stri
 }
 
 /** Threads that are another owner's person-conversation, not an assistant / team / agent thread. */
-function isSharedPersonThread(record: StoredInboxThreadRecord, viewerId: string): boolean {
+function isSharedPersonThread(record: StoredInboxThreadRecord, viewerId: string, scope?: CommunicationScope): boolean {
   const owner = clean(record.owner_user_id);
   if (!owner || owner === viewerId) return false;
+  // Service staff read the workspace they run whole: its turns are not narrowed to a house grant.
+  const activeId = clean(scope?.activeWorkspaceId);
+  if (activeId && scope?.staffWorkspaceOwners?.get(activeId) === owner) return false;
   const type = String(record.thread_type ?? "");
   if (type === "agent_notice" || type === "team" || type === "vendor_agent" || type === "resident_agent") return false;
   return !clean(record.id).startsWith(AGENT_NOTICE_PREFIX);
@@ -635,7 +705,7 @@ async function restrictOtherOwnersThreads<T extends StoredInboxThreadRecord>(
   visible: (T & { houses: ConversationHouseRef[] })[],
   houseLabels: HouseLabelMap,
 ): Promise<(T & { houses: ConversationHouseRef[] })[]> {
-  const shared = visible.filter((record) => isSharedPersonThread(record, scope.viewerId));
+  const shared = visible.filter((record) => isSharedPersonThread(record, scope.viewerId, scope));
   if (shared.length === 0) return visible;
   const owners = [...new Set(shared.map((record) => clean(record.owner_user_id)))];
   const personHouses = await loadPersonHousesByOwner(db, owners, houseLabels);

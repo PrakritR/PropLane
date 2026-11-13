@@ -857,9 +857,9 @@ export async function notifyTenantTourRequestReceived(
     inquiry,
     inquiryId: textField(inquiry as Record<string, unknown>, "id") || null,
     allowConversationEvidence: inquiryAllowsConversationSmsEvidence(inquiry),
-    text: `PropLane: we received your tour request for ${ctx.propertyTitle}${
+    text: `We received your tour request for ${ctx.propertyTitle}${
       ctx.tourStartIso ? ` (${formatTourTimeRange(ctx.tourStartIso, ctx.tourEndIso)})` : ""
-    }. We'll text you here once it's confirmed.${accountPrompt} Details: ${listingLink}. Reply STOP to opt out, HELP for help.`,
+    }. We'll text you here once it's confirmed.${accountPrompt} Details: ${listingLink}.`,
   });
 
   if (email.error) return { ok: true, skipped: true, error: email.error };
@@ -934,9 +934,9 @@ export async function notifyTenantTourRequestRemoved(
     inquiry,
     inquiryId: textField(row, "id") || null,
     allowConversationEvidence: inquiryAllowsConversationSmsEvidence(inquiry),
-    text: `PropLane: your tour request for ${ctx.propertyTitle}${
+    text: `Your tour request for ${ctx.propertyTitle}${
       tourStartIso && tourEndIso ? ` (${formatTourTimeRange(tourStartIso, tourEndIso)})` : ""
-    } was removed by the property team. Request another time: ${listingLink}. Reply STOP to opt out, HELP for help.`,
+    } was removed by the property team. Request another time: ${listingLink}.`,
   });
 
   if (email.error) return { ok: false, skipped: false, error: email.error, inbox };
@@ -1093,14 +1093,14 @@ async function notifyTenantTourChanged(
     // of the same B → A operation keeps this exact stable key.
     deliveryKey: `${textField(row, "id") || "tour"}:${input.rescheduleGeneration?.trim() || `${input.previousWindow?.start ?? ""}:${input.previousWindow?.end ?? ""}:${input.window.start}:${input.window.end}`}`,
     text: canceled
-      ? `PropLane: your tour of ${ctx.propertyTitle} on ${formatTourTimeRange(
+      ? `Your tour of ${ctx.propertyTitle} on ${formatTourTimeRange(
           input.previousWindow?.start ?? input.window.start,
           input.previousWindow?.end ?? input.window.end,
-        )} was cancelled. Please do not travel to the property. Book another: ${listingLink}. Reply STOP to opt out, HELP for help.`
-      : `PropLane: your tour of ${ctx.propertyTitle} moved to ${formatTourTimeRange(
+        )} was cancelled. Please do not travel to the property. Book another: ${listingLink}.`
+      : `Your tour of ${ctx.propertyTitle} moved to ${formatTourTimeRange(
           input.window.start,
           input.window.end,
-        )}. Does this new time work for you? Reply YES to confirm or reply with another time that works. Details: ${listingLink}. Reply STOP to opt out, HELP for help.`,
+        )}. Does this new time work for you? Reply YES to confirm or reply with another time that works. Details: ${listingLink}.`,
   }) : { requested: false, sent: false, skipped: true };
 
   if (!canceled && (sms.sent || sms.accepted)) {
@@ -1257,9 +1257,9 @@ async function deliverTenantTourConfirmed(
     inquiryId: textField(inquiry as Record<string, unknown>, "id") || null,
     allowConversationEvidence: inquiryAllowsConversationSmsEvidence(inquiry),
     deliveryKey: `${textField(inquiry as Record<string, unknown>, "id") || "tour"}:${window.start}:${window.end}`,
-    text: `PropLane: your tour of ${ctx.propertyTitle} is confirmed${
+    text: `Your tour of ${ctx.propertyTitle} is confirmed${
       ctx.tourStartIso ? ` for ${formatTourTimeRange(ctx.tourStartIso, ctx.tourEndIso)}` : ""
-    }.${instructions ? ` ${instructions.trim()}` : ""} Reply here with any questions. Details: ${listingLink}. Reply STOP to opt out, HELP for help.`,
+    }.${instructions ? ` ${instructions.trim()}` : ""} Reply here with any questions. Details: ${listingLink}.`,
   }) : { requested: false, sent: false, skipped: true };
 
   return notificationResult({ requested: wantsEmail, ...email }, { ...sms, requested: wantsSms }, inbox);

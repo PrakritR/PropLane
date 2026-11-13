@@ -1,4 +1,4 @@
-import { bookingChannelName, bookingEntryNamedLabel, isGuestLabelSource } from "@/lib/channel-calendar/booking-guest-label";
+import { bookingChannelName, channelStayName, isGuestLabelSource } from "@/lib/channel-calendar/booking-guest-label";
 import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
 import { bookedDayKeyCountInMonth, isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { addDays, dateKey, startOfLocalDay, startOfWeekSunday } from "@/lib/room-availability-calendar";
@@ -106,9 +106,9 @@ export function describeBookingConflict(
 }
 
 /**
- * Who holds the dates, for the refusal line: the linked resident or the name the manager typed, else
- * "Airbnb guest · HM…", else the summary when it is a real name, else the channel itself - never the
- * feed's generic "Reserved".
+ * Who holds the dates, for the refusal line: the linked resident, else the channel stay's one name
+ * ({@link channelStayName}) so the refusal matches the calendar bar and the record - never the feed's
+ * generic "Reserved" or privacy-stripped "CLOSED - Not available". A host block names its channel.
  */
 function bookingConflictWho(conflict: Parameters<typeof describeBookingConflict>[0]): string | null {
   const resident = conflict.residentName?.trim();
@@ -116,10 +116,8 @@ function bookingConflictWho(conflict: Parameters<typeof describeBookingConflict>
   const summary = conflict.summary?.trim() ?? "";
   const source = conflict.source;
   if (!source || !isGuestLabelSource(source)) return summary || null;
-  const named = bookingEntryNamedLabel({ ...conflict, source, summary });
-  if (named) return named;
-  if (summary && summary.toLowerCase() !== "reserved" && !isHostBlockSummary(summary)) return summary;
-  return bookingChannelName(source, conflict.channelLabel);
+  if (isHostBlockSummary(summary)) return bookingChannelName(source, conflict.channelLabel);
+  return channelStayName({ ...conflict, source, summary }) || null;
 }
 
 export function classifyBookingListBucket(

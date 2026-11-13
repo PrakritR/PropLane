@@ -232,7 +232,7 @@ export const updateManagerBudgetTool = defineWriteTool({
 export const disposeSecurityDepositTool = defineWriteTool({
   name: "dispose_security_deposit",
   description:
-    "Dispose a held security deposit at move-out. Supply only the damages/withheld amount in cents; the refund is computed server-side as the remainder of the amount held (the tool computes the split, never the model). Posts the disposition GL entry. Requires explicit user confirmation.",
+    "Dispose a held security deposit at move-out. Supply only the damages/withheld amount in cents; the refund is computed server-side as the remainder of the amount held (the tool computes the split, never the model). Records an already completed offline refund; supply its method and reference. Posts the disposition GL entry. Requires explicit user confirmation.",
   inputSchema: z
     .object({
       depositId: z.string().min(1),
@@ -241,6 +241,7 @@ export const disposeSecurityDepositTool = defineWriteTool({
         .array(z.object({ label: z.string(), amountCents: z.number().int().nonnegative() }))
         .optional(),
       memo: z.string().optional(),
+      offlineReturn: z.object({ method: z.enum(["cash", "check", "bank_transfer", "other"]), reference: z.string().trim().min(1).max(300) }).strict().optional(),
     })
     .strict(),
   preview: async (ctx, input): Promise<ActionPreview> => {
@@ -250,6 +251,7 @@ export const disposeSecurityDepositTool = defineWriteTool({
     // handler recomputes it — the landlord confirms the real refund figure, not
     // a model-supplied one.
     const split = computeDispositionSplit(deposit.amountHeldCents, input.withholdCents ?? 0);
+    if (split.refundCents > 0 && !input.offlineReturn) throw new Error("Provide the completed offline return method and reference.");
     return {
       kind: "dispose_security_deposit",
       title: "Dispose this security deposit",
@@ -259,6 +261,7 @@ export const disposeSecurityDepositTool = defineWriteTool({
         { label: "Withheld for damages", value: money(split.withholdCents) },
         { label: "Refunded to resident", value: money(split.refundCents) },
         { label: "Disposition type", value: split.dispositionType },
+        ...(input.offlineReturn ? [{ label: "Offline return method", value: input.offlineReturn.method }, { label: "Return reference", value: input.offlineReturn.reference }] : []),
         ...(input.memo ? [{ label: "Memo", value: input.memo }] : []),
       ],
       warnings: ["This posts the disposition to the general ledger and cannot be undone from chat."],
@@ -276,6 +279,7 @@ export const disposeSecurityDepositTool = defineWriteTool({
       withholdCents: split.withholdCents,
       itemization: input.itemization,
       memo: input.memo,
+      offlineReturn: input.offlineReturn,
     });
   },
 });

@@ -1,3 +1,4 @@
+import { MANAGED_OFFLINE_RENT_MESSAGE, offlineReceiptRefusedForManagedRent } from "@/lib/managed-finance/offline-receipt-guard.server";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { NextResponse } from "next/server";
 import { isDeepStrictEqual } from "node:util";
@@ -313,8 +314,11 @@ export async function POST(req: Request) {
       note?: string;
       charges?: Record<string, unknown>[];
       rentProfiles?: Record<string, unknown>[];
+      confirmWrites?: boolean;
     };
     const now = new Date().toISOString();
+    let confirmedChargeIds: string[] = [];
+    let confirmedProfileIds: string[] = [];
 
     if (body.action === "recordOfflinePayment") {
       const id = typeof body.id === "string" ? body.id.trim() : "";
@@ -333,6 +337,9 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }
       const current = existing.row_data as HouseholdCharge;
+      if (user.role !== "admin" && (await offlineReceiptRefusedForManagedRent(db, { kind: current.kind, propertyId: propertyId ?? current.propertyId }))) {
+        return NextResponse.json({ error: MANAGED_OFFLINE_RENT_MESSAGE, code: "MANAGED_RENT_PAID_IN_PROPLANE" }, { status: 409 });
+      }
       const note = body.note?.trim() ?? "";
       // A retry after ledger failure repairs the same receipt; it never changes a paid charge.
       const sameReceipt = existing.status === "paid" && current.paidAt === paidAt.toISOString() && current.paidMethod === method && (current.paidNote ?? "") === note;
@@ -619,7 +626,7 @@ export async function POST(req: Request) {
           updated_at: now,
         });
       }
-      const { chargeWriteError } = await persistHouseholdChargeRows(db, mappedRows, {
+      const { chargeWriteError, confirmedIds } = await persistHouseholdChargeRows(db, mappedRows, {
         actor: { id: user.id, role: user.role },
         now,
         chargeIds,
@@ -630,6 +637,7 @@ export async function POST(req: Request) {
         existingLedgerFingerprintById,
       });
       if (chargeWriteError) return NextResponse.json({ error: chargeWriteError }, { status: 500 });
+      confirmedChargeIds = confirmedIds;
     }
 
     if (rentProfiles.length > 0) {
@@ -732,10 +740,11 @@ export async function POST(req: Request) {
       if (rows.length > 0) {
         const { error } = await db.from("portal_recurring_rent_profile_records").upsert(rows, { onConflict: "id" });
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+        confirmedProfileIds = rows.map((row) => row.id);
       }
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json(body.confirmWrites === true ? { ok: true, confirmedChargeIds, confirmedProfileIds } : { ok: true });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to save charges.";
     return NextResponse.json({ error: message }, { status: 500 });

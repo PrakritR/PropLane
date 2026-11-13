@@ -27,6 +27,7 @@ import {
 } from "@/lib/communication/manager-assistant-workspace.server";
 import { appendSmsTurnToManagerAssistantThread } from "@/lib/sms/manager-assistant-thread-mirror.server";
 import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
+import { withHouseDisplayNames } from "@/lib/notice-place-label.server";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 const MANAGER_AGENT_FROM_NAME = "PropLane Assistant";
@@ -45,7 +46,7 @@ function noticeAppendBackoff(attempt: number): Promise<void> {
 
 export async function notifyManagerFromAgent(
   db: SupabaseClient,
-  args: {
+  rawArgs: {
     landlordId: string;
     subject: string;
     text: string;
@@ -76,6 +77,14 @@ export async function notifyManagerFromAgent(
     senderOwnerId?: string | null;
   },
 ): Promise<{ delivered: boolean; suppressed: boolean; sms?: "sent" | "skipped" | "failed"; email?: "sent" | "skipped" | "failed" }> {
+  // A notice names a house by its display name, never its stored id (`mgr-…`): whatever builder wrote the copy, a raw
+  // property id in the prose is replaced here, the one place every Assistant notice passes through. Links are untouched.
+  const args = {
+    ...rawArgs,
+    subject: await withHouseDisplayNames(db, rawArgs.subject),
+    text: await withHouseDisplayNames(db, rawArgs.text),
+    ...(rawArgs.externalText ? { externalText: await withHouseDisplayNames(db, rawArgs.externalText) } : {}),
+  };
   if (captureSmsTestDelivery({
     kind: "manager_notification",
     summary: args.subject.trim() || "Manager notification captured in the test conversation.",

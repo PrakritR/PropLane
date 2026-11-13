@@ -17,6 +17,8 @@ import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras
 import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-notifications-block";
 import { ResidentAgentSettings, useResidentAgentSnapshot } from "@/components/portal/resident-agent-settings";
 import { ResidentNotificationPreferencesSettings } from "@/components/portal/resident-notification-preferences-settings";
+import { ResidentIdentitySettings } from "@/components/portal/resident-identity-settings";
+import { ResidentRatingsSettings } from "@/components/portal/resident-ratings-settings";
 import { ResidentPaymentMethodsSettingsCard } from "@/components/portal/resident-payment-methods-settings-card";
 import {
   PortalSettingsField,
@@ -442,7 +444,7 @@ export function ResidentProfilePanel({
   const renderPane = (id: SettingsGroupId): ReactNode => {
     switch (id) {
       case "profile":
-        return personalInfoSection;
+        return <>{personalInfoSection}{!demo && <ResidentIdentitySettings />}{!demo && <ResidentRatingsSettings />}</>;
       case "messaging":
         return (
           <PortalTextNotificationsBlock

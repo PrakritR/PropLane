@@ -148,7 +148,7 @@ export function AddResidentWizard({
   const goTo = useCallback((id: string) => setStepIdx(Math.max(0, stepIds.indexOf(id))), [stepIds]);
   const propertyLabel = useMemo(() => propertyOptions.find((p) => p.id === form.propertyId)?.label ?? null, [propertyOptions, form.propertyId]);
   const todo = useMemo(() => {
-    const base = thingsToFinish(form, mode === "edit" ? "person" : mode);
+    const base = thingsToFinish(form, mode === "edit" ? "person" : mode, { editing: mode === "edit" });
     if (mode === "tour" && !form.propertyId) base.push({ step: "home", label: "Property to show" });
     return base;
   }, [form, mode]);
@@ -616,7 +616,7 @@ export function AddResidentWizard({
         ) : null
       }
     >
-      {stepId === "contact" ? <ContactStep form={form} patch={patch} strip={strip} onPickFile={onPickStartFile} onUndoFill={onUndoFill} busy={busy} lockKind={mode !== "person" && mode !== "edit"} mode={mode === "edit" ? "person" : mode} /> : null}
+      {stepId === "contact" ? <ContactStep editing={mode === "edit"} form={form} patch={patch} strip={strip} onPickFile={onPickStartFile} onUndoFill={onUndoFill} busy={busy} lockKind={mode !== "person" && mode !== "edit"} mode={mode === "edit" ? "person" : mode} /> : null}
       {stepId === "home" ? <HomeStep form={form} patch={patch} derived={derived} propertyOptions={propertyOptions} /> : null}
       {stepId === "application" ? <ApplicationStep form={form} patch={patch} derived={derived} propertyLabel={propertyLabel} editRecord={mode === "edit" ? editContext?.record : undefined} onPickApplicationFile={mode === "edit" ? undefined : onPickApplicationFile} uploadBusy={busy} /> : null}
       {stepId === "lease" ? (

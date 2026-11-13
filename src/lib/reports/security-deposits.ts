@@ -74,6 +74,7 @@ export type DisposeSecurityDepositInput = {
   itemization?: SecurityDepositItemizationLine[];
   dispositionDate?: string;
   memo?: string;
+  offlineReturn?: { method: "cash" | "check" | "bank_transfer" | "other"; reference: string };
 };
 
 const LIABILITY_ACCOUNT = "security_deposit_liability";
@@ -238,6 +239,9 @@ export async function disposeSecurityDeposit(
   const refundCents = Math.max(0, Math.round(input.refundCents));
   const withholdCents = Math.max(0, Math.round(input.withholdCents));
   const total = refundCents + withholdCents;
+  if (refundCents > 0 && (!input.offlineReturn || !["cash", "check", "bank_transfer", "other"].includes(input.offlineReturn.method) || !input.offlineReturn.reference.trim())) {
+    throw new Error("A recorded offline return requires its method and reference.");
+  }
   if (total <= 0 || total > deposit.amountHeldCents) {
     throw new Error("Disposition amounts must be positive and not exceed amount held.");
   }
@@ -246,7 +250,9 @@ export async function disposeSecurityDeposit(
     p_owner: input.managerUserId, p_deposit: input.depositId, p_expected_held: deposit.amountHeldCents,
     p_refund: refundCents, p_withhold: withholdCents, p_type: input.dispositionType,
     p_date: input.dispositionDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
-    p_itemization: input.itemization ?? [], p_memo: input.memo ?? "Security deposit disposition", p_history: null,
+    p_itemization: input.itemization ?? [], p_memo: input.offlineReturn
+      ? `Offline return (${input.offlineReturn.method}): ${input.offlineReturn.reference.trim()}${input.memo ? ` — ${input.memo}` : ""}`
+      : input.memo ?? "Security deposit disposition", p_history: null,
   });
   if (error || !data) throw new Error(error?.message ?? "Deposit disposition commit failed");
   return mapDepositRow(data as Record<string, unknown>);

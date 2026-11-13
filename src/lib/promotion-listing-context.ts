@@ -60,7 +60,7 @@ function firstBundlePromo(property: MockProperty): string {
 
 function promotionPropertyLabel(property: MockProperty): string {
   const name = cleanPropertyDisplayName(property);
-  const place = property.neighborhood.trim() || property.address.trim();
+  const place = (property.neighborhood ?? "").trim() || (property.address ?? "").trim();
   return place ? `${name} — ${place}` : name;
 }
 

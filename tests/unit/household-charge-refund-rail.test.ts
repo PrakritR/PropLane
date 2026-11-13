@@ -65,12 +65,33 @@ describe("refundPaidHouseholdCharge", () => {
     runReservedPlatformMoneyRefund.mockReset();
   });
 
+  it("refuses a changed rail before calling the provider", async () => {
+    const { stripe, db } = fixture([centralHold]);
+    await expect(refundPaidHouseholdCharge(stripe as never, db as never, { ...input, expectedRail: { rail: "destination" } })).rejects.toThrow(/allocation changed/);
+    expect(stripe.refunds.create).not.toHaveBeenCalled();
+    expect(runReservedPlatformMoneyRefund).not.toHaveBeenCalled();
+  });
+
+  it("refuses duplicate exact managed allocations before provider calls", async () => {
+    const { stripe } = fixture([]);
+    const allocation = { id: "a", charge_id: chargeId, stripe_charge_id: stripeChargeId, stripe_payment_intent_id: "pi_a", principal_cents: 5000, refunded_principal_cents: 0 };
+    const db = { from: () => { const q = { select: () => q, eq: () => q, limit: async () => ({ data: [allocation, { ...allocation, id: "b", stripe_payment_intent_id: "pi_b" }], error: null }) }; return q; } };
+    await expect(refundPaidHouseholdCharge(stripe as never, db as never, input)).rejects.toThrow(/ambiguous/);
+    expect(stripe.refunds.create).not.toHaveBeenCalled();
+  });
+
+  it.each([ ["pending", "pending"], ["failed", "failed"], ["canceled", "failed"], [null, "unknown"] ] as const)("preserves provider status %s", async (providerStatus, expected) => {
+    const { stripe, db } = fixture([]);
+    stripe.refunds.create.mockResolvedValue({ id: "re_legacy", status: providerStatus } as never);
+    expect((await refundPaidHouseholdCharge(stripe as never, db as never, input)).status).toBe(expected);
+  });
+
   it("reverses the transfer on a legacy destination charge with no platform hold", async () => {
     const { stripe, db } = fixture([]);
 
     const result = await refundPaidHouseholdCharge(stripe as never, db as never, input);
 
-    expect(result).toEqual({ refundId: "re_legacy", rail: "destination" });
+    expect(result).toEqual({ refundId: "re_legacy", status: "succeeded", rail: "destination" });
     expect(runReservedPlatformMoneyRefund).not.toHaveBeenCalled();
     expect(stripe.refunds.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -90,7 +111,7 @@ describe("refundPaidHouseholdCharge", () => {
 
     const result = await refundPaidHouseholdCharge(stripe as never, db as never, input);
 
-    expect(result).toEqual({ refundId: "re_central", rail: "central" });
+    expect(result).toEqual({ refundId: "re_central", status: "succeeded", rail: "central" });
     // Stripe only ever sees the refund the reservation creates: a marked capture has no
     // transfer to reverse, and a refund created here would carry no attempt metadata.
     expect(stripe.refunds.create).not.toHaveBeenCalled();
@@ -101,6 +122,13 @@ describe("refundPaidHouseholdCharge", () => {
       attemptKey: input.idempotencyKey,
       components: [{ sourceId: chargeId, principalCents: 5000 }],
     });
+  });
+
+  it("forwards the deposit attempt identifier to the central provider rail", async () => {
+    const { stripe, db } = fixture([centralHold]);
+    runReservedPlatformMoneyRefund.mockResolvedValue({ status: "pending", refundId: "re_1" });
+    await refundPaidHouseholdCharge(stripe as never, db as never, { ...input, metadata: { deposit_return_attempt: "deposit-1" } });
+    expect(runReservedPlatformMoneyRefund).toHaveBeenCalledWith(stripe, db, expect.objectContaining({ depositReturnAttemptId: "deposit-1" }));
   });
 
   it("reserves only the refunded charge's component out of a whole-cart capture", async () => {
@@ -139,14 +167,13 @@ describe("refundPaidHouseholdCharge", () => {
     expect(stripe.refunds.create).not.toHaveBeenCalled();
   });
 
-  it("throws on a failed provider refund so the caller records no refunded amount", async () => {
+  it("returns failed provider status so the caller can avoid recording a refund", async () => {
     const { stripe, db } = fixture([centralHold]);
     runReservedPlatformMoneyRefund.mockResolvedValue({
       status: "failed", refundId: "", recipientNetDebitCents: 0, vendorFeeShareCents: 0,
     });
 
-    await expect(refundPaidHouseholdCharge(stripe as never, db as never, input))
-      .rejects.toThrow(/nothing was refunded/i);
+    expect((await refundPaidHouseholdCharge(stripe as never, db as never, input)).status).toBe("failed");
   });
 
   it("refuses an ambiguous allocation instead of guessing a rail", async () => {
@@ -185,7 +212,7 @@ describe("destination-allocation holds take the legacy transfer-reversing rail",
 
     const result = await refundPaidHouseholdCharge(stripe as never, db as never, input);
 
-    expect(result).toEqual({ refundId: "re_legacy", rail: "destination" });
+    expect(result).toEqual({ refundId: "re_legacy", status: "succeeded", rail: "destination" });
     expect(runReservedPlatformMoneyRefund).not.toHaveBeenCalled();
     expect(stripe.refunds.create).toHaveBeenCalledWith(
       expect.objectContaining({ charge: stripeChargeId, amount: 5000, reverse_transfer: true }),

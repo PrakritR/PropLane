@@ -81,7 +81,9 @@ async function sessionUserFromCookies(page: Page): Promise<{ id: string; email: 
 
 async function expectManagerCreateForm(page: Page, opts: { signedIn: boolean }) {
   if (opts.signedIn) {
-    await expect(page.getByText(/Verified email:/)).toBeVisible();
+    const verifiedEmail = page.getByLabel("Verified email", { exact: true });
+    await expect(verifiedEmail).toHaveValue(E2E_ACCOUNTS.manager.email);
+    await expect(verifiedEmail).toHaveAttribute("readonly", "");
     await expect(page.getByRole("button", { name: "Create a different property account" })).toBeVisible();
   } else {
     await expect(page.getByRole("heading", { name: "Create your property account" })).toBeVisible();
@@ -122,7 +124,13 @@ test.describe('"Get started" while signed in', () => {
     await page.goto("/");
     const cta = page.getByRole("link", { name: /start free/i }).first();
     // This manager CTA declares the role explicitly.
-    await expect(cta).toHaveAttribute("href", "/auth/create-account?mode=create&role=manager");
+    const href = await cta.getAttribute("href");
+    expect(href).toBeTruthy();
+    const target = new URL(href!, page.url());
+    expect(target.pathname).toBe("/auth/create-account");
+    expect(target.searchParams.get("mode")).toBe("create");
+    expect(target.searchParams.get("role")).toBe("manager");
+    expect(target.searchParams.get("tier")).toBe("free");
     const [response] = await Promise.all([
       page.waitForNavigation({ waitUntil: "domcontentloaded" }),
       cta.click(),
@@ -158,7 +166,7 @@ test.describe('"Get started" while signed in', () => {
 
   test("signed-in manager can create a SECOND account with a different email", async ({ page }) => {
     test.skip(process.env.AUTH_PROOF_TWO_PHASE_RUNNER !== "1", "Dedicated two-phase proof required");
-    test.setTimeout(90_000);
+    test.setTimeout(180_000);
     let phase = "sign-in";
     let lastHttpStatus: number | null = null;
     let completed = false;
@@ -201,7 +209,7 @@ test.describe('"Get started" while signed in', () => {
       setPhase("identify-pending-auth-user");
       const pendingId = await identifySyntheticManager(db, supabaseUrl, manifest, manifestFile);
       setPhase("create-verification-context");
-      secondContext = await page.context().browser()!.newContext();
+      secondContext = await page.context().browser()!.newContext({ storageState: { cookies: [], origins: [] } });
       secondContext.setDefaultTimeout(20_000);
       secondContext.setDefaultNavigationTimeout(20_000);
       const secondPage = await secondContext.newPage();
@@ -253,7 +261,7 @@ test.describe('"Get started" while signed in', () => {
       syntheticAccessToken = newUser?.accessToken ?? null;
       expect(newUser?.id).toBe(pendingId);
       expect(newUser?.id).not.toBe(oldUser!.id);
-      const storageStateFile = path.join(dir, "manager-storage-state.json");
+      const storageStateFile = path.join(dir, `manager-${createHash("sha256").update(newEmail).digest("hex")}.storage-state.json`);
       fs.writeFileSync(storageStateFile, JSON.stringify(await secondContext.storageState()), { mode: 0o600, flag: "wx" });
       setPhase("inspect-created-account");
       const newRoles = await db.from("profile_roles").select("role").eq("user_id", newUser!.id);
@@ -286,17 +294,19 @@ test.describe('"Get started" while signed in', () => {
       await secondPage.waitForURL(/\/auth\/verify-phone/, { timeout: 60_000 });
       await expect(secondPage.getByRole("button", { name: /send.*code/i })).toBeVisible();
       setPhase("phone-gate-observed");
-      const proof = await verifySyntheticFreeManagerAndMarkPhone({ userId: newUser!.id, email: newEmail, phone });
-      expect(proof.workspaceId).toBe(workspaces.data![0]!.id);
-      const splitBInputFile = path.join(dir, "split-b-input.json");
-      fs.writeFileSync(splitBInputFile, JSON.stringify({
-        version: 1,
-        managerId: newUser!.id,
-        expectedEmail: newEmail,
-        workspaceId: proof.workspaceId,
-        storageStateFile,
-        phoneMarker: "synthetic_test_only_no_sms",
-      }), { mode: 0o600, flag: "wx" });
+      if (process.env.AUTH_PROOF_RETAIN_FOR_SPLIT_B === "1") {
+        const proof = await verifySyntheticFreeManagerAndMarkPhone({ userId: newUser!.id, email: newEmail, phone });
+        expect(proof.workspaceId).toBe(workspaces.data![0]!.id);
+        const splitBInputFile = path.join(dir, "split-b-input.json");
+        fs.writeFileSync(splitBInputFile, JSON.stringify({
+          version: 1,
+          managerId: newUser!.id,
+          expectedEmail: newEmail,
+          workspaceId: proof.workspaceId,
+          storageStateFile,
+          phoneMarker: "synthetic_test_only_no_sms",
+        }), { mode: 0o600, flag: "wx" });
+      }
       completed = true;
     } finally {
       if (!completed) console.error(`[synthetic-manager-e2e] failed_phase=${phase} last_http_status=${lastHttpStatus ?? "not-observed"}`);

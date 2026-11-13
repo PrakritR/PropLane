@@ -45,6 +45,26 @@ export async function loadBurstWorkspaceId(
 /** One claimed, revision-fenced run of a prospect burst. The QStash callback,
  * the inbound QStash-outage fallback and the recovery cron all run exactly this,
  * so the database claim is the single arbiter of who replies. */
+/** A prospect reply that did not come out of a burst is never silent: stamp the person's thread with a delivery issue. Best effort. */
+async function flagBurstFailure(
+  db: SupabaseClient,
+  input: { ownerUserId: string; workspaceId: string | null; phoneE164: string; burstId: string; revision: number; reason: string },
+): Promise<void> {
+  try {
+    const { recordDeliveryIssue } = await import("@/lib/prospect-spine/delivery-issue.server");
+    const { locateThreadId } = await import("@/lib/prospect-spine/locate.server");
+    const threadId = input.workspaceId
+      ? await locateThreadId(db, { ownerUserId: input.ownerUserId, workspaceId: input.workspaceId, phoneE164: input.phoneE164 }).catch(() => null)
+      : null;
+    await recordDeliveryIssue(db, {
+      threadId, workspaceId: input.workspaceId, direction: "outbound", reason: input.reason,
+      eventId: `burst:${input.burstId}:${input.revision}`,
+    });
+  } catch {
+    /* advisory */
+  }
+}
+
 export async function runProspectSmsBurstJob(
   db: SupabaseClient,
   burstId: string,
@@ -171,10 +191,12 @@ export async function runProspectSmsBurstJob(
     },
     });
   } catch {
+    await flagBurstFailure(db, { ownerUserId: String(burst.manager_user_id), workspaceId: workspaceId ?? null, phoneE164: String(burst.counterparty_phone_e164), burstId, revision, reason: "PropLane could not prepare a reply to this text. It will be retried." });
     await completeProspectSmsBurst(db, { burstId, revision, workerId: claim.workerId, status: "failed" });
     return NextResponse.json({ error: "Burst execution failed." }, { status: 503 });
   }
   if (!result.ok) {
+    await flagBurstFailure(db, { ownerUserId: String(burst.manager_user_id), workspaceId: workspaceId ?? null, phoneE164: String(burst.counterparty_phone_e164), burstId, revision, reason: "PropLane could not send a reply to this text. It will be retried." });
     await completeProspectSmsBurst(db, { burstId, revision, workerId: claim.workerId, status: "failed" });
     return NextResponse.json({ error: result.error ?? "Burst delivery failed." }, { status: 503 });
   }
@@ -227,6 +249,7 @@ export async function runProspectSmsBurstJob(
     }
     if (status === "blocked") return NextResponse.json({ ok: true, stale: true });
   }
+  await flagBurstFailure(db, { ownerUserId: String(burst.manager_user_id), workspaceId: workspaceId ?? null, phoneE164: String(burst.counterparty_phone_e164), burstId, revision, reason: "A reply to this text produced no delivery outcome. A person should check it." });
   await completeProspectSmsBurst(db, { burstId, revision, workerId: claim.workerId, status: "failed" });
   return NextResponse.json({ error: "Burst produced no durable delivery outcome." }, { status: 503 });
 }

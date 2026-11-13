@@ -7,6 +7,7 @@ import { toPublicConnection } from "@/lib/channel-calendar/connections.server";
 import { managerCanWriteCalendarForProperty } from "@/lib/auth/manager-lease-scope";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -26,9 +27,12 @@ export async function POST(req: Request) {
   try {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    const limit = await rateLimit(`channel-sync:${ctx.userId}`, 20, 60_000);
+    if (limit.unavailable) return NextResponse.json({ error: "Sync is temporarily unavailable." }, { status: 503 });
+    if (!limit.ok) return NextResponse.json({ error: "Too many syncs. Try again in a minute." }, { status: 429 });
 
     const browserOrigin = resolveRequestOrigin(req);
-    const body = (await req.json()) as { connectionId?: string };
+    const body = (await req.json()) as { connectionId?: string; force?: boolean };
     const connectionId = body.connectionId?.trim() ?? "";
     if (!connectionId) {
       return NextResponse.json({ error: "connectionId is required." }, { status: 400 });
@@ -46,7 +50,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    const saved = await syncChannelCalendarConnection(ctx.db, connectionId);
+    const saved = await syncChannelCalendarConnection(ctx.db, connectionId, { force: body.force === true });
     return NextResponse.json({ connection: toPublicConnection(saved, browserOrigin) });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Sync failed.";

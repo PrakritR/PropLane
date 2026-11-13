@@ -1,6 +1,8 @@
+import { accountHolderNameFromAccount } from "@/lib/stripe-account-holder";
 import { NextResponse } from "next/server";
 import { assertCoManagerBankAccountAccess } from "@/lib/auth/co-manager-bank-account-access";
-import { resolveStripePayoutContext, stripePayoutContextError } from "@/lib/auth/manager-stripe-payout-access.server";
+import { resolveStripePayoutContext, stripePayoutContextStatus,
+  stripePayoutContextError } from "@/lib/auth/manager-stripe-payout-access.server";
 import { clientIpFrom } from "@/lib/rate-limit";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -35,7 +37,7 @@ async function resolveOwner(): Promise<ResolvedOwner> {
   if (!payout.payoutOwnerUserId) {
     return {
       ok: false,
-      status: payout.unresolvedReason === "ambiguous_owner" ? 409 : 500,
+      status: stripePayoutContextStatus(payout.unresolvedReason),
       error: stripePayoutContextError(payout.unresolvedReason),
     };
   }
@@ -69,7 +71,8 @@ export async function GET() {
         allowClearStale: false,
       });
       const requirements = await getIdentityRequirements(stripe, accountId);
-      return NextResponse.json({ ...requirements, canSubmit: userId === payoutOwnerUserId });
+      const holderName = accountHolderNameFromAccount(await stripe.accounts.retrieve(accountId));
+      return NextResponse.json({ ...requirements, holderName, canSubmit: userId === payoutOwnerUserId });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Stripe error";
       if (msg.includes("STRIPE_SECRET_KEY") || msg.includes("Missing STRIPE")) {

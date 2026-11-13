@@ -166,7 +166,6 @@ export function ShareLeadLinkModal({
   const [listingTemplate, setListingTemplate] = useState(DEFAULT_LISTING_SHARED_INTRO);
   const [intro, setIntro] = useState<string | null>(null);
   const [sender, setSender] = useState<{ from: string; name: string; email: string; origin: string; workNumber?: string | null } | null>(null);
-  const [workNumber, setWorkNumber] = useState("");
   const [note, setNote] = useState("");
   const [step, setStep] = useState(0);
   const [sendBusy, setSendBusy] = useState(false);
@@ -230,7 +229,6 @@ export function ShareLeadLinkModal({
         if (!active || !body) return;
         const payload = normalizeManagerSmsConversationsPayload(body);
         setSmsAvailable(Boolean(payload.workNumber?.trim()));
-        setWorkNumber(payload.workNumber?.trim() || "");
       })
       .catch(() => {
         if (active) setSmsAvailable(false);
@@ -628,7 +626,8 @@ export function ShareLeadLinkModal({
       viaEmail={viaEmail}
       viaSms={viaSms}
       senderName={sender?.name ?? ""}
-      workNumber={workNumber}
+      // The preview shows the number the real send uses (GET /api/portal/send-lead-invite, same resolver as the POST).
+      workNumber={sender?.workNumber?.trim() || ""}
       previewBody={previewBody}
       propertyMissing={propertyIds.length === 0}
     />

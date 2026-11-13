@@ -3,10 +3,12 @@
 import { formatCentsAsUsd } from "@/lib/money-label-totals";
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ExternalLink, Pencil, UserRound } from "lucide-react";
+import { ExternalLink, Globe, Pencil, UserRound } from "lucide-react";
+import { BookingsAirbnbIcon } from "@/components/portal/bookings-airbnb-icon";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
+import { StayMessageLog } from "@/components/portal/stay-message-log";
 import { RecordFactCard, RecordFactRow, RecordRowsCard, type RecordRowItem } from "@/components/portal/portal-record-overview-kit";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { BookingsStayDetailsDialog } from "@/components/portal/bookings-stay-details-dialog";
@@ -27,7 +29,7 @@ import { bookingRateLabel, bookingRemovalActions, bookingStatusLabel } from "@/l
 import { airbnbOpenUrlForEntry } from "@/lib/channel-calendar/reservation-code";
 import { airbnbReservationUrl } from "@/lib/channel-calendar/reservation-details";
 import { airbnbLinkForRoom, channelCheckFacts, type ChannelRoomLink } from "@/lib/channel-calendar/channel-links";
-import { bookingEntryGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
+import { bookingEntryGuestLabel, isGuestLabelSource } from "@/lib/channel-calendar/booking-guest-label";
 import { bookingRecordHref, managerBookingListHref, parseBookingDetailTab, paymentRecordDetailHref } from "@/lib/portal-detail-routes";
 import { bookingCharges, bookingMoney, bookingNights, bookingOverdueTotal, bookingRateSummary, guestPastStays } from "@/lib/channel-calendar/booking-record";
 import { readHouseholdCharges } from "@/lib/household-charges";
@@ -66,7 +68,9 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   const tab = parseBookingDetailTab(tabProp);
   const channel = isChannelBookingSource(entry.source);
   const name = bookingEntryGuestLabel(entry);
-  // An Airbnb stay carries its own reservation code and feed id; the manager can name the guest and open it in Airbnb.
+  // An imported reservation on any channel (never a host block) carries a feed id; the manager can name its guest.
+  const channelReservation = isGuestLabelSource(entry.source) && !isHostBlockSummary(entry.summary) && Boolean(entry.connectionId && entry.sourceUid);
+  // An Airbnb stay also carries its own reservation code, so it alone shows the code and opens in Airbnb.
   const airbnbStay = entry.source === "airbnb" && !isHostBlockSummary(entry.summary) && Boolean(entry.connectionId && entry.sourceUid);
   // The record's one "Open in Airbnb" is the header icon, on the same stay the Guest card trusts:
   // a real imported reservation (never a host block), with a code the sync could parse.
@@ -118,11 +122,11 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
     const past = guestPastStays(entry, entries, today);
     body = (
       <RecordFactCard title="Guest" dataAttr="booking-guest-card">
-        <RecordFactRow label="Name" value={airbnbStay ? <span className="flex items-center gap-1.5">{name}<PortalIconAction icon={Pencil} label={entry.guestName?.trim() ? "Edit booking details" : "Add name"} onClick={() => setNamingGuest(true)} data-attr="booking-guest-name-edit" /></span> : name} />
+        <RecordFactRow label="Name" value={channelReservation ? <span className="flex items-center gap-1.5">{name}<PortalIconAction icon={Pencil} label={entry.guestName?.trim() ? "Edit booking details" : "Add name"} onClick={() => setNamingGuest(true)} data-attr="booking-guest-name-edit" /></span> : name} />
         {airbnbStay && entry.reservationCode ? <RecordFactRow label="Reservation" value={entry.reservationCode} /> : null}
         {entry.phoneLast4 ? <RecordFactRow label="Phone ending" value={entry.phoneLast4} /> : null}
         <RecordFactRow label="Email" value={guestEmail || "—"} />
-        <RecordFactRow label="Phone" value={(airbnbStay ? entry.guestPhone : "") || entry.residentPhone || "—"} />
+        <RecordFactRow label="Phone" value={(channelReservation ? entry.guestPhone : "") || entry.residentPhone || "—"} />
         <RecordFactRow label="Past stays" value={past.count === 0 ? "None yet" : `${past.count} · ${past.latest ? `last ${formatBookingStayRange(past.latest.start, past.latest.end)}` : ""}`} />
       </RecordFactCard>
     );
@@ -144,10 +148,12 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
     body = <RecordRowsCard title="Payments" rows={rows} dataAttr="booking-payments-card" />;
   } else {
     body = (
+      <>
       <RecordFactCard title="Booking" dataAttr="booking-overview-facts">
         <RecordFactRow label="Dates" value={`${range}${entry.openEnded ? " · open-ended" : ` · ${nights} ${nights === 1 ? "night" : "nights"}`}`} />
         <RecordFactRow label="Where" value={place} />
-        {channelLabel ? <RecordFactRow label="Channel" value={channelLabel} /> : null}
+        {channel ? <RecordFactRow label="Channel" value={<span className="inline-flex items-center gap-1.5" data-attr="booking-channel-source">{entry.source === "airbnb" ? <BookingsAirbnbIcon aria-hidden className="size-3.5 shrink-0" /> : <Globe aria-hidden className="size-3.5 shrink-0" />}{bookingSourceLabel(entry.source, entry.channelLabel)} · synced from calendar</span>} /> : channelLabel ? <RecordFactRow label="Channel" value={channelLabel} /> : null}
+        {channel && entry.description ? <RecordFactRow label="Description" value={<span className="whitespace-pre-line break-words" data-attr="booking-channel-description">{entry.description}</span>} /> : null}
         {sourceTarget ? <RecordFactRow label="Source" value={<Link className="text-primary" href={sourceTarget.href}>{entry.source === "hold" ? (entry.applicationId ? "Resident" : "Application") : bookingSourceLabel(entry.source, entry.channelLabel)}</Link>} /> : null}
         <RecordFactRow label="Check-in" value={moments.inLabel} />
         {moments.outLabel ? <RecordFactRow label="Check-out" value={moments.outLabel} /> : null}
@@ -164,8 +170,10 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
         {entry.stayNotes ? <RecordFactRow label="Notes" value={<span className="whitespace-pre-line">{entry.stayNotes}</span>} /> : null}
         {entry.reason ? <RecordFactRow label="Notes" value={entry.reason} /> : null}
         {stayDetailRows.map(([key, value]) => <RecordFactRow key={key} label={({ linen: "Linen", baggage: "Baggage" } as Record<string, string>)[key] ?? key} value={value} />)}
-        {conflicts.map((conflict) => <RecordFactRow key={bookingEntryKey(conflict)} label="Conflict" value={<Link className="text-danger" href={bookingRecordHref(basePath, bookingEntryKey(conflict))}>{conflict.summary} · {formatBookingStayRange(conflict.start, conflict.end, conflict.openEnded)}</Link>} />)}
+        {conflicts.map((conflict) => <RecordFactRow key={bookingEntryKey(conflict)} label="Conflict" value={<Link className="text-danger" href={bookingRecordHref(basePath, bookingEntryKey(conflict))}>{bookingEntryGuestLabel(conflict)} · {formatBookingStayRange(conflict.start, conflict.end, conflict.openEnded)}</Link>} />)}
       </RecordFactCard>
+      <StayMessageLog stayKey={bookingEntryKey(entry)} />
+      </>
     );
   }
   return <>

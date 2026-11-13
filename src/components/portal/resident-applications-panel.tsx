@@ -13,6 +13,7 @@ import { GroupShareCallout } from "@/components/marketing/rental-application-fin
 import { PublicApplyAccountPrompt } from "@/components/marketing/public-apply-account-prompt";
 import { SignedInResidentAccountPrompt } from "@/components/marketing/signed-in-resident-account-prompt";
 import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
+import { ResidentPreApplyGate } from "@/components/portal/resident-preapply-gate";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
@@ -268,15 +269,17 @@ function ResidentApplicationDetailWizard({
   }
 
   return (
-    <RentalApplicationWizard
-      showToast={showToast}
-      mode="portal"
-      layout="embedded"
-      exitPath={exitPath}
-      applyPath={applyPath}
-      sessionEmail={sessionEmail}
-      linkedPropertyId={propertyId || undefined}
-    />
+    <ResidentPreApplyGate propertyId={propertyId || undefined}>
+      <RentalApplicationWizard
+        showToast={showToast}
+        mode="portal"
+        layout="embedded"
+        exitPath={exitPath}
+        applyPath={applyPath}
+        sessionEmail={sessionEmail}
+        linkedPropertyId={propertyId || undefined}
+      />
+    </ResidentPreApplyGate>
   );
 }
 
@@ -1003,14 +1006,16 @@ export function ResidentApplicationsPanel({
   );
 
   const applicationWizard = (
-    <RentalApplicationWizard
-      showToast={showToast}
-      mode="portal"
-      layout="embedded"
-      exitPath={`${RESIDENT_PORTAL_BASE_PATH}/applications`}
-      sessionEmail={sessionEmail ?? undefined}
-      linkedPropertyId={applyTarget?.propertyId ?? demoApplyPropertyId}
-    />
+    <ResidentPreApplyGate propertyId={applyTarget?.propertyId ?? demoApplyPropertyId}>
+      <RentalApplicationWizard
+        showToast={showToast}
+        mode="portal"
+        layout="embedded"
+        exitPath={`${RESIDENT_PORTAL_BASE_PATH}/applications`}
+        sessionEmail={sessionEmail ?? undefined}
+        linkedPropertyId={applyTarget?.propertyId ?? demoApplyPropertyId}
+      />
+    </ResidentPreApplyGate>
   );
   const embeddedWizard = applicationWizard;
 
@@ -1406,6 +1411,7 @@ export function ResidentApplicationsPanel({
               residentEmail={residentEmail}
               residentUserId={sessionUserId ?? null}
               basePath={basePath}
+              detailHref={residentApplicationDetailHref(basePath, soleApplication.bucket as ResidentApplicationBucketId, soleApplication.id)}
             />
           </div>
           {withdrawModal}

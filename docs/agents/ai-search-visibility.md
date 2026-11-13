@@ -75,6 +75,15 @@ are built on its own `BASE` (the canonical production host), not
 `llmsOrigin()`: every non-canonical host is `Disallow: /` wholesale (deployment-workflow § Search
 indexing), so the only URLs worth advertising are canonical ones.
 
+**Listing URLs are readable address slugs** (`/rent/listings/4709a-8th-ave-ne`), derived, never stored:
+`listingSlugFor` (`src/lib/listing-slug.ts`) slugifies the current street line, and `buildListingSlugIndex` makes
+the set unique over the same hourly catalog read (published listings with a shared slug each get `-` + the last six
+characters of the id; a still-shared or address-less listing keeps its id URL). The sitemap, the JSON-LD `url`s and
+every server-built listing link (`buildReadableListingUrl`, `src/lib/seo/listing-slugs.server.ts`) read that one
+module, never a hand-typed path. `/rent/listings/<param>` renders the same page for a slug and for an id; a known
+id's page declares its slug URL as `canonical`. An id is never redirected: a redirect could not carry the query
+(`?stay=1`, `?src=`) without reading `searchParams`, which would take the ISR page off the CDN.
+
 ## JSON-LD
 
 The homepage owns `#how`, `#dashboard`, `#service`, `#pricing` and `#contact`. Legacy feature, service, Why PropLane, pricing and contact pages redirect directly to their home anchors and are excluded from the sitemap. Those redirects are **307, deliberately not 308** (`MARKETING_REDIRECTS`): a permanent redirect is cached hard by browsers and crawlers, so giving any of these its own page again would never reach anyone who had already followed it. Both plain-text crawl surfaces and software offer JSON-LD link those same sections. The unattributed reviews page redirects home. `src/lib/marketing/product-faq.ts` preserves reusable product questions for a future FAQ surface; it does not publish FAQ structured data without visible answers.

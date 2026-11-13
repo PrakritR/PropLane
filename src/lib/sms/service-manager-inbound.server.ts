@@ -6,8 +6,8 @@ import { loadSharedLineConfig, isSharedLineNumber } from "@/lib/one-number/confi
 import type { SharedLineCandidate } from "@/lib/one-number/contracts";
 import { listLineMemberships } from "@/lib/one-number/line-member-status.server";
 import { findVerifiedProfileByPhone } from "@/lib/one-number/router-lookups.server";
-import { decideFromCandidates } from "@/lib/one-number/router.server";
-import { loadSharedLineSession, saveSharedLinePending, saveSharedLineRoute } from "@/lib/one-number/session.server";
+import { decideFromCandidates, looksLikePendingAnswerAttempt, resolvePendingAnswer } from "@/lib/one-number/router.server";
+import { loadSharedLineSession, PENDING_QUESTION_TTL_MS, saveSharedLinePending, saveSharedLineRoute } from "@/lib/one-number/session.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { serviceWorkspaceLabel } from "@/lib/service/service-label";
 import { identifyServiceManagerPhone } from "@/lib/service/service-manager.server";
@@ -189,6 +189,86 @@ export async function pickServiceWorkspace(
   if (!workspace) return { kind: "none" };
   await saveSharedLineRoute(db, key, { workspaceId: workspace.id, role: "manager" });
   return { kind: "chosen", workspace };
+}
+
+const originalKey = (fromPhone: string) => `smo:${normalizeConsentPhone(fromPhone)}`;
+
+type OriginalRequest = { body: string; messageSid: string };
+
+/** The request a "Which home?" question interrupted, kept beside the pending pick (same table, same six-hour life). */
+async function loadOriginalRequest(db: SupabaseClient, fromPhone: string): Promise<OriginalRequest | null> {
+  try {
+    const { data, error } = await db
+      .from("sms_line_sessions")
+      .select("pending_candidates, pending_asked_at")
+      .eq("phone_key", originalKey(fromPhone))
+      .maybeSingle();
+    if (error || !data) return null;
+    const row = data as Record<string, unknown>;
+    const askedAt = row.pending_asked_at ? Date.parse(String(row.pending_asked_at)) : NaN;
+    if (!Number.isFinite(askedAt) || Date.now() - askedAt > PENDING_QUESTION_TTL_MS) return null;
+    const stored = row.pending_candidates as Record<string, unknown> | null;
+    const body = typeof stored?.body === "string" ? stored.body : "";
+    const messageSid = typeof stored?.messageSid === "string" ? stored.messageSid : "";
+    return body.trim() && messageSid ? { body, messageSid } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveOriginalRequest(db: SupabaseClient, fromPhone: string, original: OriginalRequest): Promise<void> {
+  const now = new Date().toISOString();
+  await db
+    .from("sms_line_sessions")
+    .upsert(
+      { phone_key: originalKey(fromPhone), pending_candidates: original, pending_asked_at: now, last_inbound_at: now, updated_at: now },
+      { onConflict: "phone_key" },
+    )
+    .then(({ error }: { error: { code?: string } | null }) => {
+      if (error) console.error("service original request save failed", error.code ?? "unknown");
+    });
+}
+
+async function clearOriginalRequest(db: SupabaseClient, fromPhone: string): Promise<void> {
+  await db.from("sms_line_sessions").delete().eq("phone_key", originalKey(fromPhone));
+}
+
+export type ServiceTextPick = ServiceWorkspacePick & {
+  /** Set when this text only ANSWERED the question: the request that was asked about, to run in place of the answer. */
+  replay?: { body: string; messageSid: string };
+};
+
+/**
+ * `pickServiceWorkspace` that never loses the request the question interrupted. When the pick is ambiguous the original
+ * text (and its MessageSid) is stored beside the pending pick; when the next text resolves that pick ("1", "Ambika") the
+ * result carries `replay`, the original, so the caller runs it scoped to the picked workspace. A text that names a
+ * workspace on its own is a new request, not an answer, and drops the stored one.
+ *
+ * The NEWEST unclear request wins: a second ambiguous text that is not an answer to the pending question REPLACES the
+ * stored one, so "1" never replays a command the sender did not just ask for. Only an unclear ANSWER attempt
+ * ("3", a half-named house) leaves the first request waiting. Once the pending pick is gone - routed, or nothing to route
+ * to - the request it was holding goes with it, rather than waiting out the six-hour life of the row.
+ */
+export async function pickServiceWorkspaceForText(
+  db: SupabaseClient,
+  args: { fromPhone: string; body: string; originalBody: string; messageSid: string; workspaces: ServiceWorkspaceRef[] },
+): Promise<ServiceTextPick> {
+  const { workspaces } = args;
+  if (workspaces.length < 2) return pickServiceWorkspace(db, args);
+  const session = await loadSharedLineSession(db, `sm:${normalizeConsentPhone(args.fromPhone)}`);
+  const pending = session?.pendingCandidates ?? null;
+  const stored = pending?.length ? await loadOriginalRequest(db, args.fromPhone) : null;
+  const answered = pending?.length ? resolvePendingAnswer(args.body, pending, workspaces.map(candidateOf)) : null;
+  const pick = await pickServiceWorkspace(db, args);
+  if (pick.kind === "ask") {
+    const keepFirst = stored !== null && pending !== null && looksLikePendingAnswerAttempt(args.body, pending);
+    if (!keepFirst) await saveOriginalRequest(db, args.fromPhone, { body: args.originalBody, messageSid: args.messageSid });
+    return pick;
+  }
+  if (stored || pending?.length) await clearOriginalRequest(db, args.fromPhone);
+  // Only a real answer to the question stands in for the request; a text that names a house is its own request.
+  if (pick.kind === "chosen" && stored && answered) return { ...pick, replay: stored };
+  return pick;
 }
 
 /** Is any module editable on any of these houses under these grants? */

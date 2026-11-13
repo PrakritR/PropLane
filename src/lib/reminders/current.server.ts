@@ -54,6 +54,19 @@ export function reminderAnchorMatches(expected: unknown, current: unknown): bool
   return Boolean(left && right && left === right);
 }
 
+/** How late a "before" reminder may still go out once the thing it announces has begun (dispatcher lag, a day-of notice). */
+const BEFORE_ANCHOR_GRACE_MS = 60 * 60_000;
+
+/**
+ * A "before" reminder (positive lead) announces something ahead: once its date has passed it is history,
+ * whatever the subject looks like now. Dropped (and logged by the dispatcher) rather than sent late.
+ */
+export function reminderAnchorHasPassed(row: Pick<ReminderQueueRow, "leadMinutes" | "payload">, now: Date = new Date()): boolean {
+  if (!(row.leadMinutes > 0)) return false;
+  const anchor = iso(row.payload.anchorIso);
+  return Boolean(anchor && Date.parse(anchor) + BEFORE_ANCHOR_GRACE_MS < now.getTime());
+}
+
 /** Re-read only at send time so cancelled/completed/rescheduled subjects never emit stale facts. */
 export async function reminderIsCurrent(db: SupabaseClient, row: ReminderQueueRow): Promise<boolean> {
   if (row.kind === "tour_interest") {
@@ -74,6 +87,9 @@ export async function reminderIsCurrent(db: SupabaseClient, row: ReminderQueueRo
     const { moveInArrivalIsCurrent } = await import("./subjects/move-in-arrival.server");
     return moveInArrivalIsCurrent(db, row);
   }
+  // Currency for EVERY kind, before its own re-read: a move-in, lease or booking date that has already
+  // gone by is not something to remind anyone of.
+  if (reminderAnchorHasPassed(row)) return false;
   const expectedAnchor = row.payload.anchorIso;
   // Backward compatibility for rows created before anchor snapshots shipped.
   if (!iso(expectedAnchor)) return true;

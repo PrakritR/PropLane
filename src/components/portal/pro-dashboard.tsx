@@ -54,6 +54,7 @@ import {
 import {
   chargeDueLabel,
   HOUSEHOLD_CHARGES_EVENT,
+  householdChargeDisplayTitle,
   householdChargeDueDate,
   householdChargeManagerBucket,
   isHouseholdChargeOverdue,
@@ -155,6 +156,8 @@ import { syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
 import { fetchAccountLinksCached, readCachedAccountLinkInvites } from "@/lib/portal-data-store";
 import { hasIncomingAcceptedTeamLink } from "@/lib/workspace-co-manager-permissions";
 import { propertyListHref } from "@/lib/portal-detail-routes";
+import { latestOutboundDeliveryFailed } from "@/lib/inbox-delivery-status";
+import { countResidentHandoffs } from "@/lib/resident-handoff";
 import { MANAGER_ATTENTION_MAX_ROWS, buildManagerAttentionRows } from "@/lib/manager-attention-queue";
 import {
   WORKSPACE_SELECTION_EVENT,
@@ -787,6 +790,10 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     const inboxThreads = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []).filter(
       (t) => t.folder === "inbox" && t.unread,
     );
+    // From the threads already loaded: conversations whose latest outbound message did not arrive.
+    const undeliveredCount = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []).filter(
+      (t) => t.folder !== "trash" && latestOutboundDeliveryFailed(t),
+    ).length;
     // The sidebar's own Communication number (folded conversations, texts merged),
     // never a raw count of stored rows.
     const inboxCount = managerUnreadConversationCount(
@@ -877,6 +884,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
       pendingCharges,
       inboxThreads,
       inboxCount,
+      undeliveredCount,
       serviceItems,
       pendingServiceCount,
       tours,
@@ -1031,6 +1039,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     pendingCharges,
     inboxThreads,
     inboxCount,
+    undeliveredCount,
     serviceItems,
     tours,
     activeResidents,
@@ -1113,6 +1122,8 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     draftPropertyCount: portfolio.draftCount,
     draftsHref: propertyListHref(BASE, "drafts"),
     unreadConversationCount: inboxCount,
+    undeliveredConversationCount: undeliveredCount,
+    residentHandoffCount: countResidentHandoffs(inboxThreads),
   });
   const attentionShown = attentionRows.slice(0, MANAGER_ATTENTION_MAX_ROWS);
 
@@ -1323,7 +1334,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
               tone={rowTone}
               title={charge.residentName || charge.residentEmail}
               subtitle={formatCompactChargeLine(
-                charge.title || "Charge",
+                householdChargeDisplayTitle(charge),
                 charge.balanceLabel,
                 chargeDueLabel(charge),
                 { omitBalance: true },

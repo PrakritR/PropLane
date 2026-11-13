@@ -133,6 +133,22 @@ describe("inspection reminder lifecycle", () => {
     expect(await inspectionReminderIsCurrent(db, asQueueRow(review!))).toBe(false);
   });
 
+  it("gives each side its own portal's link, and the manager's opens THIS residency's inspections", async () => {
+    reports = [roomReport()];
+    await sweepInspectionReminders(db, now);
+    const rows = [...queued.values()];
+    const resident = rows.find(row => row.kind === "inspection" && row.recipient_role === "counterparty");
+    const managerDue = rows.find(row => row.kind === "inspection" && row.recipient_role === "manager");
+    const review = rows.find(row => row.kind === "inspection_manager");
+    expect(String((resident!.payload as Row).url)).toBe("https://example.test/resident/move-in/inspections");
+    // Never the inspections LIST address, which carries no record and lands on the Residents list.
+    for (const row of [managerDue, review]) {
+      expect(String((row!.payload as Row).url)).toBe(
+        "https://example.test/portal/residents/current/AXIS-TEST/move-in/inspections",
+      );
+    }
+  });
+
   it("PLAN-0916-1040: a house override that disables the resident reminder wins over the workspace default", async () => {
     // The workspace default has `inspection` enabled (proven by the earlier
     // tests); this house's own override turns it off.

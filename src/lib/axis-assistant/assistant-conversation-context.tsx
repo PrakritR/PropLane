@@ -114,3 +114,12 @@ export function useOptionalAssistantConversation(_endpoint?: string): AssistantC
   }
   return shared;
 }
+
+/**
+ * The shared conversation when a provider is mounted, else `null`. For a surface that may render without an
+ * assistant (the demo, a "View as" session): the resident Communication list shows the pinned PropLane row only
+ * when this is non-null, and reads its preview from the very conversation the top bar types into.
+ */
+export function useAssistantConversationIfMounted(): AssistantConversationValue | null {
+  return useContext(AssistantConversationContext);
+}

@@ -1,485 +1,441 @@
-import { test, expect, type Locator, type Page } from "@playwright/test";
-import { createClient } from "@supabase/supabase-js";
-import fs from "node:fs";
+import { chmodSync, mkdirSync, lstatSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { mockFreeApplicationFee } from "../helpers/e2e-supabase";
-import {
-  continueBtn,
-  fillAdditionalDetailsStep,
-  fillConsentStep,
-  fillCurrentAddressStep,
-  fillEmploymentStep,
-  fillHouseholdStep,
-  fillPreviousAddressStep,
-  fillLeaseChoiceStep,
-  fillPropertyLeaseStep,
-  fillReferencesStep,
-  fillSignerStep,
-  openGuestApplyWizard,
-  type HouseholdConfig,
-} from "../helpers/rental-wizard-e2e";
+import { createClient } from "@supabase/supabase-js";
+import { test, expect, type Browser, type Page } from "@playwright/test";
+import { createWritableSyntheticManager, cleanupWritableSyntheticManager, type WritableSyntheticManager } from "../helpers/writable-synthetic-manager";
+import { finishResidentEmailProof, requestResidentEmailProof } from "../helpers/email-onboarding-e2e";
+import { syntheticSignupDomain } from "../helpers/synthetic-signup-domain";
+import { verifySyntheticResidentPhone, type SyntheticPhoneVerification } from "../helpers/synthetic-phone-verification";
+import { fillCurrentRentalApplication, visibleLocator, type HouseholdConfig } from "../helpers/rental-wizard-e2e";
+import { residentApplicationDetailHref } from "../../src/lib/portal-detail-routes";
 
-/**
- * Group applications (roommates / bundled-lease household) — full round trip.
- *
- * Exercises the real product surfaces end to end against the dev/test Supabase
- * project: the organizer submits `applyingAsGroup=yes`, a Group ID is minted and
- * PERSISTED on the stored application snapshot, stays retrievable on that
- * application in the resident portal, survives a re-edit, and reconciles a
- * joining applicant's independent application into one household in the manager
- * view. The manager's whole group affordance on Applications is the LIST ROW
- * BADGE ("Group N/M", or the raw count when the declared size is unknown or
- * exceeded) plus the application detail roster (`ApplicationGroupSection`) with
- * the Group ID, waiting-on copy, and member list — also on Residents and the
- * resident's own Applications panel.
- *
- * Runs against a fee-free listing so the wizard's application-fee gate is not in
- * the way — nothing about the fee path is stubbed or altered.
- *
- * Fixture (dev/test Supabase project only — never production). Set
- * `GROUP_E2E_ENABLED=1` once these exist:
- *   - a `live` `manager_property_records` row `mgr-test-willow-group`, owned by the
- *     E2E manager, whose `listingSubmission` has `applicationFee: ""` and
- *     `allowMultiplePropertyApplications: true` (an entire-home listing, so no ranked
- *     room choice is asked);
- *   - two resident auth users + profiles: `group.organizer.e2e@test.proplane.local` and
- *     `roommate.e2e@test.proplane.local`.
- * Override any of these with the GROUP_E2E_* env vars below.
- */
+const DEV_URL = "https://emstjswhotsnyksqhqyf.supabase.co";
+const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "";
+const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://localhost:54321", process.env.SUPABASE_SERVICE_ROLE_KEY ?? "missing", { auth: { persistSession: false } });
 
-const PROPERTY_ID = process.env.GROUP_E2E_PROPERTY_ID ?? "mgr-test-willow-group";
-const ORGANIZER = {
-  email: process.env.GROUP_E2E_ORGANIZER_EMAIL ?? "group.organizer.e2e@test.proplane.local",
-  password: process.env.GROUP_E2E_ORGANIZER_PASSWORD ?? "TestOrganizer123!",
-  name: "Priya Raman",
-};
-const JOINER = {
-  email: process.env.GROUP_E2E_JOINER_EMAIL ?? "roommate.e2e@test.proplane.local",
-  password: process.env.GROUP_E2E_JOINER_PASSWORD ?? "TestRoommate123!",
-  name: "Jordan Reyes",
-};
-const GUEST = { email: "sam.ortiz.group.e2e@test.proplane.local", password: "", name: "Sam Ortiz" };
-const MANAGER = {
-  email: process.env.E2E_MANAGER_EMAIL ?? "manager@test.proplane.local",
-  password: process.env.E2E_MANAGER_PASSWORD ?? "TestManager123!",
+type Applicant = { email: string; name: string; phone: string };
+type GroupFixture = {
+  manager: WritableSyntheticManager;
+  residents: Array<{ page: Page; close: () => Promise<void>; phoneFixture: SyntheticPhoneVerification | null; userId: string; applicant: Applicant; applicationId?: string }>;
+  propertyId: string;
+  runId: string;
 };
 
-const EVIDENCE_DIR = process.env.EVIDENCE_DIR ?? path.join(process.cwd(), "test-evidence");
-
-const DESKTOP = { width: 1440, height: 1000 };
-const MOBILE = { width: 390, height: 844 };
-
-const GROUP_ID_FILE = path.join(EVIDENCE_DIR, "group-id.txt");
-const DB_EVIDENCE_FILE = path.join(EVIDENCE_DIR, "persisted-group-applications.json");
-
-// Placeholders keep module import side-effect-free when the suite is skipped.
-const db = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://localhost:54321",
-  process.env.SUPABASE_SERVICE_ROLE_KEY ?? "service-role-key-unset",
-  { auth: { persistSession: false } },
-);
-
-function evidencePath(name: string): string {
-  fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
-  return path.join(EVIDENCE_DIR, name);
+function privateEvidencePath(file: string): string {
+  const dir = process.env.E2E_PRIVATE_FIXTURE_DIR;
+  if (!dir || !path.isAbsolute(dir)) throw new Error("Group E2E requires an absolute private fixture directory.");
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const stat = lstatSync(dir);
+  const followed = statSync(dir);
+  if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(dir) !== dir || (stat.mode & 0o777) !== 0o700 || stat.uid !== process.getuid?.() || followed.dev !== stat.dev || followed.ino !== stat.ino) {
+    throw new Error("Group E2E private fixture directory must be a real mode-700 directory owned by this user.");
+  }
+  return path.join(dir, file);
 }
 
-type PersistedApp = {
-  id: string;
-  email: string;
-  bucket: string;
-  stage: string;
-  applyingAsGroup: string | null;
-  groupRole: string | null;
-  groupSize: string;
-  groupId: string;
-};
+function propertyApplyPath(propertyId: string, leaderAppId?: string): string {
+  const query = new URLSearchParams({ propertyId });
+  if (leaderAppId) query.set("groupLeaderAppId", leaderAppId);
+  return `/rent/apply?${query.toString()}`;
+}
 
-/** Submitted (non in-progress) applications on the test listing, as stored server-side. */
-async function readPersistedApplications(): Promise<PersistedApp[]> {
-  const { data, error } = await db
-    .from("manager_application_records")
-    .select("id,row_data")
-    .eq("property_id", PROPERTY_ID);
+function visibleText(page: Page, text: string | RegExp) {
+  return page.getByText(text, { exact: true }).filter({ visible: true }).first();
+}
+
+function applicantFor(runId: string, index: number, name: string): Applicant {
+  const stamp = String(Number(runId) + index - 1);
+  return {
+    email: `e2e-applicant-${stamp}@${syntheticSignupDomain()}`,
+    name,
+    phone: `+1206555${String((Number(runId.slice(-4)) + index) % 10_000).padStart(4, "0")}`,
+  };
+}
+
+async function assertReservedResidentMailboxesAbsent(runId: string): Promise<Applicant[]> {
+  const applicants = [applicantFor(runId, 1, "Priya Raman"), applicantFor(runId, 2, "Jordan Reyes"), applicantFor(runId, 3, "Sam Ortiz")];
+  const reserved = new Set(applicants.map((applicant) => applicant.email));
+  for (let page = 1; page <= 100; page += 1) {
+    const result = await db.auth.admin.listUsers({ page, perPage: 1000 });
+    if (result.error) throw new Error("Could not preflight the reserved synthetic resident Auth identities.");
+    if (result.data.users.some((user) => reserved.has(user.email?.trim().toLowerCase() ?? ""))) {
+      throw new Error("A reserved group applicant mailbox already exists; refusing to reuse or modify it.");
+    }
+    if (result.data.users.length < 1000) break;
+    if (page === 100) throw new Error("Reserved synthetic mailbox preflight exceeded its pagination bound.");
+  }
+  for (const applicant of applicants) {
+    const [profile, application] = await Promise.all([
+      db.from("profiles").select("id").eq("email", applicant.email).limit(1),
+      db.from("manager_application_records").select("id").eq("resident_email", applicant.email).limit(1),
+    ]);
+    if (profile.error || application.error) throw new Error("Could not preflight the exact reserved synthetic resident mailbox.");
+    if ((profile.data ?? []).length || (application.data ?? []).length) {
+      throw new Error("A reserved group applicant mailbox already exists; refusing to reuse or modify it.");
+    }
+  }
+  return applicants;
+}
+
+async function configureGroupListing(manager: WritableSyntheticManager): Promise<void> {
+  if (process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "") !== DEV_URL) throw new Error("Group E2E requires the exact dev/test project.");
+  const propertyId = manager.property.id;
+  const { data: record, error } = await db.from("manager_property_records")
+    .select("id, manager_user_id, status, row_data, property_data")
+    .eq("id", propertyId).maybeSingle();
+  if (error || !record || record.manager_user_id !== manager.actorId || record.status !== "live") {
+    throw new Error("Group E2E listing must be the exact live property owned by its synthetic manager.");
+  }
+  const propertyData = record.property_data as Record<string, unknown>;
+  if (propertyData.fixturePurpose !== "e2e-safe-isolated" || propertyData.buildingName !== manager.property.name) {
+    throw new Error("Group E2E refuses an unmarked or mismatched property fixture.");
+  }
+  const listing = propertyData.listingSubmission as Record<string, unknown>;
+  if (!listing || typeof listing !== "object") throw new Error("Group E2E fixture listing has no normalized submission.");
+  const configuredSubmission = {
+    ...listing,
+    allowMultiplePropertyApplications: true,
+    applicationFee: "",
+    rooms: Array.isArray(listing.rooms) ? listing.rooms : [],
+  };
+  const nextPropertyData = { ...propertyData, listingSubmission: configuredSubmission };
+  const rawRow = record.row_data && typeof record.row_data === "object" ? record.row_data as Record<string, unknown> : {};
+  const nextRowData = { ...rawRow, listingSubmission: configuredSubmission };
+  const response = await manager.page.request.post("/api/property-records", {
+    data: { action: "upsert", id: propertyId, status: "live", rowData: nextRowData, propertyData: nextPropertyData },
+  });
+  if (!response.ok()) throw new Error(`Could not prepare the exact group listing through the manager API (HTTP ${response.status()}).`);
+  const verify = await db.from("manager_property_records").select("manager_user_id,status,property_data")
+    .eq("id", propertyId).maybeSingle();
+  const saved = verify.data?.property_data as Record<string, unknown> | undefined;
+  const savedListing = saved?.listingSubmission as Record<string, unknown> | undefined;
+  if (verify.error || verify.data?.manager_user_id !== manager.actorId || verify.data.status !== "live" ||
+      saved?.fixturePurpose !== "e2e-safe-isolated" || savedListing?.allowMultiplePropertyApplications !== true || savedListing?.applicationFee !== "") {
+    throw new Error("Group listing policy and fee-free pricing were not confirmed on the owned fixture.");
+  }
+  const preview = await manager.page.request.post("/api/public/application-fee-preview", {
+    data: { propertyId, rentalType: "standard", leaseTerm: "Long-term" },
+  });
+  if (!preview.ok()) throw new Error(`Could not verify the listing application-fee preview (HTTP ${preview.status()}).`);
+  const quote = await preview.json() as { applicationFeeCents?: unknown; totalCents?: unknown };
+  if (quote.applicationFeeCents !== 0 || quote.totalCents !== 0) throw new Error("Group E2E requires an actually fee-free listing; no fee route is mocked.");
+}
+
+async function readApplication(propertyId: string, email: string) {
+  const { data, error } = await db.from("manager_application_records")
+    .select("id, manager_user_id, property_id, resident_email, row_data")
+    .eq("property_id", propertyId).eq("resident_email", email).limit(2);
   if (error) throw error;
-  return (data ?? [])
-    .map((r) => {
-      const row = r.row_data as Record<string, unknown>;
-      const app = (row.application ?? {}) as Record<string, unknown>;
-      return {
-        id: String(r.id),
-        email: String(row.email ?? ""),
-        bucket: String(row.bucket ?? ""),
-        stage: String(row.stage ?? ""),
-        applyingAsGroup: (app.applyingAsGroup as string) ?? null,
-        groupRole: (app.groupRole as string) ?? null,
-        groupSize: String(app.groupSize ?? ""),
-        groupId: String(app.groupId ?? ""),
-      };
-    })
-    .filter((r) => r.stage !== "In progress");
+  if ((data ?? []).length !== 1) return null;
+  const row = data![0]!;
+  return { ...row, row_data: row.row_data as Record<string, unknown>, application: ((row.row_data as Record<string, unknown>).application ?? {}) as Record<string, unknown> };
 }
 
-/** Poll until an applicant's SUBMITTED application is visible server-side. */
-async function waitForPersisted(email: string, timeoutMs = 60_000): Promise<PersistedApp> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const rows = await readPersistedApplications();
-    const hit = rows.find((r) => r.email === email);
-    if (hit) return hit;
-    if (Date.now() > deadline) throw new Error(`No submitted application persisted for ${email}`);
-    await new Promise((r) => setTimeout(r, 1500));
+async function residentActorId(page: Page): Promise<string> {
+  const cookies = await page.context().cookies();
+  const auth = cookies.filter((cookie) => /^sb-emstjswhotsnyksqhqyf-auth-token(?:\.\d+)?$/.test(cookie.name))
+    .sort((a, b) => Number(a.name.match(/\.(\d+)$/)?.[1] ?? 0) - Number(b.name.match(/\.(\d+)$/)?.[1] ?? 0))
+    .map((cookie) => decodeURIComponent(cookie.value)).join("");
+  const raw = auth.startsWith("base64-") ? Buffer.from(auth.slice(7), "base64").toString("utf8") : auth;
+  const parsed = JSON.parse(raw) as { user?: { id?: string } };
+  if (!parsed.user?.id) throw new Error("Could not verify the synthetic resident Auth actor.");
+  return parsed.user.id;
+}
+
+async function waitForApplication(propertyId: string, email: string) {
+  let found: Awaited<ReturnType<typeof readApplication>> = null;
+  await expect.poll(async () => {
+    found = await readApplication(propertyId, email);
+    return found?.id ?? "";
+  }, { timeout: 60_000 }).not.toBe("");
+  if (!found) throw new Error("Submitted application was not persisted for the exact synthetic mailbox.");
+  return found;
+}
+
+async function createResidentAccount(
+  browser: Browser,
+  input: { runId: string; index: number; propertyId: string; leaderAppId?: string; name: string; onProvisioned?: (account: { email: string; userId: string }) => void },
+): Promise<GroupFixture["residents"][number]> {
+  if (!BASE_URL) throw new Error("Group E2E requires PLAYWRIGHT_BASE_URL.");
+  const base = new URL(BASE_URL);
+  if (base.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(base.hostname) || Number(base.port) < 3000 || Number(base.port) > 3014) {
+    throw new Error("Group E2E requires localhost on a supported pinned port.");
+  }
+  // The no-delivery capture accepts exactly thirteen-digit signup suffixes.
+  // Offset the run's millisecond timestamp so residents in this run stay unique.
+  const applicant = applicantFor(input.runId, input.index, input.name);
+  const context = await browser.newContext({ baseURL: BASE_URL, viewport: { width: 1440, height: 1000 } });
+  const page = await context.newPage();
+  page.setDefaultTimeout(30_000);
+  let phoneFixture: SyntheticPhoneVerification | null = null;
+  let userId: string | null = null;
+  try {
+    await page.goto(propertyApplyPath(input.propertyId, input.leaderAppId), { waitUntil: "domcontentloaded" });
+    const createLink = page.locator('[data-attr="public-apply-create-account"]').filter({ visible: true });
+    await expect(createLink).toBeVisible({ timeout: 45_000 });
+    await expect(page.locator('[data-attr="public-apply-continue-guest"]')).toHaveCount(0);
+    const href = await createLink.getAttribute("href");
+    if (!href || !href.startsWith("/auth/create-account?")) throw new Error("Public apply account gate did not offer its resident create-account route.");
+    const next = new URL(href, BASE_URL).searchParams.get("next") ?? "";
+    if (!next.includes(`propertyId=${encodeURIComponent(input.propertyId)}`)) throw new Error("Resident signup lost the exact listing context.");
+    await createLink.click();
+    const proof = await requestResidentEmailProof(page, applicant.email, input.propertyId);
+    const registerStatus = await finishResidentEmailProof(page, proof, applicant.email, applicant.name, applicant.phone);
+    if (registerStatus !== 200) throw new Error(`Synthetic resident registration returned ${registerStatus}.`);
+    userId = await residentActorId(page);
+    input.onProvisioned?.({ email: applicant.email, userId });
+    const auth = await db.auth.admin.getUserById(userId);
+    const { data: roles, error: roleError } = await db.from("profile_roles").select("role").eq("user_id", userId);
+    if (auth.error || !auth.data.user?.email_confirmed_at || auth.data.user.email?.trim().toLowerCase() !== applicant.email ||
+        roleError || !roles || !roles.some((row) => row.role === "resident") || roles.some((row) => row.role !== "resident")) {
+      throw new Error("Resident registration did not produce the exact email-confirmed resident account.");
+    }
+    // Registration can briefly land on the public `next` route before the
+    // phone guard redirects. The role/profile proof above and helper actor
+    // checks bind this fixture to the exact new resident, independent of URL.
+    phoneFixture = await verifySyntheticResidentPhone(page, { email: applicant.email, phone: applicant.phone });
+    // Email-first continuation carries property context but not the group link. Explicitly reopen
+    // the organizer's capability URL after account creation; linking remains a user-visible step.
+    await page.goto(propertyApplyPath(input.propertyId, input.leaderAppId), { waitUntil: "domcontentloaded" });
+    await expect(page.locator('[data-attr="public-apply-create-account"]')).toHaveCount(0);
+    await expect(visibleLocator(page, '[data-wizard-field="applyingAsGroup"]')).toBeVisible({ timeout: 45_000 });
+    const userResponse = await page.request.get("/api/profile");
+    if (!userResponse.ok()) throw new Error("Could not verify the signed-in resident actor after email proof.");
+    const userBody = await userResponse.json() as { email?: unknown };
+    if (String(userBody.email ?? "").trim().toLowerCase() !== applicant.email) throw new Error("Resident signup page is not authenticated as the exact synthetic applicant.");
+    return {
+      page,
+      close: () => context.close(),
+      phoneFixture,
+      userId: userId!,
+      applicant,
+    };
+  } catch (error) {
+    try { await phoneFixture?.restore(); } catch (restoreError) {
+      await context.close();
+      throw new AggregateError([error, restoreError], "Resident account setup and phone fixture restoration both failed.");
+    }
+    await context.close();
+    throw error;
   }
 }
 
-function writeDbEvidence(label: string, rows: PersistedApp[]) {
-  const file = evidencePath(path.basename(DB_EVIDENCE_FILE));
-  const prior = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : [];
-  prior.push({ checkpoint: label, rows });
-  fs.writeFileSync(file, JSON.stringify(prior, null, 2));
-}
-
-function shot(page: Page, name: string) {
-  return page.screenshot({ path: evidencePath(`${name}.png`), fullPage: true });
-}
-
-/** The portal renders a hidden mobile shell alongside the desktop one — always take the visible node. */
-function vis(page: Page, selector: string): Locator {
-  return page.locator(selector).filter({ visible: true }).first();
-}
-
-/** Visible-only text lookup (same hidden-shell caveat as `vis`). */
-function txt(page: Page, needle: string | RegExp): Locator {
-  return page.getByText(needle).filter({ visible: true }).first();
-}
-
-/** Visible-only role=button lookup. */
-function btn(page: Page, name: RegExp): Locator {
-  return page.getByRole("button", { name }).filter({ visible: true }).first();
-}
-
-/**
- * Land on the resident Applications list. The panel bounces to /apply while its rows
- * are still loading, so retry until the list itself is showing.
- */
-async function openResidentApplications(page: Page) {
-  for (let i = 0; i < 6; i += 1) {
-    await page.goto("/resident/applications");
-    await page.waitForTimeout(1500);
-    if (!page.url().includes("/apply")) return;
+async function applyAsResident(
+  browser: Browser,
+  fixture: GroupFixture,
+  resident: GroupFixture["residents"][number],
+  household: HouseholdConfig,
+  onPersisted?: (resident: GroupFixture["residents"][number]) => void,
+): Promise<void> {
+  const submit = resident.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/manager-applications", { timeout: 60_000 });
+  await fillCurrentRentalApplication(resident.page, resident.applicant, household);
+  const response = await submit;
+  if (!response.ok()) throw new Error(`Application submission failed (HTTP ${response.status()}).`);
+  const persisted = await waitForApplication(fixture.propertyId, resident.applicant.email);
+  if (persisted.manager_user_id !== fixture.manager.actorId || persisted.property_id !== fixture.propertyId) {
+    throw new Error("Application was persisted outside the exact synthetic manager/listing fixture.");
   }
-  throw new Error("resident Applications list never settled");
+  resident.applicationId = String(persisted.id);
+  onPersisted?.(resident);
 }
 
-/**
- * Land on the manager Applications list. Row visibility is scoped through the
- * client-side property catalog, which only hydrates once Properties has loaded —
- * landing straight on Applications otherwise shows an empty list.
- */
-async function openManagerApplications(page: Page) {
-  await page.goto("/portal/properties");
-  await expect(txt(page, /Willow Group House/i)).toBeVisible({ timeout: 45_000 });
-  await page.goto("/portal/applications");
-}
-
-async function signIn(page: Page, email: string, password: string, next: string, expectPrefix = next) {
-  await page.goto(`/auth/sign-in?next=${encodeURIComponent(next)}`);
-  await page.getByPlaceholder("Email").fill(email);
-  await page.getByPlaceholder("Password").fill(password);
-  await page.getByRole("button", { name: /^sign in$/i }).click();
-  await page.waitForURL((url) => url.pathname.startsWith(expectPrefix), { timeout: 45_000 });
-}
-
-function toHouseholdConfig(
-  group: { role: "first"; size: string } | { role: "joining"; groupId: string },
-): HouseholdConfig {
-  return group.role === "first"
-    ? { kind: "group-first", size: group.size }
-    : { kind: "group-joining", groupId: group.groupId };
-}
-
-/** Walk the 11-step wizard and submit, either signed in (portal) or as a guest. */
-async function submitApplication(
-  page: Page,
-  applicant: { email: string; password: string; name: string },
-  group: { role: "first"; size: string } | { role: "joining"; groupId: string },
-  label: string,
-  mode: "portal" | "guest" = "portal",
-) {
-  if (mode === "portal") {
-    await signIn(page, applicant.email, applicant.password, "/resident/dashboard", "/resident");
-    await page.goto(`/rent/apply?propertyId=${PROPERTY_ID}`);
-    await expect(continueBtn(page)).toBeVisible({ timeout: 30_000 });
-  } else {
-    await mockFreeApplicationFee(page);
-    await openGuestApplyWizard(page, PROPERTY_ID);
+async function restoreResidents(fixture: GroupFixture): Promise<void> {
+  const errors: unknown[] = [];
+  for (const resident of fixture.residents) {
+    try { await resident.phoneFixture?.restore(); } catch (error) { errors.push(new Error("Resident phone fixture cleanup failed.", { cause: error })); }
+    try { await resident.close(); } catch (error) { errors.push(error); }
   }
-
-  // Step 1 — which lease first, then household (group + co-signer on the same step).
-  await fillLeaseChoiceStep(page);
-  await fillHouseholdStep(page, toHouseholdConfig(group));
-  await shot(page, `${label}-01-wizard-step1-household`);
-  await continueBtn(page).click();
-
-  // Step 2 — signer information.
-  await fillSignerStep(page, applicant, "04/12/1994");
-  await continueBtn(page).click();
-
-  // Step 3 — lease dates (property locked via ?propertyId, lease chosen on step 1).
-  await fillPropertyLeaseStep(page);
-  await continueBtn(page).click();
-
-  // Step 4 — current address.
-  await fillCurrentAddressStep(page, {
-    street: "88 Dexter Ave N, Apt 4",
-    city: "Seattle",
-    state: "WA",
-    zip: "98109",
-  });
-  await continueBtn(page).click();
-
-  // Step 5 — previous address.
-  await fillPreviousAddressStep(page);
-  await continueBtn(page).click();
-
-  // Step 6 — employment + income.
-  await fillEmploymentStep(page, "Northwest Design Co.", "6400");
-  await continueBtn(page).click();
-
-  // Step 7 — references.
-  await fillReferencesStep(page, {
-    name: "Dana Whitfield",
-    relationship: "Former landlord",
-    phone: "2065550188",
-  });
-  await continueBtn(page).click();
-
-  // Step 8 — additional details.
-  await fillAdditionalDetailsStep(page, "2");
-  await continueBtn(page).click();
-
-  // Step 9 — consent + signature.
-  await fillConsentStep(page, applicant.name);
-  await continueBtn(page).click();
-
-  // Step 10 — review.
-  await expect(txt(page, "Applying as group")).toBeVisible({ timeout: 15_000 });
-  await shot(page, `${label}-02-wizard-review`);
-  await continueBtn(page).click();
-
-  // Step 11 — submit (this listing charges no application fee).
-  await expect(continueBtn(page)).toHaveText(/submit application/i, { timeout: 15_000 });
-  await shot(page, `${label}-03-wizard-submit-step`);
-
-  // Submit, then confirm the snapshot actually reached the server. The dev server
-  // occasionally recompiles a route mid-click and drops the press, so re-press
-  // while the button still reads "Submit application".
-  let persisted: PersistedApp | null = null;
-  for (let attempt = 0; attempt < 3 && !persisted; attempt += 1) {
-    const btnLabel = await continueBtn(page).innerText().catch(() => "");
-    if (/submit application/i.test(btnLabel)) await continueBtn(page).click();
-    persisted = await waitForPersisted(applicant.email, 30_000).catch(() => null);
-  }
-  if (!persisted) throw new Error(`No submitted application persisted for ${applicant.email}`);
-
-  if (mode === "guest") {
-    await expect(txt(page, /Application ID:/i)).toBeVisible({ timeout: 60_000 });
-  }
-  await page.waitForTimeout(500);
+  if (errors.length) throw new AggregateError(errors, "Some resident phone fixture state could not be restored; resident accounts remain inventoried.");
+  fixture.residents.length = 0;
 }
-
-/** Re-open a submitted application in the resident portal and save it again. */
-async function reEditApplication(page: Page, applicantName: string) {
-  await txt(page, applicantName).click();
-  await btn(page, /Edit application/i).click();
-  await expect(txt(page, /Step 1 of 11/i)).toBeVisible({ timeout: 15_000 });
-  // Re-select the group role — this deliberately blanks the form's groupId, the
-  // exact path that used to drop a member out of their household on save.
-  await btn(page, /I am the first person applying/i).click();
-  await vis(page, "#groupSize").selectOption("2");
-  for (let i = 0; i < 9; i += 1) {
-    await continueBtn(page).click();
-    await page.waitForTimeout(250);
-  }
-  await btn(page, /Save application/i).click();
-  await expect(page.getByRole("button", { name: /Save application/i })).toHaveCount(0, { timeout: 30_000 });
-}
-
-// A submit that does not reach the server is a lost application, not a flake: the
-// wizard clears, the resident sees a draft and the manager sees nothing. One walk
-// of the wizard must persist one submitted row, so `submitApplication` throws
-// rather than re-walking — that failure is the signal the write race is back.
 
 test.describe.configure({ mode: "serial", timeout: 600_000 });
 
-test.describe("Group applications end to end", () => {
-  // Self-documenting gate: a skipped run must never read as "the group round trip
-  // passed". This suite needs a real dev/test Supabase project (.env with
-  // NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY) plus the fixture listing and
-  // resident accounts described in the file header; none of that exists in a bare
-  // worktree, so it stays off by default rather than silently green.
-  test.skip(
-    process.env.GROUP_E2E_ENABLED !== "1",
-    "SKIPPED — GROUP_E2E_ENABLED is not 1, so the live group-application round trip " +
-      "(mint → persist → resident retrieve → joiner reconcile → manager badge) did NOT run. " +
-      "Set GROUP_E2E_ENABLED=1 with a dev/test Supabase .env and the fixture from this file's header. " +
-      "The submitted-vs-draft ordering guard is covered deterministically by " +
-      "tests/unit/application-draft-downgrade.test.ts, which does run.",
-  );
+test("group application lifecycle: organizer, re-edit, roommate, account-gated third member, manager reconciliation", async ({ browser }) => {
+  test.setTimeout(600_000);
+  test.skip(process.env.GROUP_E2E_ENABLED !== "1", "Requires explicit opt-in to the real, exact synthetic group lifecycle fixture.");
+  if (process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "") !== DEV_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error("Group lifecycle E2E requires the exact dev/test Supabase project and service key.");
+  }
+  const runId = String(Date.now());
+  const manager = await createWritableSyntheticManager(browser);
+  const fixture: GroupFixture = { manager, residents: [], propertyId: manager.property.id, runId };
+  const manifestPath = privateEvidencePath(`group-lifecycle-${runId}.json`);
+  let manifestCreated = false;
+  const manifest: Record<string, unknown> = {
+    createdAt: new Date().toISOString(), runId, ownerUserId: manager.actorId,
+    propertyId: fixture.propertyId, propertyName: manager.property.name, applicants: [], accountsProvisioned: [],
+    retainedResidentAccounts: true,
+  };
+  const saveManifest = () => {
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), { flag: manifestCreated ? "w" : "wx", mode: 0o600 });
+    manifestCreated = true;
+    chmodSync(manifestPath, 0o600);
+  };
+  saveManifest();
+  const recordProvisioned = (account: { email: string; userId: string }) => {
+    const accounts = manifest.accountsProvisioned as Array<{ email: string; userId: string }>;
+    if (!accounts.some((entry) => entry.userId === account.userId)) accounts.push(account);
+    saveManifest();
+  };
+  const before = await db.from("manager_application_records").select("id").eq("property_id", fixture.propertyId);
+  if (before.error || (before.data ?? []).length !== 0) {
+    await cleanupWritableSyntheticManager(manager);
+    throw new Error("Fresh group listing was not empty before the run; refusing shared fixture cleanup.");
+  }
 
-  // Enabled but unconfigured would otherwise point at the localhost placeholder client
-  // and fail deep inside a wizard step — fail loudly, and early, instead.
-  test.beforeAll(() => {
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      throw new Error(
-        "GROUP_E2E_ENABLED=1 but NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are unset. " +
-          "Seed this worktree's .env (npm run seed:env) and point it at the DEV/TEST project — never production.",
-      );
+  try {
+    const reservedApplicants = await assertReservedResidentMailboxesAbsent(runId);
+    manifest.reservedApplicants = reservedApplicants.map(({ email, name }) => ({ email, name }));
+    saveManifest();
+    await configureGroupListing(manager);
+    const organizer = await createResidentAccount(browser, { runId, index: 1, propertyId: fixture.propertyId, name: "Priya Raman", onProvisioned: recordProvisioned });
+    fixture.residents.push(organizer);
+    manifest.applicants = [{ email: organizer.applicant.email, userId: organizer.userId, applicationId: null }];
+    saveManifest();
+    await applyAsResident(browser, fixture, organizer, { kind: "group-first", size: "2" }, (resident) => {
+      manifest.applicants = [{ email: resident.applicant.email, userId: resident.userId, applicationId: resident.applicationId ?? null }];
+      saveManifest();
+    });
+    manifest.applicants = [{ email: organizer.applicant.email, userId: organizer.userId, applicationId: organizer.applicationId ?? null }];
+    saveManifest();
+    const organizerRow = await readApplication(fixture.propertyId, organizer.applicant.email);
+    expect(organizerRow?.application.applyingAsGroup).toBe("yes");
+    expect(organizerRow?.application.groupRole).toBe("first");
+    expect(String(organizerRow?.application.groupSize)).toBe("2");
+    const groupId = String(organizerRow?.application.groupId ?? "");
+    expect(groupId).toMatch(/^PROPLANE-[0-9A-HJKMNP-TV-Z]{8}$/);
+    const organizerAppId = String(organizerRow?.id ?? "");
+    expect(organizerAppId).toBe(organizer.applicationId);
+    await expect(visibleText(organizer.page, "Roommate invite")).toBeVisible();
+    await expect(visibleText(organizer.page, organizerAppId)).toBeVisible();
+    await expect(organizer.page.locator('[data-attr="group-invite-copy"]')).toBeVisible();
+    const inviteText = (await organizer.page.locator("code").filter({ hasText: "groupLeaderAppId" }).textContent())?.trim();
+    if (!inviteText) throw new Error("The organizer finish panel did not render its group invite URL.");
+    const inviteUrl = new URL(inviteText);
+    expect(inviteUrl.origin).toBe(new URL(BASE_URL).origin);
+    expect(inviteUrl.pathname).toBe("/rent/apply");
+    expect(inviteUrl.searchParams.get("propertyId")).toBe(fixture.propertyId);
+    expect(inviteUrl.searchParams.get("groupLeaderAppId")).toBe(organizerAppId);
+    await organizer.page.setViewportSize({ width: 390, height: 844 });
+    await expect(visibleText(organizer.page, "Roommate invite")).toBeVisible();
+    await expect(organizer.page.locator('[data-attr="group-invite-copy"]')).toBeVisible();
+    await organizer.page.setViewportSize({ width: 1440, height: 1000 });
+
+    Object.assign(manifest, { organizerAppId, organizerEmail: organizer.applicant.email, groupId,
+      invitePath: inviteUrl.pathname + inviteUrl.search });
+
+    await organizer.page.goto("/resident/applications", { waitUntil: "domcontentloaded" });
+    await expect(organizer.page.getByRole("link", { name: "View application", exact: true })).toBeVisible({ timeout: 45_000 });
+    await organizer.page.getByRole("link", { name: "View application", exact: true }).click();
+    const applicationDetailPath = residentApplicationDetailHref("/resident", "pending", organizerAppId);
+    await expect(organizer.page).toHaveURL((url) => url.pathname === applicationDetailPath);
+    const readWhatYouSent = organizer.page.getByRole("link", { name: "Read what you sent", exact: true });
+    await expect(readWhatYouSent).toBeVisible();
+    await readWhatYouSent.click();
+    const applicationFormPath = residentApplicationDetailHref("/resident", "pending", organizerAppId, "application-form");
+    await expect(organizer.page).toHaveURL((url) => url.pathname === applicationFormPath);
+    await expect(visibleText(organizer.page, "Roommate invite")).toBeVisible({ timeout: 20_000 });
+    await expect(visibleText(organizer.page, organizerAppId)).toBeVisible();
+    await expect(organizer.page.locator('[data-attr="group-invite-copy"]')).toBeVisible();
+    await organizer.page.setViewportSize({ width: 390, height: 844 });
+    await expect(visibleText(organizer.page, "Roommate invite")).toBeVisible();
+    await expect(organizer.page.locator('[data-attr="group-invite-copy"]')).toBeVisible();
+    await organizer.page.setViewportSize({ width: 1440, height: 1000 });
+    await expect(organizer.page.getByRole("button", { name: /edit application/i }).filter({ visible: true })).toBeVisible({ timeout: 20_000 });
+    await organizer.page.getByRole("button", { name: /edit application/i }).filter({ visible: true }).click();
+    await fillCurrentRentalApplication(organizer.page, organizer.applicant, { kind: "group-first", size: "2" }, { existing: true });
+    const afterEdit = await waitForApplication(fixture.propertyId, organizer.applicant.email);
+    expect(afterEdit.application.groupId).toBe(groupId);
+
+    await manager.page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
+    await expect(visibleText(manager.page, manager.property.name)).toBeVisible({ timeout: 45_000 });
+    await manager.page.goto("/portal/applications", { waitUntil: "domcontentloaded" });
+    await expect(manager.page.getByText(/Group 1\/2/).filter({ visible: true }).first()).toBeVisible({ timeout: 45_000 });
+    await expect(visibleText(manager.page, organizer.applicant.name)).toBeVisible();
+    await visibleText(manager.page, organizer.applicant.name).click();
+    await expect(visibleText(manager.page, groupId)).toBeVisible({ timeout: 20_000 });
+    await expect(visibleText(manager.page, organizer.applicant.name)).toBeVisible();
+
+    const joiner = await createResidentAccount(browser, { runId, index: 2, propertyId: fixture.propertyId, leaderAppId: organizerAppId, name: "Jordan Reyes", onProvisioned: recordProvisioned });
+    fixture.residents.push(joiner);
+    manifest.applicants = fixture.residents.map((resident) => ({ email: resident.applicant.email, userId: resident.userId, applicationId: resident.applicationId ?? null }));
+    saveManifest();
+    await applyAsResident(browser, fixture, joiner, { kind: "group-joining", groupLeaderAppId: organizerAppId }, (resident) => {
+      manifest.applicants = fixture.residents.map((entry) => ({ email: entry.applicant.email, userId: entry.userId, applicationId: entry.applicationId ?? null }));
+      saveManifest();
+    });
+    manifest.applicants = fixture.residents.map((resident) => ({ email: resident.applicant.email, userId: resident.userId, applicationId: resident.applicationId ?? null }));
+    saveManifest();
+    const joinerRow = await readApplication(fixture.propertyId, joiner.applicant.email);
+    expect(joinerRow?.application.groupRole).toBe("joining");
+    expect(joinerRow?.application.groupId).toBe(groupId);
+    await expect(visibleText(joiner.page, "You joined a group application")).toBeVisible();
+
+    await manager.page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
+    await expect(visibleText(manager.page, manager.property.name)).toBeVisible({ timeout: 45_000 });
+    await manager.page.goto("/portal/applications", { waitUntil: "domcontentloaded" });
+    await expect(manager.page.getByText("Group 2/2", { exact: true }).filter({ visible: true })).toHaveCount(2, { timeout: 45_000 });
+    await visibleText(manager.page, joiner.applicant.name).click();
+    await expect(visibleText(manager.page, groupId)).toBeVisible({ timeout: 20_000 });
+    await expect(visibleText(manager.page, organizer.applicant.name)).toBeVisible();
+    await expect(visibleText(manager.page, joiner.applicant.name)).toBeVisible();
+
+    const third = await createResidentAccount(browser, { runId, index: 3, propertyId: fixture.propertyId, leaderAppId: organizerAppId, name: "Sam Ortiz", onProvisioned: recordProvisioned });
+    fixture.residents.push(third);
+    manifest.applicants = fixture.residents.map((resident) => ({ email: resident.applicant.email, userId: resident.userId, applicationId: resident.applicationId ?? null }));
+    saveManifest();
+    await applyAsResident(browser, fixture, third, { kind: "group-joining", groupLeaderAppId: organizerAppId }, (resident) => {
+      manifest.applicants = fixture.residents.map((entry) => ({ email: entry.applicant.email, userId: entry.userId, applicationId: entry.applicationId ?? null }));
+      saveManifest();
+    });
+    manifest.applicants = fixture.residents.map((resident) => ({ email: resident.applicant.email, userId: resident.userId, applicationId: resident.applicationId ?? null }));
+    saveManifest();
+    const thirdRow = await readApplication(fixture.propertyId, third.applicant.email);
+    expect(thirdRow?.application.groupRole).toBe("joining");
+    expect(thirdRow?.application.groupId).toBe(groupId);
+    await expect(visibleText(third.page, "You joined a group application")).toBeVisible();
+
+    await manager.page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
+    await expect(visibleText(manager.page, manager.property.name)).toBeVisible({ timeout: 45_000 });
+    await manager.page.goto("/portal/applications", { waitUntil: "domcontentloaded" });
+    await expect(manager.page.getByText("Group 3 · 2 declared", { exact: true }).filter({ visible: true })).toHaveCount(3);
+    await visibleText(manager.page, third.applicant.name).click();
+    await expect(visibleText(manager.page, groupId)).toBeVisible({ timeout: 20_000 });
+    await expect(visibleText(manager.page, organizer.applicant.name)).toBeVisible();
+    await expect(visibleText(manager.page, joiner.applicant.name)).toBeVisible();
+    await expect(visibleText(manager.page, third.applicant.name)).toBeVisible();
+    const finalRows = await db.from("manager_application_records").select("id,resident_email,row_data").eq("property_id", fixture.propertyId);
+    if (finalRows.error || finalRows.data?.length !== 3) throw new Error("The exact fixture must contain three persisted group members.");
+    manifest.applicants = fixture.residents.map((resident) => ({ email: resident.applicant.email, userId: resident.userId, applicationId: resident.applicationId }));
+    manifest.persistedMemberCount = finalRows.data.length;
+    manifest.groupId = groupId;
+    saveManifest();
+  } finally {
+    const errors: unknown[] = [];
+    for (const resident of fixture.residents) {
+      try {
+        const ownedRows = await db.from("manager_application_records")
+          .select("id,manager_user_id,property_id,resident_email")
+          .eq("property_id", fixture.propertyId).eq("resident_email", resident.applicant.email).limit(2);
+        if (ownedRows.error) throw new Error("Could not verify the exact resident application before cleanup.");
+        if ((ownedRows.data ?? []).length > 1) throw new Error("More than one application matched the scoped synthetic resident; refusing deletion.");
+        const current = ownedRows.data?.[0];
+        if (current) {
+          if (current.manager_user_id !== manager.actorId || current.property_id !== fixture.propertyId ||
+              current.resident_email?.trim().toLowerCase() !== resident.applicant.email ||
+              (resident.applicationId && current.id !== resident.applicationId)) {
+            throw new Error("Application cleanup identity changed; refusing deletion.");
+          }
+          const deleted = await manager.page.request.post("/api/manager-applications", { data: { action: "delete", id: current.id } });
+          if (!deleted.ok()) throw new Error(`Application cleanup failed (HTTP ${deleted.status()}).`);
+          const after = await db.from("manager_application_records").select("id").eq("id", current.id).limit(1);
+          if (after.error || (after.data ?? []).length !== 0) throw new Error("Exact synthetic application remained after cleanup acknowledgment.");
+        }
+      } catch (error) { errors.push(error); }
     }
-  });
-
-  // Idempotent reruns: clear any applications left on the dedicated test listing.
-  test.beforeAll(async () => {
-    if (process.env.GROUP_E2E_KEEP_DATA === "1") return;
-    const { error } = await db.from("manager_application_records").delete().eq("property_id", PROPERTY_ID);
-    if (error) throw error;
-    if (fs.existsSync(DB_EVIDENCE_FILE)) fs.rmSync(DB_EVIDENCE_FILE);
-  });
-
-  test("organizer submits as first applicant — Group ID minted and persisted", async ({ page }) => {
-    await page.setViewportSize(DESKTOP);
-    await submitApplication(page, ORGANIZER, { role: "first", size: "2" }, "organizer");
-
-    const rows = await readPersistedApplications();
-    const organizerRow = rows.find((r) => r.email === ORGANIZER.email);
-    expect(organizerRow, "organizer application persisted server-side").toBeTruthy();
-    expect(organizerRow!.applyingAsGroup).toBe("yes");
-    expect(organizerRow!.groupRole).toBe("first");
-    expect(organizerRow!.groupSize).toBe("2");
-    expect(organizerRow!.groupId).toMatch(/^PROPLANE-[0-9A-HJKMNP-TV-Z]{8}$/);
-    fs.writeFileSync(evidencePath(path.basename(GROUP_ID_FILE)), organizerRow!.groupId);
-    writeDbEvidence("after organizer submit", rows);
-  });
-
-  test("Group ID stays retrievable on the submitted application in the resident portal", async ({ page }) => {
-    const groupId = fs.readFileSync(GROUP_ID_FILE, "utf8").trim();
-    await page.setViewportSize(DESKTOP);
-    await signIn(page, ORGANIZER.email, ORGANIZER.password, "/resident/applications", "/resident");
-    await openResidentApplications(page);
-    await txt(page, ORGANIZER.name).click();
-    await expect(txt(page, groupId)).toBeVisible({ timeout: 20_000 });
-    await expect(txt(page, /Your group is ready/i)).toBeVisible();
-    await expect(txt(page, /Share this Group ID with your 1 roommate/i)).toBeVisible();
-    await shot(page, "organizer-03-resident-group-callout-desktop-1440");
-
-    await page.setViewportSize(MOBILE);
-    await page.waitForTimeout(800);
-    await expect(txt(page, groupId)).toBeVisible();
-    await shot(page, "organizer-04-resident-group-callout-mobile-390");
-  });
-
-  test("re-editing and re-saving the application does not wipe the Group ID", async ({ page }) => {
-    const groupId = fs.readFileSync(GROUP_ID_FILE, "utf8").trim();
-    await page.setViewportSize(DESKTOP);
-    await signIn(page, ORGANIZER.email, ORGANIZER.password, "/resident/applications", "/resident");
-    await openResidentApplications(page);
-    await reEditApplication(page, ORGANIZER.name);
-
-    const rows = await readPersistedApplications();
-    const organizerRow = rows.find((r) => r.email === ORGANIZER.email);
-    expect(organizerRow!.groupId).toBe(groupId);
-    writeDbEvidence("after organizer re-edit + save", rows);
-
-    await openResidentApplications(page);
-    await txt(page, ORGANIZER.name).click();
-    await expect(txt(page, groupId)).toBeVisible({ timeout: 20_000 });
-    await shot(page, "organizer-05-group-id-preserved-after-edit-desktop-1440");
-  });
-
-  test("manager sees the stalled group as waiting on the missing roommate", async ({ page }) => {
-    const groupId = fs.readFileSync(GROUP_ID_FILE, "utf8").trim();
-    await page.setViewportSize(DESKTOP);
-    await signIn(page, MANAGER.email, MANAGER.password, "/portal/dashboard", "/portal");
-    await openManagerApplications(page);
-    await expect(txt(page, "Group 1/2")).toBeVisible({ timeout: 30_000 });
-    await txt(page, ORGANIZER.name).click();
-    await expect(txt(page, "Group application")).toBeVisible({ timeout: 20_000 });
-    await expect(txt(page, groupId)).toBeVisible();
-    await expect(txt(page, /waiting on 1 more applicant/i)).toBeVisible();
-    await expect(txt(page, ORGANIZER.name)).toBeVisible();
-    await shot(page, "manager-01-group-waiting-detail-desktop-1440");
-
-    await page.setViewportSize(MOBILE);
-    await page.waitForTimeout(800);
-    await expect(txt(page, groupId)).toBeVisible();
-    await shot(page, "manager-03-group-waiting-mobile-390");
-  });
-
-  test("joining roommate pastes the Group ID into their own application", async ({ page }) => {
-    const groupId = fs.readFileSync(GROUP_ID_FILE, "utf8").trim();
-    await page.setViewportSize(DESKTOP);
-    await submitApplication(page, JOINER, { role: "joining", groupId }, "joiner");
-
-    const rows = await readPersistedApplications();
-    const joinerRow = rows.find((r) => r.email === JOINER.email);
-    expect(joinerRow!.groupRole).toBe("joining");
-    expect(joinerRow!.groupId).toBe(groupId);
-    writeDbEvidence("after joiner submit", rows);
-
-    await openResidentApplications(page);
-    await txt(page, JOINER.name).click();
-    await expect(txt(page, /You joined a group application/i)).toBeVisible({ timeout: 20_000 });
-    await expect(txt(page, groupId)).toBeVisible();
-    await shot(page, "joiner-03-resident-group-callout-desktop-1440");
-
-    await page.setViewportSize(MOBILE);
-    await page.waitForTimeout(800);
-    await expect(txt(page, groupId)).toBeVisible();
-    await shot(page, "joiner-04-resident-group-callout-mobile-390");
-  });
-
-  test("manager sees one reconciled household — Group 2/2 badge", async ({ page }) => {
-    const groupId = fs.readFileSync(GROUP_ID_FILE, "utf8").trim();
-    await page.setViewportSize(DESKTOP);
-    await signIn(page, MANAGER.email, MANAGER.password, "/portal/dashboard", "/portal");
-    await openManagerApplications(page);
-    await expect(page.getByText("Group 2/2").filter({ visible: true })).toHaveCount(2, { timeout: 30_000 });
-    await txt(page, ORGANIZER.name).click();
-    await expect(txt(page, groupId)).toBeVisible({ timeout: 20_000 });
-    await expect(txt(page, /All 2 applied/i)).toBeVisible();
-    await expect(txt(page, JOINER.name)).toBeVisible();
-    await shot(page, "manager-04-group-detail-desktop-1440");
-
-    await page.setViewportSize(MOBILE);
-    await page.waitForTimeout(1000);
-    await expect(txt(page, groupId)).toBeVisible();
-    await shot(page, "manager-06-group-reconciled-mobile-390");
-  });
-
-  test("guest applicant joining the same group sees the shared finish-screen callout", async ({ page }) => {
-    const groupId = fs.readFileSync(GROUP_ID_FILE, "utf8").trim();
-    await page.setViewportSize(DESKTOP);
-    await submitApplication(page, GUEST, { role: "joining", groupId }, "guest", "guest");
-    await expect(txt(page, /You joined a group application/i)).toBeVisible();
-    await expect(txt(page, groupId)).toBeVisible();
-    await shot(page, "guest-03-finish-panel-desktop-1440");
-
-    await page.setViewportSize(MOBILE);
-    await page.waitForTimeout(600);
-    await expect(txt(page, groupId)).toBeVisible();
-    await shot(page, "guest-04-finish-panel-mobile-390");
-  });
-
-  test("manager sees an over-subscribed group reported raw, never as a false ratio", async ({ page }) => {
-    await page.setViewportSize(DESKTOP);
-    await signIn(page, MANAGER.email, MANAGER.password, "/portal/dashboard", "/portal");
-    await openManagerApplications(page);
-    await expect(txt(page, "Group 3 · 2 declared")).toBeVisible({ timeout: 30_000 });
-    await txt(page, GUEST.name).click();
-    await expect(
-      txt(page, /more applications carry this Group ID than the 2 the organizer declared/i),
-    ).toBeVisible({ timeout: 20_000 });
-    await shot(page, "manager-07-group-oversubscribed-desktop-1440");
-    writeDbEvidence("final", await readPersistedApplications());
-  });
+    try { await restoreResidents(fixture); } catch (error) { errors.push(error); }
+    try { await cleanupWritableSyntheticManager(manager); } catch (error) { errors.push(error); }
+    if (errors.length) throw new AggregateError(errors, "Group E2E exact-fixture cleanup failed; retained evidence is private.");
+  }
 });

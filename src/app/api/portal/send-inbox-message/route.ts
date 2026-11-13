@@ -9,7 +9,7 @@ import {
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
-import { filterRecipientsBySenderScope, recipientReachFromScope } from "@/lib/inbox-recipient-scope";
+import { filterRecipientsBySenderScope, managerMayMessageNewContacts, recipientReachFromScope } from "@/lib/inbox-recipient-scope";
 import { applyOwnerMessageInboxScope } from "@/lib/property-owner/access.server";
 import { resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
 import { loadThreadConversation, propertyLabelFor, replyRecipientsMatchThread } from "@/lib/communication/conversation-key.server";
@@ -21,6 +21,7 @@ import {
   coHostDisplayName,
   commitInboxThreadReply,
   deliverPortalMessageThreadSide,
+  inboxSendMessageIds,
   replyDeliveryContext,
   resolveInboxThreadReplyTarget,
 } from "@/lib/portal-inbox-delivery";
@@ -31,8 +32,16 @@ import {
 } from "@/lib/admin-shared-inbox.server";
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 import { sendPortalConversationEmails } from "@/lib/portal-email-send.server";
+import {
+  readMessageDeliveries,
+  recordEmailAttempt,
+  recordPlaceholderEmailFailures,
+  recordSmsAttempt,
+  type InboxMessageTarget,
+} from "@/lib/inbox-delivery-status.server";
+import { deliveryBlocksResend, isPlaceholderMailbox, isSandboxEmail, type InboxMessageDelivery } from "@/lib/inbox-delivery-status";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveRouteSessionUser } from "@/lib/auth/route-actor.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 import { canSendResidentOutboundSms, sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
@@ -85,6 +94,17 @@ import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { isHouseThreadId } from "@/lib/house-thread-id";
 import { handleHouseChatPost, houseReplyMessageId } from "@/lib/house-chat/post.server";
+import { resolveHouseSendTarget, resolveHouseSmsLine, type HouseSendTarget } from "@/lib/house-message-send.server";
+import type { HouseChannelSkip } from "@/lib/house-message-recipients";
+import { isPhoneOptedOut } from "@/lib/sms-consent";
+
+/** At most this many typed addresses that are not yet contacts per send. */
+const MAX_TYPED_NEW_CONTACTS_PER_SEND = 5;
+/** Per workspace per rolling 24 hours. */
+const MAX_TYPED_NEW_CONTACTS_PER_DAY = 25;
+
+/** How many addresses one recipient-account lookup asks about; a pasted list is read in several queries. */
+const RECIPIENT_LOOKUP_CHUNK = 50;
 
 export const runtime = "nodejs";
 
@@ -204,11 +224,10 @@ async function resolveBroadcastRecipients(
 
 export async function POST(req: Request) {
   try {
-    const auth = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await auth.auth.getUser();
-    if (!user) return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
+    // A failed auth-service read is a retryable 503, never "Not authenticated."
+    const session = await resolveRouteSessionUser({ route: "portal/send-inbox-message" });
+    if (!session.ok) return NextResponse.json({ ok: false, error: session.error }, { status: session.status });
+    const user = session.user;
 
     if (
       !(await rateLimit(`send-inbox:user:${user.id}`, 30, 60_000)).ok ||
@@ -230,6 +249,11 @@ export async function POST(req: Request) {
       deliverViaEmail?: boolean;
       deliverViaSms?: boolean;
       propertyId?: string;
+      /**
+       * "Message a whole house": the house this per-person copy is ABOUT. A name, never authorization: the workspace,
+       * its owner and its work number are re-derived from the sender's own access to that house.
+       */
+      houseSendPropertyId?: string;
       propertyTitle?: string;
       managerUserId?: string;
       sendId?: unknown;
@@ -351,6 +375,7 @@ export async function POST(req: Request) {
     // Stamp the sender's own copy with the channel this send is leaving on, so
     // a reload shows the same tag the optimistic bubble did — and an in-app-only
     // send never reads as EMAIL. Email turns also keep their subject.
+    const replyCommitId = replyMessageId ?? `reply-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
     const replyChannel = deliverViaEmail ? "email" : deliverViaSms ? "sms" : "proplane";
     const replyBody = {
       fromName,
@@ -358,7 +383,8 @@ export async function POST(req: Request) {
       attachments: inboxAttachmentsFromUrls(attachmentUrls),
       channel: replyChannel as "email" | "sms" | "proplane",
       ...(deliverViaEmail ? { subject } : {}),
-      ...(replyMessageId ? { messageId: replyMessageId } : {}),
+      // Always an id, so the provider's delivery status can find this turn again.
+      messageId: replyCommitId,
       recordRef,
     };
 
@@ -525,21 +551,38 @@ export async function POST(req: Request) {
       { email: string; userId: string | null; role: string | null; scope: string }
     >();
 
+    // Typed addresses a successful, case-insensitive profile read found NO account for.
+    const confirmedAccountlessEmails = new Set<string>();
     const toEmailsNormalized = normalizeEmails(body.toEmails)
       .filter((e) => e.includes("@"))
       .map((e) => e.trim().toLowerCase())
       .filter((e) => e !== senderEmail && !recipientsByEmail.has(e));
 
     if (toEmailsNormalized.length > 0) {
-      const { data: emailProfiles } = await db
-        .from("profiles")
-        .select("id, email, role")
-        .in("email", toEmailsNormalized);
-      const profileByEmail = new Map(
-        (emailProfiles ?? []).map((p) => [String(p.email ?? "").trim().toLowerCase(), p]),
-      );
+      // Case-insensitive on purpose (`profiles.email` is stored as the user typed it) and fail closed: a read that
+      // errors must never read as "no account", or an existing account would pass as an account-less typed address.
+      // `email_lower` is the stored generated column (migration `20261111130000_profiles_email_lower`), so this is
+      // one index lookup per address rather than a pattern match over every profile row. A pasted list is still read
+      // in chunks: a single query over a hundred addresses outgrows the PostgREST URL limit and the whole send would
+      // be refused for a list that used to work.
+      const profileByEmail = new Map<string, { id: string; email: string | null; role: string | null }>();
+      for (let i = 0; i < toEmailsNormalized.length; i += RECIPIENT_LOOKUP_CHUNK) {
+        const chunk = toEmailsNormalized.slice(i, i + RECIPIENT_LOOKUP_CHUNK);
+        const { data: emailProfiles, error: emailProfilesError } = await db
+          .from("profiles")
+          .select("id, email, role")
+          .in("email_lower", chunk);
+        if (emailProfilesError) {
+          console.error("[send-inbox-message] recipient account lookup failed", emailProfilesError.message);
+          return NextResponse.json({ ok: false, error: "Could not check recipients. Try again." }, { status: 503 });
+        }
+        for (const p of emailProfiles ?? []) {
+          profileByEmail.set(String(p.email ?? "").trim().toLowerCase(), p as { id: string; email: string | null; role: string | null });
+        }
+      }
       for (const email of toEmailsNormalized) {
         if (recipientsByEmail.has(email)) continue;
+        if (!profileByEmail.has(email)) confirmedAccountlessEmails.add(email);
         // No matching profile (e.g. not yet signed up) — best-effort resident
         // scope so the row still shows up if/when they sign in by that email.
         const profile = profileByEmail.get(email);
@@ -593,23 +636,80 @@ export async function POST(req: Request) {
     let recipients = [...recipientsByEmail.values()];
     // The workspace a manager send leaves from; also names whose plan the send is held to.
     let managerSendScope: Awaited<ReturnType<typeof resolveCommunicationScope>> | null = null;
+    // A house text is about ONE workspace (the house's): its line, wallet and plan, whoever is signed in.
+    const houseSendPropertyId = String(body.houseSendPropertyId ?? "").trim();
+    let houseTarget: HouseSendTarget | null = null;
+    if (houseSendPropertyId && senderActsAsAdmin) {
+      return NextResponse.json({ ok: false, error: "Property not found." }, { status: 404 });
+    }
     if (!senderActsAsAdmin) {
       // A manager send is checked against the active workspace and the houses
       // they are granted - "All residents" in workspace A reaches only A.
       if (["manager", "owner", "pro"].includes(String(senderRole ?? "").trim().toLowerCase())) {
         managerSendScope = await resolveCommunicationScope(db, user.id, "edit");
       }
+      if (houseSendPropertyId) {
+        if (!managerSendScope) {
+          return NextResponse.json({ ok: false, error: "Property not found." }, { status: 404 });
+        }
+        const resolved = await resolveHouseSendTarget(db, { request: req, userId: user.id, propertyId: houseSendPropertyId });
+        if (!resolved.ok) {
+          return NextResponse.json({ ok: false, error: resolved.error }, { status: resolved.status });
+        }
+        houseTarget = resolved.target;
+      }
       const reach = managerSendScope ? recipientReachFromScope(managerSendScope) : undefined;
-      const { allowed } = await filterRecipientsBySenderScope(
+      const { allowed, typedNewContacts } = await filterRecipientsBySenderScope(
         db,
         { id: user.id, email: senderEmail, role: senderRole, isAdmin: false, reach },
         recipients,
+        {
+          // A manager or teammate with edit rights may email a typed address that is not yet a contact; it opens a
+          // new conversation in this workspace through the same keyed creation as any other send. Re-derived here
+          // from membership, never from the body, and never for a vendor or resident sender.
+          allowTypedAddresses: managerSendScope ? await managerMayMessageNewContacts(db, managerSendScope) : false,
+          confirmedAccountlessEmails,
+        },
       );
+      // Typed new contacts are capped: a handful per send, and a rolling daily budget per workspace (the shared
+      // limiter in a deployed runtime, in-memory in dev/test).
+      const newContactCount = typedNewContacts?.length ?? 0;
+      if (newContactCount > MAX_TYPED_NEW_CONTACTS_PER_SEND) {
+        return NextResponse.json(
+          { ok: false, error: `You can add up to ${MAX_TYPED_NEW_CONTACTS_PER_SEND} new addresses per message.` },
+          { status: 400 },
+        );
+      }
+      // Nothing to send to is refused BEFORE the budget is touched: a refusal must not eat a day's new-address
+      // tokens for a message that was never going to go out.
       if (allowed.length === 0) {
         return NextResponse.json(
           { ok: false, error: "You can only message people connected to your account." },
           { status: 403 },
         );
+      }
+      if (newContactCount > 0) {
+        const typedWorkspaceId = managerSendScope?.activeWorkspaceId?.trim();
+        if (!typedWorkspaceId) {
+          return NextResponse.json({ ok: false, error: "You can only message people connected to your account." }, { status: 403 });
+        }
+        // One token per new address, spent in ONE all-or-nothing reservation: asking for them a call at
+        // a time (or in parallel) let a send that is then refused keep the tokens it was already
+        // granted, so a workspace could reach 0 remaining with nothing delivered.
+        const budget = await rateLimit(
+          `typed-contacts:${typedWorkspaceId}`,
+          MAX_TYPED_NEW_CONTACTS_PER_DAY,
+          86_400_000,
+          newContactCount,
+        );
+        if (!budget.ok) {
+          return NextResponse.json(
+            budget.unavailable
+              ? { ok: false, error: "Could not check recipients. Try again." }
+              : { ok: false, error: "This workspace has reached its daily limit of new addresses. Try again tomorrow." },
+            { status: budget.unavailable ? 503 : 429 },
+          );
+        }
       }
       recipients = allowed;
     }
@@ -629,7 +729,8 @@ export async function POST(req: Request) {
       const access = await assertManagerCommunicationAllowedForWorkspace(
         db,
         user.id,
-        managerSendScope.activeWorkspaceId,
+        // A house text answers to the HOUSE's workspace (and its owner's plan), not the one the switcher shows.
+        houseTarget?.workspaceId ?? managerSendScope.activeWorkspaceId,
       );
       if (!access.allowed) {
         return NextResponse.json(
@@ -756,20 +857,20 @@ export async function POST(req: Request) {
     // email/SMS follow each recipient's saved prefs; account-less (no userId)
     // recipients get the category-default email and never SMS.
     const channelByEmail = new Map<string, { inbox: boolean; email: boolean; sms: boolean }>();
+    const phoneById = new Map<
+      string,
+      {
+        phone: string | null;
+        phone_verified_at: string | null;
+        role: string | null;
+        sms_from_number: string | null;
+        sms_forward_inbound: boolean | null;
+      }
+    >();
     if (eventCategory) {
       const recipientUserIds = recipients
         .map((r) => r.userId)
         .filter((id): id is string => Boolean(id));
-      const phoneById = new Map<
-        string,
-        {
-          phone: string | null;
-          phone_verified_at: string | null;
-          role: string | null;
-          sms_from_number: string | null;
-          sms_forward_inbound: boolean | null;
-        }
-      >();
       if (recipientUserIds.length) {
         const { data: recProfiles } = await db
           .from("profiles")
@@ -809,6 +910,26 @@ export async function POST(req: Request) {
       deliverViaSms &&
       (eventCategory ? recipients.some((r) => channelByEmail.get(r.email)?.sms === true) : true);
 
+    // A channel the sender asked for that this send did NOT attempt, with why: a caller (the house summary) must never
+    // read "nothing recorded" as "sent". An attempt that went wrong is a recorded FAILED delivery instead.
+    const channelSkips: HouseChannelSkip[] = [];
+    const skipChannel = (email: string, channel: HouseChannelSkip["channel"], reason: string) => {
+      if (!channelSkips.some((skip) => skip.email === email && skip.channel === channel)) {
+        channelSkips.push({ email, channel, reason });
+      }
+    };
+    for (const r of recipients) {
+      if (isPrimaryAdminRecipientEmail(r.email)) continue;
+      if (deliverViaEmail && !emailWanted(r.email)) skipChannel(r.email, "email", "email_off");
+      if (deliverViaEmail && isSandboxEmail(r.email)) skipChannel(r.email, "email", "test_account");
+      if (deliverViaSms && eventCategory && channelByEmail.get(r.email)?.sms !== true) {
+        const phone = r.userId ? String(phoneById.get(r.userId)?.phone ?? "").trim() : "";
+        const optedOut = phone ? await isPhoneOptedOut(db, phone, { userId: r.userId }).catch(() => false) : false;
+        skipChannel(r.email, "sms", !r.userId ? "no_account" : !phone ? "no_phone" : optedOut ? "opted_out" : "texts_off");
+      }
+    }
+    const skippedField = () => (channelSkips.length > 0 ? { skipped: channelSkips } : {});
+
     // Every recipient Resend may actually be handed: sandbox accounts skip it, and so do the
     // addresses PropLane mints for a channel with no mailbox (a Facebook lead's thread key) —
     // one rule, `shouldSkipOutboundEmail`.
@@ -821,8 +942,15 @@ export async function POST(req: Request) {
     const emailToSend = recipients
       .filter((recipient) => emailWanted(recipient.email))
       .map((recipient) => recipient.email)
-      .filter((email) => !shouldSkipOutboundEmail(email));
+      // A placeholder import address is recorded "Not a real mailbox" below; Resend is never handed it.
+      .filter((email) => !shouldSkipOutboundEmail(email) && !isPlaceholderMailbox(email));
 
+    // Where each recipient's copy of this message lives, so the provider's delivery status can be stamped on it.
+    const sentTargets = new Map<string, InboxMessageTarget>();
+    // A retry of this very send (same `sendId`, so the same deterministic message ids) that already reported an
+    // attempt on a channel for this person: that channel is not sent, billed or stamped a second time.
+    const alreadyDelivered = { email: new Set<string>(), sms: new Set<string>() };
+    const priorDeliveries: InboxMessageDelivery[] = [];
     // Deliver to portal inbox for all recipients (including @axis.local demo emails)
     let propertyThreadId: string | null = null;
     const propertyTitleInput = String(body.propertyTitle ?? "").trim();
@@ -961,12 +1089,18 @@ export async function POST(req: Request) {
         // Sender's Sent record (owner-only, scoped to the sender's portal).
         // Repeated sends to the same person append to the ONE sent thread.
         // A co-host has none: their reply is a turn of the owner's thread, which is the one conversation.
-        if (!coHostReply) await deliverPortalMessageThreadSide(db, {
+        // With a composer `sendId` both turn ids are derived from it and this recipient, so pressing Send
+        // again after a partial failure (a house fan-out that hit the per-minute cap, a dropped response)
+        // appends nothing twice — the retry is the same message, not a second one.
+        const sendOnceIds = sendId && !replyTarget ? inboxSendMessageIds(user.id, sendId, recipientLower) : null;
+        const sentMessageId = sendOnceIds?.sent ?? `sent_${ts}_${rand}`;
+        const sentSide = coHostReply ? null : await deliverPortalMessageThreadSide(db, {
           scope: senderScope,
           folder: "sent",
           ownerUserId: user.id,
           participantEmail: null,
           otherPartyEmail: recipientLower,
+          messageId: sentMessageId,
           // The reply was committed to the thread the sender was looking at; with
           // one conversation per person that thread IS the sent copy.
           alreadyRecordedIn: replyTarget?.threadId,
@@ -987,6 +1121,20 @@ export async function POST(req: Request) {
           attachments: inboxAttachmentsFromUrls(attachmentUrls),
           recordRef,
         });
+        if (replyTarget) sentTargets.set(recipientLower, { threadId: replyTarget.threadId, messageId: replyCommitId });
+        else if (sentSide) sentTargets.set(recipientLower, { threadId: sentSide.threadId, messageId: sentMessageId });
+        if (sendOnceIds && sentSide?.action === "skipped") {
+          for (const delivery of await readMessageDeliveries(db, sentTargets.get(recipientLower))) {
+            const channel = delivery.channel === "sms" ? "sms" : delivery.channel === "email" ? "email" : null;
+            if (!channel) continue;
+            // A FAILED attempt is not a delivery: pressing Send again is how a channel whose provider
+            // call failed gets its second chance. Only something the provider took suppresses this
+            // channel, so nobody is charged or texted twice.
+            if (!deliveryBlocksResend(delivery)) continue;
+            alreadyDelivered[channel].add(recipientLower);
+            priorDeliveries.push(delivery);
+          }
+        }
 
         if (recipientLower === senderEmail) continue;
 
@@ -998,6 +1146,7 @@ export async function POST(req: Request) {
           ownerUserId: recipient.userId,
           participantEmail: recipientLower,
           otherPartyEmail: senderEmail,
+          ...(sendOnceIds ? { messageId: sendOnceIds.inbox } : {}),
           conversation: {
             propertyId: propertyId || hostReply?.propertyId || null,
             otherPartyUserId: user.id,
@@ -1042,7 +1191,7 @@ export async function POST(req: Request) {
           const { data: resolvedProfiles } = await db
             .from("profiles")
             .select("id, email")
-            .in("email", missingIdEmails);
+            .in("email_lower", missingIdEmails);
           for (const p of resolvedProfiles ?? []) {
             const email = String(p.email ?? "").trim().toLowerCase();
             if (email) resolvedIds.set(email, p.id as string);
@@ -1067,6 +1216,19 @@ export async function POST(req: Request) {
       }
     }
 
+    // What each channel did, returned to the caller (a house send shows it per person). A retry reports what
+    // the first attempt already recorded, so a person whose copy went out reads as sent rather than unsent.
+    const responseDeliveries: InboxMessageDelivery[] = await recordPlaceholderEmailFailures(
+      db,
+      sentTargets,
+      recipients
+        .filter((recipient) => emailWanted(recipient.email) && !alreadyDelivered.email.has(recipient.email))
+        .map((recipient) => recipient.email),
+    );
+    responseDeliveries.push(...priorDeliveries);
+    // Resend is never handed a copy this send already delivered.
+    const emailToSendNow = emailToSend.filter((email) => !alreadyDelivered.email.has(email));
+
     // If no eligible real email recipients and SMS not requested, short-circuit
     if (toEmails.length === 0 && !anySmsWanted) {
       const sentAt = new Date().toISOString();
@@ -1087,6 +1249,8 @@ export async function POST(req: Request) {
         ok: true,
         skipped: true,
         reason: "No eligible real recipients — portal inbox updated.",
+        deliveries: responseDeliveries,
+        ...skippedField(),
         ...(propertyThreadId ? { propertyThreadId } : {}),
       });
     }
@@ -1095,13 +1259,13 @@ export async function POST(req: Request) {
     let emailSent = false;
     let emailResults = new Map<string, { sent: boolean; resendId: string | null }>();
 
-    if (emailToSend.length > 0) {
+    if (emailToSendNow.length > 0) {
       const html = `<p style="white-space:pre-wrap;font-family:sans-serif;font-size:15px;line-height:1.6;color:#1e293b">${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p><hr style="margin:24px 0;border:none;border-top:1px solid #e2e8f0"><p style="font-family:sans-serif;font-size:12px;color:#94a3b8">Sent via PropLane portal by ${String(fromName).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")}</p>`; // the sender name is display text from the request — never HTML
       // Per-recipient sends carrying the signed Reply-To + threading anchor.
       // Inbox already written — email stays best-effort, soft-failing per recipient.
       emailResults = await sendPortalConversationEmails({
         senderUserId: user.id,
-        toEmails: emailToSend,
+        toEmails: emailToSendNow,
         subject,
         text,
         html,
@@ -1114,19 +1278,23 @@ export async function POST(req: Request) {
         fromAddress:
           senderRole === "manager" ? await resolveManagerOutboundFrom(db, user.id) : null,
       });
-      for (const email of emailToSend) {
+      for (const email of emailToSendNow) {
         const result = emailResults.get(email);
         if (result?.sent) {
           emailSent = true;
           emailResendId = emailResendId ?? result.resendId;
         }
       }
+      for (const email of emailToSendNow) {
+        const recorded = await recordEmailAttempt(db, sentTargets.get(email), email, emailResults.get(email));
+        if (recorded) responseDeliveries.push(recorded);
+      }
     }
 
     const sentAt = new Date().toISOString();
 
     // Log email sends
-    if (emailToSend.length > 0) {
+    if (emailToSendNow.length > 0) {
       for (const recipient of recipients) {
         const logId = `outbound_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         await db.from("portal_outbound_mail_records").upsert(
@@ -1173,7 +1341,7 @@ export async function POST(req: Request) {
             const { data: mgr } = await db
               .from("profiles")
               .select("id, phone, phone_verified_at")
-              .eq("email", recipient.email)
+              .eq("email_lower", recipient.email)
               .maybeSingle();
             const mgrId = String(mgr?.id ?? recipient.userId ?? "").trim();
             if (!mgrId) return;
@@ -1212,20 +1380,27 @@ export async function POST(req: Request) {
       } else {
       const { data: senderProfile } = await db.from("profiles").select("sms_from_number").eq("id", user.id).maybeSingle();
       const smsFromNumber = String(senderProfile?.sms_from_number ?? "").trim();
+      // A text about a HOUSE leaves from that house's workspace line, resolved by the workspace and not by anything
+      // the signed-in person holds (the sender's legacy `sms_from_number` has no say, and a teammate has none).
+      // An unresolvable line refuses the text below; it never falls back to another workspace's number.
+      const houseLine = houseTarget ? await resolveHouseSmsLine(db, houseTarget) : null;
 
-      if (canSendResidentOutboundSms(smsFromNumber)) {
-        // Fetch phone numbers for all recipients
+      if (houseLine || canSendResidentOutboundSms(smsFromNumber)) {
+        // Fetch phone numbers for all recipients. `email_lower` is the stored lowercase of `profiles.email`
+        // (migration 20261111130000), and `recipients` are keyed lowercase: a mixed-case account still matches.
         const recipientEmails = recipients.map((r) => r.email);
         const { data: phones } = await db
           .from("profiles")
           .select("email, phone")
-          .in("email", recipientEmails);
+          .in("email_lower", recipientEmails);
         const phoneByEmail = new Map((phones ?? []).map((p) => [String(p.email).toLowerCase(), String(p.phone ?? "").trim()]));
 
         const senderIsManager = ["manager", "pro", "admin"].includes(String(senderRole ?? "").toLowerCase());
         // A human message from the inbox on the shared line is signed
         // "<house or workspace name> team"; null (and no change) per-workspace.
-        const sharedLineHumanSend = senderIsManager && !eventCategory
+        const sharedLineHumanSend = houseLine
+          ? { signOff: houseLine.ok ? houseLine.signOff : null }
+          : senderIsManager && !eventCategory
           ? await resolveSharedLineHumanSend(db, {
               ownerUserId: user.id,
               selectedWorkLineId: managerSendScope?.activeWorkspaceId ?? null,
@@ -1236,8 +1411,19 @@ export async function POST(req: Request) {
         await Promise.all(
           recipients.map(async (recipient) => {
           if (eventCategory && channelByEmail.get(recipient.email)?.sms !== true) return;
+          // This send already texted this person (a retry of the same `sendId`): never a second text.
+          if (alreadyDelivered.sms.has(recipient.email)) return;
           const recipientPhone = phoneByEmail.get(recipient.email) ?? "";
-          if (!recipientPhone) return;
+          if (!recipientPhone) {
+            skipChannel(recipient.email, "sms", "no_phone");
+            return;
+          }
+          // The house's workspace has no sendable line (or it cannot be read): refuse THIS text, say why, and send
+          // nothing from any other number.
+          if (houseLine && !houseLine.ok) {
+            responseDeliveries.push(await recordSmsAttempt(db, sentTargets.get(recipient.email), { sent: false, error: houseLine.error }));
+            return;
+          }
           let smsText = `(${subject})\n${text}`;
           const linkKind: ResidentSmsLinkKind | null =
             eventCategory === "leases"
@@ -1259,8 +1445,16 @@ export async function POST(req: Request) {
           // A manager's own compose (no event category) still opens the relay
           // thread — future resident replies route back to their phone — but is
           // NOT mirrored back to them: they just wrote it.
-          const openThread =
-            eventCategory === "payments" ||
+          // The relay thread belongs to the workspace OWNER, whose work number the text leaves from, so a resident's
+          // reply routes back to that workspace and never to the signed-in teammate.
+          const openThread = houseTarget
+            ? {
+                managerUserId: houseTarget.ownerUserId,
+                residentUserId: recipient.userId,
+                residentEmail: recipient.email,
+                topic: "general" as const,
+              }
+            : eventCategory === "payments" ||
             eventCategory === "leases" ||
             eventCategory === "maintenance" ||
             eventCategory === "applications"
@@ -1285,15 +1479,40 @@ export async function POST(req: Request) {
                     topic: "general" as const,
                   }
                 : null;
-          const result = await sendResidentOutboundSms({
+          let result = await sendResidentOutboundSms({
             to: recipientPhone,
             text: smsText,
-            fromNumber: smsFromNumber,
+            fromNumber: houseLine?.ok ? houseLine.fromNumber : smsFromNumber,
             linkKind: null,
             sendClass: eventCategory ? "automated" : "transactional",
             openThread,
-            mirrorToManager: Boolean(eventCategory),
+            // A house fan-out never carbon-copies each text to the manager's own phone (one extra text per resident).
+            mirrorToManager: Boolean(eventCategory) && !houseTarget,
+            ...(houseTarget && houseLine?.ok
+              ? {
+                  propertyId: houseTarget.propertyId,
+                  workspaceId: houseTarget.workspaceId,
+                  actorUserId: user.id,
+                  selectedWorkLineId: houseLine.selectedWorkLineId,
+                  recipientUserId: recipient.userId,
+                }
+              : {}),
           });
+          // A reply on a PropLane-MANAGED workspace must not die on the client's wallet: when the normal send was refused,
+          // PropLane sends it itself (`resolveSmsPayer`'s rule). STOP and quiet hours are never overridden; a self-serve
+          // workspace stays fail-closed. The refusal reason still shows on the message (Delivery issues).
+          if (!result.sent && !result.accepted && !eventCategory) {
+            const payerWorkspaceId = houseTarget?.workspaceId ?? managerSendScope?.activeWorkspaceId ?? null;
+            const payerOwnerId = houseTarget?.ownerUserId ?? user.id;
+            const { sendAsPropLaneAfterRefusal } = await import("@/lib/prospect-spine/payer.server");
+            const fallback = await sendAsPropLaneAfterRefusal(db, {
+              ownerUserId: payerOwnerId, workspaceId: payerWorkspaceId, to: recipientPhone, body: smsText,
+              claimKey: `inbox:${sentTargets.get(recipient.email)?.messageId ?? `${payerOwnerId}:${recipientPhone}:${smsText.length}`}`,
+              refusalCode: result.error ?? null,
+            }).catch(() => ({ attempted: false, ok: false }));
+            if (fallback.attempted && fallback.ok) result = { sent: true, channel: "twilio" };
+          }
+          responseDeliveries.push(await recordSmsAttempt(db, sentTargets.get(recipient.email), result));
           if (result.sent) {
             const logId = `outbound_sms_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
             await db.from("portal_outbound_mail_records").upsert(
@@ -1325,6 +1544,8 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       id: emailResendId,
+      deliveries: responseDeliveries,
+      ...skippedField(),
       ...(propertyThreadId ? { propertyThreadId } : {}),
     });
   } catch (err) {

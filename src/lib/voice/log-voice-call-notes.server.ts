@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
 import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
-import { voiceCallNoteSid } from "@/lib/voice/voice-call-notes";
+import { voiceCallNoteSid, type VoiceCallNoteKind } from "@/lib/voice/voice-call-notes";
 
 function digest(text: string): string {
   return createHash("sha256").update(text).digest("hex").slice(0, 16);
@@ -17,6 +17,8 @@ type CallNoteIdentity = {
   workNumber: string;
   callSid: string;
   counterpartyRole?: SmsCounterpartyRole;
+  /** The workspace the call belongs to: stamps the thread so the right team reads it. */
+  workspaceId?: string | null;
 };
 
 async function logNote(
@@ -24,7 +26,7 @@ async function logNote(
   args: CallNoteIdentity & {
     direction: "inbound" | "outbound";
     body: string;
-    kind: "started" | "user" | "agent" | "ended";
+    kind: VoiceCallNoteKind;
   },
 ): Promise<boolean> {
   const body = args.body.trim();
@@ -45,7 +47,17 @@ async function logNote(
     }),
     source: "work_number",
     counterpartyRole: args.counterpartyRole ?? "manager",
+    ...(args.workspaceId ? { workspaceId: args.workspaceId } : {}),
   });
+}
+
+/** A system line listing the pages offered on the call, so staff see them and the post-call text can send exactly them. */
+export async function logVoiceCallLinks(
+  db: SupabaseClient,
+  args: CallNoteIdentity & { lines: string[] },
+): Promise<boolean> {
+  const body = ["Links to text the caller after the call:", ...args.lines].join("\n");
+  return logNote(db, { ...args, direction: "outbound", kind: "links", body });
 }
 
 /** System line when recording consent is granted. */

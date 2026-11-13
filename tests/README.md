@@ -35,6 +35,8 @@ Use a **dedicated Supabase test project** — never production credentials. See 
 
 For manager E2E signup, set `PROPLANE_PAYMENT_WAIVER_CODE=FREE100` to skip Stripe checkout.
 
+Synthetic-property E2E tests require `E2E_PRIVATE_FIXTURE_DIR` to point to an absolute, owned, real directory with mode `0700`. For example, run `export E2E_PRIVATE_FIXTURE_DIR="$(node -e 'const fs=require("fs"),os=require("os"),path=require("path"); process.stdout.write(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),"proplane-e2e-fixtures-"))))')"`. Retain its intent manifests for review; unknown write outcomes require investigation after the runtime stops.
+
 For manager/resident/admin portal E2E tests, run `npm run test:seed` then set `E2E_TESTS_ENABLED=1` in `.env.test`.
 
 Use the smoke command or an explicit spec list during local development. The

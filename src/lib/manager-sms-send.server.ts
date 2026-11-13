@@ -158,7 +158,11 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
   // A live signup trial has no Communication until it pays (the owner's plan, not the actor's).
   const communication = await assertManagerCommunicationAllowed(ownerManagerUserId);
   if (!communication.allowed) {
-    return response({ error: communication.message, code: `communication_${communication.reason}` }, { status: communication.status });
+    return settleRefusedConversationSend(
+      db,
+      response({ error: communication.message, code: `communication_${communication.reason}` }, { status: communication.status }),
+      { ownerManagerUserId, workspaceId: args.workspace?.id ?? null, propertyId: match?.houses?.[0]?.propertyId ?? null, toPhone: matchedPhone, text, claimKey: null },
+    );
   }
   // The line a reply leaves on is the conversation's own. A projection thread
   // carries its exact line; any other thread is placed by the number it used or
@@ -242,7 +246,18 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
     dedupeKey,
   });
 
-  const sent = await finishEnqueuedSend(db, args.actorUserId, ownerManagerUserId, result, args.runDispatch);
+  const attempted = await finishEnqueuedSend(db, args.actorUserId, ownerManagerUserId, result, args.runDispatch);
+  // A refused or failed text is never silent: a PropLane-managed workspace's wallet/line refusal falls back to PropLane's
+  // own send, and anything still unsent is stamped on the thread (Delivery issues) with its human reason.
+  const sent = await settleRefusedConversationSend(db, attempted, {
+    ownerManagerUserId,
+    workspaceId: sharedSend?.workspaceId ?? args.workspace?.id ?? null,
+    propertyId: match?.houses?.[0]?.propertyId ?? null,
+    toPhone: matchedPhone,
+    text,
+    claimKey: dedupeKey,
+    actorUserId: args.actorUserId,
+  });
   if (sent.status === 200 || sent.status === 202) {
     // One-number learning loop: an answer to an escalation, or an edited AI draft, becomes a
     // suggested knowledge entry. Best effort; it never changes the send's result.
@@ -258,6 +273,81 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
 }
 
 type EnqueueResult = Awaited<ReturnType<typeof enqueueOwnerSms>>;
+
+/**
+ * The outcome of a manager text that was NOT accepted (any non-2xx). On a PropLane-managed workspace an allowlisted wallet/line
+ * refusal code is re-sent by PropLane itself on the shared line (`sendAsPropLaneAfterRefusal`; idempotent on the send's key) and
+ * the send then reads as submitted. Anything still unsent is stamped on the conversation's thread as a delivery issue with the
+ * human reason, so the bubble and the Delivery issues filter show it. A sent or queued text passes through untouched. Never throws.
+ */
+export async function settleRefusedConversationSend(
+  db: SupabaseClient,
+  sent: SendResult,
+  input: { ownerManagerUserId: string; workspaceId: string | null; propertyId: string | null; toPhone: string; text: string; claimKey: string | null; actorUserId?: string; actorName?: string },
+): Promise<SendResult> {
+  if (sent.status >= 200 && sent.status < 300) return sent;
+  try {
+    const code = typeof sent.body.code === "string" ? sent.body.code : null;
+    const { resolveWorkspaceContext } = await import("@/lib/communication/conversation-key.server");
+    const workspaceId =
+      input.workspaceId?.trim() ||
+      (await resolveWorkspaceContext(db, input.ownerManagerUserId, { propertyId: input.propertyId }).catch(() => null))?.workspaceId ||
+      null;
+    const { locateThreadId } = await import("@/lib/prospect-spine/locate.server");
+    const threadId = workspaceId
+      ? await locateThreadId(db, { ownerUserId: input.ownerManagerUserId, workspaceId, phoneE164: input.toPhone }).catch(() => null)
+      : null;
+    let fallbackReason: string | null = null;
+    if (code && input.claimKey) {
+      const { sendAsPropLaneAfterRefusal } = await import("@/lib/prospect-spine/payer.server");
+      const fallback = await sendAsPropLaneAfterRefusal(db, {
+        ownerUserId: input.ownerManagerUserId,
+        workspaceId,
+        to: input.toPhone,
+        body: input.text,
+        claimKey: `manager-conversation:${input.claimKey}`,
+        refusalCode: code,
+      });
+      if (fallback.attempted && fallback.ok) {
+        // PropLane really texted it (a provider send). The reply must show in the thread, and only a recorded reply clears
+        // an earlier issue: never report "sent" with nothing in the conversation.
+        let recorded = false;
+        if (threadId && workspaceId) {
+          const { recordOutbound } = await import("@/lib/prospect-spine/index.server");
+          recorded = (
+            await recordOutbound(db, {
+              workspaceId,
+              ownerUserId: input.ownerManagerUserId,
+              threadId,
+              body: input.text,
+              channel: "sms",
+              author: { kind: "staff", userId: input.actorUserId ?? input.ownerManagerUserId, name: input.actorName?.trim() || "PropLane team" },
+              eventId: `manager-send:${input.claimKey}`,
+            }).catch(() => ({ ok: false }))
+          ).ok;
+        }
+        if (recorded && threadId) {
+          const { clearDeliveryIssue } = await import("@/lib/prospect-spine/delivery-issue.server");
+          await clearDeliveryIssue(db, threadId);
+        }
+        return response({ ok: true, status: "submitted", viaPropLane: true, recorded }, { status: 200 });
+      }
+      if (fallback.attempted) fallbackReason = fallback.reason ?? null;
+    }
+    const reason = String(sent.body.error ?? "").trim() || "The text could not be sent.";
+    const { recordDeliveryIssue } = await import("@/lib/prospect-spine/delivery-issue.server");
+    await recordDeliveryIssue(db, {
+      threadId,
+      workspaceId,
+      direction: "outbound",
+      reason: fallbackReason ? `${reason} PropLane could not send it either (${fallbackReason.replace(/_/g, " ")}).` : reason,
+      eventId: `manager-send:${input.claimKey ?? `${input.ownerManagerUserId}:${input.toPhone}:${input.text.length}`}`,
+    });
+  } catch {
+    /* the refusal itself is still returned to the caller */
+  }
+  return sent;
+}
 
 async function finishEnqueuedSend(
   db: SupabaseClient,
@@ -282,7 +372,7 @@ async function finishEnqueuedSend(
               ? "Your work number is not ready to send yet. Open Settings → Messaging for details."
               : "Could not queue SMS.";
     return response(
-      { error: userMessage },
+      { error: userMessage, code: result.error },
       { status: result.error === "scoped_consent_missing" ? 409 : 503 },
     );
   }
@@ -314,13 +404,14 @@ async function finishEnqueuedSend(
     );
   }
   if (outboxStatus === "blocked" && outbox?.blocked_reason === WORKSPACE_NO_WORK_NUMBER_CODE) {
-    return response({ error: WORKSPACE_NO_WORK_NUMBER_MESSAGE, outboxId: result.outboxId }, { status: 409 });
+    return response({ error: WORKSPACE_NO_WORK_NUMBER_MESSAGE, code: WORKSPACE_NO_WORK_NUMBER_CODE, outboxId: result.outboxId }, { status: 409 });
   }
   if (outboxStatus === "blocked" || outboxStatus === "failed") {
     return response(
       {
         error:
           "The SMS could not be submitted. Check Settings → Messaging and try again.",
+        ...(outbox?.blocked_reason ? { code: String(outbox.blocked_reason) } : {}),
         outboxId: result.outboxId,
       },
       { status: 503 },

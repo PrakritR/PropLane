@@ -20,6 +20,8 @@ export type WorkspaceStanding = {
   rights: WorkspaceRights;
   /** The actor's own membership row, when they are not the owner. */
   linkId: string | null;
+  /** The reach of that membership: `all` houses of the workspace, or only the `selected` ones. Null for the owner and for nobody. */
+  houseScope?: HouseScope | null;
 };
 
 /**
@@ -47,21 +49,39 @@ export async function actorWorkspaceStanding(
   if (ownerUserId === actor) {
     return { ...base, role: "owner", rights: { members: true, houses: true }, linkId: null };
   }
-  const { data: link } = await db
+  const linkColumns = "id, team_role, workspace_permissions, assigned_property_ids, property_co_manager_permissions, co_manager_permissions, house_scope";
+  let { data: link } = await db
     .from("account_link_invites")
-    .select("id, team_role, workspace_permissions, assigned_property_ids, property_co_manager_permissions, co_manager_permissions, house_scope")
+    .select(linkColumns)
     .eq("invitee_user_id", actor)
     .eq("inviter_user_id", ownerUserId)
     .eq("workspace_id", id)
     .eq("status", "accepted")
     .maybeSingle();
-  if (!link) return { ...base, role: null, rights: { members: false, houses: false }, linkId: null };
+  if (!link) {
+    // A seat written before memberships were pinned to a workspace carries no `workspace_id`. It still reaches the
+    // owner's ONE workspace (the rule `managerMayUseWorkspace` already applies); an owner with several never matches
+    // an unpinned row, so it grants nothing there.
+    const { data: owned } = await db.from("portal_workspaces").select("id").eq("owner_user_id", ownerUserId).limit(2);
+    if ((owned ?? []).length === 1) {
+      const unpinned = await db
+        .from("account_link_invites")
+        .select(linkColumns)
+        .eq("invitee_user_id", actor)
+        .eq("inviter_user_id", ownerUserId)
+        .is("workspace_id", null)
+        .eq("status", "accepted")
+        .maybeSingle();
+      link = unpinned.data;
+    }
+  }
+  if (!link) return { ...base, role: null, rights: { members: false, houses: false }, linkId: null, houseScope: null };
   const role = resolveInviteTeamRole(link.team_role, readPropertyPermissionsFromRow(link as InviteRow));
   const rights = workspaceRightsForMembership({
     teamRole: role,
     workspacePermissions: normalizeWorkspacePermissions(link.workspace_permissions),
   });
-  return { ...base, role, rights, linkId: String(link.id) };
+  return { ...base, role, rights, linkId: String(link.id), houseScope: parseHouseScope(link.house_scope) };
 }
 
 /**

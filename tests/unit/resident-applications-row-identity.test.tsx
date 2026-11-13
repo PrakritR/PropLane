@@ -55,6 +55,8 @@ vi.mock("@/components/portal/pro-applications", () => ({
   applicationPdfHref: () => "/api/manager-applications/test/pdf?disposition=inline",
 }));
 vi.mock("@/components/portal/resident-application-editor", () => ({ ResidentApplicationEditor: () => null }));
+// The pre-apply gate is its own concern (resident-preapply-gate.test.tsx); here the wizard is what is under test.
+vi.mock("@/components/portal/resident-preapply-gate", () => ({ ResidentPreApplyGate: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/components/marketing/rental-application-wizard", () => ({
   RentalApplicationWizard: () => <div data-testid="rental-wizard" />,
 }));

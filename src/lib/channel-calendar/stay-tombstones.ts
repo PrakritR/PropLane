@@ -21,7 +21,38 @@ export type ChannelStayTombstone = {
   /** What was removed, so Undo can put it back without waiting on the next sync. */
   range: ChannelCalendarImportedRange;
   removedAt: string;
+  /** The connection the stay was removed from (absent on a tombstone written before this was recorded). */
+  connectionId?: string;
+  /** The signed-in manager who removed it (server-stamped, never a body field). */
+  removedBy?: string;
 };
+
+/** A stored tombstone with its record id, as the "Removed stays" list reads it. */
+export type StoredChannelStayTombstone = ChannelStayTombstone & { id: string };
+
+/** A tombstone belongs to a connection's room + channel; a recorded connection id narrows it further. */
+export function tombstoneBelongsToConnection(
+  tombstone: Pick<ChannelStayTombstone, "propertyId" | "roomId" | "provider" | "connectionId">,
+  connection: { id: string; property_id: string; room_id: string; provider: string },
+): boolean {
+  return (
+    tombstone.propertyId === connection.property_id &&
+    tombstone.roomId === connection.room_id &&
+    tombstone.provider === connection.provider &&
+    (!tombstone.connectionId || tombstone.connectionId === connection.id)
+  );
+}
+
+/** The key of a stored tombstone (a host block's carries its dates). */
+export function channelStayTombstoneKeyOf(t: ChannelStayTombstone): string {
+  return channelStayTombstoneKey({
+    ...t,
+    start: t.range.start,
+    end: t.range.end,
+    hostBlock: t.range.hostBlock,
+    summary: t.range.summary,
+  });
+}
 
 /**
  * Identity of a tombstone. Room + channel + UID: a UID is only unique within one feed.

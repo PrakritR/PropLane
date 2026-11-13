@@ -47,6 +47,11 @@ export type PurgeTableRule = {
 };
 
 export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
+  { table: "resident_evidence_policies", phase: 1, manager: { ids: ["manager_user_id"] } },
+  { table: "resident_identity_webhook_events", phase: 1, resident: { ids: ["resident_user_id"] } },
+  { table: "resident_identity_manual_reviews", phase: 1, resident: { ids: ["resident_user_id"] } },
+  { table: "resident_identity_inquiries", phase: 2, resident: { ids: ["resident_user_id"] } },
+  { table: "resident_identity_subjects", phase: 3, resident: { ids: ["resident_user_id"] } },
   { table: "tour_signup_capabilities", phase: 1, resident: { ids: ["consumed_user_id"], emails: ["recipient_email"] }, manager: { ids: ["manager_user_id"] } },
   { table: "email_onboarding_handoffs", phase: 1, resident: { ids: ["user_id"] }, manager: { ids: ["user_id"] }, vendor: { ids: ["user_id"] } },
   {
@@ -178,6 +183,19 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     phase: 1,
     manager: { ids: ["manager_user_id"] },
     resident: { ids: ["resident_user_id"], emails: ["resident_email"], preserveFinancial: true },
+  },
+  {
+    // Retain provider reconciliation evidence after the manager or deposit is removed.
+    table: "security_deposit_return_attempts",
+    phase: 1,
+    manager: { detachIds: ["manager_user_id"] },
+  },
+  {
+    // Same rule for a general charge refund: the reconciliation evidence of money that actually
+    // moved is retained, and only the deleted account's identity is detached from it.
+    table: "household_charge_refund_attempts",
+    phase: 1,
+    manager: { detachIds: ["manager_user_id"] },
   },
   {
     table: "security_deposit_ledger",
@@ -320,6 +338,31 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     phase: 1,
     manager: { ids: ["manager_user_id"] },
     // Resident rows are keyed by application id — resolved by the resident purge.
+  },
+  {
+    // The Checkr order an applicant placed before applying: the applicant's own consumer-report authorization.
+    table: "applicant_preapply_checks",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+    resident: { ids: ["resident_user_id"] },
+  },
+  {
+    // The FCRA adverse-action trail for an application (decision, pre-adverse and final notice). Resident rows are
+    // keyed by application id (and the applicant's email) — resolved by the resident purge.
+    table: "application_adverse_actions",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+    resident: { emails: ["resident_email"] },
+  },
+  {
+    // A manager's star rating + review of a resident they housed. Deleting the RESIDENT deletes every rating about them
+    // (a re-registered email is a new person with no history). Deleting the RATER keeps the rating and nulls
+    // `rater_user_id`: the row is the resident's record, and it is only ever shown as "A previous manager" - no
+    // reader ever sees who rated, so nothing about the deleted manager remains (resident-ratings.md).
+    table: "resident_ratings",
+    phase: 1,
+    resident: { ids: ["resident_user_id"] },
+    manager: { detachIds: ["rater_user_id"] },
   },
   {
     table: "work_order_bids",
@@ -922,6 +965,16 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    table: "channel_payout_records",
+    phase: 2,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
+    table: "channel_finance_mail",
+    phase: 2,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     table: "account_link_invites",
     phase: 2,
     manager: { ids: ["inviter_user_id", "invitee_user_id"] },
@@ -1157,9 +1210,9 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     // Global contact keyed on the phone; the login link is detached, the phone row stays.
     table: "sms_phone_contacts",
     phase: 2,
-    manager: { detachIds: ["user_id"] },
-    resident: { detachIds: ["user_id"] },
-    vendor: { detachIds: ["user_id"] },
+    manager: { detachIds: ["user_id"], detachEmails: ["email"] },
+    resident: { detachIds: ["user_id"], detachEmails: ["email"] },
+    vendor: { detachIds: ["user_id"], detachEmails: ["email"] },
   },
   {
     table: "sms_consent",
@@ -1396,6 +1449,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
  * entry here as a decision; an unlisted table is a gap.
  */
 export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
+  managed_workspace_ownership_moves: "Audit of who owned a PropLane-managed workspace before the ownership mover ran (single-apply marker + undo record); ids only, no profile data, service role only. The service owner and a managed workspace's property owner cannot be deleted while the workspace stands (managed-account-deletion-guard.server.ts).",
+  personal_email_proofs: "Hashed single-use email proofs for a personal account link; child of auth.users and removed by cascade when the account is deleted; service role only.",
+  prospect_contexts: "Prospect context keyed on a phone or platform handle; no account column; cascades with the workspace.",
+  sms_reply_handles: "Short reply handles keyed on a staff phone; expire in hours; cascade with the workspace.",
+  sms_listing_flows: "Guided listing-by-text state keyed on a staff phone; expires in hours; cascades with the workspace.",
+  stay_message_sends: "Check-in / check-out send log keyed on a stay; no account column; cascades with the workspace.",
+  security_deposit_unmatched_refunds: "Provider refund evidence retains source identifiers for reconciliation.",
   sms_ingress_envelopes: "Owner-neutral provider receipts have no Auth owner. Runtime-fenced transport audit expires after 24h and is purged after 30 days by purge_sms_ingress_retention; never used as an account identity grant.",
   sms_platform_replies: "Owner-neutral reply evidence cascades with its ingress receipt after at most 30 days; no client account owner or wallet is fabricated.",
   tour_subject_bindings: "Retained inquiry/group keys and hashed resident subject prevent historical tour reassignment after resident or manager deletion; no raw Auth IDs are stored.",
@@ -1404,6 +1464,7 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   resident_charge_payment_slots: "Identity-free child of a charge, checkout attempt, or autopay run; those account-owned parents delete it by cascade.",
   platform_source_refund_evidence: "Opaque Stripe refund/charge evidence can arrive before an owned allocation; retain it to prevent a later payment replay from minting refunded funds, then reconcile by exact provider source.",
   portal_inbox_thread_aliases: "Child of portal_inbox_thread_records; the old ids a folded conversation answers to are deleted by cascade with it.",
+  inbox_message_provider_refs: "Child of portal_inbox_thread_records; a provider message id (Twilio SID / Resend id) mapped to its inbox message for delivery status, deleted by cascade with the conversation.",
   sms_projection_cutover: "Global SMS migration readiness only; contains no account data.",
   vendor_work_identity_runtime: "Global sponsored-identity runtime limits; it contains no account data.",
   vendor_work_identity_operations: "Child of vendor_work_identities; removed by identity cascade after release is queued.",

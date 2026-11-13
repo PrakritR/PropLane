@@ -57,6 +57,7 @@ export function PhoneAuthForm({
   nextPath = "",
   disabled = false,
   allowSkip = false,
+  signupIntent,
   onBusyChange,
   onPhoneOff,
 }: {
@@ -65,6 +66,8 @@ export function PhoneAuthForm({
   disabled?: boolean;
   /** phone_required (not the shared line): when a code cannot be sent, offer "Skip for now" so an outage never locks anyone out. */
   allowSkip?: boolean;
+  /** `/auth/create-account?role=resident`: a new number lands in the resident portal instead of the role chooser. Sign-in door only. */
+  signupIntent?: "resident_signup";
   onBusyChange?: (busy: boolean) => void;
   /** The server says phone sign-in is off (409). The parent hides this form and shows the off sentence. */
   onPhoneOff?: () => void;
@@ -217,7 +220,7 @@ export function PhoneAuthForm({
       } else {
         const result = await request("/api/auth/phone/verify", signInUi
           // `purpose` only picks the wording of a failure; `next` is the deep link, re-validated on the server.
-          ? { challengeId, code: submittedCode, purpose: "sign_in", ...(nextPath ? { next: nextPath } : {}) }
+          ? { challengeId, code: submittedCode, purpose: "sign_in", ...(signupIntent ? { intent: signupIntent } : {}), ...(nextPath ? { next: nextPath } : {}) }
           : { challengeId, code: submittedCode });
         if (!result.ok) throw new Error(REQUEST_ERROR);
         if (purpose === "change_number_old") {

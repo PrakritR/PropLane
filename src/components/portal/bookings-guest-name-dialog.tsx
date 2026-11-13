@@ -8,8 +8,8 @@ import { CHANNEL_STAY_GUEST_NAME_MAX } from "@/lib/channel-calendar/stay-details
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 
 /**
- * Name the guest on a channel stay. The Airbnb feed only says "Reserved" plus a reservation code, so
- * the manager types who is coming; it is stored beside the synced stay and survives every sync.
+ * Name the guest on a channel stay (Airbnb, Booking.com, Vrbo or another calendar). A feed usually only says
+ * "Reserved" / "CLOSED - Not available", so the manager types who is coming; it is stored beside the synced stay and survives every sync.
  * Clearing the field and saving removes the name.
  */
 export function BookingsGuestNameDialog({ entry, onClose, onSaved, save = saveChannelStayGuestName }: {

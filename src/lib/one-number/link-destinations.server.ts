@@ -6,6 +6,8 @@ import { buildManagerApplyUrl, buildManagerListingUrl } from "@/lib/manager-prop
 import type { PhoneBoundLink } from "@/lib/one-number/links.server";
 import { revokePhoneBoundLinksForTarget } from "@/lib/one-number/links.server";
 import { normalizeE164 } from "@/lib/phone-e164";
+import type { PersonalAccountPrefill } from "@/lib/personal-link/model";
+import { openPersonalAccountLink } from "@/lib/personal-link/open.server";
 import { createServiceShareLink } from "@/lib/service-share-links.server";
 import { buildServiceShareUrl } from "@/lib/service-share-links.server";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
@@ -36,6 +38,10 @@ export type LinkDestination =
   | { kind: "processing" }
   /** The resident's verified phone is no longer the one this link was sent to. */
   | { kind: "phone_changed" }
+  /** The text onboarding link (`resident-onboarding-link`): the page draws the one-or-two-screen form for the record the link names. */
+  | { kind: "onboard" }
+  /** The personal account link (`personal-link/`): the page draws the one-screen account form for the phone the link is bound to. */
+  | { kind: "account"; prefill: PersonalAccountPrefill }
   | { kind: "gone" };
 
 const GONE: LinkDestination = { kind: "gone" };
@@ -254,6 +260,8 @@ export async function resolveLinkDestination(db: SupabaseClient, link: PhoneBoun
     case "lease":
       return residentPortalDestination(link, "/resident/lease");
     case "move_in":
+      // A text onboarding link names a record (`application:<id>` / `booking:<id>`), not an account: no account exists yet.
+      if (link.targetType === "onboarding") return { kind: "onboard" };
       return residentPortalDestination(link, "/resident/move-in");
     case "payouts":
       return {
@@ -264,6 +272,10 @@ export async function resolveLinkDestination(db: SupabaseClient, link: PhoneBoun
       return rentDestination(db, link);
     case "job":
       return link.targetType === "work_order" ? jobDestination(db, link) : GONE;
+    case "account": {
+      const opened = await openPersonalAccountLink(db, link);
+      return opened.ok ? { kind: "account", prefill: opened.prefill } : GONE;
+    }
     default:
       return GONE;
   }

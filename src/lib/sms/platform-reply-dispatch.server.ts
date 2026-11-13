@@ -3,6 +3,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendPlatformLeadText } from "@/lib/one-number/lead-send.server";
 import { smsEnvelopeRuntime } from "@/lib/sms/inbound-envelope.server";
 
+/** A reply that did not leave is never silent: one Attention item per envelope and reason (best effort, never throws). */
+const flagEnvelope = (db: SupabaseClient, envelopeId: string, reason: string): Promise<void> =>
+  import("@/lib/prospect-spine/delivery-issue.server").then((m) => m.reportEnvelopeIssue(db, envelopeId, reason)).catch(() => undefined);
+
 /** The same configured URL is used for the provider and signature verification. */
 export function platformReplyCallbackUrl(token: string): string | null {
  try {
@@ -34,14 +38,18 @@ export async function dispatchPlatformReplies(db: SupabaseClient, envelopeId: st
  for (const row of rows.data ?? []) {
   if (row.status === "accepted") continue;
   if (row.status !== "prepared") {
-   if (row.status === "delivery_unknown" || row.status === "blocked") await db.from("sms_ingress_envelopes").update({ status: "needs_review", reason: row.status === "delivery_unknown" ? "delivery_unknown" : "reply_blocked", updated_at: now }).eq("id", envelopeId).eq("status", "prepared");
+   if (row.status === "delivery_unknown" || row.status === "blocked") {
+    await db.from("sms_ingress_envelopes").update({ status: "needs_review", reason: row.status === "delivery_unknown" ? "delivery_unknown" : "reply_blocked", updated_at: now }).eq("id", envelopeId).eq("status", "prepared");
+    await flagEnvelope(db, envelopeId, row.status === "delivery_unknown" ? "delivery_unknown" : "reply_blocked");
+   }
    return;
   }
   if (row.next_attempt_at && row.next_attempt_at > now) return;
   const callback = platformReplyCallbackUrl(row.callback_token);
   if (!callback || row.attempt_count >= 3) {
    await db.from("sms_platform_replies").update({ status: "blocked", updated_at: now }).eq("id", row.id).eq("status", "prepared");
-   await db.from("sms_ingress_envelopes").update({ status: "needs_review", reason: "reply_blocked", updated_at: now }).eq("id", envelopeId).eq("status", "prepared"); return;
+   await db.from("sms_ingress_envelopes").update({ status: "needs_review", reason: "reply_blocked", updated_at: now }).eq("id", envelopeId).eq("status", "prepared");
+   await flagEnvelope(db, envelopeId, "reply_blocked"); return;
   }
   const claimed = await db.from("sms_platform_replies").update({ status: "submitting", attempt_count: row.attempt_count + 1, submit_lease_until: new Date(Date.now() + 120_000).toISOString(), updated_at: now }).eq("id", row.id).eq("status", "prepared").eq("attempt_count", row.attempt_count).select("id").maybeSingle();
   if (claimed.error) throw new Error("Reply claim unavailable");
@@ -56,12 +64,18 @@ export async function dispatchPlatformReplies(db: SupabaseClient, envelopeId: st
   if (!update.data) {
    if (result.ok) {
     const bound = await db.from("sms_platform_replies").select("provider_sid,status").eq("id", row.id).maybeSingle();
-    if (bound.error || !bound.data || bound.data.provider_sid !== result.sid) await db.from("sms_ingress_envelopes").update({ status: "needs_review", reason: "sid_conflict", updated_at: new Date().toISOString() }).eq("id", envelopeId).eq("status", "prepared");
+    if (bound.error || !bound.data || bound.data.provider_sid !== result.sid) {
+     await db.from("sms_ingress_envelopes").update({ status: "needs_review", reason: "sid_conflict", updated_at: new Date().toISOString() }).eq("id", envelopeId).eq("status", "prepared");
+     await flagEnvelope(db, envelopeId, "sid_conflict");
+    }
    }
    return;
   }
   if (status !== "accepted") {
-   if (status !== "prepared") await db.from("sms_ingress_envelopes").update({ status: "needs_review", reason: status === "delivery_unknown" ? "delivery_unknown" : "reply_blocked", updated_at: new Date().toISOString() }).eq("id", envelopeId).eq("status", "prepared");
+   if (status !== "prepared") {
+    await db.from("sms_ingress_envelopes").update({ status: "needs_review", reason: status === "delivery_unknown" ? "delivery_unknown" : "reply_blocked", updated_at: new Date().toISOString() }).eq("id", envelopeId).eq("status", "prepared");
+    await flagEnvelope(db, envelopeId, status === "delivery_unknown" ? "delivery_unknown" : "reply_blocked");
+   }
    return;
   }
  }

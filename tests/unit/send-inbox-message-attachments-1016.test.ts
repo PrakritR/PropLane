@@ -32,7 +32,11 @@ vi.mock("@/lib/supabase/service", () => ({
         if (table === "profiles") return isIn ? h.recipients : { role: "manager", full_name: "Mate", email: "mate@example.com" };
         return isIn ? [] : null;
       };
-      for (const m of ["select", "eq", "ilike", "order", "limit", "or", "neq", "is", "gte", "lte"]) chain[m] = () => chain;
+      for (const m of ["select", "eq", "ilike", "order", "limit", "neq", "is", "gte", "lte"]) chain[m] = () => chain;
+      chain.or = () => {
+        isIn = true;
+        return chain;
+      };
       chain.in = () => {
         isIn = true;
         return chain;

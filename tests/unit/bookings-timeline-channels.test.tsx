@@ -54,6 +54,11 @@ describe("channel colours and the legend", () => {
     const drawn = bars().map((bar) => ({ cls: visual(bar).className, mark: bar.querySelector('[role="img"]')?.getAttribute("aria-label") }));
     expect(drawn[0]!.cls).toContain("bg-[#003b95]");
     expect(drawn[0]!.mark).toBe("Booking.com");
+    // The privacy-stripped feed title reads "Booking.com guest", and the mark sits in one flex row with the name.
+    expect(bars()[0]!.textContent).toContain("Booking.com guest");
+    const mark = bars()[0]!.querySelector('[data-attr="bookings-bar-channel-mark"]') as HTMLElement;
+    expect(mark.parentElement!.className).toContain("flex");
+    expect(mark.parentElement!.textContent).toContain("Booking.com guest");
     expect(drawn.some((d) => d.cls.includes("bg-[#6b3fa0]") && d.mark === "PadSplit")).toBe(true);
     expect(drawn.some((d) => d.cls.includes("bg-[#9a4b1a]") && d.mark === "Airbnb")).toBe(true);
     // The linked stay carries the guest's name, not the channel's "Reserved".

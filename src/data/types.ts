@@ -73,13 +73,6 @@ export type MockProperty = {
    */
   leaseSigningFeeCents?: number;
   /**
-   * Set by `publicListingProjection` only when the workspace requires an application before a
-   * tour ("Application before a tour" = Required). Absent otherwise. A plain yes/no — never the
-   * settings row. The booking route re-checks this on the server; the page only uses it to send a
-   * prospect to apply first.
-   */
-  applicationBeforeTour?: true;
-  /**
    * Set by `publicListingProjection` only when the listing's workspace shows "Listed with
    * PropLane" (always on for Free, a setting above it). A plain yes/no computed server-side,
    * never the settings row or the plan.

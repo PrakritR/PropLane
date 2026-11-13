@@ -102,6 +102,22 @@ describe("createAxisAchCheckoutSession — payment-method surface", () => {
     expect(calls[0]).not.toHaveProperty("payment_method_configuration");
   });
 
+  it("a resident's own session shows their saved cards (customer), nobody else's checkout does (customer_email)", async () => {
+    const own = captureStripe();
+    await createAxisAchCheckoutSession(own.stripe, { ...baseInput, paymentMethod: "card", customerId: "cus_resident" });
+    expect(own.calls[0]).toMatchObject({
+      customer: "cus_resident",
+      saved_payment_method_options: { allow_redisplay_filters: ["always", "limited", "unspecified"] },
+    });
+    expect(own.calls[0]).not.toHaveProperty("customer_email");
+
+    const other = captureStripe();
+    await createAxisAchCheckoutSession(other.stripe, { ...baseInput, paymentMethod: "card" });
+    expect(other.calls[0]).toMatchObject({ customer_email: "resident@example.com" });
+    expect(other.calls[0]).not.toHaveProperty("customer");
+    expect(other.calls[0]).not.toHaveProperty("saved_payment_method_options");
+  });
+
   it("card WITH a card-scoped PMC env uses dynamic payment methods (so Apple Pay can appear)", async () => {
     process.env.STRIPE_RESIDENT_CARD_PAYMENT_METHOD_CONFIGURATION = "pmc_card_wallets";
     const { stripe, calls } = captureStripe();

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { Lock } from "lucide-react";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { PortalTableExpandChevron } from "@/components/portal/portal-data-table";
 import { CountStepper, FactRow } from "@/components/portal/listing-wizard-v2/wizard-primitives";
@@ -202,6 +203,7 @@ function FieldControl({
         aria-label={field.label}
         value={value}
         placeholder={field.placeholder}
+        className="placeholder:italic"
         onChange={(e) => onChange(field.key, e.target.value)}
       />
     );
@@ -213,6 +215,7 @@ function FieldControl({
       aria-label={field.label}
       value={value}
       placeholder={field.placeholder}
+      className="placeholder:italic"
       onChange={(e) => onChange(field.key, e.target.value)}
     />
   );
@@ -238,9 +241,7 @@ function EditorSection({
       title={spec.label}
       badge={
         staffOnly ? (
-          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900 dark:bg-amber-500/20 dark:text-amber-200">
-            Staff only
-          </span>
+          <Lock className="size-3.5 text-muted" aria-label="Staff only" />
         ) : (
           <span className="portal-badge-info rounded-full px-2 py-0.5 text-[10px] font-semibold">
             Residents only

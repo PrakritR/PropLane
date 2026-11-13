@@ -261,3 +261,51 @@ export async function sendToServiceManager(
     return { ok: false, reason: error instanceof Error ? error.message : "send_failed" };
   }
 }
+
+/**
+ * Text any phone from the PropLane line, PAID BY PROPLANE: the sender is the platform service owner and the wallet is that
+ * owner's default workspace's, never the managed workspace's (whose owner is a client that may hold no credit at all).
+ * This is how a PropLane-managed workspace's operations alerts (inbound texts, the daily digest, alert phones, staff seats)
+ * are billed: they are PropLane's own operations. The money gate is NOT bypassed - an empty PropLane wallet still refuses -
+ * and nothing here is reachable for a self-serve workspace, whose alerts keep going through its own wallet.
+ * Consent, opt-out and quiet hours are the dispatcher's, per the purpose and send class the caller names.
+ */
+export async function sendTextFromServiceOwner(
+  db: SupabaseClient,
+  input: {
+    toPhone: string;
+    text: string;
+    dedupeKey: string;
+    purpose: string;
+    /** A staff seat holder's account, so the consent gate reads THEIR verified phone. Absent for a listed alert phone. */
+    recipientUserId?: string | null;
+    /** `automated` is held in quiet hours; `transactional` (the default) is not. */
+    sendClass?: "transactional" | "automated";
+  },
+): Promise<ServiceManagerSendResult> {
+  const text = String(input.text ?? "").trim();
+  const to = normalizeE164(input.toPhone);
+  if (!text || !to) return { ok: false, reason: "empty" };
+  const ownerUserId = await readPlatformServiceOwnerId(db).catch(() => null);
+  if (!ownerUserId) return { ok: false, reason: "no_service_owner" };
+  const workspaceId = await userDefaultWorkspaceId(db, ownerUserId);
+  try {
+    const { sendFromManagerWorkNumber } = await import("@/lib/proplane-sms-transport.server");
+    const sent = await sendFromManagerWorkNumber({
+      managerUserId: ownerUserId,
+      workspaceId: workspaceId || null,
+      to,
+      text,
+      source: "automated",
+      sendClass: input.sendClass ?? "transactional",
+      counterpartyRole: "manager",
+      purpose: input.purpose,
+      dedupeKey: input.dedupeKey.slice(0, 160),
+      ...(input.recipientUserId?.trim() ? { recipientUserId: input.recipientUserId.trim() } : {}),
+      skipLog: true,
+    });
+    return sent.ok || sent.durablyAccepted ? { ok: true } : { ok: false, reason: sent.error ?? "send_failed" };
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : "send_failed" };
+  }
+}

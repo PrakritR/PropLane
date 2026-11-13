@@ -9,7 +9,7 @@
  * optional settings scope context when one exists).
  *
  * What lives here, and where it is stored:
- * - Application before a tour, Roommates in a shared room sign: the workspace leasing pipeline
+ * - Roommates in a shared room sign: the workspace leasing pipeline
  *   record (`manager_automation_settings.row_data.leasingPipeline`, `leasing-pipeline-preferences.ts`).
  *   One value for every property. There is no signing-order setting: every workspace is
  *   application first, then lease, then the move-in form (captain, Oct 3 2026).
@@ -22,6 +22,7 @@
 import { writeThroughFetch } from "@/lib/shared-get-cache";
 import { useCallback, useEffect, useState } from "react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { Input } from "@/components/ui/input";
 import {
   PortalSettingsGroup,
   PortalSettingsRow,
@@ -45,15 +46,11 @@ import {
 import {
   DEFAULT_LEASING_PIPELINE,
   type LeasingPipelinePreferences,
-  type ApplicationBeforeTour,
   type SharedRoomLeaseDefault,
 } from "@/lib/leasing-pipeline-preferences";
 import { cacheLeasingPipelinePreferences } from "@/lib/leasing-pipeline-client-cache";
-
-const APPLICATION_BEFORE_TOUR_OPTIONS = [
-  { value: "not_needed", label: "Not needed" },
-  { value: "required", label: "Required" },
-];
+import { cacheLandlordLegalName, fetchAndCacheLandlordLegalName } from "@/lib/manager-landlord-profile";
+import { selectedWorkspaceId } from "@/lib/workspaces/selection";
 
 const ON_OFF_OPTIONS = [
   { value: "off", label: "Off" },
@@ -75,6 +72,11 @@ export function WorkspaceApplicationsLeasesSettings() {
   const [pipeline, setPipeline] = useState<LeasingPipelinePreferences>(DEFAULT_LEASING_PIPELINE);
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(DEFAULT_APPLICATION_AUTOMATION);
   const [leaseAutomation, setLeaseAutomation] = useState<LeaseAutomationSettings>(DEFAULT_LEASE_AUTOMATION_SETTINGS);
+  // "Landlord on leases": the typed value, the last saved one, and the owner's name shown as the placeholder
+  // (what a blank field falls back to).
+  const [landlordName, setLandlordName] = useState("");
+  const [landlordSaved, setLandlordSaved] = useState("");
+  const [landlordFallback, setLandlordFallback] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -94,6 +96,7 @@ export function WorkspaceApplicationsLeasesSettings() {
         const settings = (await settingsRes.json().catch(() => ({}))) as {
           leasingPipeline?: unknown;
           automation?: unknown;
+          landlord?: { setting?: string; ownerFullName?: string };
           error?: string;
         };
         if (!settingsRes.ok) throw new Error(settings.error ?? "Could not load settings.");
@@ -101,6 +104,9 @@ export function WorkspaceApplicationsLeasesSettings() {
         if (cancelled) return;
         setPipeline(cacheLeasingPipelinePreferences(settings.leasingPipeline));
         setAutomation(normalizeApplicationAutomation(settings.automation));
+        setLandlordName(settings.landlord?.setting ?? "");
+        setLandlordSaved(settings.landlord?.setting ?? "");
+        setLandlordFallback(settings.landlord?.ownerFullName ?? "");
         if (leaseRes.ok) setLeaseAutomation(normalizeLeaseAutomationSettings(lease.settings));
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load settings.");
@@ -129,7 +135,11 @@ export function WorkspaceApplicationsLeasesSettings() {
   );
 
   const patchSettings = useCallback(
-    async (body: { leasingPipeline?: LeasingPipelinePreferences; automation?: ApplicationAutomationPreferences }) => {
+    async (body: {
+      leasingPipeline?: LeasingPipelinePreferences;
+      automation?: ApplicationAutomationPreferences;
+      landlordLegalName?: string;
+    }) => {
       const res = await writeThroughFetch("/api/portal/manager-application-settings", {
         method: "PATCH",
         credentials: "include",
@@ -137,7 +147,12 @@ export function WorkspaceApplicationsLeasesSettings() {
         body: JSON.stringify({ ...body, ...(workspaceId ? { workspaceId } : {}) }),
         keepalive: true,
       });
-      const data = (await res.json().catch(() => ({}))) as { leasingPipeline?: unknown; automation?: unknown; error?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        leasingPipeline?: unknown;
+        automation?: unknown;
+        landlord?: { landlordLegalName?: string; setting?: string };
+        error?: string;
+      };
       if (!res.ok) throw new Error(data.error ?? "Could not save.");
       return data;
     },
@@ -155,6 +170,27 @@ export function WorkspaceApplicationsLeasesSettings() {
         setPipeline(cacheLeasingPipelinePreferences(data.leasingPipeline ?? next));
       } catch (e) {
         setPipeline(previous);
+        throw e;
+      }
+    }, "Could not save.");
+  };
+
+  const saveLandlordName = () => {
+    const next = landlordName.replace(/\s+/g, " ").trim();
+    if (demo || next === landlordSaved) return;
+    void withSaveStatus(async () => {
+      try {
+        const data = await patchSettings({ landlordLegalName: next });
+        setLandlordSaved(data.landlord?.setting ?? next);
+        setLandlordName(data.landlord?.setting ?? next);
+        // The lease generator reads the name from a per-workspace client cache. The server's answer
+        // is this SCOPE's resolution, so it only caches when the scope being edited is the active
+        // workspace; editing another (or the account rung) re-reads the active one instead.
+        const active = selectedWorkspaceId() ?? "";
+        if ((workspaceId ?? "") === active) cacheLandlordLegalName(data.landlord?.landlordLegalName ?? next, active);
+        else void fetchAndCacheLandlordLegalName(active || null);
+      } catch (e) {
+        setLandlordName(landlordSaved);
         throw e;
       }
     }, "Could not save.");
@@ -204,19 +240,6 @@ export function WorkspaceApplicationsLeasesSettings() {
     <div className="space-y-6" data-attr="workspace-applications-leases-settings">
       <PortalSettingsSection title="Applications">
         <PortalSettingsGroup>
-          <PortalSettingsRow label="Application before a tour">
-            <FieldSingleSelect
-              hideLabel
-              label="Application before a tour"
-              variant="cell"
-              wrapperClassName="w-64"
-              options={APPLICATION_BEFORE_TOUR_OPTIONS}
-              value={pipeline.applicationBeforeTour}
-              disabled={disabled}
-              dataAttr="workspace-application-before-tour"
-              onChange={(next) => savePipeline({ applicationBeforeTour: next as ApplicationBeforeTour })}
-            />
-          </PortalSettingsRow>
           <PortalSettingsRow label="Auto-approve applications">
             <FieldSingleSelect
               hideLabel
@@ -234,6 +257,22 @@ export function WorkspaceApplicationsLeasesSettings() {
       </PortalSettingsSection>
       <PortalSettingsSection id="leases" title="Leases">
         <PortalSettingsGroup>
+          <PortalSettingsRow label="Landlord on leases">
+            <Input
+              aria-label="Landlord on leases"
+              className="w-64"
+              value={landlordName}
+              placeholder={landlordFallback}
+              maxLength={160}
+              disabled={disabled}
+              data-attr="workspace-landlord-legal-name"
+              onChange={(event) => setLandlordName(event.target.value)}
+              onBlur={saveLandlordName}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+              }}
+            />
+          </PortalSettingsRow>
           <PortalSettingsRow label="Roommates in a shared room sign">
             <FieldSingleSelect
               hideLabel

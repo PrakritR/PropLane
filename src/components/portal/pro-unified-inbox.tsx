@@ -41,6 +41,7 @@ import {
   type CommunicationDetailsRecord,
 } from "@/components/portal/communication-details-pane";
 import { counterpartyRoleLabel } from "@/lib/sms-conversation-identity";
+import { fromGroupForCounterpartyRole, fromGroupForThread } from "@/lib/communication-from-filter";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { recordRoutePath } from "@/lib/portals/record-kinds";
 import {
@@ -133,6 +134,8 @@ import {
 } from "@/lib/manager-sms-archive.client";
 import { loadManagerSmsOpenedIds, markManagerSmsOpenedIds } from "@/lib/manager-sms-opened.client";
 import { loadSmsHiddenIds } from "@/lib/manager-sms-hidden.client";
+import { latestOutboundDeliveryFailed } from "@/lib/inbox-delivery-status";
+import { prospectFactsFromThread } from "@/components/portal/prospect-thread-facts";
 import { startObservedInboxReadOperation } from "@/lib/portal-inbox-read-operation.client";
 import { applySmsProjectionListMutation } from "@/lib/sms-projection-list-reconciliation";
 
@@ -399,6 +402,7 @@ export function ManagerUnifiedInbox({
   const [initialListState, setInitialListState] = useState<"loading" | "ready" | "error">("loading");
   const [initialListViewerId, setInitialListViewerId] = useState<string | null>(null);
   const initialLoadGeneration = useRef(0);
+  const emailChangeRevision = useRef(0);
   const initialListReady = isClient && initialListState === "ready" && initialListViewerId === viewerId;
   const selectionContext = JSON.stringify({
     viewerId,
@@ -438,7 +442,10 @@ export function ManagerUnifiedInbox({
   }, [adapter, isClient]);
 
   useEffect(() => {
-    const sync = () => setEmailThreads(adapter.loadCachedThreads());
+    const sync = () => {
+      emailChangeRevision.current += 1;
+      setEmailThreads(adapter.loadCachedThreads());
+    };
     window.addEventListener(adapter.threadsChangedEvent, sync as EventListener);
     return () => window.removeEventListener(adapter.threadsChangedEvent, sync as EventListener);
   }, [adapter]);
@@ -589,6 +596,9 @@ export function ManagerUnifiedInbox({
       managerInboxSnapshotKey(viewerId, workspaceIdentity.id, adapter.kind),
     );
     if (!hadCachedSnapshot) setInitialListState("loading");
+    const requestViewerEpoch = viewerEpochRef.current;
+    const requestWorkspace = workspaceIdentity.id;
+    const readRevision = emailChangeRevision.current;
     const [inbox, applications, smsOk] = await Promise.all([
       retryWhileStale(() => adapter.syncThreads()),
       // A surface with no contact directory (admin) is ready without one.
@@ -605,14 +615,19 @@ export function ManagerUnifiedInbox({
       // refetching the whole list every time.
       loadSms({ force: !hadCachedSnapshot, initialGeneration: requestGeneration }),
     ]);
-    if (requestGeneration !== initialLoadGeneration.current) return;
+    if (requestGeneration !== initialLoadGeneration.current || viewerEpochRef.current !== requestViewerEpoch ||
+        currentViewerIdRef.current !== viewerId || currentSmsWorkspaceIdRef.current !== requestWorkspace) return;
     if (inbox.stale || applications.stale) {
       // Still stale after the retries: show the error/Retry state, never a skeleton that cannot resolve.
       if (!hadCachedSnapshot) setInitialListState("error");
       return;
     }
     if (applications.ok) onApplicationsLoaded?.();
-    if (inbox.ok) setEmailThreads(inbox.rows);
+    if (inbox.ok) {
+      // A store event after this read may represent a confirmed send or archive
+      // while SMS was still loading. Keep that newer same-viewer state.
+      setEmailThreads((current) => emailChangeRevision.current === readRevision ? inbox.rows : current);
+    }
     const ready = inbox.ok && applications.ok && smsOk;
     // A background revalidation failure after a cache hit keeps the last
     // known-good snapshot on screen (silent) instead of surfacing an error —
@@ -768,7 +783,11 @@ export function ManagerUnifiedInbox({
     // The contacts directory only gates the property/role/person dimensions
     // (they need it to resolve a match); a record-only filter has everything
     // it needs on the thread itself and must not wait on that fetch.
-    const hasRecordFilter = Boolean(threadFilters?.recordRefs?.length || threadFilters?.recordKinds?.length);
+    const hasRecordFilter = Boolean(
+      threadFilters?.recordRefs?.length ||
+      threadFilters?.recordKinds?.length ||
+      (threadFilters?.from && threadFilters.from !== "all"),
+    );
     if (!threadFilters || (!filterContacts && !hasRecordFilter)) return withAssistant;
     return withAssistant.filter((t) =>
       isPropLaneAssistantInboxThread(t) ||
@@ -777,6 +796,7 @@ export function ManagerUnifiedInbox({
         contacts: filterContacts ?? [],
         counterpartyEmail: t.email,
         recordRef: t.recordRef,
+        fromGroup: fromGroupForThread(t, filterContacts ?? []),
       }),
     );
   }, [adapter, assistantWorkspace, emailThreads, threadFilters, filterContacts, smsUiEnabled, viewerId]);
@@ -857,10 +877,11 @@ export function ManagerUnifiedInbox({
         previewPrefix: lastOutbound ? "You: " : undefined,
         time: formatInboxListNarrowTime(lastMsg?.at ?? t.time),
         unread: t.folder === "inbox" && t.unread,
+        notDelivered: latestOutboundDeliveryFailed(t) || undefined,
         // The house the server resolved the thread to be about — the same set
         // that decided the row is visible at all. The contact directory (joined
         // by email) is the fallback for rows the server could not place.
-        address: conversationAddressLabel(
+        address: t.prospectContext?.label?.trim() || conversationAddressLabel(
           inboxRowAddressLabel(
             t.houses?.[0]?.label ??
               filterContacts?.find((c) => c.email?.trim().toLowerCase() === t.email?.trim().toLowerCase())
@@ -907,6 +928,7 @@ export function ManagerUnifiedInbox({
             counterpartyEmail: resident.residentEmail,
             propertyLabel: resident.propertyLabel,
             counterpartyRole: resident.counterpartyRole,
+            fromGroup: fromGroupForCounterpartyRole(resident.counterpartyRole),
           }),
         );
 
@@ -936,9 +958,16 @@ export function ManagerUnifiedInbox({
           // Prefer person name / unit / email; fall back to a readable phone.
           name: smsConversationDisplayName(resident),
           subtitle: smsConversationSubtitle(resident) || undefined,
-          // Admin only: the service workspace this text was routed to (the manager's rows never carry one).
+          // Admin only (the manager's rows never carry a workspace): the house (and room) the thread is about when it
+          // names one, as the manager inbox's place line does; else the service workspace it was routed to.
           ...(resident.workspaceId !== undefined
-            ? { placeLine: resident.workspaceName?.trim() || ADMIN_UNASSIGNED_WORKSPACE_LABEL }
+            ? {
+                placeLine:
+                  resident.propertyLabel?.trim() ||
+                  resident.houses?.[0]?.label?.trim() ||
+                  resident.workspaceName?.trim() ||
+                  ADMIN_UNASSIGNED_WORKSPACE_LABEL,
+              }
             : {}),
           preview: communicationInboxListPreview(
             lastMessage ? lastMessage.body : "No messages yet",
@@ -1193,6 +1222,7 @@ export function ManagerUnifiedInbox({
     ? mergedRows.filter((row) => {
         if (statusFilter === "read") return !row.unread;
         if (statusFilter === "unread") return row.unread;
+        if (statusFilter === "notDelivered") return row.notDelivered === true;
         return true;
       })
     : [];
@@ -1608,6 +1638,7 @@ export function ManagerUnifiedInbox({
               previewPrefix={row.previewPrefix}
               time={row.time}
               unread={row.unread}
+              notDelivered={row.notDelivered}
               selected={selectedKey === row.key}
               onOpen={() => {
                 explicitlyOpened.current = { key: row.key, context: selectionContext };
@@ -1994,7 +2025,9 @@ export function ManagerUnifiedInbox({
         href: recordRoutePath("manager", "property", contact.propertyId),
       });
     }
-    return { name, role, phone, email: email || null, records };
+    const stampedThread = selectedRow?.threadId ? emailThreads.find((t) => t.id === selectedRow.threadId) : undefined;
+    const prospect = prospectFactsFromThread(stampedThread);
+    return { name, role, phone, email: email || null, records, ...(prospect ? { prospect } : {}) };
   }, [emailThreads, filterContacts, placeholderContact, selectedRow, selectedSmsResidents]);
 
   return (

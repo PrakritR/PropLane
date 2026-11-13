@@ -2,6 +2,8 @@ import type { MetadataRoute } from "next";
 import { PUBLIC_MARKETING_PATHS } from "@/lib/seo/marketing-routes";
 import { BLOG_POSTS } from "@/lib/blog/posts";
 import { getCrawlPublicListings } from "@/lib/seo/public-catalog.server";
+import { buildListingSlugIndex } from "@/lib/listing-slug";
+import { listingPublicPath } from "@/lib/listing-public-path";
 
 const BASE = "https://proplane.ai";
 
@@ -31,8 +33,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Live public listings; a catalog failure must never break the sitemap.
   let listings: MetadataRoute.Sitemap = [];
   try {
-    listings = (await getCrawlPublicListings()).map((p) => ({
-      url: `${BASE}/rent/listings/${encodeURIComponent(p.id)}`,
+    const catalog = await getCrawlPublicListings();
+    const slugs = buildListingSlugIndex(catalog);
+    listings = catalog.map((p) => ({
+      url: `${BASE}${listingPublicPath(p.id, slugs.idToSlug.get(p.id))}`,
       lastModified,
       changeFrequency: "daily",
       priority: 0.7,

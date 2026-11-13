@@ -4,24 +4,11 @@ import { describe, expect, it } from "vitest";
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
-/**
- * Night UX sweep — Properties' and Tours' primary "+" buttons rendered in a
- * washed-out pastel blue that read as disabled, while the identical control
- * everywhere else (Applications, Leases, …) rendered solid brand blue.
- *
- * Root cause: `Button`'s `disabled:opacity-50` fired for the whole
- * transient window while a plan-tier / workspace-list / session flag was
- * still loading, indistinguishable from a permanently disabled control. Each
- * of these flows already has a click-time fallback for "not ready yet"
- * (`canOpenAdd()`'s toast-and-retry in Properties; the sibling actions in
- * Tours/Workspaces that never gated on the transient flag), so pre-disabling
- * the button was redundant and purely cosmetic damage. The real,
- * permanent gates (plan/property limits) must still disable the control.
- */
+/** The Properties action waits for its plan read; unrelated add controls retain their own gates. */
 describe("primary add buttons are not disabled by a transient loading flag", () => {
-  it("Properties: the header '+' and empty-state Create are not gated on the plan tier still loading", () => {
+  it("Properties: the header waits for the plan tier", () => {
     const src = read("src/components/portal/pro-properties.tsx");
-    expect(src).not.toMatch(/disabled=\{!skuLoaded\}/);
+    expect(src).toMatch(/disabled=\{!skuLoaded\}/);
     expect(src).not.toMatch(/addPropertyDisabled=\{!skuLoaded\}/);
     // The real limit is still enforced at click time via canOpenAdd().
     expect(src).toContain("if (!skuLoaded) {");

@@ -122,7 +122,7 @@ describe("tour guest SMS consent gate", () => {
       expect(sendResidentOutboundSms).toHaveBeenCalledTimes(1);
       const { to, text } = sendResidentOutboundSms.mock.calls[0]![0] as { to: string; text: string };
       expect(to).toBe("+12065550100");
-      expect(text).toContain("STOP to opt out");
+      expect(text).not.toMatch(/STOP to opt out|^PropLane:/);
       expect((sendResidentOutboundSms.mock.calls[0]![0] as { openThread: { conversationKey?: string } }).openThread.conversationKey)
         .toBe("00000000-0000-4000-8000-000000000001:prospect:+12065550100");
       expect(resolveTourSmsEligibility).toHaveBeenCalledWith(

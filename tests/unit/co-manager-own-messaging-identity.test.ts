@@ -140,7 +140,8 @@ describe("the status endpoint reports the workspace address and withholds the bu
   it("canRequest is off for a pure co-manager and still gated on storage and billing", () => {
     const start = ROUTE.indexOf("canRequest:");
     const canRequest = ROUTE.slice(start, start + 200);
-    expect(canRequest).toContain("!pureCoManager");
+    // Owner-only: `workspace.owned` is stricter than !pureCoManager (service staff read as owner but never request).
+    expect(canRequest).toContain("workspace.owned");
     expect(canRequest).toContain("storageReady");
     // The plan/billing half comes from the gate shared with the work number.
     expect(canRequest).toContain("canRequestBilling");

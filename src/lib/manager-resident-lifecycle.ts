@@ -18,7 +18,9 @@ export type ResidentLifecycleStageId =
   | "prospect"
   | "applicant"
   | "approved"
+  | "lease_drafted"
   | "lease_sent"
+  | "awaiting_your_signature"
   | "signed"
   | "current"
   | "moving_out"
@@ -64,7 +66,9 @@ const STAGE_LABELS: Record<ResidentLifecycleStageId, string> = {
   prospect: "Prospect",
   applicant: "Applicant",
   approved: "Approved",
+  lease_drafted: "Lease drafted",
   lease_sent: "Lease sent",
+  awaiting_your_signature: "Your signature",
   signed: "Signed",
   current: "Current resident",
   moving_out: "Moving out",
@@ -75,7 +79,9 @@ const STAGE_ORDER: ResidentLifecycleStageId[] = [
   "prospect",
   "applicant",
   "approved",
+  "lease_drafted",
   "lease_sent",
+  "awaiting_your_signature",
   "signed",
   "current",
   "moving_out",
@@ -152,14 +158,39 @@ function primaryLease(rows: LeasePipelineRow[]): LeasePipelineRow | null {
   return rows[0] ?? null;
 }
 
-function resolveStage(input: ResidentLifecycleInput): ResidentLifecycleStageId {
+/**
+ * Where a lease sits, read the way the Leases tabs read it (`leaseRowMatchesManagerTab`): Draft is
+ * a `manager`-bucket lease still in workflow status `Draft`; every other `manager`-bucket lease
+ * (Manager Review / Admin Review) and a resident-signed lease awaiting countersignature (bucket
+ * `signed`, not Fully Signed, no manager signature) is the manager's turn; `resident` is out
+ * waiting on the resident. One reading, so the stage, the next step and the to-do cannot disagree.
+ */
+export type LeaseTurn = "drafted" | "sent" | "your_signature" | "signed";
+
+export function leaseTurnOf(
+  lease: Pick<LeasePipelineRow, "bucket" | "status" | "managerSignature"> | null | undefined,
+): LeaseTurn | null {
+  if (!lease) return null;
+  if (lease.bucket === "resident") return "sent";
+  if (lease.bucket === "manager") {
+    return !lease.status || lease.status === "Draft" ? "drafted" : "your_signature";
+  }
+  if (lease.bucket === "signed") {
+    return lease.status !== "Fully Signed" && !lease.managerSignature ? "your_signature" : "signed";
+  }
+  return null;
+}
+
+export function resolveStage(input: ResidentLifecycleInput): ResidentLifecycleStageId {
   const lease = primaryLease(input.leaseRows);
   const app = input.application;
   const today = new Date();
   const todayIso = today.toISOString().slice(0, 10);
 
   if (input.directoryStage === "past") return "past";
-  if (lease?.bucket === "signed") {
+  const turn = leaseTurnOf(lease);
+  if (turn === "your_signature") return "awaiting_your_signature";
+  if (turn === "signed") {
     const end = (lease as { leaseEnd?: string }).leaseEnd?.trim();
     if (end && end < todayIso) return "past";
     const start = (lease as { leaseStart?: string }).leaseStart?.trim();
@@ -168,7 +199,8 @@ function resolveStage(input: ResidentLifecycleInput): ResidentLifecycleStageId {
     if (input.moveOutInspectionOpen || input.hasMoveOutInspection) return "moving_out";
     return "current";
   }
-  if (lease && (lease.bucket === "resident" || lease.bucket === "manager")) return "lease_sent";
+  if (turn === "drafted") return "lease_drafted";
+  if (turn === "sent") return "lease_sent";
   if (app?.bucket === "approved") return "approved";
   if (app) return "applicant";
   if ((input.tourCount ?? 0) > 0 || input.hasPendingTour) return "prospect";
@@ -183,6 +215,9 @@ function stepVisible(stage: ResidentLifecycleStageId, stepId: ResidentLifecycleS
     return idx <= 2 || Boolean(input.application && !input.application.manuallyAdded);
   }
   if (stepId === "moving_out" || stepId === "past") return idx >= STAGE_ORDER.indexOf("moving_out");
+  // The stepper keeps one lease step ("Lease sent"); the drafted and your-signature turns show
+  // only while the lease is in them.
+  if (stepId === "lease_drafted" || stepId === "awaiting_your_signature") return stage === stepId;
   return true;
 }
 
@@ -245,7 +280,7 @@ export function buildResidentLifecycle(
       actionId: "send-lease",
       description: "Application approved. The lease is ready to send",
     };
-  } else if (stage === "lease_sent" && lease?.bucket === "manager") {
+  } else if (stage === "lease_drafted") {
     next = {
       kind: "callback",
       label: "Send lease",
@@ -261,12 +296,13 @@ export function buildResidentLifecycle(
         ? `Lease sent ${leaseSentDate}. Waiting for signature`
         : "Lease sent. Waiting for signature",
     };
-  } else if (lease && lease.bucket === "signed" && lease.status !== "Fully Signed" && !lease.managerSignature) {
+  } else if (stage === "awaiting_your_signature") {
     next = {
       kind: "callback",
       label: "Sign lease",
       actionId: "sign-lease",
-      description: "Resident has signed. Your signature is needed",
+      description:
+        lease?.bucket === "signed" ? "Resident has signed. Your signature is needed" : "Lease is ready. Your signature is needed",
     };
   } else if (stage === "current" && overdue.length > 0) {
     next = {
@@ -354,7 +390,7 @@ export function buildResidentLifecycle(
       href: hrefs.lease,
     });
   }
-  if (stage === "approved" && lease && lease.bucket === "manager") {
+  if (stage === "lease_drafted") {
     add({
       id: "lease-draft",
       icon: "lease",
@@ -366,14 +402,24 @@ export function buildResidentLifecycle(
     });
   }
   if (stage === "lease_sent" && lease) {
-    const waitingOnYou = lease.bucket === "manager";
     add({
       id: "lease-sign",
       icon: "lease",
-      title: waitingOnYou ? "Lease waiting for your signature" : "Lease waiting for the resident to sign",
+      title: "Lease waiting for the resident to sign",
       fact: lease.sentToResidentAt ? `Sent ${formatResidentShortDate(lease.sentToResidentAt)}` : lease.stageLabel,
-      urgent: waitingOnYou,
-      rank: waitingOnYou ? 1 : 3,
+      urgent: false,
+      rank: 3,
+      href: hrefs.lease,
+    });
+  }
+  if (stage === "awaiting_your_signature" && lease) {
+    add({
+      id: "lease-sign",
+      icon: "lease",
+      title: "Lease waiting for your signature",
+      fact: lease.sentToResidentAt ? `Sent ${formatResidentShortDate(lease.sentToResidentAt)}` : lease.stageLabel,
+      urgent: true,
+      rank: 1,
       href: hrefs.lease,
     });
   }
@@ -425,14 +471,15 @@ export function buildResidentLifecycle(
       ["Income", income > 0 ? `${formatResidentMoney(Math.round(income * 100))}/mo` : ""],
     ];
   } else if (stageIdx <= STAGE_ORDER.indexOf("signed")) {
-    const leaseWord =
-      lease?.bucket === "manager"
-        ? "Manager review"
-        : lease?.bucket === "resident"
-          ? "Resident signature"
-          : lease?.bucket === "signed"
-            ? "Signed"
-            : "";
+    const leaseTurn = leaseTurnOf(lease);
+    const leaseWord = !leaseTurn
+      ? ""
+      : {
+        drafted: "Draft",
+        sent: "Resident signature",
+        your_signature: "Your signature",
+        signed: "Signed",
+      }[leaseTurn];
     kpiCandidates = [
       ["Rent", rentCents > 0 ? `${formatResidentMoney(rentCents)}/mo` : ""],
       ["Lease", leaseWord],

@@ -15,6 +15,7 @@
  * availability grid and these two actions all read one source.
  */
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
+import { settleTourFeeOnCancel } from "@/lib/tour-fee.server";
 import { randomUUID } from "node:crypto";
 import {
   runPlannedTourCalendarSync as runCalendarSync,
@@ -174,6 +175,10 @@ export async function cancelPlannedTour(
   const cancelled = { ...event, canceledAt: new Date().toISOString() };
   const persisted = await mutateConfirmedTourSchedule(db, { operation: "cancel", event: cancelled });
   if (!persisted.ok) return { ok: false, status: persisted.reason === "not_found" ? 404 : persisted.reason === "conflict" ? 409 : 500, error: persisted.reason };
+
+  // A tour fee the guest paid goes back when the manager cancels (an unpaid one is cancelled). Nothing happens without a fee.
+  const sourceInquiryId = textField(event, "sourceInquiryId");
+  if (sourceInquiryId) await settleTourFeeOnCancel(db, { inquiryId: sourceInquiryId, reason: "manager_cancelled" });
 
   // Only after the tour is really gone: a guest told "cancelled" for a tour
   // still on the calendar is worse than one told nothing.

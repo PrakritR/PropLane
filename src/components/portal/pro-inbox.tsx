@@ -66,7 +66,9 @@ import {
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 import { bubbleEventFields } from "@/lib/inbox-event-card";
-import { isHouseInboxThread } from "@/lib/house-thread-id";
+import type { InboxMessageDelivery } from "@/lib/inbox-delivery-status";
+import { HouseSmsGroupAction } from "@/components/portal/house-sms-group-action";
+import { isHouseInboxThread, parseHouseThreadId } from "@/lib/house-thread-id";
 import { InboxStayCard } from "@/components/portal/inbox-stay-card";
 import { inboxThreadLastTurnDirection, inboxTurnDirection } from "@/lib/inbox-turn-direction";
 import { markThreadMessageDelivery } from "@/lib/inbox-message-timeline";
@@ -96,6 +98,8 @@ import {
   PortalInboxEmptyState,
   inboxTabEmptyCopy,
   type InboxBubbleMessage,
+  type InboxDeliveryActions,
+  InboxDeliveryActionsContext,
   INBOX_THREAD_ICON_BTN,
   INBOX_THREAD_ICON_BTN_DANGER,
   useInboxDetailsPanelMode,
@@ -1133,8 +1137,37 @@ export const ManagerInbox = forwardRef<
         }
 
         if (!emailOk && !smsOk && !proplaneOk) {
-          rollbackReply();
-          throw new InboxSendRefusal(failureMessage || null);
+          const failedChannel: "sms" | "email" | null = smsAllowed ? "sms" : emailAllowed ? "email" : null;
+          if (smsUnknown || !failedChannel) {
+            rollbackReply();
+            throw new InboxSendRefusal(failureMessage || null);
+          }
+          // A refused or failed send is never silent: the bubble STAYS, red, with the reason and Retry, and the
+          // server has already stamped the thread's delivery issue. The composer keeps the text for another try.
+          const failedEntry: InboxMessageDelivery = {
+            channel: failedChannel,
+            status: "failed",
+            error: failureMessage.trim().replace(/[.\s]+$/, "") || (failedChannel === "email" ? "Email couldn't be sent" : "Text couldn't be sent"),
+            at: new Date().toISOString(),
+          };
+          const failedRows = localRef.current.map((row) =>
+            row.id === thread.id
+              ? {
+                  ...row,
+                  messages: (row.messages ?? []).map((message) =>
+                    message.id === replyId ? { ...message, delivery: undefined, deliveries: [failedEntry] } : message,
+                  ),
+                  unread: true,
+                }
+              : row,
+          );
+          setLocal(failedRows as InboxThread[]);
+          const failedThread = failedRows.find((row) => row.id === thread.id);
+          if (failedThread) {
+            await upsertPersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, [failedThread as PersistedInboxThread], failedRows as PersistedInboxThread[]).catch(() => false);
+          }
+          void syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY, { force: true }).catch(() => {});
+          throw new InboxSendRefusal(failedEntry.error ? `${failedEntry.error}.` : null);
         }
 
         const currentRows = localRef.current;
@@ -1382,6 +1415,20 @@ export const ManagerInbox = forwardRef<
     },
     [activeThreadId, activeLastInboundChannel],
   );
+  /* A failed bubble's Retry / Send by text|email: the message goes back into the composer on the channel
+     chosen, focused, for one tap on Send. The send itself stays the composer's own (one path, one gate). */
+  const deliveryActions = useMemo<InboxDeliveryActions>(() => {
+    const prefill = (message: InboxBubbleMessage, channel: "sms" | "email") => {
+      setReplyDraft(message.body);
+      pickReplyChannel({ viaEmail: channel === "email", viaSms: channel === "sms", viaProplane: false });
+      setReplyFocusSignal((n) => n + 1);
+    };
+    return {
+      retry: prefill,
+      sendAnotherWay: prefill,
+      canSendVia: (channel) => (channel === "email" ? activeEmailAvailable : activeSmsAvailable),
+    };
+  }, [activeEmailAvailable, activeSmsAvailable, pickReplyChannel, setReplyDraft]);
   const onPickViaProplane = useCallback((on: boolean) => pickReplyChannel({ viaProplane: on }), [pickReplyChannel]);
   const onPickViaEmail = useCallback((on: boolean) => pickReplyChannel({ viaEmail: on }), [pickReplyChannel]);
   const onPickViaSms = useCallback((on: boolean) => pickReplyChannel({ viaSms: on }), [pickReplyChannel]);
@@ -1551,6 +1598,7 @@ export const ManagerInbox = forwardRef<
         // turns show no tag — a guessed "Email" is how an in-app reply that never
         // left PropLane used to look sent.
         channel: m.channel,
+        deliveries: m.deliveries,
         houseLabel: m.houseLabel,
         ...(fields.subject ? { subject: fields.subject } : {}),
         attachments: m.attachments,
@@ -2595,6 +2643,10 @@ export const ManagerInbox = forwardRef<
       <>
         {/* One row of matching circular controls: call, open, edit, archive, delete. */}
         {threadContactActions}
+        {/* The SMS door of a house chat: create / link the group text and manage its members. */}
+        {isHouseInboxThread(activeThread) && parseHouseThreadId(activeThread.id) ? (
+          <HouseSmsGroupAction propertyId={parseHouseThreadId(activeThread.id)!.propertyId} />
+        ) : null}
         {threadContactEditButton}
         {!activeIsAssistantThread ? (
         <button
@@ -2680,6 +2732,7 @@ export const ManagerInbox = forwardRef<
     ) : null;
 
   const threadPane = activeThread ? (
+    <InboxDeliveryActionsContext.Provider value={deliveryActions}>
     <InboxThreadView
       title={activeThreadTitle}
       avatarName={
@@ -2816,6 +2869,7 @@ export const ManagerInbox = forwardRef<
         )
       }
     />
+    </InboxDeliveryActionsContext.Provider>
   ) : emptyThreadFallback && suppressListPane ? (
     emptyThreadFallback
   ) : expandedId ? (

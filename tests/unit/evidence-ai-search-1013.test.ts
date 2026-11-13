@@ -51,8 +51,8 @@ describe("evidence · /sitemap.xml advertises every live listing", () => {
   it("renders the same XML the route serves, listings included", async () => {
     const sitemap = (await import("@/app/sitemap")).default;
     const xml = resolveSitemap(await sitemap());
-    expect(xml).toContain("https://proplane.ai/rent/listings/7c1f0f2a-room-9");
-    expect(xml).toContain("https://proplane.ai/rent/listings/9b2e-room-3");
+    expect(xml).toContain("https://proplane.ai/rent/listings/4709a-8th-ave-ne-room-9");
+    expect(xml).toContain("https://proplane.ai/rent/listings/4709a-8th-ave-ne-room-3");
     expect(xml).toContain("https://proplane.ai/blog/real-cost-of-a-turnover");
     write("sitemap-with-listings.xml", xml);
   });
@@ -61,7 +61,7 @@ describe("evidence · /sitemap.xml advertises every live listing", () => {
 describe("evidence · a listing page carries Accommodation JSON-LD", () => {
   it("emits the public facts and none of the manager's", async () => {
     const page = (await import("@/app/(rent)/rent/listings/[id]/page")).default;
-    const tree = (await page({ params: Promise.resolve({ id: LISTING.id }) })) as {
+    const tree = (await page({ params: Promise.resolve({ id: "4709a-8th-ave-ne-room-9" }) })) as {
       props: { children: { props?: { dangerouslySetInnerHTML?: { __html: string } } }[] };
     };
     const script = tree.props.children.find((child) => child?.props?.dangerouslySetInnerHTML);

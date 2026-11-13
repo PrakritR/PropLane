@@ -1,44 +1,32 @@
 "use client";
 
 /**
- * Short stays on the public listing, like Airbnb's: dates and guests on the price card, the rooms list
- * narrowed to rooms free for those nights, and "Request to book", which opens the stay request in the resident
- * portal. One provider per listing page holds the picked dates / room / guests so the card (rendered in
- * two places by width) and the rooms list always agree. The request itself is made in the resident portal. The date rules, rates and per-room verdict are the
- * pure helpers in `src/lib/short-stay-request.ts`; the server re-checks everything.
+ * The listing page's shared stay state. The price card no longer offers a short stay (captain, Nov 12: only Tour
+ * and Book), so nothing on the page picks dates any more; the provider survives for the rooms list's per-room
+ * verdicts and the room the application is opened on. The short-stay request itself is made in the resident
+ * portal (`/resident/applications/stay`). The date rules, rates and per-room verdict are the pure helpers in
+ * `src/lib/short-stay-request.ts`; the server re-checks everything.
  */
-import { Minus, Plus } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import Link from "next/link";
-import { listingPrimaryCtaClass } from "@/components/marketing/listing-contact-card";
-import { useProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
-import { buildProspectStayRequestHref } from "@/lib/prospect-public-nav";
-import { DateField } from "@/components/ui/date-field";
-import { Select } from "@/components/ui/input";
 import type { MockProperty } from "@/data/types";
 import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
-import { normalizePropertyStayTimes } from "@/lib/bookings/stay-times";
 import { findPublicRoomOccupancy } from "@/lib/public-listing-available-count";
 import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { addRangeDays, normalizeRangeDay } from "@/lib/room-availability-range";
-import { standardTimesLine } from "@/lib/short-stay/stay-add-ons";
 import { pacificTodayKey } from "@/lib/sheet-sync/dates";
 import {
-  SHORT_STAY_MAX_DAYS_AHEAD,
-  formatShortStayMoney,
   listingOffersShortStay,
   listingShortStayNightlyFrom,
   shortStayRoomNightly,
   shortStayRoomVerdict,
-  shortStayTotal,
   validateShortStayDates,
   type ShortStayRoomVerdict,
 } from "@/lib/short-stay-request";
 
 type StayRoom = { id: string; name: string; capacity: number; nightly: number };
 
-/** The card's two stays: a monthly lease (Book a tour / Apply) or a short stay (Request to book, in the resident portal). */
+/** Which nights the rooms list is asked about: the monthly move-in day, or a short stay's range (no control on the listing page sets it now). */
 export type StaySegment = "monthly" | "short";
 
 type ShortStayState = {
@@ -87,14 +75,10 @@ export function ShortStayProvider({ property, disabled = false, children }: { pr
         })),
     [sub],
   );
-  // THE predicate for "this listing offers a short stay", read by the card's segment control, the
-  // phone sticky bar's primary and the booking block alike — one answer, so the bar can never offer
-  // "Request to book" for a card that is showing the monthly side.
+  // THE predicate for "this listing offers a short stay" (it prices the Costs section's nightly row).
   //
   // A hold is always on a room, so a listing carrying none has nothing to book; and a night with no
-  // nightly rate has no price, so the segment would read "- / night" over a total of nothing. Either
-  // way the whole short-stay block stays off the page and the monthly card stands alone, rather than
-  // drawing dates, a total and a "Request to book" that can never be pressed.
+  // nightly rate has no price, so it is not offered either.
   const offered =
     !disabled && listingOffersShortStay(sub) && rooms.length > 0 && listingShortStayNightlyFrom(sub) > 0;
   // Read for every listing (not only short-stay ones): the monthly segment dims a room taken on the move-in date too.
@@ -173,162 +157,9 @@ export function ShortStayProvider({ property, disabled = false, children }: { pr
     setGuestsRaw((current) => clampGuests(current, only.id));
   }, [clampGuests, offered, roomId, rooms, verdictFor]);
 
-  // `?stay=1` (the short-stay post's link) lands on the date inputs.
-  useEffect(() => {
-    if (!offered || typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("stay") !== "1") return;
-    let focusTimer: number | undefined;
-    const timer = window.setTimeout(() => {
-      setSegment("short");
-      // A link that carries picks (`?stay=1&checkIn=…&checkOut=…&room=…&guests=…`) opens the card with them in place.
-      const pickedIn = normalizeRangeDay(params.get("checkIn") ?? "");
-      const pickedOut = normalizeRangeDay(params.get("checkOut") ?? "");
-      if (pickedIn) setCheckInRaw(pickedIn);
-      if (pickedIn && pickedOut && pickedOut > pickedIn) setCheckOut(pickedOut);
-      const pickedRoom = params.get("room") ?? "";
-      if (pickedRoom && rooms.some((room) => room.id === pickedRoom)) setRoomIdRaw(pickedRoom);
-      const pickedGuests = Number(params.get("guests"));
-      if (Number.isFinite(pickedGuests) && pickedGuests > 1) setGuestsRaw(clampGuests(pickedGuests, pickedRoom));
-      if (pickedIn) {
-        focusTimer = window.setTimeout(() => {
-          const block = Array.from(document.querySelectorAll<HTMLElement>('[data-attr="short-stay-block"]')).find((node) => node.offsetParent !== null);
-          block?.scrollIntoView({ block: "center", behavior: "smooth" });
-        }, 120);
-        return;
-      }
-      // The short-stay inputs mount with the segment: look for them one beat later.
-      focusTimer = window.setTimeout(() => {
-        const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('[data-attr="short-stay-check-in"] input[type="text"], [data-attr="short-stay-check-in"] input:not([type])'));
-        const visible = inputs.find((input) => input.offsetParent !== null);
-        visible?.scrollIntoView({ block: "center", behavior: "smooth" });
-        visible?.focus({ preventScroll: true });
-      }, 120);
-    }, 400);
-    return () => {
-      window.clearTimeout(timer);
-      window.clearTimeout(focusTimer);
-    };
-    // Read once, when the offer is known: the URL is the guest's earlier picks, not a live control.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [offered]);
-
   const value = useMemo<ShortStayState>(
     () => ({ offered, segment, setSegment, moveIn, setMoveIn, property, rooms, checkIn, checkOut, guests, roomId, setCheckIn, setCheckOut: setCheckOutDay, setGuests, setRoomId, rangeValid, nights, occupancyRows, occupancyLoading, verdictFor }),
     [offered, segment, moveIn, property, rooms, checkIn, checkOut, guests, roomId, setCheckIn, setCheckOutDay, setGuests, setRoomId, rangeValid, nights, occupancyRows, occupancyLoading, verdictFor],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
-}
-
-/**
- * The Airbnb-style picker on the price card's Short stay segment: dates, room, guests and the live total, then
- * Request to book, which opens the stay request in the RESIDENT PORTAL (captain, Oct 20: the website books through
- * an account, Messages through the text line, never mixed). A visitor without a resident account makes one first and
- * lands on that request with these picks; the card itself never sends anything, shows no number and no text link.
- */
-export function ShortStayBookingBlock({ className = "" }: { className?: string }) {
-  const stay = useShortStay();
-  const auth = useProspectContactAutofill();
-  if (!stay || !stay.offered) return null;
-
-  const today = pacificTodayKey();
-  // A listing with one room has nothing to choose: that room is the one.
-  const picked = stay.rooms.find((room) => room.id === stay.roomId) ?? (stay.rooms.length === 1 ? stay.rooms[0]! : null);
-  const freeRooms = stay.rangeValid ? stay.rooms.filter((room) => stay.verdictFor(room.id)?.free !== false) : stay.rooms;
-  const from = listingShortStayNightlyFrom(stay.property.listingSubmission);
-  const nightly = picked?.nightly || from;
-  const maxGuests = picked?.capacity ?? Math.max(1, ...stay.rooms.map((room) => room.capacity));
-  const total = nightly > 0 && stay.rangeValid ? shortStayTotal(nightly, stay.nights) : 0;
-  const times = normalizePropertyStayTimes(stay.property.listingSubmission?.stayTimes);
-  const noFreeRoom = stay.rangeValid && !stay.occupancyLoading && freeRooms.length === 0;
-  const canRequest = stay.rangeValid && Boolean(picked) && !noFreeRoom && total > 0;
-  const requestHref = canRequest && picked
-    ? buildProspectStayRequestHref(
-        stay.property.id,
-        { roomId: picked.id, checkIn: stay.checkIn, checkOut: stay.checkOut, guests: stay.guests },
-        { ready: auth.ready, userId: auth.userId, hasResidentRole: auth.hasResidentRole },
-      )
-    : null;
-
-  return (
-    <div className={className} data-attr="short-stay-block">
-      <div className="grid grid-cols-1 gap-2.5 min-[420px]:grid-cols-2" data-attr="short-stay-dates">
-        <label className="block min-w-0 text-xs font-semibold text-muted" data-attr="short-stay-check-in">
-          Check-in
-          <DateField
-            value={stay.checkIn}
-            onChange={stay.setCheckIn}
-            min={today}
-            max={addRangeDays(today, SHORT_STAY_MAX_DAYS_AHEAD)}
-            className="mt-1"
-            aria-label="Check-in"
-          />
-        </label>
-        <label className="block min-w-0 text-xs font-semibold text-muted" data-attr="short-stay-check-out">
-          Check-out
-          <DateField
-            value={stay.checkOut}
-            onChange={stay.setCheckOut}
-            min={stay.checkIn ? addRangeDays(stay.checkIn, 1) : addRangeDays(today, 1)}
-            max={stay.checkIn ? addRangeDays(stay.checkIn, 28) : undefined}
-            className="mt-1"
-            aria-label="Check-out"
-          />
-        </label>
-      </div>
-      {stay.rooms.length > 1 ? (
-        <div className="mt-2.5" data-attr="short-stay-room">
-          <Select aria-label="Room" value={stay.roomId} onChange={(e) => stay.setRoomId(e.target.value)}>
-            <option value="">Choose a room</option>
-            {freeRooms.map((room) => (
-              <option key={room.id} value={room.id}>{room.name}</option>
-            ))}
-          </Select>
-        </div>
-      ) : null}
-      <div className="mt-2.5 flex min-h-[44px] items-center justify-between rounded-2xl border border-border px-4" data-attr="short-stay-guests">
-        <span className="text-sm font-semibold text-foreground">Guests</span>
-        <span className="flex items-center gap-1">
-          <button
-            type="button"
-            aria-label="Fewer guests"
-            disabled={stay.guests <= 1}
-            onClick={() => stay.setGuests(stay.guests - 1)}
-            className="grid size-9 place-items-center rounded-full text-foreground transition hover:bg-foreground/5 disabled:opacity-35"
-          >
-            <Minus className="size-4" aria-hidden />
-          </button>
-          <span className="w-6 text-center text-sm font-bold tabular-nums" aria-live="polite">{stay.guests}</span>
-          <button
-            type="button"
-            aria-label="More guests"
-            disabled={stay.guests >= maxGuests}
-            onClick={() => stay.setGuests(stay.guests + 1)}
-            className="grid size-9 place-items-center rounded-full text-foreground transition hover:bg-foreground/5 disabled:opacity-35"
-          >
-            <Plus className="size-4" aria-hidden />
-          </button>
-        </span>
-      </div>
-      <p className="mt-3 text-sm font-semibold text-foreground" data-attr="short-stay-standard-times">
-        {standardTimesLine(times)}
-      </p>
-      {total > 0 ? (
-        <p className="mt-3 flex items-baseline justify-between gap-3 text-sm" data-attr="short-stay-total">
-          <span className="text-muted">{formatShortStayMoney(nightly)} × {stay.nights} {stay.nights === 1 ? "night" : "nights"}</span>
-          <span className="font-bold text-foreground">{formatShortStayMoney(total)}</span>
-        </p>
-      ) : null}
-      {noFreeRoom ? <p className="mt-2 text-sm font-semibold text-foreground" role="status">No room is free for those nights.</p> : null}
-      {requestHref ? (
-        <Link href={requestHref} prefetch={false} className={`${listingPrimaryCtaClass} mt-3`} data-attr="short-stay-request">
-          Request to book
-        </Link>
-      ) : (
-        <button type="button" className={`${listingPrimaryCtaClass} mt-3 disabled:opacity-50`} disabled data-attr="short-stay-request">
-          Request to book
-        </button>
-      )}
-    </div>
-  );
 }

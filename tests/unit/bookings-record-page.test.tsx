@@ -49,6 +49,14 @@ describe("booking record and actions", () => {
     expect(screen.getByText("Past stays")).toBeTruthy();
     expect(screen.getByText("None yet")).toBeTruthy();
   });
+  it("a Booking.com stay offers Add name; a host block does not", () => {
+    const stay: PropertyBookingEntry = { ...block, source: "booking_com", summary: "CLOSED - Not available", blockId: undefined, residentName: undefined, connectionId: "c1", sourceUid: "u1" };
+    page(stay, "guest");
+    expect(document.querySelector('[data-attr="booking-guest-name-edit"]')).toBeTruthy();
+    cleanup();
+    page({ ...stay, source: "airbnb", summary: "Airbnb (Not available)", sourceUid: "u2" }, "guest");
+    expect(document.querySelector('[data-attr="booking-guest-name-edit"]')).toBeNull();
+  });
   it("Payments shows the rate and nights", () => {
     page({ ...block, rate: 100, rateBasis: "daily" }, "payments");
     expect(screen.getByRole("heading", { name: "Payments" })).toBeTruthy();
@@ -76,7 +84,7 @@ describe("booking record and actions", () => {
     page({ ...block, source: "airbnb", blockId: undefined, sourceUid: "event-uid" });
     expect(document.querySelector('[data-attr="record-header-action-edit"]')).toBeNull();
     expect(screen.getByText("Channel")).toBeTruthy();
-    expect(screen.getByText("Airbnb · event-uid")).toBeTruthy();
+    expect(screen.getByText("Airbnb · synced from calendar")).toBeTruthy();
   });
   it("shows the stay note as a plain Notes row", () => {
     page({ ...block, source: "airbnb", blockId: undefined, sourceUid: "uid-1", connectionId: "c1", stayNotes: "Late arrival" });
