@@ -958,9 +958,16 @@ export function ManagerUnifiedInbox({
           // Prefer person name / unit / email; fall back to a readable phone.
           name: smsConversationDisplayName(resident),
           subtitle: smsConversationSubtitle(resident) || undefined,
-          // Admin only: the service workspace this text was routed to (the manager's rows never carry one).
+          // Admin only (the manager's rows never carry a workspace): the house (and room) the thread is about when it
+          // names one, as the manager inbox's place line does; else the service workspace it was routed to.
           ...(resident.workspaceId !== undefined
-            ? { placeLine: resident.workspaceName?.trim() || ADMIN_UNASSIGNED_WORKSPACE_LABEL }
+            ? {
+                placeLine:
+                  resident.propertyLabel?.trim() ||
+                  resident.houses?.[0]?.label?.trim() ||
+                  resident.workspaceName?.trim() ||
+                  ADMIN_UNASSIGNED_WORKSPACE_LABEL,
+              }
             : {}),
           preview: communicationInboxListPreview(
             lastMessage ? lastMessage.body : "No messages yet",

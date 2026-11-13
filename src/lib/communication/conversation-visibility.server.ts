@@ -236,6 +236,18 @@ export function conversationVisible(scope: CommunicationScope, input: Visibility
   return houses.some((houseId) => granted.has(houseId) && inWorkspace(houseId));
 }
 
+/**
+ * Every owner whose SMS summaries this viewer may be asked about: the owners whose houses they hold the inbox for
+ * (`scope.ownerIds`) plus, for PropLane Service STAFF only, the client owner of the ACTIVE workspace they run
+ * (`staffWorkspaceOwners`, re-derived from their seat) even when no house is granted. This is only a candidate
+ * pre-filter: `conversationVisible` stays the decision. A self-serve co-manager has no staff entry, so nothing widens.
+ */
+export function communicationCandidateOwnerIds(scope: CommunicationScope): string[] {
+  const active = String(scope.activeWorkspaceId ?? "").trim();
+  const staffOwner = active ? scope.staffWorkspaceOwners?.get(active) : undefined;
+  return staffOwner && !scope.ownerIds.includes(staffOwner) ? [...scope.ownerIds, staffOwner] : [...scope.ownerIds];
+}
+
 async function readSelectedWorkspaceId(): Promise<string | undefined> {
   try {
     const { cookies } = await import("next/headers");

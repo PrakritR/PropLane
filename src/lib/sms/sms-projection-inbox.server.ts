@@ -7,7 +7,7 @@ import { sharedLineWorkspaceIdOf } from "@/lib/one-number/line-label";
 import { normalizeE164 } from "@/lib/phone-e164";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { conversationVisible, resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
+import { communicationCandidateOwnerIds, conversationVisible, resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
 import { loadWorkspaceHouseLabels } from "@/lib/manager-sms-messages.server";
 import { managerSmsContactKey } from "@/lib/sms/manager-sms-contacts.server";
 import type { ManagerSmsMessageRow, ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
@@ -334,7 +334,7 @@ export async function visibleManagerSmsProjectionIds(
   if (summaries.length === 0) return new Set();
   if (summaries.length > 40) throw new Error("SMS notice visibility batch exceeds limit.");
   const scope = await resolveCommunicationScope(db, viewerId, "read");
-  const candidates = summaries.filter((summary) => scope.ownerIds.includes(summary.ownerManagerUserId));
+  const candidates = summaries.filter((summary) => communicationCandidateOwnerIds(scope).includes(summary.ownerManagerUserId));
   if (!candidates.length) return new Set();
   const context = await loadPageContext(db, viewerId, candidates);
   return new Set(candidates.filter((summary) => conversationVisible(scope, {
@@ -358,7 +358,7 @@ export async function fetchManagerSmsProjectionPage(db: SupabaseClient, viewerId
   // many hidden threads can yield an empty page with a continuation cursor;
   // the client must not treat that as the end of history.
   for (let scan = 0; scan < 10; scan += 1) {
-    const pages = await Promise.all(scope.ownerIds.map((ownerManagerUserId) =>
+    const pages = await Promise.all(communicationCandidateOwnerIds(scope).map((ownerManagerUserId) =>
       listSmsProjectionConversations(db, { ownerManagerUserId, before: cursor ?? undefined, limit: PAGE_SIZE }),
     ));
     const candidates = pages.flatMap((page) => page.items).sort(tupleBefore).slice(0, PAGE_SIZE);
@@ -426,7 +426,7 @@ export async function viewerMayActOnSmsProjection(
   if (error) throw new Error("Could not read the conversation.");
   if (!row || row.merged_into_id) return false;
   const scope = await resolveCommunicationScope(db, viewerId, level);
-  if (!scope.ownerIds.includes(String(row.owner_manager_user_id))) return false;
+  if (!communicationCandidateOwnerIds(scope).includes(String(row.owner_manager_user_id))) return false;
   const summary = summaryFromRow(row);
   const context = await loadPageContext(db, viewerId, [summary]);
   const line = summary.workLinePhone;
@@ -466,7 +466,7 @@ export async function fetchManagerSmsProjectionDetail(db: SupabaseClient, viewer
   }
   const summary = summaryFromRow(row);
   const scope = adminScope ? null : await resolveCommunicationScope(db, viewerId, level);
-  if (scope && !scope.ownerIds.includes(String(row.owner_manager_user_id))) return null;
+  if (scope && !communicationCandidateOwnerIds(scope).includes(String(row.owner_manager_user_id))) return null;
   const context = await loadPageContext(db, viewerId, [summary]);
   if (adminScope) {
     // Admin oversight: the route already confirmed the admin role; the thread must be one admin Communication lists.

@@ -346,6 +346,8 @@ export const ManagerSmsPanel = forwardRef<
     setInternalActiveId(null);
   }, [scopeKey]);
 
+  const isAdminEndpoint = endpoint.startsWith("/api/admin/");
+
   const load = useCallback(async (opts?: { quiet?: boolean; cursor?: string | null; append?: boolean }) => {
     const requestedScope = scopeKey;
     const requestedWindowGeneration = listWindowGenerationRef.current;
@@ -579,13 +581,14 @@ export const ManagerSmsPanel = forwardRef<
     void loadManagerSmsConversationDetailClient(projectionId).then(async (response) => {
       const body = await response.json().catch(() => ({})) as { messages?: ManagerSmsMessageRow[]; nextCursor?: string | null; resident?: ManagerSmsResidentConversation; error?: string };
       if (!response.ok) {
-        if ((response.status === 403 || response.status === 404) && request === threadRequestRef.current) {
+        // Admin Communication keeps the row and says so in place: a thread its list shows must never silently vanish.
+        if (!isAdminEndpoint && (response.status === 403 || response.status === 404) && request === threadRequestRef.current) {
           setThreadPages((current) => { const next = { ...current }; delete next[projectionId]; return next; });
           setSelectedDetailResident(null);
           setData((current) => current ? { ...current, residents: current.residents.filter((row) => row.projectionId !== projectionId) } : current);
           setActiveIdRef.current(null);
         }
-        throw new Error(body.error ?? "Could not load this conversation.");
+        throw new Error(body.error ?? (response.status === 404 ? "Conversation not found." : "Could not load this conversation."));
       }
       if (request !== threadRequestRef.current || activeIdRef.current !== projectionId || scopeRef.current !== requestedScope) return;
       if (body.resident?.projectionId) {
@@ -614,7 +617,7 @@ export const ManagerSmsPanel = forwardRef<
       historyRequestRef.current += 1;
       setThreadLoadingEarlier(false);
     };
-  }, [activeId, legacySelectionLoaded, threadRetry, scopeKey, selectedSummaryTuple, listRefreshVersion]);
+  }, [activeId, legacySelectionLoaded, threadRetry, scopeKey, selectedSummaryTuple, listRefreshVersion, isAdminEndpoint]);
 
   useEffect(() => {
     const resident = selectedResident;
@@ -970,7 +973,9 @@ export const ManagerSmsPanel = forwardRef<
    * contact whose name is fixed — otherwise a text-only thread with a known
    * name has no way to gain its email channel.
    */
-  const canEditContact = Boolean(active?.resident.conversationKey && active.resident.phone);
+  // Admin Communication (an `/api/admin/*` endpoint) has no manager contact directory: renaming a contact, and the
+  // email send "as Property manager", are manager-scoped writes the admin pane does not own, so they are not offered.
+  const canEditContact = !isAdminEndpoint && Boolean(active?.resident.conversationKey && active.resident.phone);
 
   const openContactName = useCallback(() => {
     if (!active || !canEditContact) return;
@@ -1028,8 +1033,10 @@ export const ManagerSmsPanel = forwardRef<
     }
   }, [active, load, setActiveId, showToast]);
 
-  const activeEmailAvailable = Boolean(active?.resident.residentEmail?.trim());
-  const activeCanSchedule = smsThreadCanSchedule(active?.resident.residentEmail, active?.resident.phone);
+  const activeEmailAvailable = !isAdminEndpoint && Boolean(active?.resident.residentEmail?.trim());
+  // Scheduling posts through the manager's scheduled-send route, scoped to the viewer's own workspace; the admin pane
+  // schedules only through its own email composer, so an admin text thread sends now or not at all.
+  const activeCanSchedule = !isAdminEndpoint && smsThreadCanSchedule(active?.resident.residentEmail, active?.resident.phone);
   // The conversation's pending sends, as the same pinned "N scheduled" bar the email thread uses.
   const { scheduledCards: threadScheduledCards, reloadScheduled: reloadThreadScheduled } = useThreadScheduledCards({
     recipientEmail: active?.resident.residentEmail?.trim() ?? "",
@@ -1177,7 +1184,7 @@ export const ManagerSmsPanel = forwardRef<
         if (!smsOk) failureMessage = body.error?.trim() || "Text message failed.";
       }
 
-      if (replyViaEmail) {
+      if (replyViaEmail && !isAdminEndpoint) {
         const email = active?.resident.residentEmail?.trim();
         if (!email) {
           failureMessage ||= "No email is available for this conversation.";

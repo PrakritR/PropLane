@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { conversationVisible, type CommunicationScope } from "@/lib/communication/conversation-visibility.server";
+import { communicationCandidateOwnerIds, conversationVisible, type CommunicationScope } from "@/lib/communication/conversation-visibility.server";
 
 const OWNER = "client-owner";
 const STAFF = "staff-1";
@@ -32,5 +32,20 @@ describe("service staff read the workspace they run", () => {
   });
   it("a thread stamped on a different workspace never leaks", () => {
     expect(conversationVisible(scope(), { ...houseless, workspaceId: "ws-other" })).toBe(false);
+  });
+});
+
+describe("staff candidate owners (readers pre-filter before conversationVisible)", () => {
+  it("adds the active workspace's client owner when staff hold no house grant", () => {
+    expect(communicationCandidateOwnerIds(scope())).toEqual([STAFF, OWNER]);
+  });
+  it("never widens a self-serve co-manager", () => {
+    expect(communicationCandidateOwnerIds(scope({ staffWorkspaceOwners: new Map() }))).toEqual([STAFF]);
+  });
+  it("only the ACTIVE workspace's owner counts", () => {
+    expect(communicationCandidateOwnerIds(scope({ activeWorkspaceId: "ws-other" }))).toEqual([STAFF]);
+  });
+  it("does not duplicate an owner already granted", () => {
+    expect(communicationCandidateOwnerIds(scope({ ownerIds: [STAFF, OWNER] }))).toEqual([STAFF, OWNER]);
   });
 });
