@@ -70,6 +70,8 @@ function fakeDb() {
 }
 
 const room: FinanceRoomCandidate = { propertyId: "p1", propertyLabel: "5257 Brooklyn Ave", roomId: "r6", roomLabel: "Room 6", reservationCodes: [], connectionId: "c6", ranges: [{ code: "HMABC12345", start: "2026-10-07", end: "2026-10-10", sourceUid: "uid-6" }] };
+/** A house in the owner's OTHER workspace. An unplaced mail's candidates are not workspace-filtered, so it can match this. */
+const otherWorkspaceRoom: FinanceRoomCandidate = { propertyId: "pX", propertyLabel: "9999 Other Ave", roomId: "rX", roomLabel: "Room X", reservationCodes: [], connectionId: "cX", ranges: [{ code: "HMZZZ99999", start: "2027-01-01", end: "2027-01-04", sourceUid: "uid-x" }] };
 
 const payoutMail = {
   subject: "Your payout was sent",
@@ -117,6 +119,33 @@ describe("recordFinanceFacts", () => {
     expect(tables.channel_payout_records).toHaveLength(1);
     expect(tables.channel_payout_records[0]).toMatchObject({ id: unplaced.id, workspace_id: "ws-a", review_status: "ok" });
     expect(out).toMatchObject({ id: unplaced.id, created: false });
+  });
+
+  it("placing an unplaced row drops a room that belongs to another workspace, and keeps one that is this workspace's", async () => {
+    const elsewhere = { ...facts, confirmationCode: "HMZZZ99999", checkIn: "2027-01-01", checkOut: "2027-01-04", paidOn: undefined };
+    const unplacedWithOtherHouse = async () => {
+      const made = fakeDb();
+      // Filed with no workspace: the candidate list spans every workspace, so the row settles on pX.
+      await recordFinanceFacts(made.db, { ownerUserId: "u1", workspaceId: null, facts: elsewhere, source: "email", review: "ok", candidates: [otherWorkspaceRoom] });
+      expect(made.tables.channel_payout_records[0]).toMatchObject({ workspace_id: null, property_id: "pX", room_id: "rX" });
+      return made;
+    };
+
+    const { db, tables } = await unplacedWithOtherHouse();
+    const row = tables.channel_payout_records[0]!;
+    await recordFinanceFacts(db, { ownerUserId: "u1", workspaceId: "ws-a", facts: elsewhere, source: "csv", review: "ok", candidates: [room] });
+    expect(tables.channel_payout_records).toHaveLength(1);
+    // pX is not one of ws-a's houses: the row is placed unmatched and asks for a room instead of showing another workspace's.
+    expect(tables.channel_payout_records[0]).toMatchObject({
+      id: row.id, workspace_id: "ws-a", property_id: null, property_label: null, room_id: null, room_label: null,
+      connection_id: null, source_uid: null, review_status: "needs_room",
+    });
+
+    const second = await unplacedWithOtherHouse();
+    await recordFinanceFacts(second.db, { ownerUserId: "u1", workspaceId: "ws-a", facts: elsewhere, source: "csv", review: "ok", candidates: [room, otherWorkspaceRoom] });
+    // pX IS one of ws-a's houses here, so the settled room carries over as before.
+    expect(second.tables.channel_payout_records).toHaveLength(1);
+    expect(second.tables.channel_payout_records[0]).toMatchObject({ workspace_id: "ws-a", property_id: "pX", room_id: "rX", review_status: "ok" });
   });
 
   it("an unplaced row is never claimed out of another workspace's placed row", async () => {

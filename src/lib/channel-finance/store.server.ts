@@ -112,8 +112,10 @@ export async function recordFinanceFacts(
   const sameKind = existingRows.filter((r) => r.kind === facts.kind);
   // This workspace's own row wins; an unplaced one is this booking waiting to be placed, never a second record.
   const existing = sameKind.find(here) ?? sameKind.find(unplaced) ?? null;
-  // A room already settled (by a match or a person) on either kind of this booking carries over.
-  const settled = existingRows.find((r) => r.roomId && here(r)) ?? existingRows.find((r) => r.roomId);
+  // A room already settled (by a match or a person) on either kind of this booking carries over. An unplaced row's room was
+  // matched with no workspace filter at all, so it is evidence here only when its house is one of THIS workspace's.
+  const houseIsHere = (r: ChannelFinanceRecord) => Boolean(r.propertyId) && input.candidates.some((c) => c.propertyId === r.propertyId);
+  const settled = existingRows.find((r) => r.roomId && here(r)) ?? existingRows.find((r) => r.roomId && houseIsHere(r));
 
   let match: FinanceMatch | null = null;
   if (settled) match = { propertyId: settled.propertyId!, propertyLabel: settled.propertyLabel ?? "", roomId: settled.roomId, roomLabel: settled.roomLabel, connectionId: settled.connectionId, sourceUid: settled.sourceUid, via: "reservation_code" };
