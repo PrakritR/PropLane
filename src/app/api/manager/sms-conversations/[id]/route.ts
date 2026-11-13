@@ -3,6 +3,8 @@ import { getPortalAccessContext, hasAdminRole, hasRole } from "@/lib/auth/portal
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { decodeSmsProjectionCursor, fetchManagerSmsProjectionDetail, resolveManagerSmsProjectionSelection } from "@/lib/sms/sms-projection-inbox.server";
 import { updateSmsProjectionViewState } from "@/lib/sms/sms-projection.server";
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
+import { loadAdminSmsOwnerScope } from "@/lib/manager-sms-messages.server";
 
 export const runtime = "nodejs";
 
@@ -15,11 +17,14 @@ export async function GET(req: Request, context: RouteContext<"/api/manager/sms-
   const { id } = await context.params;
   try {
     const db = createSupabaseServiceRoleClient();
-    const selectedId = await resolveManagerSmsProjectionSelection(db, access.user.id, id);
+    // Admin Communication (`?oversight=admin`, admin role confirmed) opens any thread its list shows: the scope is the
+    // admin list's own owners, never the admin's own workspace (a managed client's thread 404'd here before).
+    const adminScope = (await resolveAdminOversight(req, access.user.id, hasAdminRole(access))) ? await loadAdminSmsOwnerScope(db) : null;
+    const selectedId = await resolveManagerSmsProjectionSelection(db, access.user.id, id, adminScope);
     if (selectedId === "ambiguous") return NextResponse.json({ error: "This older conversation link is ambiguous. Open it from the list." }, { status: 409 });
     if (!selectedId) return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
     const before = decodeSmsProjectionCursor(new URL(req.url).searchParams.get("before"));
-    const payload = await fetchManagerSmsProjectionDetail(db, access.user.id, selectedId, before);
+    const payload = await fetchManagerSmsProjectionDetail(db, access.user.id, selectedId, before, "read", false, adminScope);
     if (!payload) return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
     return NextResponse.json(payload, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
@@ -43,7 +48,8 @@ export async function PATCH(req: Request, context: RouteContext<"/api/manager/sm
   }
   try {
     const db = createSupabaseServiceRoleClient();
-    const detail = await fetchManagerSmsProjectionDetail(db, access.user.id, id, null);
+    const adminScope = (await resolveAdminOversight(req, access.user.id, hasAdminRole(access))) ? await loadAdminSmsOwnerScope(db) : null;
+    const detail = await fetchManagerSmsProjectionDetail(db, access.user.id, id, null, "read", false, adminScope);
     if (!detail) return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
     if (detail.stateVersion !== body.expectedVersion) {
       return NextResponse.json({ error: "Conversation changed. Reload and retry." }, { status: 409 });

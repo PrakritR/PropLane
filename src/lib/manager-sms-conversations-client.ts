@@ -1,5 +1,6 @@
 "use client";
 
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { createCoalescedRefresher } from "@/lib/coalesced-refresh";
 import { onPortalSessionViewerChange } from "@/lib/auth/portal-session-gate";
 import { invalidateSharedGets, sharedGet } from "@/lib/shared-get-cache";
@@ -154,7 +155,7 @@ export async function loadManagerSmsConversationDetailClient(
   const id = projectionId.trim();
   if (!id) throw new Error("Choose a conversation first.");
   const query = before ? `?before=${encodeURIComponent(before)}` : "";
-  return fetch(`/api/manager/sms-conversations/${encodeURIComponent(id)}${query}`, {
+  return fetch(adminOversightUrl(`/api/manager/sms-conversations/${encodeURIComponent(id)}${query}`), {
     credentials: "include",
     cache: "no-store",
   });
@@ -168,7 +169,7 @@ export async function updateManagerSmsConversationStateClient(input: {
 }): Promise<Response> {
   const id = input.projectionId.trim();
   if (!id) throw new Error("Choose a conversation first.");
-  return fetch(`/api/manager/sms-conversations/${encodeURIComponent(id)}`, {
+  return fetch(adminOversightUrl(`/api/manager/sms-conversations/${encodeURIComponent(id)}`), {
     method: "PATCH",
     credentials: "include",
     headers: { "Content-Type": "application/json" },

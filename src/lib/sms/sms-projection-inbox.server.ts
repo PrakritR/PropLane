@@ -439,22 +439,42 @@ export async function viewerMayActOnSmsProjection(
   });
 }
 
+/**
+ * The owners admin Communication reads (`fetchAdminSmsConversations` builds its list from the same set): the mapped
+ * manager cohort and the service owner in full, and a PropLane Service client only for a conversation placed in one
+ * of its service workspaces. Admin oversight authorizes a thread by this scope, never by the admin's own workspace.
+ */
+export type AdminSmsOwnerScope = { fullOwnerIds: string[]; clientOwnerIds: string[]; serviceWorkspaceIds: string[] };
+
+function adminScopeAllows(scope: AdminSmsOwnerScope, summary: SmsProjectionSummary, context: Context): boolean {
+  const owner = summary.ownerManagerUserId;
+  if (scope.fullOwnerIds.includes(owner)) return true;
+  if (!scope.clientOwnerIds.includes(owner)) return false;
+  const placed = placedWorkspaceIdOf(summary, context);
+  return Boolean(placed && scope.serviceWorkspaceIds.includes(placed));
+}
+
 /** Authorize a selected summary again before returning its independent turn page. */
-export async function fetchManagerSmsProjectionDetail(db: SupabaseClient, viewerId: string, conversationId: string, before: SmsProjectionCursor | null, level: "read" | "edit" | "delete" = "read", redirected = false) {
+export async function fetchManagerSmsProjectionDetail(db: SupabaseClient, viewerId: string, conversationId: string, before: SmsProjectionCursor | null, level: "read" | "edit" | "delete" = "read", redirected = false, adminScope: AdminSmsOwnerScope | null = null) {
   const { data: row, error } = await db.from("sms_projection_conversations")
     .select("id,owner_manager_user_id,counterparty_role,work_line_id,work_line_phone,identity_key,identity_kind,counterparty_user_id,counterparty_phone,legacy_conversation_key,last_body,last_direction,last_event_at,last_event_id,last_inbound_at,last_inbound_event_id,event_count,metadata,merged_into_id")
     .eq("id", conversationId).maybeSingle();
   if (error || !row) return null;
   if (row.merged_into_id) {
     if (redirected || row.merged_into_id === conversationId) return null;
-    return fetchManagerSmsProjectionDetail(db, viewerId, String(row.merged_into_id), before, level, true);
+    return fetchManagerSmsProjectionDetail(db, viewerId, String(row.merged_into_id), before, level, true, adminScope);
   }
-  const scope = await resolveCommunicationScope(db, viewerId, level);
-  if (!scope.ownerIds.includes(String(row.owner_manager_user_id))) return null;
   const summary = summaryFromRow(row);
+  const scope = adminScope ? null : await resolveCommunicationScope(db, viewerId, level);
+  if (scope && !scope.ownerIds.includes(String(row.owner_manager_user_id))) return null;
   const context = await loadPageContext(db, viewerId, [summary]);
-  const line = summary.workLinePhone;
-  if (!conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds: context.houseIds.get(summary.id) ?? [], untaggedTurns: true, lines: line ? [line] : [], sharedLineWorkspaceId: placedWorkspaceIdOf(summary, context) })) return null;
+  if (adminScope) {
+    // Admin oversight: the route already confirmed the admin role; the thread must be one admin Communication lists.
+    if (!adminScopeAllows(adminScope, summary, context)) return null;
+  } else if (scope) {
+    const line = summary.workLinePhone;
+    if (!conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds: context.houseIds.get(summary.id) ?? [], untaggedTurns: true, lines: line ? [line] : [], sharedLineWorkspaceId: placedWorkspaceIdOf(summary, context) })) return null;
+  }
   const page = await getSmsProjectionTurns(db, { ownerManagerUserId: summary.ownerManagerUserId, conversationId, before: before ?? undefined, limit: 50 });
   const outboundSids = [...new Set(page.turns.filter((turn) => turn.direction === "outbound" && isTwilioMessageSid(turn.sourceEventId)).map((turn) => turn.sourceEventId))];
   const { data: outboxRows, error: outboxError } = outboundSids.length
@@ -487,7 +507,7 @@ export async function fetchManagerSmsProjectionDetail(db: SupabaseClient, viewer
 }
 
 /** Resolve a legacy pointer only when it has one authorized line/role target. */
-export async function resolveManagerSmsProjectionSelection(db: SupabaseClient, viewerId: string, idOrAlias: string): Promise<string | "ambiguous" | null> {
+export async function resolveManagerSmsProjectionSelection(db: SupabaseClient, viewerId: string, idOrAlias: string, adminScope: AdminSmsOwnerScope | null = null): Promise<string | "ambiguous" | null> {
   if (/^[0-9a-f-]{36}$/i.test(idOrAlias)) return idOrAlias;
   if (!idOrAlias || idOrAlias.length > 240) return null;
   const { data, error } = await db.from("sms_projection_aliases")
@@ -495,7 +515,7 @@ export async function resolveManagerSmsProjectionSelection(db: SupabaseClient, v
   if (error || !data || data.length > 20) return "ambiguous";
   const visible = new Set<string>();
   for (const alias of data) {
-    const detail = await fetchManagerSmsProjectionDetail(db, viewerId, String(alias.conversation_id), null);
+    const detail = await fetchManagerSmsProjectionDetail(db, viewerId, String(alias.conversation_id), null, "read", false, adminScope);
     if (detail?.resident.projectionId) visible.add(detail.resident.projectionId);
     if (visible.size > 1) return "ambiguous";
   }

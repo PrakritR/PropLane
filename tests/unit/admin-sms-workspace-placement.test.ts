@@ -189,4 +189,12 @@ describe("placeAdminSmsConversations", () => {
     );
     expect(out.residents.map((r) => r.name)).toEqual(["2026-10-19T11:00:00Z", "2026-10-19T10:00:00Z"]);
   });
+
+  it("hides placed threads from the main list but keeps them for routing a reply (includePlaced)", () => {
+    const payload = { workNumber: null, personalPhone: null, phoneVerified: false, forwardInbound: true, smsConfigured: false, residents: [row(WS_SVC, "2026-10-19T10:00:00Z"), row(null, "2026-10-19T09:00:00Z")] };
+    const main = placeAdminSmsConversations(payload, { names: new Map([[WS_SVC, "A"]]), leads: [], workspaceId: null });
+    expect(main.residents.map((r) => r.name)).toEqual(["2026-10-19T09:00:00Z"]);
+    const routing = placeAdminSmsConversations(payload, { names: new Map([[WS_SVC, "A"]]), leads: [], workspaceId: null, includePlaced: true });
+    expect(routing.residents.map((r) => [r.name, r.workspaceId])).toEqual([["2026-10-19T10:00:00Z", WS_SVC], ["2026-10-19T09:00:00Z", null]]);
+  });
 });

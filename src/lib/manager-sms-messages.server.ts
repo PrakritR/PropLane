@@ -1,4 +1,5 @@
 import "server-only";
+import type { AdminSmsOwnerScope } from "@/lib/sms/sms-projection-inbox.server";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ADMIN_SMS_UNASSIGNED_FILTER } from "@/lib/admin-sms-filter";
@@ -1418,12 +1419,14 @@ export type AdminSmsOptions = {
   workspaceId?: string | null;
   /** Add the PropLane line's open leads (strangers no workspace holds yet) as read-only threads. The list route only. */
   includeLeads?: boolean;
+  /**
+   * Keep every placed thread, whatever `workspaceId` says. The send route resolves the recipient's thread by phone
+   * across ALL of admin's threads; the main list's "only what no workspace holds" narrowing is a view, never routing.
+   */
+  includePlaced?: boolean;
 };
 
-export async function fetchAdminSmsConversations(
-  db: SupabaseClient,
-  options: AdminSmsOptions = {},
-): Promise<ManagerSmsConversationsPayload> {
+async function loadAdminSmsScopeParts(db: SupabaseClient) {
   const { resolveMappedManagerContacts } = await import("@/lib/claw-resident-messaging.server");
   const cohortIds = [
     ...new Set(
@@ -1435,6 +1438,27 @@ export async function fetchAdminSmsConversations(
   // messages stamped with a service workspace; the service owner's traffic is the PropLane line, read in full.
   const service = await loadServiceInboxScope(db);
   const clientOwnerIds = service.clientOwnerIds.filter((id) => !cohortIds.includes(id));
+  return { cohortIds, service, clientOwnerIds };
+}
+
+/**
+ * The one owner scope admin Communication reads, for authorizing a single thread opened from that list (the list
+ * below is built from the same parts). Callers must have confirmed the admin role first.
+ */
+export async function loadAdminSmsOwnerScope(db: SupabaseClient): Promise<AdminSmsOwnerScope> {
+  const { cohortIds, service, clientOwnerIds } = await loadAdminSmsScopeParts(db);
+  return {
+    fullOwnerIds: [...new Set([...cohortIds, ...service.serviceOwnerIds])],
+    clientOwnerIds,
+    serviceWorkspaceIds: service.workspaceIds,
+  };
+}
+
+export async function fetchAdminSmsConversations(
+  db: SupabaseClient,
+  options: AdminSmsOptions = {},
+): Promise<ManagerSmsConversationsPayload> {
+  const { cohortIds, service, clientOwnerIds } = await loadAdminSmsScopeParts(db);
   const managerIds = [...new Set([...cohortIds, ...service.serviceOwnerIds, ...clientOwnerIds])];
   const smsConfigured = Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
   // The number admin Communication shows and every admin reply leaves on is the PropLane line, from the one line
@@ -1468,6 +1492,7 @@ export async function fetchAdminSmsConversations(
     names,
     leads: options.includeLeads ? await loadAdminLeadConversations(db, service.serviceOwnerIds[0] ?? null) : [],
     workspaceId: options.workspaceId ?? null,
+    includePlaced: options.includePlaced === true,
   });
   return { ...placed, workNumber: propLaneLineNumber };
 }
@@ -1536,7 +1561,7 @@ async function loadAdminLeadConversations(db: SupabaseClient, serviceOwnerId: st
  */
 export function placeAdminSmsConversations(
   payload: ManagerSmsConversationsPayload,
-  args: { names: Map<string, string>; leads: ManagerSmsResidentConversation[]; workspaceId: string | null },
+  args: { names: Map<string, string>; leads: ManagerSmsResidentConversation[]; workspaceId: string | null; includePlaced?: boolean },
 ): ManagerSmsConversationsPayload {
   const placed = payload.residents.map((resident) => {
     const id = String(resident.workspaceId ?? "").trim();
@@ -1555,7 +1580,9 @@ export function placeAdminSmsConversations(
   // A thread that lives in a PropLane Service workspace (assigned or moved there, or a text that workspace holds) belongs to
   // THAT workspace's Communication. The admin's main list keeps only what no workspace holds yet; the Workspace filter is
   // how admin reads one workspace's threads on purpose.
-  const residents = !wanted
+  const residents = args.includePlaced
+    ? all
+    : !wanted
     ? all.filter((resident) => !String(resident.workspaceId ?? "").trim())
     : all.filter((resident) =>
         wanted === ADMIN_SMS_UNASSIGNED_FILTER ? !resident.workspaceId : resident.workspaceId === wanted,
