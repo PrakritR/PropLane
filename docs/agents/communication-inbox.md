@@ -203,8 +203,9 @@ admin:
   `SMS_COMM_UI_ENABLED` says - admin operates the PropLane line (see the flag below).
 - **Workspace placement (PropLane Service, Oct 20).** Every text thread carries `workspaceId` / `workspaceName`: the
   `is_service` workspace the router stamped on its messages (`placeAdminSmsConversations`), else "Unassigned" - a stamp on
-  any other workspace is never named. The row draws it as one plain line under the preview (`placeLine`, no pill); the
-  Filter popover has a Workspace field (All · Unassigned · each service workspace) that re-reads the stream with
+  any other workspace is never named. The row draws its place as one plain line under the preview (`placeLine`, no pill;
+  what that line holds is below); the Filter popover has a Workspace field (All · Unassigned · each service
+  workspace) that re-reads the stream with
   `?workspaceId=` (`unassigned` or a service workspace this surface already reads, else 400/404; admin gate first).
   The thread header names the workspace with an "Open in workspace" icon action (the Admin > Service `open` action, then
   `/portal/communication/active/<key>`).
@@ -222,6 +223,18 @@ admin:
   carrier short code like `78156`, an alphanumeric id) is stored by `ingestNonPhoneSenderText` as its own history-only
   thread titled by the sender (`sendDisabled`), alerts the admin phones once with the body in full, and is NEVER replied to
   or given to an agent (`non-phone-sender.ts`; the inbound route no longer answers it 400).
+- **Opening and answering a placed thread (Nov 12).** Narrowing the LIST is a view, never routing. Admin opens any thread its
+  list shows through `/api/manager/sms-conversations/<id>` with `?oversight=admin` (`adminOversightUrl`): the route confirms the
+  admin role (`resolveAdminOversight`) and then authorizes against `loadAdminSmsOwnerScope` — the admin list's OWN owners (the
+  mapped manager cohort and the service owner in full, a PropLane Service client only for a thread placed in one of its service
+  workspaces) — never the admin's own workspace, which used to 404 a managed client's thread. The send route reads with
+  `includePlaced: true` so a reply resolves the recipient's thread across EVERY placed thread, logs to that workspace and leaves
+  on its line; without it the reply landed under an arbitrary owner. Test: `tests/unit/admin-sms-thread-oversight.test.ts`.
+- **The admin pane is not the manager pane.** A thread admin's list shows never silently vanishes: on 403/404 the row stays and
+  says so in place (the manager pane still drops it). Renaming a contact, the email leg of a reply and "Schedule for later" are
+  manager-scoped writes the admin pane does not own, so an `/api/admin/*` endpoint hides them and an admin text thread sends now
+  or not at all. A row's `placeLine` is the house (and room) the thread names, as the manager inbox's is, and falls back to the
+  service workspace it was routed to, else Unassigned. Test: `tests/unit/admin-sms-panel-actions.test.ts`.
 - **Thread header chrome.** The admin lead thread's "Assign to workspace" is an icon action over a menu (confirm, then
   `PATCH /api/admin/unassigned-leads/<id>`); no select pill whose width follows a workspace name. The shared
   `InboxThreadView` header is `min-w-0 max-w-full`, message text wraps (`break-words [overflow-wrap:anywhere]`).

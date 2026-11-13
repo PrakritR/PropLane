@@ -852,7 +852,10 @@ member really has an open proposal on their own Assistant session: a
 confirmation is an authorization, and posted to the Team chat it would claim
 nothing and broadcast their private approval to every teammate. The check fails
 closed to the chat, so an unreadable session or proposal read is never read as
-an open proposal. Never log a raw phone or body.
+an open proposal. Never log a raw phone or body. On the shared PropLane line the
+default is INVERTED — the Assistant answers and `@team` opts into the picked
+managed workspace's Team chat through this same router
+([`one-number.md`](one-number.md) § W27 owns that rule).
 - **Resident inbound forward to teammates** (`team_inbound_forward`,
   `inbound-forward-team.server.ts`): beside the owner's own forward
   (`forwardResidentInboundToManagerCell`, unchanged), a resident's text is also

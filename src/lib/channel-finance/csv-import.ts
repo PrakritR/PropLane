@@ -99,7 +99,7 @@ export function previewChannelCsv(platform: FinancePlatform, csvText: string): C
   if (table.length < 2) return { ...preview, fatal: "The file has no rows." };
   // Airbnb exports can open with a summary block; the header row is the first one that names a confirmation / reservation code.
   const aliases = platform === "airbnb" ? AIRBNB : BOOKING;
-  let headerAt = table.findIndex((row) => columnIndex(row, aliases).code !== undefined);
+  const headerAt = table.findIndex((row) => columnIndex(row, aliases).code !== undefined);
   if (headerAt < 0) {
     return { ...preview, fatal: platform === "airbnb" ? "No Confirmation Code column. Upload the Transaction history CSV." : "No reservation number column. Upload the Payouts or Reservations CSV." };
   }

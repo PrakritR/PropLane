@@ -313,9 +313,19 @@ it runs in one transaction under the account-lifecycle advisory lock, and it nev
   emails and aliases follow the workspace; holds that would cross owners are dropped.
 - **Undo.** Every moved row's primary key is stored in `managed_workspace_ownership_moves` (also the single-apply marker). `undo_managed_workspace_move`
   restores exactly those rows, only inside 2 hours and only once; after new activity lands, forward-fix instead.
-- **Team chat / House chat ids (D2).** Not renamed: the old `team-thread:<client>:…` / `house-thread:<client>:…` ids are referenced by at
-  least twelve other tables (`portal_inbox_thread_aliases`, `agent_sessions.inbox_thread_id`, `prospect_contexts`, `sms_*`), so the moved
-  rows keep their ids and the readers resolve them through the workspace.
+- **Owner-embedded keys (D2, rewritten Nov 12).** Several stored keys are BUILT from the owner id, so a move that left them alone made the
+  app (which re-derives the key from the new owner) mint a second thread. `20261112240000_managed_mover_key_rewrite.sql` `create or replace`s
+  the mover and its undo so the SAME transaction rewrites, for in-scope rows only: Team chat ids (`team-thread:<client>:…`, both legacy
+  forms), House chat ids (`house-thread:<client>:…`), `sms_notice_<hash>` thread ids (only when the hash recomputes exactly from the row's
+  own phone — never guessed), `<client>:<role>:<ref>` SMS conversation keys and the older `smsv2:` form, their aliases, and every column
+  that REFERENCES a renamed inbox thread id (`portal_inbox_thread_aliases`, `agent_sessions.inbox_thread_id`, `prospect_contexts`,
+  `sms_reply_handles`, provider refs, `stay_message_sends`, `vendor_work_identity_reply_bindings`). Alias/ambiguous-alias tables are
+  ACCOUNT rows, so they move only for a client with no other live workspace. **A per-person Assistant thread
+  (`agent_notice_<user>[__<ws>]`) stays with the client** — the scope predicate excludes it. Idempotency and dedupe keys
+  (`action_events.event_key`, `*.idempotency_key`, `sms_projection_turns.source_namespace`, `sms_reply_debounce`) and KEEP tables are
+  reported, never rewritten. A key that would collide with one the service owner already holds STOPS the run (reported on a dry run,
+  raised with nothing written on a real one) — never merged; every old value is stashed so the undo restores it exactly.
+  Test: `tests/unit/managed-mover-key-rewrite.test.ts`.
 - **Deletion.** `managed-account-deletion-guard.server.ts`: the service owner and any account owning an `is_service` workspace cannot be
   deleted; a client who is the payee of a managed workspace with a fee policy or a non-zero owner payable cannot be deleted until an
   admin replaces the owner of record. An unreadable check refuses.

@@ -1214,6 +1214,15 @@ list, so `sms_signup` and any later value survive), and a partial index on roste
   CODED yes (§ Coded confirmation on the PropLane line), over ONE service workspace at a time (landlord = the workspace's owner, actor = the service owner, access `owner`; the managed-client
   lock is the client's and never applies to the service owner). The workspace is named in the text, remembered for 6 hours (`sms_line_sessions`
   key `sm:<phone>`), else "Is this about Ambika or Vinod?". Dispatch Y / N / R / B answers across all service workspaces at once.
+- **The question never costs the request (Nov 12).** When the pick is ambiguous, `pickServiceWorkspaceForText` stores the ORIGINAL text and its
+  MessageSid beside the pending pick (same table, key `smo:<phone>`, same six-hour life) and the text is already in their Assistant thread; when
+  the next text ANSWERS that pick ("1", "Ambika") the result carries `replay` and the original request is what runs, scoped to the answer. The
+  answer itself is what the thread records. A text that names a workspace on its own is a new request, not an answer, and drops the stored one;
+  an unclear second answer asks again and keeps the FIRST request waiting.
+- **The Assistant is the default on the 206; `@team` reaches the Team chat.** Staff and admins run managed homes by text, so a service sender's
+  text goes to the manager agent (an `@assistant` address is stripped). A text that starts with `@team` is routed to the PICKED workspace's Team
+  chat through the same `routeManagerInboundText` a self-serve manager's work-number text uses, under its grant and topic gates — never the Team
+  chat of the line owner's own workspace. The pick is resolved first, so the routing is exactly a manager's own.
 - **Admin Communication** (`fetchAdminSmsConversations`): adds the service owner's PropLane-line traffic and, for a client who owns a service
   workspace, ONLY texts stamped with a service workspace (`workspaceRestriction`); it reads with `visibility: "none"` (oversight is not a viewer).
   Non-service workspaces of the same client are never shown, and no manager route gained an admin branch.
