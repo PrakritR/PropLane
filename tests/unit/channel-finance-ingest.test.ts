@@ -10,10 +10,16 @@ import type { FinanceRoomCandidate } from "@/lib/channel-finance/match";
 
 type Row = Record<string, unknown>;
 
-/** A tiny in-memory stand-in for the three tables, honouring eq / in filters and upsert onConflict. */
+/** The nil uuid `channel_payout_records.workspace_key` folds a null workspace to (20261112250000_*). */
+const NIL_WORKSPACE = "00000000-0000-0000-0000-000000000000";
+
+/** A tiny in-memory stand-in for the three tables, honouring eq / in / is filters and upsert onConflict. */
 function fakeDb() {
   const tables: Record<string, Row[]> = { channel_payout_records: [], channel_finance_mail: [], external_calendar_connections: [] };
   let seq = 0;
+  // The stored generated column, materialised exactly as the migration defines it, so the conflict key is the real one.
+  const generated = (name: string, row: Row): Row =>
+    name === "channel_payout_records" ? { ...row, workspace_key: (row.workspace_id as string | null) ?? NIL_WORKSPACE } : row;
   const from = (name: string) => {
     const filters: ((r: Row) => boolean)[] = [];
     let op: "select" | "upsert" | "update" | "delete" = "select";
@@ -27,17 +33,19 @@ function fakeDb() {
         return { data: null, error: null };
       }
       if (op === "update") {
-        rows.filter((r) => filters.every((f) => f(r))).forEach((r) => Object.assign(r, payload));
+        rows.filter((r) => filters.every((f) => f(r))).forEach((r) => Object.assign(r, generated(name, { ...r, ...payload })));
         return { data: null, error: null };
       }
-      const hit = rows.find((r) => conflict.every((k) => r[k] === payload[k]));
-      if (hit) Object.assign(hit, payload);
-      else rows.push({ id: `id-${++seq}`, ...payload });
+      const values = generated(name, payload);
+      const hit = rows.find((r) => conflict.every((k) => r[k] === values[k]));
+      if (hit) Object.assign(hit, values);
+      else rows.push({ id: `id-${++seq}`, ...values });
       return { data: hit ?? rows[rows.length - 1], error: null };
     };
     const b: Record<string, unknown> = {
       select: () => b,
       eq: (k: string, v: unknown) => (filters.push((r) => r[k] === v), b),
+      is: (k: string, v: unknown) => (filters.push((r) => (r[k] ?? null) === v), b),
       in: (k: string, v: unknown[]) => (filters.push((r) => v.includes(r[k])), b),
       order: () => b,
       limit: () => b,
@@ -77,6 +85,22 @@ describe("recordFinanceFacts", () => {
     await recordFinanceFacts(db, { ...input, facts: { ...facts, kind: "reservation" } });
     expect(tables.channel_payout_records).toHaveLength(2);
   });
+  it("the same code in another of the owner's workspaces is its own row: an import never moves income across workspaces", async () => {
+    const { db, tables } = fakeDb();
+    const base = { ownerUserId: "u1", facts, source: "csv" as const, review: "ok" as const, candidates: [room] };
+    await recordFinanceFacts(db, { ...base, workspaceId: "ws-a" });
+    await recordFinanceFacts(db, { ...base, workspaceId: "ws-b" });
+    expect(tables.channel_payout_records).toHaveLength(2);
+    expect(tables.channel_payout_records.map((r) => r.workspace_id).sort()).toEqual(["ws-a", "ws-b"]);
+    // ... and each one is still idempotent inside its own workspace.
+    await recordFinanceFacts(db, { ...base, workspaceId: "ws-a" });
+    expect(tables.channel_payout_records.filter((r) => r.workspace_id === "ws-a")).toHaveLength(1);
+    // A row filed before a workspace was known stays its own row too, rather than being claimed by the next import.
+    await recordFinanceFacts(db, { ...base, workspaceId: null });
+    expect(tables.channel_payout_records).toHaveLength(3);
+    expect(tables.channel_payout_records.filter((r) => r.workspace_id === null)).toHaveLength(1);
+  });
+
   it("an unmatched booking is kept as 'needs_room', never dropped", async () => {
     const { db, tables } = fakeDb();
     await recordFinanceFacts(db, { ownerUserId: "u1", workspaceId: null, facts: { ...facts, confirmationCode: "HMZZZ99999", checkIn: "2027-01-01", checkOut: "2027-01-04" }, source: "csv", review: "ok", candidates: [room] });

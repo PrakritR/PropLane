@@ -91,13 +91,18 @@ export async function recordFinanceFacts(
   },
 ): Promise<RecordOutcome | null> {
   const { facts } = input;
-  const { data: existingRaw, error: readError } = await db
+  // Scoped to THIS workspace both ways: a booking of the same code in another of the owner's workspaces is a different
+  // record, never this one re-pointed (`channel_payout_records_workspace_key_idx`).
+  const read = db
     .from("channel_payout_records")
     .select("*")
     .eq("manager_user_id", input.ownerUserId)
     .eq("platform", facts.platform)
     .eq("confirmation_code", facts.confirmationCode)
     .in("kind", ["reservation", "payout"]);
+  const { data: existingRaw, error: readError } = await (input.workspaceId === null
+    ? read.is("workspace_id", null)
+    : read.eq("workspace_id", input.workspaceId));
   if (readError) return null;
   const existingRows = ((existingRaw ?? []) as Row[]).map(recordFromRow);
   const existing = existingRows.find((r) => r.kind === facts.kind) ?? null;
@@ -141,7 +146,7 @@ export async function recordFinanceFacts(
   };
   const { data, error } = await db
     .from("channel_payout_records")
-    .upsert(values, { onConflict: "manager_user_id,platform,confirmation_code,kind" })
+    .upsert(values, { onConflict: "manager_user_id,platform,confirmation_code,kind,workspace_key" })
     .select("id")
     .maybeSingle();
   if (error || !data) return null;
@@ -221,21 +226,26 @@ export async function assignFinanceRoom(
   const candidates = await loadFinanceCandidates(db, { ownerUserId: input.scope.ownerUserId, workspaceId: input.scope.workspaceId });
   const room = candidates.find((c) => c.propertyId === input.propertyId && c.roomId === input.roomId && c.connectionId);
   if (!room) return { ok: false, status: 400, error: "Pick one of your rooms." };
-  const { error } = await db
-    .from("channel_payout_records")
-    .update({ property_id: room.propertyId, property_label: room.propertyLabel, room_id: room.roomId, room_label: room.roomLabel, updated_at: new Date().toISOString() })
-    .eq("manager_user_id", input.scope.ownerUserId)
-    .eq("platform", t.platform as string)
-    .eq("confirmation_code", t.confirmation_code as string);
+  // Both kinds of THIS booking in THIS workspace: the same scope the row was read under, never the owner's other workspaces.
+  const { error } = await inScope(
+    db
+      .from("channel_payout_records")
+      .update({ property_id: room.propertyId, property_label: room.propertyLabel, room_id: room.roomId, room_label: room.roomLabel, updated_at: new Date().toISOString() })
+      .eq("platform", t.platform as string)
+      .eq("confirmation_code", t.confirmation_code as string),
+    input.scope,
+  );
   if (error) return { ok: false, status: 500, error: "Could not save the room." };
   // A room fills "needs_room" only; a row still waiting for review stays there.
-  await db
-    .from("channel_payout_records")
-    .update({ review_status: "ok" })
-    .eq("manager_user_id", input.scope.ownerUserId)
-    .eq("platform", t.platform as string)
-    .eq("confirmation_code", t.confirmation_code as string)
-    .eq("review_status", "needs_room");
+  await inScope(
+    db
+      .from("channel_payout_records")
+      .update({ review_status: "ok" })
+      .eq("platform", t.platform as string)
+      .eq("confirmation_code", t.confirmation_code as string)
+      .eq("review_status", "needs_room"),
+    input.scope,
+  );
   return { ok: true };
 }
 

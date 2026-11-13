@@ -279,6 +279,7 @@ declare
   v_pkjoin text;
   v_old_ids text[];
   v_cur_owner uuid;
+  rp record;
   v_agent_kept bigint;
   v_unique boolean;
 begin
@@ -511,11 +512,13 @@ begin
   for r in select to_regclass('public.' || quote_ident(c.table_name)) as reg, c.table_name, c.column_name from public.managed_move_thread_ref_columns() c loop
     if r.reg is null then continue; end if;
     if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = r.table_name and column_name = r.column_name) then continue; end if;
-    for v_pk_list in select x."oldId" from jsonb_to_recordset(v_plan) as x("oldId" text) loop
-      execute format('update public.%I set %I = public.managed_move_rekey($1, $2, $3) where %I = $1', r.table_name, r.column_name, r.column_name)
-        using v_pk_list, v_from, v_to;
+    -- the plan's own newId, never a re-derivation: an `sms_notice_*` id is a sha256 of the owner and the phone, so
+    -- `managed_move_rekey` returns it unchanged and the reference would be left pointing at the row the rename deleted.
+    for rp in select x."oldId" as old_id, x."newId" as new_id from jsonb_to_recordset(v_plan) as x("oldId" text, "newId" text) loop
+      execute format('update public.%I set %I = $2 where %I = $1', r.table_name, r.column_name, r.column_name)
+        using rp.old_id, rp.new_id;
       get diagnostics v_n = row_count;
-      if v_n > 0 then v_ref_changes := v_ref_changes || jsonb_build_array(jsonb_build_object('tbl', r.table_name, 'col', r.column_name, 'oldId', v_pk_list, 'newId', public.managed_move_rekey(v_pk_list, v_from, v_to))); end if;
+      if v_n > 0 then v_ref_changes := v_ref_changes || jsonb_build_array(jsonb_build_object('tbl', r.table_name, 'col', r.column_name, 'oldId', rp.old_id, 'newId', rp.new_id)); end if;
     end loop;
   end loop;
   v_keyrw := jsonb_build_object('sms', v_key_changes, 'threads', v_thread_changes, 'threadRefs', v_ref_changes);

@@ -6,7 +6,7 @@ import { loadSharedLineConfig, isSharedLineNumber } from "@/lib/one-number/confi
 import type { SharedLineCandidate } from "@/lib/one-number/contracts";
 import { listLineMemberships } from "@/lib/one-number/line-member-status.server";
 import { findVerifiedProfileByPhone } from "@/lib/one-number/router-lookups.server";
-import { decideFromCandidates, resolvePendingAnswer } from "@/lib/one-number/router.server";
+import { decideFromCandidates, looksLikePendingAnswerAttempt, resolvePendingAnswer } from "@/lib/one-number/router.server";
 import { loadSharedLineSession, PENDING_QUESTION_TTL_MS, saveSharedLinePending, saveSharedLineRoute } from "@/lib/one-number/session.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { serviceWorkspaceLabel } from "@/lib/service/service-label";
@@ -242,8 +242,12 @@ export type ServiceTextPick = ServiceWorkspacePick & {
  * `pickServiceWorkspace` that never loses the request the question interrupted. When the pick is ambiguous the original
  * text (and its MessageSid) is stored beside the pending pick; when the next text resolves that pick ("1", "Ambika") the
  * result carries `replay`, the original, so the caller runs it scoped to the picked workspace. A text that names a
- * workspace on its own is a new request, not an answer, and drops the stored one. An unclear second answer asks again
- * (today's behaviour) and keeps the FIRST request waiting.
+ * workspace on its own is a new request, not an answer, and drops the stored one.
+ *
+ * The NEWEST unclear request wins: a second ambiguous text that is not an answer to the pending question REPLACES the
+ * stored one, so "1" never replays a command the sender did not just ask for. Only an unclear ANSWER attempt
+ * ("3", a half-named house) leaves the first request waiting. Once the pending pick is gone - routed, or nothing to route
+ * to - the request it was holding goes with it, rather than waiting out the six-hour life of the row.
  */
 export async function pickServiceWorkspaceForText(
   db: SupabaseClient,
@@ -257,14 +261,13 @@ export async function pickServiceWorkspaceForText(
   const answered = pending?.length ? resolvePendingAnswer(args.body, pending, workspaces.map(candidateOf)) : null;
   const pick = await pickServiceWorkspace(db, args);
   if (pick.kind === "ask") {
-    if (!stored) await saveOriginalRequest(db, args.fromPhone, { body: args.originalBody, messageSid: args.messageSid });
+    const keepFirst = stored !== null && pending !== null && looksLikePendingAnswerAttempt(args.body, pending);
+    if (!keepFirst) await saveOriginalRequest(db, args.fromPhone, { body: args.originalBody, messageSid: args.messageSid });
     return pick;
   }
-  if (pick.kind === "chosen" && stored) {
-    await clearOriginalRequest(db, args.fromPhone);
-    // Only a real answer to the question stands in for the request; a text that names a house is its own request.
-    return answered ? { ...pick, replay: stored } : pick;
-  }
+  if (stored || pending?.length) await clearOriginalRequest(db, args.fromPhone);
+  // Only a real answer to the question stands in for the request; a text that names a house is its own request.
+  if (pick.kind === "chosen" && stored && answered) return { ...pick, replay: stored };
   return pick;
 }
 

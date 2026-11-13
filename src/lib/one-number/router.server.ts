@@ -150,6 +150,25 @@ export function resolvePendingAnswer(
   return fresh.find((c) => candidateKey(c) === candidateKey(chosen!)) ?? null;
 }
 
+/** The most words an answer to "Is this about A or B?" is ever made of. Longer than this is a sentence: a new request. */
+const ANSWER_ATTEMPT_MAX_WORDS = 4;
+
+/**
+ * Did this text TRY to answer the pending question, even though `resolvePendingAnswer` could not settle it? A bare number
+ * (in range or not) and a short phrase built only from the words of the asked labels are attempts; anything else is its own
+ * request. Callers that hold a request back behind the question use this to decide WHICH request is still waiting: an
+ * unclear answer leaves the first one in place, a new text replaces it.
+ */
+export function looksLikePendingAnswerAttempt(body: string, asked: readonly SharedLineCandidate[]): boolean {
+  const text = body.trim();
+  if (!text) return false;
+  if (/^#?\d{1,2}$/.test(text)) return true;
+  const words = tokens(text).filter((t) => !FILLER.has(t));
+  if (words.length === 0 || words.length > ANSWER_ATTEMPT_MAX_WORDS) return false;
+  const labelWords = new Set(asked.flatMap((c) => [...tokens(c.label), ...tokens(spokenLabelFor(c))]));
+  return words.every((w) => labelWords.has(w));
+}
+
 /**
  * What this candidate may be CALLED in a text to this phone. A vendor reads the general area, never the street: the
  * candidate exists while the job is only offered. `label` stays the house for matching, so naming the street still

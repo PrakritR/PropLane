@@ -163,6 +163,19 @@ describe("csv import", () => {
     expect(p.rows[0]!.facts).toMatchObject({ kind: "reservation", grossCents: 30000, hostFeeCents: 4500 });
     expect(p.skipped).toHaveLength(1);
   });
+  it("airbnb: only an exact 'Reservation' type is a payout, so an adjustment never stands in for the booking", () => {
+    const csv = `Date,Type,Confirmation Code,Start date,End date,Nights,Guest,Listing,Currency,Amount,Paid out,Service fee,Gross earnings
+10/08/2026,Reservation,HMABC12345,10/07/2026,10/11/2026,4,Juan Angel,Room 6,USD,465.60,465.60,14.40,480.00
+10/09/2026,Reservation adjustment,HMABC12345,10/07/2026,10/11/2026,4,Juan Angel,Room 6,USD,12.00,12.00,,
+10/09/2026,Resolution Payout,HMABC12345,,,,,,USD,30.00,30.00,,
+`;
+    const p = previewChannelCsv("airbnb", csv);
+    expect(p.rows).toHaveLength(1);
+    // The booking's own amount, not the adjustment's, and the adjustment is reported rather than deduped against it.
+    expect(p.rows[0]!.facts).toMatchObject({ confirmationCode: "HMABC12345", payoutCents: 46560 });
+    expect(p.skipped.map((x) => x.reason)).toEqual(["Reservation adjustment row", "Resolution Payout row"]);
+    expect(p.skipped.some((x) => /Duplicate/.test(x.reason))).toBe(false);
+  });
   it("a wrong file is a fatal message, not a crash", () => {
     expect(previewChannelCsv("airbnb", "a,b\n1,2\n").fatal).toMatch(/Confirmation Code/);
   });

@@ -82,6 +82,17 @@ function currencyOk(raw: string): boolean {
 
 const CODE_OK = /^[A-Za-z0-9]{6,20}$/;
 
+/**
+ * The Airbnb "Transaction history" Type values that ARE a reservation payout, matched EXACTLY (case and spacing only).
+ * A substring test read "Reservation adjustment" / "Reservation resolution" as a full payout under the booking's own
+ * confirmation code, and the in-file dedupe below then dropped the real reservation line for it. Every other type -
+ * "Payout", "Adjustment", "Resolution Payout", "Co-Host Payout" - is skipped with its own reason and never reaches the
+ * dedupe, so it can never stand in for the booking.
+ */
+const AIRBNB_RESERVATION_TYPES = new Set(["reservation"]);
+
+const typeKey = (raw: string): string => raw.trim().toLowerCase().replace(/\s+/g, " ");
+
 export function previewChannelCsv(platform: FinancePlatform, csvText: string): CsvPreview {
   const preview: CsvPreview = { platform, rows: [], errors: [], skipped: [], fatal: null };
   const table = parseCsvText(csvText);
@@ -93,7 +104,6 @@ export function previewChannelCsv(platform: FinancePlatform, csvText: string): C
     return { ...preview, fatal: platform === "airbnb" ? "No Confirmation Code column. Upload the Transaction history CSV." : "No reservation number column. Upload the Payouts or Reservations CSV." };
   }
   const cols = columnIndex(table[headerAt]!, aliases);
-  headerAt += 0;
   for (let i = headerAt + 1; i < table.length; i += 1) {
     const row = table[i]!;
     const line = i + 1;
@@ -121,8 +131,8 @@ export function previewChannelCsv(platform: FinancePlatform, csvText: string): C
     const common = { guestLabel: guest, listingHint: listing };
 
     if (platform === "airbnb") {
-      const type = cell(row, cols.type).toLowerCase();
-      if (type && !/reservation/.test(type)) {
+      const type = typeKey(cell(row, cols.type));
+      if (type && !AIRBNB_RESERVATION_TYPES.has(type)) {
         skip(`${cell(row, cols.type)} row`);
         continue;
       }

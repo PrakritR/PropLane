@@ -380,12 +380,34 @@ describe("the original request survives the 'Which home?' question", () => {
     expect(answered).toMatchObject({ kind: "chosen", workspace: { id: WS_A }, replay: { body: "@assistant who is late", messageSid: "SM_A" } });
   });
 
-  it("an unclear second answer asks again (today's behaviour) and keeps the FIRST request waiting", async () => {
+  it("an unclear ANSWER attempt asks again and keeps the FIRST request waiting", async () => {
     const workspaces = await listServiceWorkspaceRefs(db as never);
     delete db.__tables.sms_line_sessions;
     await ask(workspaces, "any tours this week?", "SM_1");
-    expect(await ask(workspaces, "hmm", "SM_2")).toEqual({ kind: "ask", question: "Is this about Ambika or Vinod?" });
+    // "3" is an answer to the question, just not one of the two: the request it interrupted is still the live one.
+    expect(await ask(workspaces, "3", "SM_2")).toEqual({ kind: "ask", question: "Is this about Ambika or Vinod?" });
     expect(await ask(workspaces, "1", "SM_3")).toMatchObject({ kind: "chosen", replay: { body: "any tours this week?", messageSid: "SM_1" } });
+  });
+
+  it("a SECOND ambiguous request replaces the first: '1' never replays a command the sender did not just ask for", async () => {
+    const workspaces = await listServiceWorkspaceRefs(db as never);
+    delete db.__tables.sms_line_sessions;
+    await ask(workspaces, "any tours this week?", "SM_1");
+    expect(await ask(workspaces, "take room 6 off the market", "SM_2")).toEqual({ kind: "ask", question: "Is this about Ambika or Vinod?" });
+    expect(await ask(workspaces, "1", "SM_3")).toMatchObject({
+      kind: "chosen",
+      workspace: { id: WS_A },
+      replay: { body: "take room 6 off the market", messageSid: "SM_2" },
+    });
+  });
+
+  it("the stored request is dropped with the pending pick, not left to the six-hour TTL", async () => {
+    const workspaces = await listServiceWorkspaceRefs(db as never);
+    delete db.__tables.sms_line_sessions;
+    await ask(workspaces, "any tours this week?", "SM_1");
+    expect((db.__tables.sms_line_sessions ?? []).some((r) => String(r.phone_key).startsWith("smo:"))).toBe(true);
+    await ask(workspaces, "1", "SM_2");
+    expect((db.__tables.sms_line_sessions ?? []).some((r) => String(r.phone_key).startsWith("smo:"))).toBe(false);
   });
 
   it("a text that names a house on its own is a new request: no replay, the stored one is dropped", async () => {

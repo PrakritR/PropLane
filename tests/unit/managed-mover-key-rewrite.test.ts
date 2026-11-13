@@ -78,6 +78,21 @@ describe("managed mover key rewrite: every owner-embedding key shape", () => {
     expect(body).toMatch(/update public\.inbox_message_provider_refs set thread_record_id = p_new/);
   });
 
+  it("points a column that REFERENCES a renamed thread at the plan's newId, never a re-derivation", () => {
+    const mover = fn("move_managed_workspace_to_service_owner");
+    const from = mover.indexOf("managed_move_thread_ref_columns() c loop", mover.indexOf("---- text keys"));
+    expect(from).toBeGreaterThan(0);
+    const loop = mover.slice(from, mover.indexOf("v_keyrw :=", from));
+    // An `sms_notice_*` id is a sha256, so `managed_move_rekey` returns it unchanged: rewriting a reference with it
+    // would leave every pointer on the row the rename just deleted, and the stash would record newId == oldId.
+    expect(loop).toMatch(/jsonb_to_recordset\(v_plan\) as x\("oldId" text, "newId" text\)/);
+    expect(loop).toMatch(/set %I = \$2 where %I = \$1/);
+    expect(loop).not.toMatch(/set %I = public\.managed_move_rekey/);
+    expect(loop).toMatch(/'oldId', rp\.old_id, 'newId', rp\.new_id/);
+    // ... and the undo puts each reference back on the id it came from.
+    expect(fn("undo_managed_workspace_move")).toMatch(/update public\.%I set %I = \$1 where %I = \$2'\, kr\.tbl, kr\.col, kr\.col\) using kr\."oldId", kr\."newId"/);
+  });
+
   it("keeps every guard and the allowlist in the replaced mover, and stashes the old keys for the undo", () => {
     const mover = fn("move_managed_workspace_to_service_owner");
     for (const stop of ["workspace_not_service", "owner_is_not_expected_from", "open_checkout_attempts", "pending_withdrawals", "unclassified_table", "another_owner_of_record_seated", "client_holds_a_non_owner_seat"]) {
