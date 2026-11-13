@@ -266,7 +266,7 @@ async function planFor(ctx: Ctx, w: { id: string; name: string; owner_user_id: s
 }
 
 function printPlan(ctx: Ctx, p: Plan) {
-  const d = p.dry as { move?: object; account?: object; keep?: object; leftBehind?: object; stops?: string[]; otherLiveWorkspacesOfClient?: number; tablesScanned?: number; openCheckouts?: number; stalePendingCheckouts?: number; pendingWithdrawals?: number; clientSeatExists?: boolean; serviceOwnerOwnSeat?: boolean; status?: string };
+  const d = p.dry as { keyRewrites?: object; move?: object; account?: object; keep?: object; leftBehind?: object; stops?: string[]; otherLiveWorkspacesOfClient?: number; tablesScanned?: number; openCheckouts?: number; stalePendingCheckouts?: number; pendingWithdrawals?: number; clientSeatExists?: boolean; serviceOwnerOwnSeat?: boolean; status?: string };
   const l = ctx.log;
   l(`\n=== ${p.workspace.name}  (${p.workspace.id}) ===`);
   l(`from ${p.from} (${p.fromEmail})  ->  to ${ctx.to} (${ctx.toEmail})   mover status: ${d.status}`);
@@ -277,6 +277,7 @@ function printPlan(ctx: Ctx, p: Plan) {
   l(`ACCOUNT-LEVEL (moves, sole ws):   ${JSON.stringify(d.account)}`);
   l(`KEEP (never written):             ${JSON.stringify(d.keep)}`);
   l(`left behind (scoped tables, rows of the client outside this workspace): ${JSON.stringify(d.leftBehind)}`);
+  l(`KEY REWRITES (text keys that embed the old owner id; mover 20261112240000; a collision is a STOP): ${JSON.stringify(d.keyRewrites ?? "not reported (mover predates 20261112240000)")}`);
   l(`seats before (${p.seats.length}): ${p.seats.map((s) => `${String(s.team_role)}:${String(s.status)}${s.is_owner_of_record ? ":ofr" : ""}${s.is_service_seat ? ":svc" : ""} inviter=${String(s.inviter_user_id).slice(0, 8)} invitee=${String(s.invitee_user_id).slice(0, 8)}`).join(" | ") || "none"}`);
   l(`seats after: service owner's own seat removed=${d.serviceOwnerOwnSeat ? "yes" : "n/a"}; every live seat answers to the service owner; client seated as property_owner + owner of record (exists already: ${d.clientSeatExists ? "yes" : "no, will be inserted"})`);
   l(`work numbers: ${p.numbers.map((n) => `${String(n.phone_number)}${n.released_at ? "(released)" : ""}`).join(", ") || "none"}   work emails: ${p.emails.map((e) => String(e.mailbox_local ?? e.address ?? e.id)).join(", ") || "none"}`);
