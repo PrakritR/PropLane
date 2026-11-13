@@ -91,8 +91,8 @@ export async function recordFinanceFacts(
   },
 ): Promise<RecordOutcome | null> {
   const { facts } = input;
-  // Scoped to THIS workspace both ways: a booking of the same code in another of the owner's workspaces is a different
-  // record, never this one re-pointed (`channel_payout_records_workspace_key_idx`).
+  // This workspace, plus the rows filed before any workspace was known. Another of the owner's workspaces is a different
+  // record and is never read, matched or re-pointed here (`channel_payout_records_workspace_key_idx`).
   const read = db
     .from("channel_payout_records")
     .select("*")
@@ -102,12 +102,18 @@ export async function recordFinanceFacts(
     .in("kind", ["reservation", "payout"]);
   const { data: existingRaw, error: readError } = await (input.workspaceId === null
     ? read.is("workspace_id", null)
-    : read.eq("workspace_id", input.workspaceId));
+    : read.or(`workspace_id.eq.${input.workspaceId},workspace_id.is.null`));
   if (readError) return null;
-  const existingRows = ((existingRaw ?? []) as Row[]).map(recordFromRow);
-  const existing = existingRows.find((r) => r.kind === facts.kind) ?? null;
+  const rawRows = (existingRaw ?? []) as Row[];
+  const workspaceOf = new Map(rawRows.map((r) => [String(r.id), (r.workspace_id as string | null) ?? null]));
+  const here = (r: ChannelFinanceRecord) => workspaceOf.get(r.id) === input.workspaceId;
+  const unplaced = (r: ChannelFinanceRecord) => workspaceOf.get(r.id) === null;
+  const existingRows = rawRows.map(recordFromRow);
+  const sameKind = existingRows.filter((r) => r.kind === facts.kind);
+  // This workspace's own row wins; an unplaced one is this booking waiting to be placed, never a second record.
+  const existing = sameKind.find(here) ?? sameKind.find(unplaced) ?? null;
   // A room already settled (by a match or a person) on either kind of this booking carries over.
-  const settled = existingRows.find((r) => r.roomId);
+  const settled = existingRows.find((r) => r.roomId && here(r)) ?? existingRows.find((r) => r.roomId);
 
   let match: FinanceMatch | null = null;
   if (settled) match = { propertyId: settled.propertyId!, propertyLabel: settled.propertyLabel ?? "", roomId: settled.roomId, roomLabel: settled.roomLabel, connectionId: settled.connectionId, sourceUid: settled.sourceUid, via: "reservation_code" };
@@ -144,6 +150,15 @@ export async function recordFinanceFacts(
     email_id: input.emailId ?? null,
     updated_at: new Date().toISOString(),
   };
+  // Placing an unplaced row is allowed and happens in place, by id, so the upsert below updates it instead of twinning it.
+  if (existing && input.workspaceId !== null && unplaced(existing)) {
+    const { error: placeError } = await db
+      .from("channel_payout_records")
+      .update({ workspace_id: input.workspaceId })
+      .eq("id", existing.id)
+      .is("workspace_id", null);
+    if (placeError) return null;
+  }
   const { data, error } = await db
     .from("channel_payout_records")
     .upsert(values, { onConflict: "manager_user_id,platform,confirmation_code,kind,workspace_key" })

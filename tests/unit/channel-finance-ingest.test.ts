@@ -13,7 +13,7 @@ type Row = Record<string, unknown>;
 /** The nil uuid `channel_payout_records.workspace_key` folds a null workspace to (20261112250000_*). */
 const NIL_WORKSPACE = "00000000-0000-0000-0000-000000000000";
 
-/** A tiny in-memory stand-in for the three tables, honouring eq / in / is filters and upsert onConflict. */
+/** A tiny in-memory stand-in for the three tables, honouring eq / in / is / or filters and upsert onConflict. */
 function fakeDb() {
   const tables: Record<string, Row[]> = { channel_payout_records: [], channel_finance_mail: [], external_calendar_connections: [] };
   let seq = 0;
@@ -47,6 +47,12 @@ function fakeDb() {
       eq: (k: string, v: unknown) => (filters.push((r) => r[k] === v), b),
       is: (k: string, v: unknown) => (filters.push((r) => (r[k] ?? null) === v), b),
       in: (k: string, v: unknown[]) => (filters.push((r) => v.includes(r[k])), b),
+      // PostgREST's `or("col.eq.v,col.is.null")`: one OR group ANDed with the other filters.
+      or: (expr: string) => {
+        const terms = expr.split(",").map((term) => term.split("."));
+        filters.push((r) => terms.some(([k, test, v]) => (test === "is" ? (r[k!] ?? null) === null : r[k!] === v)));
+        return b;
+      },
       order: () => b,
       limit: () => b,
       update: (p: Row) => ((op = "update"), (payload = p), b),
@@ -95,10 +101,33 @@ describe("recordFinanceFacts", () => {
     // ... and each one is still idempotent inside its own workspace.
     await recordFinanceFacts(db, { ...base, workspaceId: "ws-a" });
     expect(tables.channel_payout_records.filter((r) => r.workspace_id === "ws-a")).toHaveLength(1);
-    // A row filed before a workspace was known stays its own row too, rather than being claimed by the next import.
+    // An import that still knows no workspace never claims a placed row: it files its own.
     await recordFinanceFacts(db, { ...base, workspaceId: null });
     expect(tables.channel_payout_records).toHaveLength(3);
     expect(tables.channel_payout_records.filter((r) => r.workspace_id === null)).toHaveLength(1);
+  });
+
+  it("a row filed before any workspace was known is PLACED by the next import, never twinned", async () => {
+    const { db, tables } = fakeDb();
+    const base = { ownerUserId: "u1", facts, source: "csv" as const, review: "ok" as const, candidates: [room] };
+    await recordFinanceFacts(db, { ...base, workspaceId: null, source: "email", review: "needs_review" });
+    const unplaced = tables.channel_payout_records[0]!;
+    expect(unplaced).toMatchObject({ workspace_id: null, review_status: "needs_review" });
+    const out = await recordFinanceFacts(db, { ...base, workspaceId: "ws-a" });
+    expect(tables.channel_payout_records).toHaveLength(1);
+    expect(tables.channel_payout_records[0]).toMatchObject({ id: unplaced.id, workspace_id: "ws-a", review_status: "ok" });
+    expect(out).toMatchObject({ id: unplaced.id, created: false });
+  });
+
+  it("an unplaced row is never claimed out of another workspace's placed row", async () => {
+    const { db, tables } = fakeDb();
+    const base = { ownerUserId: "u1", facts, source: "csv" as const, review: "ok" as const, candidates: [room] };
+    await recordFinanceFacts(db, { ...base, workspaceId: "ws-a" });
+    const inA = { ...tables.channel_payout_records[0]! };
+    await recordFinanceFacts(db, { ...base, workspaceId: "ws-b", facts: { ...facts, payoutCents: 11100 } });
+    expect(tables.channel_payout_records).toHaveLength(2);
+    expect(tables.channel_payout_records.find((r) => r.id === inA.id)).toMatchObject({ workspace_id: "ws-a", payout_cents: 46560 });
+    expect(tables.channel_payout_records.find((r) => r.id !== inA.id)).toMatchObject({ workspace_id: "ws-b", payout_cents: 11100 });
   });
 
   it("an unmatched booking is kept as 'needs_room', never dropped", async () => {
