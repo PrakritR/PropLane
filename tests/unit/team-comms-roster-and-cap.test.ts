@@ -61,6 +61,21 @@ describe("resolveWorkspaceTeamMembers with no resolvable workspace", () => {
   });
 });
 
+describe("a managed workspace's Team chat roster", () => {
+  it("is the service owner (admin, owner of the workspace) plus staff seats; the client Property owner is excluded by design", async () => {
+    const db = createFakeDb({
+      portal_workspaces: [{ id: "ws-1", owner_user_id: OWNER, is_default: false, name: "Ambika", is_service: true }],
+      account_link_invites: [
+        { inviter_user_id: OWNER, invitee_user_id: "staff-seat", status: "accepted", workspace_id: "ws-1", team_role: "property_manager" },
+        { inviter_user_id: OWNER, invitee_user_id: "client-owner", status: "accepted", workspace_id: "ws-1", team_role: "property_owner" },
+      ],
+    });
+    const members = await resolveWorkspaceTeamMembers(db as unknown as SupabaseClient, { ownerManagerUserId: OWNER, workspaceId: "ws-1" });
+    expect(members.map((member) => member.userId).sort()).toEqual([OWNER, "staff-seat"].sort());
+    expect(members.find((member) => member.userId === OWNER)?.isOwner).toBe(true);
+  });
+});
+
 describe("team relay hourly cap under a concurrent fan-out", () => {
   it("blocks a text that, once inserted, pushed the workspace over its cap", async () => {
     const db = seed();

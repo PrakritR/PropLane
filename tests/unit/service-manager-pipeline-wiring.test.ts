@@ -21,9 +21,21 @@ describe("service manager wiring", () => {
 
   it("answers dispatch replies across all service workspaces, skips the Team chat and picks the workspace", () => {
     expect(pipeline).toMatch(/\.\.\.\(serviceScopes \? \{ scopes: serviceScopes \} : \{\}\)/);
-    expect(pipeline).toMatch(/teamRoute = serviceManager \? \{ kind: "agent", text: body \}/);
-    expect(pipeline).toMatch(/pickServiceWorkspace\(db, \{ fromPhone, body: agentBody, workspaces \}\)/);
-    expect(pipeline).toMatch(/buildServiceManagerAgentContext\(db, \{ serviceOwnerId: managerInbound\.actorUserId, workspace: picked\.workspace, seat \}\)/);
+    expect(pipeline).not.toMatch(/teamRoute = serviceManager \? \{ kind: "agent"/);
+    expect(pipeline).toMatch(/pickServiceWorkspaceForText\(db, \{ fromPhone, body: addressedBody, originalBody: body, messageSid, workspaces \}\)/);
+    expect(pipeline).toMatch(/buildServiceManagerAgentContext\(db, \{ serviceOwnerId: managerInbound\.actorUserId, workspace: serviceTarget\.workspace, seat: serviceTarget\.seat \}\)/);
+  });
+
+  it("on the PropLane line the Assistant is the default; only an @team text goes to the picked workspace's Team chat", () => {
+    const pick = pipeline.indexOf("pickServiceWorkspaceForText(db,");
+    const route = pipeline.indexOf("ownerManagerUserId: picked.workspace.ownerUserId");
+    expect(pick).toBeGreaterThan(-1);
+    expect(route).toBeGreaterThan(pick);
+    expect(pipeline).toMatch(/workspaceId: picked\.workspace\.id,/);
+    expect(pipeline).toMatch(/const routedBody = picked\.replay\?\.body \?\? body;/);
+    expect(pipeline).toMatch(/const teamBody = stripTeamAddress\(routedBody\);/);
+    expect(pipeline).toMatch(/: \{ kind: "agent", text: startsWithAssistantAddress\(routedBody\)/);
+    expect(pipeline).toMatch(/messageSid: picked\.replay\?\.messageSid \?\? messageSid,/);
   });
 
   it("an admin's dispatch approvals reach every service workspace; a seat holder's reach only their own", () => {

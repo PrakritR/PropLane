@@ -96,7 +96,7 @@ import {
   serviceAlertEventKey,
   SERVICE_INQUIRY_ALERTS_PER_HOUR,
 } from "@/lib/service/service-manager-alerts.server";
-import { buildServiceManagerAgentContext, pickServiceWorkspace, recognizeServiceManagerInbound, listServiceWorkspaceRefs } from "@/lib/sms/service-manager-inbound.server";
+import { buildServiceManagerAgentContext, pickServiceWorkspace, pickServiceWorkspaceForText, recognizeServiceManagerInbound, listServiceWorkspaceRefs } from "@/lib/sms/service-manager-inbound.server";
 import { serviceWorkspaceLabel } from "@/lib/service/service-label";
 import { ensureTeamNoticeScopedSmsConsent, isManagerRecipientSmsPurpose, SERVICE_MANAGER_SMS_PURPOSE } from "@/lib/sms/team-notice-consent.server";
 import { isManagedReadOnly } from "@/lib/auth/managed-read-only.server";
@@ -353,6 +353,56 @@ describe("which service workspace", () => {
     expect(workspaces.some((w) => w.id === WS_P || w.id === WS_SO)).toBe(false);
     expect(await pickServiceWorkspace(db as never, { fromPhone: MANAGER_PHONE, body: "hi", workspaces: [workspaces[0]!] })).toMatchObject({ kind: "chosen" });
     expect(await pickServiceWorkspace(db as never, { fromPhone: MANAGER_PHONE, body: "hi", workspaces: [] })).toEqual({ kind: "none" });
+  });
+});
+
+describe("the original request survives the 'Which home?' question", () => {
+  const ask = (workspaces: Awaited<ReturnType<typeof listServiceWorkspaceRefs>>, body: string, messageSid: string, originalBody = body) =>
+    pickServiceWorkspaceForText(db as never, { fromPhone: MANAGER_PHONE, body, originalBody, messageSid, workspaces: workspaces! });
+
+  it("stores the original with the pending pick and replays it (body + sid) when '1' or a name answers", async () => {
+    const workspaces = await listServiceWorkspaceRefs(db as never);
+    expect(await ask(workspaces, "any tours this week?", "SM_ORIG")).toEqual({ kind: "ask", question: "Is this about Ambika or Vinod?" });
+    const answered = await ask(workspaces, "2", "SM_ANS");
+    expect(answered).toMatchObject({ kind: "chosen", workspace: { id: WS_V }, replay: { body: "any tours this week?", messageSid: "SM_ORIG" } });
+    // Used once: the next text on the sticky pick is its own request.
+    expect(await ask(workspaces, "and rent?", "SM_NEXT")).toMatchObject({ kind: "chosen", workspace: { id: WS_V } });
+    expect((await ask(workspaces, "and rent?", "SM_NEXT2")).replay).toBeUndefined();
+    expect(await ask(workspaces, "who is late on rent", "SM_O2")).toMatchObject({ kind: "chosen" });
+  });
+
+  it("a name as the answer replays too, and the replay keeps an @assistant address for the router to read", async () => {
+    const workspaces = await listServiceWorkspaceRefs(db as never);
+    // Reset stickiness: a fresh phone key per test is not available, so clear the route first.
+    delete db.__tables.sms_line_sessions;
+    await ask(workspaces, "who is late", "SM_A", "@assistant who is late");
+    const answered = await ask(workspaces, "Ambika", "SM_B");
+    expect(answered).toMatchObject({ kind: "chosen", workspace: { id: WS_A }, replay: { body: "@assistant who is late", messageSid: "SM_A" } });
+  });
+
+  it("an unclear second answer asks again (today's behaviour) and keeps the FIRST request waiting", async () => {
+    const workspaces = await listServiceWorkspaceRefs(db as never);
+    delete db.__tables.sms_line_sessions;
+    await ask(workspaces, "any tours this week?", "SM_1");
+    expect(await ask(workspaces, "hmm", "SM_2")).toEqual({ kind: "ask", question: "Is this about Ambika or Vinod?" });
+    expect(await ask(workspaces, "1", "SM_3")).toMatchObject({ kind: "chosen", replay: { body: "any tours this week?", messageSid: "SM_1" } });
+  });
+
+  it("a text that names a house on its own is a new request: no replay, the stored one is dropped", async () => {
+    const workspaces = await listServiceWorkspaceRefs(db as never);
+    delete db.__tables.sms_line_sessions;
+    await ask(workspaces, "any tours this week?", "SM_1");
+    const named = await ask(workspaces, "what is open at Ambika", "SM_2");
+    expect(named).toMatchObject({ kind: "chosen", workspace: { id: WS_A } });
+    expect(named.replay).toBeUndefined();
+  });
+
+  it("an answer after the six-hour TTL is not a reply to anything", async () => {
+    const workspaces = await listServiceWorkspaceRefs(db as never);
+    delete db.__tables.sms_line_sessions;
+    await ask(workspaces, "any tours this week?", "SM_1");
+    for (const row of db.__tables.sms_line_sessions ?? []) row.pending_asked_at = new Date(Date.now() - 7 * 3600_000).toISOString();
+    expect(await ask(workspaces, "1", "SM_2")).toEqual({ kind: "ask", question: "Is this about Ambika or Vinod?" });
   });
 });
 
