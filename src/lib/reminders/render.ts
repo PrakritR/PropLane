@@ -308,7 +308,7 @@ export function renderReminder(input: {
   const subject =
     recipientRole === "counterparty"
       ? isDeadline(kind)
-        ? `Reminder: ${title || "your task"} is due ${phrase.replace(/^in /, "in ")}`
+        ? `Reminder: ${title || "your task"} is due ${phrase}`
         : `Reminder: your ${noun}${property ? ` at ${property}` : ""} is ${phrase}`
       : isDeadline(kind)
         ? `${title || "A task"} is due ${phrase}`

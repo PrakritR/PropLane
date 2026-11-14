@@ -11,6 +11,27 @@ vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: vi.fn(),
 }));
 
+// The route resolves its caller through the shared manager route actor (session -> business access -> manager /
+// admin / PropLane staff role, each read failing closed to 503). That resolver has its own tests; here it is a fake
+// over the same mocked session and service client, so these cases exercise the settings logic, not the role reads.
+const actorRole = vi.hoisted(() => ({ manager: true }));
+vi.mock("@/lib/auth/route-actor.server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/auth/route-actor.server")>();
+  const { createSupabaseServerClient } = await import("@/lib/supabase/server");
+  const { createSupabaseServiceRoleClient } = await import("@/lib/supabase/service");
+  return {
+    ...actual,
+    resolveManagerRouteActor: vi.fn(async () => {
+      const auth = await createSupabaseServerClient();
+      const { data } = await auth.auth.getUser();
+      const userId = data?.user?.id;
+      if (!userId) return { ok: false, status: 401, error: "Sign in again." };
+      if (!actorRole.manager) return { ok: false, status: 403, error: "Manager access required." };
+      return { ok: true, userId, db: createSupabaseServiceRoleClient() };
+    }),
+  };
+});
+
 vi.mock("@/lib/payment-automation-settings", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/payment-automation-settings")>();
   return {
@@ -69,6 +90,7 @@ function mockManagerAuth(userId = "mgr-a") {
 describe("/api/portal/automation-settings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    actorRole.manager = true;
     vi.mocked(loadManagerAutomationSettings).mockResolvedValue(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
     vi.mocked(saveManagerAutomationSettings).mockImplementation(async (_db, _id, settings) => settings);
   });
@@ -83,7 +105,8 @@ describe("/api/portal/automation-settings", () => {
     expect(status).toBe(401);
   });
 
-  it("GET returns 401 for non-manager users", async () => {
+  it("GET refuses a signed-in non-manager (403)", async () => {
+    actorRole.manager = false;
     vi.mocked(createSupabaseServerClient).mockResolvedValue({
       auth: {
         getUser: vi.fn().mockResolvedValue({
@@ -108,7 +131,7 @@ describe("/api/portal/automation-settings", () => {
 
     const res = await GET(new Request("http://localhost/api/portal/automation-settings"));
     const { status } = await parseJsonResponse(res);
-    expect(status).toBe(401);
+    expect(status).toBe(403);
   });
 
   it("GET returns manager automation settings", async () => {

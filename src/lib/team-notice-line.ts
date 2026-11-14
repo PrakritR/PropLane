@@ -93,8 +93,8 @@ function headlineFor(domain: string | undefined, event: string | undefined): str
 function serviceSubject(value: string | null | undefined): string {
   const stripped = (value ?? "")
     .trim()
-    .replace(/^work\s*orders?\b[\s·:-]*/i, "")
-    .replace(/\s*·\s*payment update\s*$/i, "")
+    .replace(/^work\s{0,5}orders?\b[\s·:-]{0,20}/i, "")
+    .replace(/·\s{0,10}payment update$/i, "")
     .trim();
   return stripped.toLowerCase() === "work order" ? "" : stripped;
 }
@@ -118,7 +118,7 @@ export function buildTeamNoticeLine(input: {
     noIds(serviceSubject(input.subject)),
     input.amount?.trim() ?? "",
     // "5257 Brooklyn Ave · Room 2" is a label with a separator dot; in a sentence it is a list.
-    noIds((input.place?.trim() ?? "").replace(/\s*·\s*/g, ", ")),
+    noIds((input.place?.trim() ?? "").split("·").map((part) => part.trim()).join(", ")),
     noIds(input.who?.trim() ?? ""),
   ].filter(Boolean);
   const headline = headlineFor(input.domain, input.event);

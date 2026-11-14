@@ -14,7 +14,7 @@ export function moneyToCents(raw: string | null | undefined): number | null {
     negative = true;
     text = text.slice(1, -1).trim();
   }
-  text = text.replace(/^(?:US\$|USD|\$)\s*/i, "").replace(/\s*USD$/i, "");
+  text = text.replace(/^(?:US\$|USD|\$)\s*/i, "").replace(/USD$/i, "").trimEnd();
   if (text.startsWith("-") || text.startsWith("−")) {
     negative = !negative;
     text = text.slice(1).trim().replace(/^(?:US\$|USD|\$)\s*/i, "");

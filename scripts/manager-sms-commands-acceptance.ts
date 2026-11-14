@@ -19,6 +19,7 @@
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { randomBytes, randomInt } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import sharp from "sharp";
 import { createDefaultListingSubmission, emptyRoom, normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -46,7 +47,7 @@ for (const forbidden of ["xwszcafaontidfgznlxd", "qahnczmilgptcedaqype"]) {
 }
 
 const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-const tag = `cmdaccept-${Math.random().toString(36).slice(2, 8)}`;
+const tag = `cmdaccept-${randomBytes(4).toString("hex")}`;
 const results: Array<{ name: string; ok: boolean; detail?: string | null }> = [];
 const check = (name: string, ok: boolean, detail?: string | null) => {
   results.push({ name, ok, detail });
@@ -86,7 +87,7 @@ async function main() {
   // A phone no other dev profile holds: a number shared by two profiles is nobody's verified phone (by design).
   let phone = "";
   for (let attempt = 0; attempt < 40 && !phone; attempt += 1) {
-    const candidate = `+1206555${String(1000 + Math.floor(Math.random() * 8999))}`;
+    const candidate = `+1206555${String(randomInt(1000, 9999))}`;
     const { data: held } = await db.from("profiles").select("id").in("phone", [candidate, candidate.slice(2), candidate.slice(1)]).limit(1);
     if (!held?.length) phone = candidate;
   }

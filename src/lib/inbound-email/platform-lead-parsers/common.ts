@@ -1,4 +1,5 @@
 import { normalizeE164 } from "@/lib/phone-e164";
+import { trimTrailingChars } from "@/lib/trim-trailing-chars";
 import { plausibleGuestName } from "@/lib/inbound-email/airbnb-parser";
 import { singleEmailAddress } from "@/lib/inbound-email/channel-senders";
 import { PLATFORM_LEAD_DOMAINS, type LeadParseInput, type PlatformLeadMessage, type PlatformLeadSite } from "./types";
@@ -84,7 +85,7 @@ export function phoneInText(text: string, exclude: readonly string[] = []): stri
 /** "Room 9", "room #9", "Rm 9": the room the mail names, as the manager would call it. */
 export function roomHintFrom(...texts: Array<string | null | undefined>): string | null {
   for (const text of texts) {
-    const match = /\b(?:room|rm)\s*#?\s*([A-Za-z]?\d{1,3}[A-Za-z]?)\b/i.exec(text ?? "");
+    const match = /\b(?:room|rm)\s{0,10}#?\s{0,10}([A-Za-z]?\d{1,3}[A-Za-z]?)\b/i.exec(text ?? "");
     if (match) return `Room ${match[1]!.toUpperCase()}`;
   }
   return null;
@@ -94,7 +95,7 @@ export function urlIn(text: string, hosts: readonly string[]): string | null {
   for (const match of text.matchAll(/https?:\/\/[^\s<>")]+/gi)) {
     try {
       const host = new URL(match[0]).hostname.toLowerCase();
-      if (domainBelongsTo(host, hosts)) return match[0].replace(/[.,;]+$/, "");
+      if (domainBelongsTo(host, hosts)) return trimTrailingChars(match[0], ".,;");
     } catch {
       /* not a url */
     }

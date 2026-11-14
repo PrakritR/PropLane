@@ -61,7 +61,7 @@ export async function loadWorkspaceHouses(db: SupabaseClient, input: { workspace
 
 /** "Room 4", "room #4", "rm 4", "bedroom 2" -> the room whose own label carries that number or letter. Ambiguity is no answer. */
 export function roomFromText(text: string, rooms: ReadonlyArray<{ id: string; label: string }>): { id: string; label: string } | null {
-  const match = /\b(?:room|rm|bedroom)\s*#?\s*(\d{1,2}|[a-z])\b/i.exec(String(text ?? ""));
+  const match = /\b(?:room|rm|bedroom)\s{0,10}#?\s{0,10}(\d{1,2}|[a-z])\b/i.exec(String(text ?? ""));
   if (!match) return null;
   const token = match[1]!.toLowerCase();
   const hits = rooms.filter((room) => {

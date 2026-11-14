@@ -1,4 +1,5 @@
 import { moneyToCents, readDate } from "./money-dates";
+import { trimTrailingChars } from "@/lib/trim-trailing-chars";
 import type { ChannelFinanceFacts, FinancePlatform } from "./types";
 
 /**
@@ -75,7 +76,7 @@ function nearestYear(raw: string, receivedAt: Date): string | null {
 const FOREIGN_CURRENCY = /[€£¥]|\b(?:EUR|GBP|CAD|AUD|MXN|JPY|CHF)\b|\b(?:C|CA|A)\$/;
 
 function plausibleFirstName(raw: string | undefined): string | undefined {
-  const name = (raw ?? "").trim().replace(/[.,:!]+$/, "");
+  const name = trimTrailingChars((raw ?? "").trim(), ".,:!");
   if (!name || name.length > 40 || !/^[\p{L}][\p{L}'’\- ]*$/u.test(name)) return undefined;
   if (/^(your|the|a|an|new|guest|reservation|booking|airbnb|we|you|host)$/i.test(name)) return undefined;
   return name;
@@ -106,9 +107,9 @@ const PAYOUT_WORDS = /\b(payout|you(?:'|’)?ve been paid|we(?:'|’)?ve sent yo
 const RESERVATION_WORDS = /\b(reservation confirmed|new booking|booking confirmed|reservation is confirmed|new reservation|you have a new reservation)\b/i;
 
 function codeFor(platform: FinancePlatform, subject: string, body: string): string | null {
-  const hay = `${subject}\n${body}`;
+  const hay = `${subject}\n${body}`.slice(0, 20_000);
   if (platform === "airbnb") return /\b(HM[A-Z0-9]{8,})\b/.exec(hay)?.[1] ?? null;
-  const labelled = /(?:reservation|booking|confirmation)\s*(?:number|id|no\.?|code)?\s*[:#]?\s*(\d{8,12})\b/i.exec(hay)?.[1];
+  const labelled = /(?:reservation|booking|confirmation)\s{0,10}(?:number|id|no\.?|code)?\s{0,10}[:#]?\s{0,10}(\d{8,12})\b/i.exec(hay)?.[1];
   if (labelled) return labelled;
   return /(?:new (?:booking|reservation)[^\n(]{0,40}|payout[^\n(]{0,40})\((\d{8,12})[,)]/i.exec(subject)?.[1] ?? null;
 }

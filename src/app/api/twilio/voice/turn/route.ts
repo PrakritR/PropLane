@@ -217,7 +217,7 @@ export async function POST(req: Request) {
   // An ambiguous caller who has said nothing that settles it is asked again, once; after that a teammate follows up by text.
   if (resolved.route.kind === "ambiguous") {
     if (attempt >= 1) return twimlResponse(twimlGoodbye("I could not tell which home you mean. A teammate will text you. Goodbye."));
-    return twimlResponse(await gather(`${resolved.route.question.replace(/^Is this about /, "Is this about ")}`, "agent", 1));
+    return twimlResponse(await gather(resolved.route.question, "agent", 1));
   }
 
   if (callerIsDone(speech)) return twimlResponse(twimlGoodbye(await goodbyeFor()));

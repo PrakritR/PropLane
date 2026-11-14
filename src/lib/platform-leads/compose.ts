@@ -9,7 +9,7 @@ const PHONE_PATTERN = /(?:\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}\b/
 function tidy(text: string): string {
   return text
     .split("\n")
-    .map((line) => line.replace(/[ \t]{2,}/g, " ").replace(/\s+([,.!?;:])/g, "$1").trim())
+    .map((line) => line.replace(/[ \t]{2,}/g, " ").replace(/\s{1,20}([,.!?;:])/g, "$1").trim())
     .filter((line, index, all) => line !== "" || (index > 0 && all[index - 1] !== ""))
     .join("\n")
     .trim();
