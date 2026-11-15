@@ -20,7 +20,7 @@ vi.mock("@/lib/manager-billing-overrides", async (orig) => ({
   loadManagerBillingOverrides: async () => ({ ok: true, overrides: { propertyCap: null } }),
 }));
 
-/** A table-aware PostgREST stand-in: eq / in / neq / or(workspace filter) / maybeSingle / head count. */
+/** A table-aware PostgREST stand-in: eq / in / neq / or(workspace filter) / range / maybeSingle / head count. */
 function fakeDb(): SupabaseClient {
   return {
     from(table: string) {
@@ -32,18 +32,13 @@ function fakeDb(): SupabaseClient {
         in: (c: string, vs: unknown[]) => ((rows = rows.filter((r) => vs.includes(r[c]))), q),
         or: (expr: string) => {
           const m = /^workspace_id\.is\.null,workspace_id\.not\.in\.\((.*)\)$/.exec(expr);
-          const h = /^property_id\.in\.\((.*)\),assigned_property_id\.in\.\((.*)\)$/.exec(expr);
-          if (h) {
-            const ids = h[1]!.split(",");
-            rows = rows.filter((r) => ids.includes(String(r.property_id)) || ids.includes(String(r.assigned_property_id)));
-            return q;
-          }
           if (!m) return q; // the resident bucket filter is modelled by the rows themselves
           const out = m[1]!.split(",");
           rows = rows.filter((r) => !r.workspace_id || !out.includes(String(r.workspace_id)));
           return q;
         },
         limit: () => q,
+        range: (from: number, to: number) => ((rows = rows.slice(from, to + 1)), q),
         maybeSingle: async () => ({ data: rows[0] ?? null, error: null }),
         then: (resolve: (v: unknown) => unknown) => Promise.resolve({ data: rows, count: rows.length, error: null }).then(resolve),
       };

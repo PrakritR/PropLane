@@ -5743,8 +5743,7 @@ export function seedDemoHouseholdChargesIfEmpty(_managerUserId: string): void {
   /* no-op */
 }
 
-/** Manager-created charge (fine, fee, custom) against a specific resident. */
-export function createManagerCharge(input: {
+export type CreateManagerChargeInput = {
   residentEmail: string;
   residentName: string;
   propertyId: string;
@@ -5765,7 +5764,19 @@ export function createManagerCharge(input: {
    * second charge. Omit to generate a fresh id as before.
    */
   id?: string;
-}): HouseholdCharge | null {
+};
+
+/**
+ * Manager-created charge (fine, fee, custom) against a specific resident, with the server's answer still in hand.
+ *
+ * `confirmed` resolves `saved` once the upsert landed, `failed` when the server was asked and refused (or never
+ * answered), and `local-only` for a session that deliberately never writes (demo, resident, non-browser). A caller
+ * that reports to the manager must await it: `createManagerCharge` drops it, so the row would read as created while
+ * only the browser copy exists.
+ */
+export function createManagerChargeWithConfirmation(
+  input: CreateManagerChargeInput,
+): ({ charge: HouseholdCharge } & HouseholdChargeWriteHandle) | null {
   const email = input.residentEmail.trim();
   if (!email || !Number.isFinite(input.amount) || input.amount <= 0) return null;
   if (!input.managerUserId?.trim() && !isDemoModeActive()) return null;
@@ -5799,14 +5810,28 @@ export function createManagerCharge(input: {
   });
   // Emit immediately so Pending updates even before the server upsert finishes.
   writeAll([...readAll(), charge], false);
+  if (!householdServerWriteAttempted()) return { charge, confirmed: Promise.resolve<HouseholdChargeWriteOutcome>("local-only") };
   // An un-caught rejection here (offline, DNS, aborted request) surfaced as an
   // unhandled promise rejection rather than anything a caller could act on.
-  void postHouseholdPayloadAwait({
+  const confirmed = postHouseholdPayloadAwait({
     action: "replace",
     charges: [charge],
     rentProfiles: readRentProfiles(),
-  }).catch(() => false);
-  return charge;
+  })
+    .then((ok): HouseholdChargeWriteOutcome => (ok ? "saved" : "failed"))
+    .catch((): HouseholdChargeWriteOutcome => "failed");
+  return { charge, confirmed };
+}
+
+/**
+ * The same charge, fire-and-forget: the row is minted locally and the server write runs on its own. Use
+ * `createManagerChargeWithConfirmation` wherever the manager is told whether the charge was added.
+ */
+export function createManagerCharge(input: CreateManagerChargeInput): HouseholdCharge | null {
+  const result = createManagerChargeWithConfirmation(input);
+  if (!result) return null;
+  void result.confirmed;
+  return result.charge;
 }
 
 /**

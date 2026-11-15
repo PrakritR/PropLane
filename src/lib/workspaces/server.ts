@@ -348,6 +348,38 @@ export async function readWorkspacePlanInputs(db: SupabaseClient, userId: string
   return { tierResult, links, vendors, addons, residents };
 }
 
+/** How many rows one page of the resident read asks for; a full page is followed by the next one. */
+const MANAGED_RESIDENT_PAGE = 1000;
+
+/**
+ * The ids of the owner's approved residents whose application names one of `houseIds` in `column`.
+ *
+ * A house id is a client-supplied primary key, so it is NEVER interpolated into a PostgREST filter string: `.in()`
+ * encodes each value, and the two property columns are read as two queries the caller merges by id (a row that names
+ * the same house in both columns is one resident). `null` = unreadable.
+ */
+async function readManagedResidentIds(
+  db: SupabaseClient,
+  userId: string,
+  column: "property_id" | "assigned_property_id",
+  houseIds: string[],
+): Promise<string[] | null> {
+  const ids: string[] = [];
+  for (let from = 0; ; from += MANAGED_RESIDENT_PAGE) {
+    const { data, error } = await db
+      .from("manager_application_records")
+      .select("id")
+      .eq("manager_user_id", userId)
+      .in(column, houseIds)
+      .or("row_data->>bucket.eq.approved,row_data->>manuallyAdded.eq.true")
+      .range(from, from + MANAGED_RESIDENT_PAGE - 1);
+    if (error) return null;
+    const rows = (data ?? []) as { id: string }[];
+    for (const row of rows) ids.push(String(row.id));
+    if (rows.length < MANAGED_RESIDENT_PAGE) return ids;
+  }
+}
+
 /**
  * What the plan's account-wide counts include for the owner's managed workspaces: the seats they granted there and the
  * approved residents of their houses. `null` = unreadable (the plan is then reported unknown, never undercounted as zero).
@@ -359,20 +391,15 @@ async function readManagedUsageToSubtract(
 ): Promise<{ seats: number; residents: number } | null> {
   if (managed.length === 0) return { seats: 0, residents: 0 };
   const workspaceIds = managed.map((w) => w.id);
-  const houseIds = [...new Set(managed.flatMap((w) => w.propertyIds))];
-  const [seats, residents] = await Promise.all([
+  const houseIds = [...new Set(managed.flatMap((w) => w.propertyIds))].map(String);
+  const noHouses = Promise.resolve<string[] | null>([]);
+  const [seats, byProperty, byAssigned] = await Promise.all([
     db.from("account_link_invites").select("id", { count: "exact", head: true }).eq("inviter_user_id", userId).eq("status", "accepted").in("workspace_id", workspaceIds),
-    houseIds.length === 0
-      ? Promise.resolve({ count: 0, error: null })
-      : db
-          .from("manager_application_records")
-          .select("id", { count: "exact", head: true })
-          .eq("manager_user_id", userId)
-          .or(`property_id.in.(${houseIds.join(",")}),assigned_property_id.in.(${houseIds.join(",")})`)
-          .or("row_data->>bucket.eq.approved,row_data->>manuallyAdded.eq.true"),
+    houseIds.length === 0 ? noHouses : readManagedResidentIds(db, userId, "property_id", houseIds),
+    houseIds.length === 0 ? noHouses : readManagedResidentIds(db, userId, "assigned_property_id", houseIds),
   ]);
-  if (seats.error || residents.error) return null;
-  return { seats: seats.count ?? 0, residents: residents.count ?? 0 };
+  if (seats.error || byProperty === null || byAssigned === null) return null;
+  return { seats: seats.count ?? 0, residents: new Set([...byProperty, ...byAssigned]).size };
 }
 
 /** The plan's workspace / property / team caps beside what the account already uses. */

@@ -11,7 +11,7 @@
  */
 import { commitResident, type CommitContext } from "@/components/portal/resident-wizard/commit";
 import { buildManualResidentRow, emptyAddPersonForm, type AddPersonForm } from "@/components/portal/resident-wizard/state";
-import { createChargesForResidents } from "@/lib/manager-charge-batch";
+import { createChargesForResidentsConfirmed } from "@/lib/manager-charge-batch";
 import { quickAddFormPatch, type QuickAddLeaseChoice, type QuickAddResident } from "./model";
 
 export type QuickAddDocumentKind = "id_private" | "other_private" | "shared";
@@ -95,7 +95,7 @@ export async function saveQuickAddResident(
   // One-time charges: ids derived from the resident and the charge, so a retry upserts the same row.
   if (resident.oneTimeCharges.length > 0) {
     for (const charge of resident.oneTimeCharges) {
-      const { created } = createChargesForResidents(
+      const { created, unsaved } = await createChargesForResidentsConfirmed(
         [{ applicationId, residentName: resident.name, residentEmail: resident.email, propertyId: resident.propertyId, propertyLabel: ctx.propertyLabelFor(resident.propertyId) ?? "", title: charge.label }],
         {
           managerUserId: ctx.userId,
@@ -106,6 +106,7 @@ export async function saveQuickAddResident(
         },
       );
       if (created.length === 0) problems.push(`${charge.label}: the charge could not be added`);
+      else if (unsaved.length > 0) problems.push(`${charge.label}: the charge did not save - add it again from Payments`);
     }
   }
 

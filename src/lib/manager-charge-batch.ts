@@ -1,4 +1,4 @@
-import { createManagerCharge, type HouseholdCharge } from "@/lib/household-charges";
+import { createManagerCharge, createManagerChargeWithConfirmation, type CreateManagerChargeInput, type HouseholdCharge } from "@/lib/household-charges";
 
 /**
  * Charging several residents of one house at once (the manager's Add charge flow). There is ONE write path: every
@@ -60,6 +60,24 @@ export type BatchChargeTerms = {
 
 export type BatchChargeResult = { created: HouseholdCharge[]; failed: BatchChargeResident[] };
 
+/** One charge's input, so both the fire-and-forget and the awaited path mint the SAME row for a resident. */
+function chargeInputFor(resident: BatchChargeResident, terms: BatchChargeTerms, index: number, total: number): CreateManagerChargeInput {
+  return {
+    residentEmail: resident.residentEmail,
+    residentName: resident.residentName,
+    propertyId: resident.propertyId,
+    propertyLabel: resident.propertyLabel,
+    managerUserId: terms.managerUserId,
+    applicationId: resident.applicationId,
+    title: resident.title,
+    amount: terms.amount,
+    dueDateLabel: terms.dueDateLabel,
+    initialStatus: terms.initialStatus,
+    id: chargeIdForResident(terms.baseId, index, total),
+    workOrderId: terms.workOrderId,
+  };
+}
+
 /** Create one charge per resident, same amount, kind and due date. Never sends a notice: `charge_created` does that once per row. */
 export function createChargesForResidents(
   residents: readonly BatchChargeResident[],
@@ -69,24 +87,37 @@ export function createChargesForResidents(
   const created: HouseholdCharge[] = [];
   const failed: BatchChargeResident[] = [];
   residents.forEach((resident, index) => {
-    const charge = create({
-      residentEmail: resident.residentEmail,
-      residentName: resident.residentName,
-      propertyId: resident.propertyId,
-      propertyLabel: resident.propertyLabel,
-      managerUserId: terms.managerUserId,
-      applicationId: resident.applicationId,
-      title: resident.title,
-      amount: terms.amount,
-      dueDateLabel: terms.dueDateLabel,
-      initialStatus: terms.initialStatus,
-      id: chargeIdForResident(terms.baseId, index, residents.length),
-      workOrderId: terms.workOrderId,
-    });
+    const charge = create(chargeInputFor(resident, terms, index, residents.length));
     if (charge) created.push(charge);
     else failed.push(resident);
   });
   return { created, failed };
+}
+
+/**
+ * The same rows, but the server's answer is awaited: `unsaved` holds every resident whose charge reached the browser
+ * and NOT the ledger (offline, 5xx, a plan that refuses the write). A caller that tells the manager what was added
+ * uses this one; a row in `unsaved` was not billed and must be reported, never counted as created.
+ */
+export async function createChargesForResidentsConfirmed(
+  residents: readonly BatchChargeResident[],
+  terms: BatchChargeTerms,
+  create: typeof createManagerChargeWithConfirmation = createManagerChargeWithConfirmation,
+): Promise<BatchChargeResult & { unsaved: BatchChargeResident[] }> {
+  const created: HouseholdCharge[] = [];
+  const failed: BatchChargeResident[] = [];
+  const pending: Promise<BatchChargeResident | null>[] = [];
+  residents.forEach((resident, index) => {
+    const handle = create(chargeInputFor(resident, terms, index, residents.length));
+    if (!handle) {
+      failed.push(resident);
+      return;
+    }
+    created.push(handle.charge);
+    pending.push(handle.confirmed.then((outcome) => (outcome === "failed" ? resident : null)).catch(() => resident));
+  });
+  const unsaved = (await Promise.all(pending)).filter((r): r is BatchChargeResident => r !== null);
+  return { created, failed, unsaved };
 }
 
 export function chargesAddedMessage(count: number): string {

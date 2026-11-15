@@ -24,20 +24,27 @@ async function resolve(request: Request, level: "read" | "edit", bodyWorkspaceId
   if (!propertyId || !grantCoversHouse(access.grant, propertyId) || !(await propertyInWorkspace(ctx.db, ctx.workspace, propertyId))) {
     return { error: NextResponse.json({ error: "Property not found." }, { status: 404 }) } as const;
   }
-  if (level === "edit") {
-    const { isManagedReadOnly } = await import("@/lib/auth/managed-read-only.server");
-    if (await isManagedReadOnly(ctx.db, ctx.userId, ctx.workspace.id)) {
-      return { error: NextResponse.json({ error: "This workspace is view-only for you." }, { status: 403 }) } as const;
-    }
+  const { isManagedReadOnly } = await import("@/lib/auth/managed-read-only.server");
+  const viewOnly = await isManagedReadOnly(ctx.db, ctx.userId, ctx.workspace.id);
+  if (level === "edit" && viewOnly) {
+    return { error: NextResponse.json({ error: "This workspace is view-only for you." }, { status: 403 }) } as const;
   }
-  return { ctx, propertyId } as const;
+  // `canManage` is the SAME answer the POST refuses on: Communication at `edit` on this house, and not view-only.
+  const canManage =
+    !viewOnly &&
+    (level === "edit" ||
+      (await (async () => {
+        const edit = await resolveCommunicationGrant(ctx.db, ctx.userId, ctx.workspace, "edit");
+        return edit.ok && grantCoversHouse(edit.grant, propertyId);
+      })()));
+  return { ctx, propertyId, canManage } as const;
 }
 
 export async function GET(request: Request) {
   const r = await resolve(request, "read");
   if ("error" in r) return r.error;
   const view = await loadHouseSmsGroupView(r.ctx.db, { ownerUserId: r.ctx.workspace.ownerUserId, workspaceId: r.ctx.workspace.id, propertyId: r.propertyId });
-  return NextResponse.json({ ...view, canManage: true });
+  return NextResponse.json({ ...view, canManage: r.canManage });
 }
 
 type PostBody = {
@@ -85,7 +92,7 @@ export async function POST(request: Request) {
   }
   const r = await resolve(request, "edit", typeof body.workspaceId === "string" ? body.workspaceId : null, typeof body.propertyId === "string" ? body.propertyId : "");
   if ("error" in r) return r.error;
-  const { ctx, propertyId } = r;
+  const { ctx, propertyId, canManage } = r;
   const limited = await rateLimit(`house-sms-group:${ctx.userId}`, 40, 60 * 60 * 1000);
   if (!limited.ok) return NextResponse.json({ error: "Too many changes. Try again later." }, { status: 429 });
 
@@ -128,5 +135,5 @@ export async function POST(request: Request) {
   const view = await loadHouseSmsGroupView(ctx.db, { ownerUserId: ctx.workspace.ownerUserId, workspaceId: ctx.workspace.id, propertyId });
   const message = outcomeLine(sync);
   const failed = ["no_line", "duplicate_member_set", "w10_group_active", "shielded", "error", "not_found"].includes(sync.outcome);
-  return NextResponse.json({ ok: !failed, outcome: sync.outcome, message, ...view, canManage: true }, { status: failed ? 409 : 200 });
+  return NextResponse.json({ ok: !failed, outcome: sync.outcome, message, ...view, canManage }, { status: failed ? 409 : 200 });
 }

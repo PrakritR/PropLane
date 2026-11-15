@@ -28,9 +28,9 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { resolveManagedPayee } from "../../src/lib/managed-finance/payee.server";
+import { PRIMARY_ADMIN_EMAIL, isPrimaryAdminEmail } from "../../src/lib/auth/primary-admin";
 
 const REFS = { dev: "emstjswhotsnyksqhqyf", staging: "xwszcafaontidfgznlxd", production: "qahnczmilgptcedaqype" } as const;
-const PRIMARY_ADMIN_EMAIL = "founders@axis-seattle-housing.com"; // src/lib/auth/primary-admin.ts
 const UNDO_WINDOW_MINUTES = 120;
 const BACKUP_MAX_AGE_MINUTES = 120;
 const IDENT_COLS = ["manager_user_id", "owner_user_id", "owner_manager_user_id", "landlord_id"];
@@ -299,7 +299,7 @@ async function resolveWorld(db: SupabaseClient, ref: string, target: Ctx["target
   const isAdmin = ((roles.data ?? []) as { role: string }[]).some((r) => r.role === "admin");
   if (!isAdmin) throw new Stop(`service owner ${to} does not hold the admin role`);
   if (!confirmed) throw new Stop(`service owner ${to} has an unconfirmed email`);
-  const isPrimary = email === PRIMARY_ADMIN_EMAIL;
+  const isPrimary = isPrimaryAdminEmail(email);
   const accepted = acceptEmail && acceptEmail.trim().toLowerCase() === email;
   if (!isPrimary && !accepted) {
     throw new Stop(`service owner is ${email}, which is not the primary admin (${PRIMARY_ADMIN_EMAIL}). If this is the account the captain runs the service from, pass --accept-service-owner-email ${email} (D1). Nothing was changed.`);

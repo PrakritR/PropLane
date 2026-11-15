@@ -13,7 +13,7 @@ import type { ManagerPaymentBucket } from "@/data/demo-portal";
 import {
   EVERYONE_IN_HOUSE,
   chargesAddedMessage,
-  createChargesForResidents,
+  createChargesForResidentsConfirmed,
   nextResidentSelection,
   pickerSelection,
   type BatchChargeResident,
@@ -329,7 +329,7 @@ export function ManagerAddPaymentModal({
     submittingRef.current = true;
     setNoticeBusy(true);
     try {
-      const { created, failed } = createChargesForResidents(preview.residents, {
+      const { created, failed, unsaved } = await createChargesForResidentsConfirmed(preview.residents, {
         managerUserId,
         amount: preview.amount,
         dueDateLabel: preview.dueDateLabel,
@@ -349,10 +349,16 @@ export function ManagerAddPaymentModal({
       workspaceDraft.clear();
       reset();
       onSubmitted();
+      const notAdded = failed.length + unsaved.length;
+      const saved = created.length - unsaved.length;
       showToast(
-        failed.length > 0
-          ? `${chargesAddedMessage(created.length)} ${failed.length} could not be added.`
-          : chargesAddedMessage(created.length),
+        notAdded === 0
+          ? chargesAddedMessage(created.length)
+          : saved > 0
+            ? `${chargesAddedMessage(saved)} ${notAdded} could not be added.`
+            : notAdded === 1
+              ? "The charge could not be added. Try again."
+              : `${notAdded} charges could not be added. Try again.`,
       );
     } finally {
       submittingRef.current = false;
