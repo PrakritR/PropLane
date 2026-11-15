@@ -417,8 +417,8 @@ export function validateStandardWizardSection(
           application: { ...f, residentSlot: f.residentSlot ?? parsed.residentSlot },
         });
         const nights = shortTermStayNightCount(f.leaseStart, f.leaseEnd);
-        if (nights && pricing.weeklyRate && !shortTermStayCanBePriced(pricing.dailyRate ?? 0, nights, pricing.weeklyRate)) {
-          e.leaseEnd = "This room only has a weekly rate. Choose whole weeks or ask the manager to set a nightly rate.";
+        if (nights && pricing.weeklyRate && !shortTermStayCanBePriced(pricing.dailyRate ?? 0, nights, pricing.weeklyRate, pricing.monthlyRate)) {
+          e.leaseEnd = "This room only has a weekly rate. Choose a stay of at least a week or ask the manager to set a nightly rate.";
         }
       }
       if (!f.shortTermRulesAck) e.shortTermRulesAck = "Please acknowledge the host's house rules to continue.";

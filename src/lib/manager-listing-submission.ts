@@ -4522,3 +4522,15 @@ export function listingRoomSecretValues(
   }
   return out;
 }
+
+/** The rooms of a listing that have no structured door code yet, in listing order: the owner's to-do list on the Move-in tab. */
+export function roomsMissingDoorCode<T extends { id: string; name: string; doorCode?: string | null }>(
+  sub: { rooms?: ReadonlyArray<T> | null } | null | undefined,
+): Array<{ id: string; label: string }> {
+  const out: Array<{ id: string; label: string }> = [];
+  (sub?.rooms ?? []).forEach((room, index) => {
+    if (typeof room?.doorCode === "string" && room.doorCode.trim()) return;
+    out.push({ id: room.id, label: room.name?.trim() || `Room ${index + 1}` });
+  });
+  return out;
+}

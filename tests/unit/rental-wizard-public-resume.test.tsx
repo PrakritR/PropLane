@@ -396,13 +396,9 @@ describe("public apply — resume after reload", () => {
       const payload = JSON.parse(call.body) as { row?: DemoApplicantRow };
       return payload.row?.id === freshAxisId && payload.row.application?.propertyId === PID_B;
     });
-    expect(freshWrite).toBeDefined();
-    expect((JSON.parse(freshWrite!.body!) as { row: DemoApplicantRow }).row.application).toMatchObject({
-      propertyId: PID_B,
-      applicationTemplateId: "template-b-current",
-      applicationTemplateVersion: 2,
-    });
-
+    // A guest's answers stay in this browser until Submit (captain, Nov 14: apply with no account): the fresh
+    // property's pinned template lives in the local draft above, and no server row is written for it.
+    expect(freshWrite).toBeUndefined();
   });
 
   it("ignores a delayed B response after returning to A and retries a failed B lookup without writing B", async () => {

@@ -23,6 +23,8 @@ import {
   monthKeyFromDate,
   monthsBetweenInclusive,
   recurringBasisMonthlyAddon,
+  rentPeriodAlreadyCovered,
+  rentRoomKeyPart,
   type HouseholdCharge,
   type RecurringRentProfile,
 } from "@/lib/household-charges";
@@ -147,10 +149,17 @@ export function planRecurringRentCharges(input: {
       const profileWeeklyRate =
         typeof profile.weeklyRentPrice === "number" && profile.weeklyRentPrice > 0 ? profile.weeklyRentPrice : 0;
       if ((profile.monthlyRent > 0 || profileDailyRate > 0 || profileWeeklyRate > 0) && !hasUpfrontLastRent && !hasMigratedRentMonth) {
-        const chargeKey = `rent|${emailLower}|${profile.propertyId}|${rentMonth}`;
+        // Tenant + property + room + billing period. ANY non-void rent charge for that period (a manual one
+        // included, whatever its id or room label) means the cycle is already billed.
+        const chargeKey = rentRoomKeyPart(profile.roomLabel)
+          ? `rent|${emailLower}|${profile.propertyId}|${rentRoomKeyPart(profile.roomLabel)}|${rentMonth}`
+          : `rent|${emailLower}|${profile.propertyId}|${rentMonth}`;
+        const coverTarget = { residentEmail: profile.residentEmail, propertyId: profile.propertyId, rentMonth, roomLabel: profile.roomLabel };
         const alreadyExists =
-          activeExisting.some((c) => chargeBusinessKey(c) === chargeKey) ||
-          newCharges.some((c) => chargeBusinessKey(c) === chargeKey);
+          activeExisting.some((c) => c.status !== "void" && chargeBusinessKey(c) === chargeKey) ||
+          newCharges.some((c) => chargeBusinessKey(c) === chargeKey) ||
+          rentPeriodAlreadyCovered(activeExisting, coverTarget) ||
+          rentPeriodAlreadyCovered(newCharges, coverTarget);
         if (!alreadyExists) {
           // Daily-priced rooms bill actual days-in-month × daily rate (partial last month
           // bills leaseEndDay × rate); monthly rooms keep the flat monthlyRent × factor.
@@ -184,6 +193,7 @@ export function planRecurringRentCharges(input: {
             propertyLabel: profile.propertyLabel,
             managerUserId: profile.managerUserId,
             kind: "rent",
+            ...(rentRoomKeyPart(profile.roomLabel) ? { roomLabel: profile.roomLabel.trim() } : {}),
             title: `${titlePrefix} — ${monthLabel}`,
             amountLabel: moneyAmountLabel(amount),
             balanceLabel: moneyAmountLabel(amount),

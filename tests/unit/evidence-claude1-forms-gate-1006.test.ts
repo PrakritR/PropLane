@@ -213,7 +213,7 @@ describe.each(["upsert", "replace"] as const)(
 
 
 describe.each(["upsert", "replace"] as const)("short-stay approval pricing on %s", (action) => {
-  it.each([["2027-10-09", "", 409], ["2027-10-08", "", 200], ["2027-10-09", "55", 200]] as const)("prices the complete stay through %s with nightly %s", async (leaseEnd, nightly, status) => {
+  it.each([["2027-10-06", "", 409], ["2027-10-08", "", 200], ["2027-10-09", "", 200], ["2027-10-06", "55", 200]] as const)("prices the complete stay through %s with nightly %s", async (leaseEnd, nightly, status) => {
     const base = createDefaultListingSubmission();
     PROPERTY = normalizeManagerListingSubmissionV1({ ...base, shortTermRentalsAllowed: true, shortTermDailyCost: "", rooms: [{ ...base.rooms[0]!, id: "room", shortTermRent: nightly, dailyRentPrice: undefined, weeklyRentPrice: 350 }] });
     const pending = applicationRow("AXIS-STAY", { application: { ...createInitialRentalWizardState(), propertyId: "prop-1", rentalType: "short_term", roomChoice1: "prop-1::room", leaseStart: "2027-10-01", leaseEnd } });

@@ -13,7 +13,7 @@ import {
   ensureConnectAccountTransfersRequested,
   isStripeConnectAccountAccessError,
 } from "@/lib/stripe-connect";
-import { createAccountSession, isEmbeddedComponent } from "@/lib/stripe-connect-embedded";
+import { createAccountSession, embeddedComponentIsReadOnly, isEmbeddedComponent } from "@/lib/stripe-connect-embedded";
 import { stripePayoutErrorResponse } from "@/lib/stripe-payouts.server";
 
 export const runtime = "nodejs";
@@ -49,9 +49,9 @@ export async function POST(req: Request) {
       );
     }
 
-    // `notification_banner` is read-only; onboarding/management mutate bank
+    // `notification_banner` and `payouts` are read-only; onboarding/management mutate bank
     // details and therefore need the edit-level co-manager grant.
-    const level = component === "notification_banner" ? "read" : "edit";
+    const level = embeddedComponentIsReadOnly(component) ? "read" : "edit";
     const access = await assertCoManagerBankAccountAccess(service, user.id, payout.payoutOwnerUserId, level);
     if (!access.ok) {
       return NextResponse.json({ error: access.error }, { status: access.status });

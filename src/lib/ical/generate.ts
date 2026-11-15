@@ -28,6 +28,39 @@ function escapeIcsText(value: string): string {
   return value.replace(/\r/g, "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
 }
 
+/** Stable 32-bit FNV-1a hex of a string: the same range always gets the same UID suffix. */
+function stableHash(input: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i += 1) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+/** RFC 5545 3.1: fold a content line at 75 octets (never inside a UTF-8 sequence) with CRLF + one space. */
+export function foldIcsLine(line: string): string {
+  const encoder = new TextEncoder();
+  if (encoder.encode(line).length <= 75) return line;
+  const parts: string[] = [];
+  let current = "";
+  let octets = 0;
+  let limit = 75;
+  for (const ch of line) {
+    const size = encoder.encode(ch).length;
+    if (octets + size > limit) {
+      parts.push(current);
+      current = "";
+      octets = 0;
+      limit = 74; // the leading space counts
+    }
+    current += ch;
+    octets += size;
+  }
+  if (current) parts.push(current);
+  return parts.join("\r\n ");
+}
+
 /** Build an iCalendar feed for Airbnb "Import calendar". DTEND is exclusive. */
 export function generateIcsCalendar(
   ranges: IcalDateRange[],
@@ -45,14 +78,17 @@ export function generateIcsCalendar(
     `X-WR-CALNAME:${escapeIcsText(name)}`,
   ];
 
+  const seenUids = new Set<string>();
   for (const range of ranges) {
     const start = range.start.trim();
     const endInclusive = range.end.trim() || start;
     if (!start) continue;
     const dtEndExclusive = addDaysYmd(endInclusive, 1);
-    const uid = options?.uidPrefix
-      ? `${options.uidPrefix}-${start}`
-      : `proplane-block-${start}-${dtEndExclusive}`;
+    // Two ranges can start the same day, so the UID carries the end date and a stable hash of the range.
+    const base = options?.uidPrefix ? `${options.uidPrefix}-${start}-${dtEndExclusive}` : `proplane-block-${start}-${dtEndExclusive}`;
+    let uid = `${base}-${stableHash(`${options?.uidPrefix ?? ""}|${start}|${dtEndExclusive}`)}`;
+    for (let n = 2; seenUids.has(uid); n += 1) uid = `${base}-${stableHash(`${uid}|${n}`)}`;
+    seenUids.add(uid);
     lines.push(
       "BEGIN:VEVENT",
       `UID:${uid}`,
@@ -66,5 +102,5 @@ export function generateIcsCalendar(
   }
 
   lines.push("END:VCALENDAR");
-  return `${lines.join("\r\n")}\r\n`;
+  return `${lines.map(foldIcsLine).join("\r\n")}\r\n`;
 }

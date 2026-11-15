@@ -5,7 +5,7 @@ import {
   duplicateHouseholdChargeIds,
 } from "@/lib/household-charges";
 import { categoryCodeForChargeKind } from "@/lib/reports/categories";
-import { postGlChargeEntry, postGlPaymentEntry } from "@/lib/reports/gl-posting";
+import { postGlChargeEntry, postGlPaymentEntry, reverseGlJournalForSource } from "@/lib/reports/gl-posting";
 import { receiveSecurityDeposit } from "@/lib/reports/security-deposits";
 import { dollarsToCents } from "@/lib/reports/money";
 import { parseMoneyAmount } from "@/lib/parse-money";
@@ -214,6 +214,8 @@ type LedgerEntryRow = {
  * skipped (manager) or nulled (resident).
  */
 function buildChargeLedgerRow(charge: HouseholdCharge): LedgerEntryRow | null {
+  // A voided charge never re-enters the ledger, whatever re-syncs it.
+  if (charge.status === "void") return null;
   const amountCents = chargeAmountCents(charge);
   if (amountCents <= 0) return null;
   if (!isUuid(charge.managerUserId)) return null;
@@ -242,6 +244,7 @@ function buildPaymentLedgerRow(
   stripeCheckoutSessionId?: string | null,
   capturedPrincipalCents?: number,
 ): LedgerEntryRow | null {
+  if (charge.status === "void") return null;
   const faceCents = dollarsToCents(parseMoneyAmount(charge.amountLabel));
   // A claim-backed resident cart freezes the unpaid balance as its principal.
   // The payer's processing fee is outside the charge and never becomes rent
@@ -363,6 +366,32 @@ export async function syncLedgerPaymentEntry(
       await receiveSecurityDeposit(db, charge, { receivedDate: row.posted_date });
     }
   }
+}
+
+/**
+ * Void a PAID charge in the books: post a balanced reversing journal for its charge and its payment (the original
+ * journals stay), then drop the charge and payment lines from `ledger_entries` so every total read from it excludes
+ * the charge. `refund` lines (money that really went back) are left alone. Idempotent end to end, so a retry after a
+ * partial failure completes the rest. No money moves: a real card payment is refunded through the refund flow.
+ */
+export async function voidLedgerEntriesForCharge(
+  db: SupabaseClient,
+  charge: HouseholdCharge,
+  voidedAtIso: string,
+): Promise<void> {
+  if (!isUuid(charge.managerUserId)) return;
+  const entryDate = parseIsoDate(voidedAtIso) ?? new Date().toISOString().slice(0, 10);
+  const memo = `Void — ${charge.title}`;
+  // Payment first, then charge: the cash leg is undone before the receivable/income leg.
+  await reverseGlJournalForSource(db, { managerUserId: charge.managerUserId!, sourceType: "payment", sourceId: charge.id, entryDate, memo });
+  await reverseGlJournalForSource(db, { managerUserId: charge.managerUserId!, sourceType: "charge", sourceId: charge.id, entryDate, memo });
+  const { error } = await db
+    .from("ledger_entries")
+    .delete()
+    .eq("source_charge_id", charge.id)
+    .eq("manager_user_id", charge.managerUserId!)
+    .in("entry_type", ["charge", "payment"]);
+  throwIfLedgerError(error);
 }
 
 export type LedgerRefundInput = {

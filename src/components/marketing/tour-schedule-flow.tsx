@@ -1532,9 +1532,8 @@ function TourRefusal({
 }
 
 /**
- * "Your details" for a visitor with no account: the account is asked for here, after the room, day and time
- * are chosen. Nothing is written before sign-in - the pick rides the sign-in `next` and
- * `/resident/tour/schedule` finishes the request.
+ * "Your details" for the EMBEDDED resident flow when the session is gone: sign in again. The public page never
+ * shows this (captain, Nov 14: a guest books with a name, phone and email and no account).
  */
 function TourAccountStep({
   pub,
@@ -1609,8 +1608,8 @@ function Step3({
   const [notes, setNotes] = useState("");
   const [tourFormat, setTourFormat] = useState<TourFormat>(DEFAULT_TOUR_FORMAT);
   // Signed-in residents consented when their account was created; the tick is
-  // not shown to them, so it must not silently submit as "declined".
-  const [smsConsent] = useState(signedIn);
+  // not shown to them, so it must not silently submit as "declined". A guest ticks it themselves.
+  const [smsConsent, setSmsConsent] = useState(signedIn);
   const onSubmitRef = useRef(onSubmit);
   // Synced in an effect rather than during render; the ref is only read from the
   // submit handler, well after the effect has flushed.
@@ -1693,10 +1692,8 @@ function Step3({
       </ul>
     );
 
-    if (!signedIn) {
-      return <TourAccountStep pub accountNext={accountNext} summary={summary} refusal={refusal} />;
-    }
-
+    // No account wall on the public page (captain, Nov 14): a guest gives a name, phone and email and books. The server
+    // re-derives the home, host and slot; the confirmation comes by email (and a text when the box below is ticked).
     return (
       <div className="ps-j-stack" style={{ gap: 22 }}>
         {summary}
@@ -1772,6 +1769,17 @@ function Step3({
             className={`${PS_INPUT_CLS} resize-none`}
           />
         </Field>
+        {!signedIn ? (
+          <label className="ps-j-radio" data-on={smsConsent} data-attr="tour-sms-consent">
+            <input
+              type="checkbox"
+              checked={smsConsent}
+              onChange={(e) => setSmsConsent(e.target.checked)}
+              data-attr="tour-sms-consent-input"
+            />
+            <b>Text me about this tour</b>
+          </label>
+        ) : null}
 
         <button
           type="button"

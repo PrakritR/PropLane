@@ -62,7 +62,9 @@ import {
 import {
   SHORT_STAY_MAX_GUESTS,
   listingOffersShortStay,
+  shortStayRoomMonthly,
   shortStayRoomNightly,
+  shortStayRoomWeekly,
   validateShortStayDates,
 } from "@/lib/short-stay-request";
 import { resolveProfileFullName } from "@/lib/auth/profile-name.server";
@@ -78,14 +80,14 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 type PropertyRow = { id: string; status: string | null; property_data: unknown };
 
-type BookableRoom = { id: string; label: string; nightly: number; sleeps: number };
+type BookableRoom = { id: string; label: string; nightly: number; weekly?: number; monthly?: number; sleeps: number };
 
 function bookableRooms(submission: ManagerListingSubmissionV1): BookableRoom[] {
   if (!listingOffersShortStay(submission)) return [];
   return (submission.rooms ?? []).flatMap((room, index) => {
     const nightly = shortStayRoomNightly(room, submission.shortTermDailyCost);
     return room.id && nightly > 0
-      ? [{ id: room.id, label: room.name?.trim() || `Room ${index + 1}`, nightly, sleeps: normalizeRoomOccupancyCapacity(room.occupancyCapacity) }]
+      ? [{ id: room.id, label: room.name?.trim() || `Room ${index + 1}`, nightly, weekly: shortStayRoomWeekly(room), monthly: shortStayRoomMonthly(room), sleeps: normalizeRoomOccupancyCapacity(room.occupancyCapacity) }]
       : [];
   });
 }

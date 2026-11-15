@@ -23,22 +23,23 @@ import { renderChannelBookingEvent } from "@/lib/channel-booking-events.server";
 import { dayStayDisplayName } from "@/lib/occupancy/snapshot";
 
 describe("Other calendar (ical) import URL validator", () => {
-  it("accepts any public https URL ending .ics or containing /ical/ or /calendar/", () => {
+  it("accepts any public https URL, whatever its path (validity is decided by content when fetched)", () => {
     for (const url of [
       "https://www.houfy.com/calendar/export/abc.ics",
       "https://furnishedfinder.com/ical/12345",
       "https://example.org/some/calendar/feed?token=x",
       "https://partner.example.com/feeds/room-9.ICS",
       "https://www.vrbo.com/icalendar/abc123.ics?nonTentative",
+      "https://ycs.agoda.com/en-us/api/ycs/ical?propertyId=123&token=abcDEF",
+      "https://ycs.agoda.com/ical/export/9f8e7d6c5b",
+      "https://connect.agoda.com/feed?t=abc123",
     ]) expect(isValidIcalImportUrl(url), url).toBe(true);
     expect(isValidChannelImportUrl("ical", "https://www.houfy.com/calendar/export/abc.ics")).toBe(true);
   });
 
-  it("refuses http, a path that is not a calendar, and credentials in the URL", () => {
+  it("refuses http and credentials in the URL", () => {
     for (const url of [
       "http://www.houfy.com/calendar/export/abc.ics",
-      "https://www.houfy.com/rooms/12345",
-      "https://www.houfy.com/",
       "https://user:pass@www.houfy.com/feed.ics",
       "ftp://www.houfy.com/feed.ics",
       "not a url",
@@ -70,7 +71,7 @@ describe("Other calendar (ical) import URL validator", () => {
 
   it("the provider is accepted and the error names what an ical link looks like", () => {
     expect(parseChannelCalendarProvider("ical")).toBe("ical");
-    expect(channelImportUrlErrorMessage("ical")).toMatch(/\.ics/);
+    expect(channelImportUrlErrorMessage("ical")).toMatch(/iCal/);
     // The other providers keep refusing a generic URL: the allowlist is untouched.
     expect(isValidChannelImportUrl("airbnb", "https://www.houfy.com/calendar/export/abc.ics")).toBe(false);
     expect(isValidChannelImportUrl("booking_com", "https://www.houfy.com/calendar/export/abc.ics")).toBe(false);
@@ -87,6 +88,16 @@ describe("Other calendar response sniffing", () => {
     expect(looksLikeIcalResponse("text/html", "<html><body>BEGIN:VCALENDAR</body></html>")).toBe(false);
     expect(looksLikeIcalResponse("text/calendar", "<html>login</html>")).toBe(false);
     expect(looksLikeIcalResponse("application/json", '{"events":[]}')).toBe(false);
+  });
+
+  it("accepts the content types Agoda-style hosts send, and refuses a truncated or non-calendar body", () => {
+    const ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:a\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+    for (const type of ["text/calendar", "text/calendar;charset=UTF-8", "text/plain", "text/plain; charset=utf-8", "application/octet-stream", null, ""]) {
+      expect(looksLikeIcalResponse(type, ics), String(type)).toBe(true);
+    }
+    expect(looksLikeIcalResponse("text/html", ics)).toBe(false);
+    expect(looksLikeIcalResponse("text/plain", "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n")).toBe(false);
+    expect(looksLikeIcalResponse("text/plain", "Please sign in")).toBe(false);
   });
 });
 

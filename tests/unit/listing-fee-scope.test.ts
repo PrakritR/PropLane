@@ -354,30 +354,40 @@ describe("a room priced per lease type", () => {
   });
 });
 
-describe("a short stay bills whole weeks, then the leftover nights", () => {
+describe("a short stay bills by stay-length tier (weekly is prorated per night)", () => {
   // The captain's example: twelve nights on an $85 night / $500 week room is one week plus
   // five nights — $500 + 5 x $85 — not twelve nights at the nightly rate. A weekly rate is
   // a real price and is deliberately cheaper than seven nights, so billing nightly across
   // a long stay overcharges the guest against the rate they were quoted.
-  it("splits twelve nights into a week and five nights", () => {
+  it("prices twelve nights at the weekly rate per night (7-27 night tier)", () => {
     expect(shortTermStaySplit(12, 500)).toEqual({ weeks: 1, nights: 5 });
-    expect(shortTermStayTotalAmount(85, 12, 500)).toBe(500 + 5 * 85);
-    expect(shortTermStayChargeTitle(12, 85, 500)).toBe("Stay total (1 week × $500 + 5 nights × $85)");
+    expect(shortTermStayTotalAmount(85, 12, 500)).toBe(857.14);
+    expect(shortTermStayChargeTitle(12, 85, 500)).toBe("Stay total (12 nights × $500/week, Weekly rate)");
   });
 
   it("bills whole weeks with no remainder cleanly", () => {
     expect(shortTermStaySplit(14, 500)).toEqual({ weeks: 2, nights: 0 });
     expect(shortTermStayTotalAmount(85, 14, 500)).toBe(1000);
-    expect(shortTermStayChargeTitle(14, 85, 500)).toBe("Stay total (2 weeks × $500)");
+    expect(shortTermStayChargeTitle(14, 85, 500)).toBe("Stay total (14 nights × $500/week, Weekly rate)");
   });
 
-  it("is the nightly maths it always was without a weekly rate, or under a week", () => {
-    expect(shortTermStayTotalAmount(85, 12)).toBe(12 * 85);
+  it("defaults the weekly rate to 6 x nightly without one, and is nightly under a week", () => {
+    expect(shortTermStayTotalAmount(85, 12)).toBe(874.29); // 510/week x 12/7
     expect(shortTermStayTotalAmount(85, 5, 500)).toBe(5 * 85);
     expect(shortTermStayChargeTitle(5, 85, 500)).toBe("Stay total (5 nights × $85)");
   });
 
-  it("round-trips both titles, so a manager can still edit the charge", () => {
+  it("round-trips the tier titles and the legacy ones, so a manager can still edit the charge", () => {
+    expect(parseShortTermStayChargeTitle("Stay total (12 nights × $500/week, Weekly rate)")).toEqual({
+      nights: 12,
+      nightlyRate: 0,
+      weeklyRate: 500,
+    });
+    expect(parseShortTermStayChargeTitle("Stay total (30 nights × $1000/month, Monthly rate)")).toEqual({
+      nights: 30,
+      nightlyRate: 0,
+      monthlyRate: 1000,
+    });
     expect(parseShortTermStayChargeTitle("Stay total (1 week × $500 + 5 nights × $85)")).toEqual({
       nights: 12,
       nightlyRate: 85,

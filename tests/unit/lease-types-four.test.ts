@@ -192,7 +192,7 @@ describe("charges follow the chosen lease type", () => {
   it("Short-term: one stay total from the nightly rate", () => {
     const rows = approve("short@example.com", "Short-Term Stay", "2026-03-10", "2026-03-20", "short_term");
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ kind: "stay_total", amount: "$400.00" });
+    expect(rows[0]).toMatchObject({ kind: "stay_total", amount: "$342.86" }); // 10 nights: weekly tier (6 x $40 nightly)
   });
 });
 

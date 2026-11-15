@@ -303,6 +303,13 @@ function seattleHomesSnapshot(): DemoDataSnapshot {
   // charge for each (two paid on time, Alder's overdue — the one "Needs
   // attention" item and the only unpaid balance on the books).
   const charges: HouseholdCharge[] = [];
+  // One rent charge per resident per CALENDAR month: stepping back by 30-day blocks can land two of them in the
+  // same month, which the one-rent-charge-per-month guard (and the books) rightly refuse.
+  const calendarMonthsAgo = (months: number): string => {
+    const now = new Date();
+    const d = new Date(now.getFullYear(), now.getMonth() - months, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  };
   for (const r of RESIDENTS) {
     for (let monthsAgo = 6; monthsAgo >= 1; monthsAgo--) {
       const paidAt = daysAgo(monthsAgo * 30 - 2);
@@ -325,7 +332,7 @@ function seattleHomesSnapshot(): DemoDataSnapshot {
         paidAt: paidAt.toISOString(),
         paidMethod: "bank",
         dueDay: 1,
-        rentMonth: isoDate(daysAgo(monthsAgo * 30)).slice(0, 7),
+        rentMonth: calendarMonthsAgo(monthsAgo),
       });
     }
     const isAlder = r.propertyId === "demo-prop-alder";
@@ -349,7 +356,7 @@ function seattleHomesSnapshot(): DemoDataSnapshot {
       paidMethod: isAlder ? undefined : "bank",
       dueDay: 1,
       dueDateLabel: isAlder ? isoDate(daysAgo(6)) : undefined,
-      rentMonth: isoDate(daysAgo(isAlder ? 6 : 20)).slice(0, 7),
+      rentMonth: calendarMonthsAgo(0),
     });
   }
 

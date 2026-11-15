@@ -103,17 +103,16 @@ export function isValidVrboImportUrl(raw: string): boolean {
 }
 
 /**
- * "Other calendar": any https URL whose path ends in .ics or contains /ical/ or /calendar/. No host
- * allowlist - the site is whatever the manager names - but never a loopback, private or internal host
- * (DNS is re-checked when the feed is fetched).
+ * "Other calendar": any https URL on a public host (Agoda's export is `.../ical?...` or a bare token query,
+ * so the path says nothing). No host allowlist - the site is whatever the manager names - but never a
+ * loopback, private or internal host (DNS is re-checked when the feed is fetched). Whether it really is
+ * a calendar is decided by its CONTENT (BEGIN:VCALENDAR) when it is fetched.
  */
 export function isValidIcalImportUrl(raw: string): boolean {
   const url = parseHttpsUrl(raw);
   if (!url) return false;
   if (url.username || url.password) return false;
-  if (isPrivateOrInternalHostname(url.hostname)) return false;
-  const path = url.pathname.toLowerCase();
-  return path.endsWith(".ics") || path.includes("/ical/") || path.includes("/calendar/");
+  return !isPrivateOrInternalHostname(url.hostname);
 }
 
 export function isValidChannelImportUrl(provider: ChannelCalendarProvider, raw: string): boolean {
@@ -125,7 +124,7 @@ export function isValidChannelImportUrl(provider: ChannelCalendarProvider, raw: 
 
 export function channelImportUrlErrorMessage(provider: ChannelCalendarProvider): string {
   if (provider === "ical") {
-    return "That is not a calendar link. Paste the site's https calendar (iCal) export link - it ends in .ics or contains /ical/ or /calendar/ - and make sure it is not a link to a private or local address.";
+    return "That is not a calendar link. Paste the site's https calendar (iCal) export link (for example an Agoda, Houfy or .ics link), and make sure it is not a link to a private or local address.";
   }
   if (provider === "booking_com") {
     return "That is not a Booking.com calendar link. In Booking.com go to Rates & Availability → Sync calendars → Skip to export, and paste the https://ical.booking.com/v1/export?t=… URL.";

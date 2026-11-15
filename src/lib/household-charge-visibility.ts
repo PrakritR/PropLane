@@ -36,7 +36,7 @@ function daysBetween(now: Date, due: Date): number {
  * uses). A charge with no resolvable due date is never "upcoming".
  */
 export function isUpcomingHouseholdCharge(charge: HouseholdCharge, now = new Date()): boolean {
-  if (charge.status === "paid" || charge.status === "cancelled" || charge.status === "refunded") return false;
+  if (charge.status === "paid" || charge.status === "cancelled" || charge.status === "refunded" || charge.status === "void") return false;
   const chargeMonth = charge.rentMonth ?? (() => {
     const due = householdChargeDueDate(charge);
     return due ? monthKeyFromDate(due) : null;

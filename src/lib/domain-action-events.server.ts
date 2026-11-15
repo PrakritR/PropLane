@@ -24,6 +24,8 @@ export const ACTION_EVENT_CATALOG = {
     "partial_received",
     "late_fee_applied",
     "deposit_received",
+    // The 7-day hold fee ran out unsigned: the room is released, the money is kept per policy.
+    "hold_expired",
   ],
   lease: [
     "lease_created",
@@ -110,6 +112,7 @@ export function renderPaymentActionEvent(
   if (event === "late_fee_applied" && audience === "manager") text = `A ${amount} late fee was applied${at} for “${title}”.`;
   if (event === "deposit_received" && audience === "resident") text = `Your ${amount} security deposit was received and is held per your lease.`;
   if (event === "deposit_received" && audience === "manager") text = `The ${amount} security deposit${at} was received.`;
+  if (event === "hold_expired" && audience === "manager") text = `The ${amount} hold fee${at} expired without a signed lease. The room is available again and the fee is kept per your holding-deposit policy; nothing was refunded.`;
   return text ? { subject: `${title} · Payment update`, text, smsText: text } : null;
 }
 
@@ -712,5 +715,37 @@ export async function emitLeaseDateChange(
       const rendered = renderLeaseActionEvent(event, recipient.audience, facts);
       return rendered ? [{ ...recipient, rendered }] : [];
     }),
+  });
+}
+
+/** The manager hears that a hold fee ran out unsigned. Idempotent on the charge id. */
+export async function emitHoldingDepositExpired(
+  db: SupabaseClient,
+  input: { managerUserId: string; charge: HouseholdCharge },
+): Promise<void> {
+  const { charge, managerUserId } = input;
+  const sender = await managerSender(db, managerUserId);
+  if (!sender.email) return;
+  const facts: PaymentFacts = {
+    title: charge.title || "Hold fee",
+    amountLabel: charge.amountLabel || "",
+    propertyLabel: collapseDuplicateRoomCount(charge.propertyLabel ?? "") || undefined,
+  };
+  const rendered = renderPaymentActionEvent("hold_expired", "manager", facts);
+  if (!rendered) return;
+  await emitActionEvent(db, {
+    eventId: `${charge.id}:hold_expired`,
+    domain: "payment",
+    event: "hold_expired",
+    managerUserId,
+    entityId: charge.id,
+    category: "payments",
+    channel: await chargeNoticeChannel(db, { managerUserId, charge: charge as { guestStayBlockId?: unknown; residentEmail?: string | null } }),
+    senderUserId: sender.userId,
+    senderEmail: sender.email,
+    senderName: sender.name,
+    payload: { status: charge.status, kind: charge.kind, propertyId: charge.propertyId, title: facts.title, ...(facts.amountLabel ? { amountLabel: facts.amountLabel } : {}), ...(facts.propertyLabel ? { propertyLabel: facts.propertyLabel } : {}) },
+    templateContext: { title: facts.title, amountLabel: facts.amountLabel, propertyTitle: facts.propertyLabel ?? "", balanceLabel: "", dueDateLabel: "" },
+    recipients: [{ audience: "manager", userId: managerUserId, rendered }],
   });
 }

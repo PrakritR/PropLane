@@ -41,3 +41,27 @@ describe("channel calendar export ICS", () => {
     expect(ics).not.toContain("BEGIN:VEVENT");
   });
 });
+
+describe("export feed UIDs and line folding", () => {
+  it("two ranges starting the same day get different UIDs, stable across builds", () => {
+    const ranges = [{ start: "2026-09-15", end: "2026-09-16" }, { start: "2026-09-15", end: "2026-09-20" }];
+    const uids = (ics: string) => ics.split("\r\n").filter((l) => l.startsWith("UID:"));
+    const a = uids(generateIcsCalendar(ranges, { uidPrefix: "conn-1" }));
+    const b = uids(generateIcsCalendar(ranges, { uidPrefix: "conn-1" }));
+    expect(new Set(a).size).toBe(2);
+    expect(a).toEqual(b);
+  });
+
+  it("an identical range twice still yields unique UIDs", () => {
+    const r = { start: "2026-09-15", end: "2026-09-16" };
+    const uids = generateIcsCalendar([r, r], { uidPrefix: "c" }).split("\r\n").filter((l) => l.startsWith("UID:"));
+    expect(new Set(uids).size).toBe(2);
+  });
+
+  it("folds a long line at 75 octets with CRLF + space, never splitting a multi-byte character", () => {
+    const ics = generateIcsCalendar([], { calendarName: "Café ".repeat(40) });
+    for (const line of ics.split("\r\n")) expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
+    expect(ics).toContain("\r\n ");
+    expect(ics.replace(/\r\n /g, "")).toContain("X-WR-CALNAME:" + "Café ".repeat(40).trim().replace(/,/g, "\\,"));
+  });
+});

@@ -7,7 +7,7 @@ export function buildRentDueSummary(charges: HouseholdCharge[], period: string) 
   const rooms: Record<string, Record<string, { paidCents: number; outstandingCents: number }>> = {};
   const seen = new Set<string>();
   for (const charge of dedupeHouseholdCharges(charges)) {
-    if (seen.has(charge.id) || charge.status === "cancelled" || charge.status === "failed") continue;
+    if (seen.has(charge.id) || charge.status === "cancelled" || charge.status === "void" || charge.status === "failed") continue;
     seen.add(charge.id);
     const date = householdChargeDueDate(charge);
     const month = date ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}` : charge.rentMonth || "";

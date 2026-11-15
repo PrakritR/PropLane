@@ -4,11 +4,19 @@ import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { ensureSignedInResidentAccount } from "@/lib/auth/ensure-signed-in-resident.server";
 import { readListingSource } from "@/lib/listing-channels/lead-source.server";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
+import { phoneRateKey } from "@/lib/sms/phone-key";
+import { normalizeTourContactPhone } from "@/lib/tour-contact-quality";
+import { loadGuestTourListing, recordGuestTourProspect } from "@/lib/tour-guest-prospect.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { createTourInquiry, textValue } from "@/lib/tour-inquiry-create.server";
 import { linkTourInquiryToResident } from "@/lib/tour-resident-link.server";
 
 export const runtime = "nodejs";
+
+const HOUR_MS = 60 * 60 * 1000;
+/** A guest tour has no account behind it: the caps are on the two things one person cannot cheaply multiply. */
+export const GUEST_TOURS_PER_IP_PER_HOUR = 6;
+export const GUEST_TOURS_PER_PHONE_PER_HOUR = 3;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -69,26 +77,50 @@ export async function POST(req: Request) {
         }
       }
     } catch {
-      /* Optional session: `kind: "partner"` is still anonymous. A tour is not — an unreadable
-         session leaves `linkingUser` null and the refusal below fails closed. */
+      /* Optional session: an unreadable one is an anonymous one. A tour is then a guest tour (below), which
+         re-derives everything instead of trusting the body. */
     }
 
-    // A tour needs a signed-in account, slot-mode and requested-time alike (captain, Nov 3: no anonymous
-    // booking). Checked HERE, before anything is read or written, and it fails closed: an unreadable
-    // session is an anonymous one. A body's `email` proves nothing. The assistant's tour tools and the
-    // leasing SMS agent call `createTourInquiry` directly, never this route, so they are unaffected. The
-    // one anonymous use left is `kind: "partner"` (the partner-meeting scheduler), which books no tour.
-    if (textValue(incoming.kind) === "tour" && !linkingUser) {
-      return NextResponse.json({ error: "Sign in to request a tour.", reason: "sign_in_required" }, { status: 401 });
+    const isTour = textValue(incoming.kind) === "tour";
+    // A tour is never given its own status, host list or fee stamp by a public caller: those are server-owned.
+    if (isTour) {
+      delete incoming.status;
     }
 
     const db = createSupabaseServiceRoleClient();
+
+    // A tour needs NO account (captain, Nov 14: a renter from Facebook, Zillow or Roomies books a tour and applies without
+    // one; this replaces the Nov 3 sign-in wall). A guest is whoever has no readable session, and a body's `email` proves
+    // nothing, so everything that decides access is re-derived here: the home (a LIVE listing, never the body's word for
+    // its owner), the host and the published slot (`createTourInquiry`), and the contact fields. A guest is bounded per IP
+    // and per phone, the two things one person cannot cheaply multiply.
+    const guest = isTour && !linkingUser;
+    let guestListing: Awaited<ReturnType<typeof loadGuestTourListing>> = null;
+    if (guest) {
+      const phone = normalizeTourContactPhone(textValue(incoming.phone));
+      if (!phone) return NextResponse.json({ error: "Phone number must be 10 digits.", reason: "invalid_contact" }, { status: 400 });
+      const ip = clientIpFrom(req);
+      if (!(await rateLimit(`guest-tour-ip:${ip}`, GUEST_TOURS_PER_IP_PER_HOUR, HOUR_MS)).ok) {
+        return NextResponse.json({ error: "Too many tour requests. Please try again later.", reason: "rate_limited" }, { status: 429 });
+      }
+      if (!(await rateLimit(`guest-tour-phone:${phoneRateKey(phone)}`, GUEST_TOURS_PER_PHONE_PER_HOUR, HOUR_MS)).ok) {
+        return NextResponse.json({ error: "Too many tour requests for this number. Please try again later.", reason: "rate_limited" }, { status: 429 });
+      }
+      guestListing = await loadGuestTourListing(db, textValue(incoming.propertyId));
+      if (!guestListing) return NextResponse.json({ error: "This listing is not available.", reason: "slot_unavailable" }, { status: 404 });
+      // Re-stamp the home from the database; the body's title is display text only and is capped.
+      incoming.propertyId = guestListing.propertyId;
+      incoming.propertyTitle = textValue(incoming.propertyTitle).slice(0, 200) || guestListing.propertyLabel;
+    }
+
     // Only the session's own email is the verified applicant; the body's is not.
     const created = await createTourInquiry(db, {
       incoming,
       verifiedApplicantEmail: linkingEmail,
       verifiedApplicantUserId: linkingUser?.id ?? null,
-      sourceChannel: textValue(incoming.kind) === "tour" ? await readListingSource(req) : null,
+      sourceChannel: isTour ? await readListingSource(req) : null,
+      // A guest is answered by email and a text (when they ticked the box), never by a /resident link they cannot open.
+      ...(guest ? { guestApplicant: true, noticeChannel: "sms" as const } : {}),
       beforeTourNotifications: linkingUser && linkingEmail ? async ({ inquiryId }) => {
         const ensured = await ensureSignedInResidentAccount(db, linkingUser);
         if (!ensured.ok) return;
@@ -100,6 +132,20 @@ export async function POST(req: Request) {
         { error: created.error, ...(created.reason === "identity_required" ? { blocked: "identity", href: "/resident/profile?tab=profile#verification" } : {}) },
         { status: STATUS_BY_REASON[created.reason] ?? 500 },
       );
+    }
+
+    if (guest && guestListing) {
+      // The prospect spine: one thread per person per workspace, tagged with the house. Best-effort: the request is
+      // already filed and the manager already has it on their calendar.
+      const firstWindow = Array.isArray(created.row.requestedWindows) ? (created.row.requestedWindows as Array<Record<string, unknown>>)[0] : null;
+      await recordGuestTourProspect(db, {
+        listing: guestListing,
+        inquiryId: created.inquiryId,
+        name: textValue(created.row.name),
+        phone: textValue(created.row.phone),
+        roomLabel: textValue(created.row.roomLabel).slice(0, 120),
+        whenLabel: typeof firstWindow?.start === "string" ? firstWindow.start : "",
+      }).catch(() => false);
     }
 
     return NextResponse.json({ ok: true, row: created.row });

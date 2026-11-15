@@ -18,13 +18,15 @@ import { pacificTodayKey } from "@/lib/sheet-sync/dates";
 import {
   listingOffersShortStay,
   listingShortStayNightlyFrom,
+  shortStayRoomMonthly,
   shortStayRoomNightly,
+  shortStayRoomWeekly,
   shortStayRoomVerdict,
   validateShortStayDates,
   type ShortStayRoomVerdict,
 } from "@/lib/short-stay-request";
 
-type StayRoom = { id: string; name: string; capacity: number; nightly: number };
+type StayRoom = { id: string; name: string; capacity: number; nightly: number; weekly?: number; monthly?: number };
 
 /** Which nights the rooms list is asked about: the monthly move-in day, or a short stay's range (no control on the listing page sets it now). */
 export type StaySegment = "monthly" | "short";
@@ -72,6 +74,8 @@ export function ShortStayProvider({ property, disabled = false, children }: { pr
           name: room.name?.trim() || `Room ${index + 1}`,
           capacity: normalizeRoomOccupancyCapacity(room.occupancyCapacity),
           nightly: shortStayRoomNightly(room, sub?.shortTermDailyCost),
+          weekly: shortStayRoomWeekly(room),
+          monthly: shortStayRoomMonthly(room),
         })),
     [sub],
   );

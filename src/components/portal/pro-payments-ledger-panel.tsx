@@ -56,7 +56,7 @@ import { formatPortalListDate } from "@/lib/portal-display-dates";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { deleteManagerPaymentLedgerEntry, markManagerPaymentLedgerPaid, markManagerPaymentLedgerPending } from "@/lib/demo-manager-payment-ledger";
-import { readHouseholdCharges, recordHouseholdChargeOfflinePayment, deleteHouseholdCharge, legacyChargeIdAliases, publicChargeIdForUrl, updateHouseholdChargeAmount, type ChargeManagerScopeOpts } from "@/lib/household-charges";
+import { readHouseholdCharges, recordHouseholdChargeOfflinePayment, voidHouseholdCharge, deleteHouseholdCharge, legacyChargeIdAliases, publicChargeIdForUrl, updateHouseholdChargeAmount, type ChargeManagerScopeOpts } from "@/lib/household-charges";
 import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
 import {
   syncResidentAfterStayPaymentEdit,
@@ -162,7 +162,7 @@ function hasProviderRefundSource(row: DemoManagerPaymentLedgerRow): boolean {
  * action that will always be refused.
  */
 function isReturnableDepositRow(row: DemoManagerPaymentLedgerRow): boolean {
-  return row.chargeKind === "security_deposit" && isPaidRow(row) && hasProviderRefundSource(row);
+  return row.chargeKind === "security_deposit" && !row.voided && isPaidRow(row) && hasProviderRefundSource(row);
 }
 
 /**
@@ -170,7 +170,7 @@ function isReturnableDepositRow(row: DemoManagerPaymentLedgerRow): boolean {
  * their own dedicated Return-deposit action; this is the general counterpart for paid rent/fees.
  */
 function isRefundableChargeRow(row: DemoManagerPaymentLedgerRow): boolean {
-  return row.chargeKind !== "security_deposit" && isPaidRow(row) && hasProviderRefundSource(row);
+  return row.chargeKind !== "security_deposit" && !row.voided && isPaidRow(row) && hasProviderRefundSource(row);
 }
 
 function isRemindableRow(row: DemoManagerPaymentLedgerRow): boolean {
@@ -323,6 +323,15 @@ export function ManagerPaymentsLedgerPanel({
   showUpcomingCharges?: boolean;
 }) {
   const airbnbPayouts = useMemo(() => new Map((airbnbPayoutRows ?? []).map((payout) => [payout.id, payout])), [airbnbPayoutRows]);
+  // Void is the workspace OWNER's: the charge's own manager id is the signed-in user (the server re-derives it).
+  const canVoidRow = useCallback(
+    (row: DemoManagerPaymentLedgerRow) => {
+      if (!row.householdChargeId || row.voided || row.chargeKind === "security_deposit") return false;
+      const charge = readHouseholdCharges().find((item) => item.id === row.householdChargeId);
+      return Boolean(charge && charge.status === "paid" && managerUserId && charge.managerUserId === managerUserId);
+    },
+    [managerUserId],
+  );
   const rowEditable = useCallback(
     (row: DemoManagerPaymentLedgerRow) => (canEditRow ? canEditRow(row.propertyId) : true),
     [canEditRow],
@@ -353,6 +362,10 @@ export function ManagerPaymentsLedgerPanel({
   const [waiveRow, setWaiveRow] = useState<{ row: DemoManagerPaymentLedgerRow; restore: boolean } | null>(null);
   const [waiveReason, setWaiveReason] = useState("");
   const [waiveBusy, setWaiveBusy] = useState(false);
+  // Void a PAID charge (owner only): the row, the reason the owner types, and the in-flight guard.
+  const [voidRow, setVoidRow] = useState<DemoManagerPaymentLedgerRow | null>(null);
+  const [voidReason, setVoidReason] = useState("");
+  const [voidBusy, setVoidBusy] = useState(false);
   const [offlineDate, setOfflineDate] = useState(new Date().toLocaleDateString("en-CA"));
   const [offlineMethod, setOfflineMethod] = useState<"Cash" | "Check" | "Bank transfer" | "Other">("Check");
   const [offlineNote, setOfflineNote] = useState("");
@@ -736,8 +749,8 @@ export function ManagerPaymentsLedgerPanel({
         showToast("Enter a valid number of nights.");
         return;
       }
-      amt = shortTermStayTotalAmount(parsed.nightlyRate, nights, parsed.weeklyRate);
-      title = shortTermStayChargeTitle(nights, parsed.nightlyRate, parsed.weeklyRate);
+      amt = shortTermStayTotalAmount(parsed.nightlyRate, nights, parsed.weeklyRate, parsed.monthlyRate);
+      title = shortTermStayChargeTitle(nights, parsed.nightlyRate, parsed.weeklyRate, parsed.monthlyRate);
     }
     const dueLabel = editDueDateDraft.trim() ? dueDateInputToLabel(editDueDateDraft) : undefined;
     if (!dueLabel && editDueDateDraft.trim()) {
@@ -1145,6 +1158,7 @@ export function ManagerPaymentsLedgerPanel({
                     parseInt(editNightsDraft, 10) || parsed?.nights || 0,
                     parsed?.nightlyRate ?? 0,
                     parsed?.weeklyRate,
+                    parsed?.monthlyRate,
                   )
                 : row.chargeTitle}
             </p>
@@ -1169,7 +1183,7 @@ export function ManagerPaymentsLedgerPanel({
                     if (parsed && next) {
                       const nights = parseInt(next, 10);
                       if (Number.isFinite(nights) && nights >= 1) {
-                        setEditAmountDraft(shortTermStayTotalAmount(parsed.nightlyRate, nights, parsed.weeklyRate).toFixed(2));
+                        setEditAmountDraft(shortTermStayTotalAmount(parsed.nightlyRate, nights, parsed.weeklyRate, parsed.monthlyRate).toFixed(2));
                       }
                     }
                   }}
@@ -1355,6 +1369,8 @@ export function ManagerPaymentsLedgerPanel({
           actions.push({ id: "refund", label: "Refund", icon: RotateCcw });
         }
         if (!row.householdChargeId) actions.push({ id: "move-pending", label: "Move to pending", icon: CalendarDays });
+        // Owner only: a co-manager or Property owner seat never sees Void (the server refuses it too).
+        if (canVoidRow(row)) actions.push({ id: "void-charge", label: "Void", icon: Ban, tone: "danger" });
       }
       if (rowDeletable(row)) {
         actions.push({ id: "delete", label: "Delete", icon: Trash2, tone: "danger" });
@@ -1392,6 +1408,8 @@ export function ManagerPaymentsLedgerPanel({
             {roomLabel ? <RecordFactRow label="Room" value={roomLabel} /> : null}
             <RecordFactRow label="Charge" value={row.chargeTitle} />
             {charge?.paidNote ? <RecordFactRow label="Note" value={charge.paidNote} /> : null}
+            {row.voided ? <RecordFactRow label="Void" value={`${row.voidReason ?? "Voided"} (was ${row.voidedLineAmount ?? ""}; no money was refunded)`} /> : null}
+            {row.holdLabel && !row.voided ? <RecordFactRow label="Hold" value={row.holdLabel} /> : null}
             {row.notes ? <RecordFactRow label="Details" value={row.notes} /> : null}
             {row.residentChargeMessages?.map((message) => <RecordFactRow key={message.id} label={formatPacificDateTime(message.sentAt)} value={message.body} />)}
             {isPaidRow(row) && charge?.paidMethod ? (
@@ -2110,15 +2128,27 @@ export function ManagerPaymentsLedgerPanel({
     const due = formatDueMeta(row.dueDate ?? "");
     const reminder = paymentReminderMetaHint(row, displayScheduledMessages);
 
-    return (
+    const voidFact = row.voided ? (
+      <PortalRowFact icon={Ban}>
+        <span className="inline-block no-underline" data-attr="payment-row-void">Void{row.voidReason ? ` · ${row.voidReason}` : ""}</span>
+      </PortalRowFact>
+    ) : null;
+    const holdFact = !row.voided && row.holdLabel ? (
+      <PortalRowFact icon={CalendarDays}>
+        <span data-attr="payment-row-hold-deadline">{row.holdLabel}</span>
+      </PortalRowFact>
+    ) : null;
+    const chargeRow = (
       <PortalApplicantRecordRow
         key={row.id}
         name={paymentLedgerResidentLabel(row)}
         address={property === "—" ? row.chargeTitle : `${row.chargeTitle} · ${property}`}
         facts={
-          due || reminder ? (
+          due || reminder || voidFact || holdFact ? (
             <>
-              {due ? <PortalRowFact icon={CalendarDays}>{due}</PortalRowFact> : null}
+              {voidFact}
+              {holdFact}
+              {due && !row.voided ? <PortalRowFact icon={CalendarDays}>{due}</PortalRowFact> : null}
               {reminder ? (
                 <PortalRowFact icon={Bell}>
                   <span data-attr="payment-row-reminder">{reminder}</span>
@@ -2128,7 +2158,9 @@ export function ManagerPaymentsLedgerPanel({
           ) : undefined
         }
         trailing={
-          row.bucket === "paid" ? (
+          row.voided ? (
+            <span className="tabular-nums text-muted">{row.voidedLineAmount}</span>
+          ) : row.bucket === "paid" ? (
             <span className="tabular-nums text-[var(--status-confirmed-fg)]">{row.lineAmount}</span>
           ) : (
             <span className="tabular-nums">{row.lineAmount}</span>
@@ -2139,6 +2171,14 @@ export function ManagerPaymentsLedgerPanel({
         onOpen={() => openPaymentDetail(row)}
         dataAttr="payment-list-row"
       />
+    );
+    // A voided charge keeps its place in the list, struck through; the Void fact (inline-block) is the one part that is not.
+    return row.voided ? (
+      <div key={row.id} className="[&_*:not([data-attr=payment-row-void])]:line-through" data-attr="payment-list-row-void">
+        {chargeRow}
+      </div>
+    ) : (
+      chargeRow
     );
   };
 
@@ -2383,6 +2423,39 @@ export function ManagerPaymentsLedgerPanel({
         </div>
       </PortalDialog>
       <PortalDialog
+        open={Boolean(voidRow)}
+        title="Void paid charge"
+        onClose={() => setVoidRow(null)}
+        primaryAction={{
+          label: voidBusy ? "Voiding…" : "Void charge",
+          onClick: async () => {
+            const target = voidRow;
+            if (!target?.householdChargeId || voidBusy) return;
+            if (voidReason.trim().length < 3) { showToast("Give a reason for voiding."); return; }
+            const providerPayment = hasProviderRefundSource(target);
+            setVoidBusy(true);
+            const result = await voidHouseholdCharge(target.householdChargeId, voidReason);
+            setVoidBusy(false);
+            if (!result.ok) { showToast(result.error); return; }
+            setVoidRow(null);
+            onRowsChanged?.();
+            showToast(providerPayment ? "Charge voided. The card payment was not refunded: use Refund separately." : "Charge voided.");
+          },
+        }}
+      >
+        <div className="space-y-3" data-attr="void-charge-dialog">
+          {voidRow && hasProviderRefundSource(voidRow) ? (
+            <p className="text-sm font-medium text-foreground" data-attr="void-charge-no-refund">
+              A real card or bank payment is behind this charge. Voiding does not refund it; use Refund for the money.
+            </p>
+          ) : null}
+          <label className="block text-sm" data-attr="void-charge-reason">
+            Reason
+            <Input value={voidReason} maxLength={300} onChange={(event) => setVoidReason(event.target.value)} />
+          </label>
+        </div>
+      </PortalDialog>
+      <PortalDialog
         open={Boolean(waiveRow)}
         title={waiveRow?.restore ? "Restore lease fee" : "Waive lease fee"}
         onClose={() => setWaiveRow(null)}
@@ -2523,6 +2596,7 @@ export function ManagerPaymentsLedgerPanel({
               openReminderPreview(detailRow);
               return;
             }
+            if (actionId === "void-charge") { setVoidReason(""); setVoidRow(detailRow); return; }
             if (actionId === "waive-lease-fee") { setWaiveReason(""); setWaiveRow({ row: detailRow, restore: false }); return; }
             if (actionId === "restore-lease-fee") { setWaiveRow({ row: detailRow, restore: true }); return; }
             if (actionId === "payment-settings") { navigate(managerSettingsGearHref("payments", listBasePath ?? "/portal")); return; }

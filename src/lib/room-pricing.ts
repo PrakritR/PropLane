@@ -18,7 +18,7 @@
  */
 
 import { parseMoneyAmount } from "@/lib/parse-money";
-import { isIntraMonthStay, shortTermNightlyRate } from "@/lib/short-term-stay-pricing";
+import { isIntraMonthStay, shortTermEffectiveWeeklyRate, shortTermNightlyRate } from "@/lib/short-term-stay-pricing";
 
 /** Minimal shape needed to reason about a room's rent price. */
 export type RoomPricingLike = {
@@ -892,12 +892,15 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
     // "is this room priced BY the week" and needs `rentBasis`, which the wizard no longer
     // sets. On a short stay a weekly rate that was typed in is a weekly rate that applies.
     const shortTermWeekly = positiveNumber(staySlot?.weeklyRentPrice ?? room?.weeklyRentPrice);
+    // Stay-length tiers: weekly defaults to 6 x nightly, and the room's monthly rent prices a
+    // 28+ night stay (prorated over 30 nights). `shortTermStayTotalAmount` is the one maths.
+    const stayMonthly = positiveNumber(room?.monthlyRent);
     return {
       stayKind: "short",
       basis: "daily",
       dailyRate,
-      weeklyRate: shortTermWeekly,
-      monthlyRate: undefined,
+      weeklyRate: shortTermEffectiveWeeklyRate(dailyRate ?? 0, shortTermWeekly),
+      monthlyRate: stayMonthly,
       deposit,
       // A nightly stay is already priced for being short; a monthly short-lease
       // surcharge on top would bill the same shortness twice.

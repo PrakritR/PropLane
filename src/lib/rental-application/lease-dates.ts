@@ -85,15 +85,27 @@ export function isStandardCalendarLease(
   return end.getDate() === lastDayOfCalendarMonth(end.getFullYear(), end.getMonth() + 1);
 }
 
-/** Mid-month start or a lease end before the month's last day — requires both dates. */
+/** The custom-lease surcharge when a room/listing leaves it blank: +$100 per month. */
+export const DEFAULT_CUSTOM_LEASE_SURCHARGE = 100;
+
+/**
+ * Custom dates: the lease starts on a day other than the 1st, OR ends on a day that is neither
+ * the 1st nor the last day of a month (an end on the 1st is the checkout morning of an aligned
+ * term, and an end on the last day is the month-end form; both count as aligned). Both ends
+ * together are still ONE surcharge: this is a yes/no, billed once per month. With no end
+ * (month-to-month) only the start matters; no start is never custom.
+ */
 export function isCustomCalendarLease(
   leaseStart: string | undefined | null,
   leaseEnd: string | undefined | null,
 ): boolean {
   const start = parseFlexibleLocalDate(leaseStart);
+  if (!start) return false;
+  if (start.getDate() !== 1) return true;
   const end = parseFlexibleLocalDate(leaseEnd);
-  if (!start || !end) return false;
-  return !isStandardCalendarLease(leaseStart, leaseEnd);
+  if (!end) return false;
+  const day = end.getDate();
+  return day !== 1 && day !== lastDayOfCalendarMonth(end.getFullYear(), end.getMonth() + 1);
 }
 
 export function resolvePlacementLeaseDates(input: {

@@ -62,6 +62,7 @@ import {
   formatShortStayMoney,
   shortStayDayLabel,
   shortStayTotal,
+  shortStayTierLabel,
 } from "@/lib/short-stay-request";
 
 type Dry = { status: "idle" | "checking" | "ready" | "error"; result: GuestRangeResult | null; message: string };
@@ -182,7 +183,7 @@ export function ResidentStayRequest({ basePath = "/resident", prefill }: { baseP
   const activeAddOns = tickedAddOns.filter((kind) => offers.some((offer) => offer.kind === kind));
   const addOnsCents = addOnsQuoteCents([result?.addOns], activeAddOns);
   const stayTimes = normalizePropertyStayTimes(listing?.stayTimes);
-  const staySubtotal = room && nights ? shortStayTotal(room.nightly, nights) : 0;
+  const staySubtotal = room && nights ? shortStayTotal(room.nightly, nights, room.weekly, room.monthly) : 0;
   const total = staySubtotal + addOnsCents / 100;
   const stayOk = Boolean(room) && datesReady && dry.status === "ready" && !refused;
   const accountName = listing?.guestName?.trim() || "You";
@@ -267,6 +268,7 @@ export function ResidentStayRequest({ basePath = "/resident", prefill }: { baseP
         { label: "Check-in", value: checkIn ? shortStayDayLabel(checkIn) : "Not set", warn: !checkIn },
         { label: "Check-out", value: checkOut ? shortStayDayLabel(checkOut) : "Not set", warn: !checkOut },
         { label: "Nights", value: nights ? String(nights) : "0" },
+        ...(nights ? [{ label: "Rate", value: shortStayTierLabel(nights, room.monthly) }] : []),
         { label: "Guests", value: String(guests) },
         ...(addOnsCents ? [{ label: "Add-ons", value: formatShortStayMoney(addOnsCents / 100) }] : []),
         { label: "Total", value: formatShortStayMoney(total) },

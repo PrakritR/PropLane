@@ -140,19 +140,18 @@ describe("partner-inquiries route SMS consent persistence", () => {
     vi.mocked(hasRole).mockImplementation((_ctx, role) => role === "resident");
   });
 
-  it("refuses a tour with no signed-in session: 401, nothing written, no opt-in", async () => {
+  it("treats a tour with no session as a guest tour (no 401); the listing is re-derived, and an unknown one is 404 with nothing written", async () => {
     vi.mocked(getPortalAccessContext).mockResolvedValue({ user: null, profile: null, roles: [], effectiveRole: null } as never);
     const res = await postWith(makeRow({ smsConsent: true }));
-    expect(res.status).toBe(401);
-    expect(await res.json()).toMatchObject({ reason: "sign_in_required" });
+    expect(res.status).toBe(404);
     expect(upsertCalls).toHaveLength(0);
     expect(recordOptIn).not.toHaveBeenCalled();
   });
 
-  it("refuses a tour whose session cannot be read (fails closed)", async () => {
+  it("an unreadable session is an anonymous one: a guest tour, never a 401", async () => {
     vi.mocked(getPortalAccessContext).mockRejectedValue(new Error("session store down"));
     const res = await postWith(makeRow({}));
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(404);
     expect(upsertCalls).toHaveLength(0);
   });
 

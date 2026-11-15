@@ -108,6 +108,7 @@ import {
   shouldAutoComputeLeaseEnd,
 } from "@/lib/rental-application/lease-dates";
 import { RENTAL_WIZARD_STEP_COUNT } from "@/lib/rental-application/types";
+import { GuestApplicationVerify, claimGuestApplicationDraftClient, rememberGuestDraftClaimAttempt } from "@/components/marketing/guest-application-verify";
 import {
   wizardSubmitBlockersFromFieldErrors,
   type WizardSubmitBlocker,
@@ -568,6 +569,11 @@ function RentalApplicationWizardInner({
   // matching the refusal the guest submit path applies server-side. Treated as a guest until the session
   // resolves, so the questions are never skipped on the one path that has nowhere else to get them.
   const guestApplicant = mode === "public" && !templatePreview && !feeStepUserId && !isDemoModeActive();
+  // A guest (no account) who pressed Submit: the finished application is held server-side while they prove a phone or
+  // mailbox, and the resident account that proof creates submits it (captain, Nov 14: apply with no account).
+  const [guestVerifyOpen, setGuestVerifyOpen] = useState(false);
+  // The guest application a verified resident just claimed: submitted as soon as the form is on screen.
+  const [guestAutoSubmit, setGuestAutoSubmit] = useState(false);
   const [reviewReturnStep, setReviewReturnStep] = useState<number | null>(null);
   // Every reason a submit is refused, listed above the Submit button with a Fix link to the step that
   // owns it. A refusal is never only a toast: a toast is gone before the applicant has read it.
@@ -1122,6 +1128,9 @@ function RentalApplicationWizardInner({
     // or writing anything to the server — otherwise a fresh page load can sync
     // a brand-new row before the async lookup below finds the real match.
     if (awaitingApplicationRestore || (groupOnlyInvite && !groupInvitePropertyId) || variantRestorePending) return;
+    // A guest has no account to own an application row: the answers stay in this browser until Submit, when the held
+    // draft is stored server-side behind a proof (`GuestApplicationVerify`). No row, no "application started" email.
+    if (mode === "public" && !isDemoModeActive()) return;
     const email = (mode === "portal" || mode === "manager" ? sessionEmail ?? form.email : form.email).trim();
     const pid = form.propertyId.trim();
     if (!shouldSyncInProgressDraft({ email, propertyId: pid })) return;
@@ -2394,6 +2403,7 @@ function RentalApplicationWizardInner({
       return managerActionBusy ? "Loading preview…" : "Send to resident";
     }
     if (step !== RENTAL_WIZARD_STEP_COUNT) return "Continue";
+    if (guestApplicant && !applicationFeeGate.listingUnavailable) return "Verify and submit";
     if (applicationFeeGate.listingUnavailable) return "Listing unavailable";
     if (applicationFeeGate.feePreviewFailed) return "Fee unavailable — try again";
     if (!applicationFeeGate.needsFee) return submitting ? "Submitting…" : "Submit application";
@@ -2408,6 +2418,7 @@ function RentalApplicationWizardInner({
     applicationFeeGate.needsFee,
     applicationFeeGate.listingUnavailable,
     applicationFeeGate.feePreviewFailed,
+    guestApplicant,
     submitting,
   ]);
 
@@ -2739,6 +2750,13 @@ function RentalApplicationWizardInner({
           // silently. Still non-blocking, but no longer invisible (PRP-209).
           console.error("[best-effort] resident identity for application submit failed —", error);
         }
+        // No account yet: prove a phone or mailbox first. The fee, the pre-apply gate and every other submit check run
+        // when the resident account that proof creates submits the held draft.
+        if (mode === "public" && !residentUserId) {
+          setGuestVerifyOpen(true);
+          if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+          return;
+        }
         const pid = form.propertyId.trim();
         const emailTrim = form.email.trim();
         const prop = pid ? getPropertyById(pid) : undefined;
@@ -2915,6 +2933,38 @@ function RentalApplicationWizardInner({
     })();
   };
 
+  // PORTAL: a renter who started as a guest and has just proved a phone or mailbox claims the application they held. The
+  // session is the proof (the server hands it over only to the confirmed email / verified phone it names); the form
+  // then goes through THIS wizard's ordinary signed-in submit, so the pre-apply gate and the fee gate still apply.
+  const guestClaimStarted = useRef(false);
+  useEffect(() => {
+    if (templatePreview || mode !== "portal" || isDemoModeActive()) return;
+    if (!draftReady || !portalRestoreChecked || awaitingApplicationRestore || guestClaimStarted.current) return;
+    const propertyId = linkedPropertyId?.trim() ?? "";
+    if (!propertyId || !rememberGuestDraftClaimAttempt(propertyId)) return;
+    guestClaimStarted.current = true;
+    let cancelled = false;
+    void claimGuestApplicationDraftClient(propertyId).then((claimed) => {
+      if (cancelled || !claimed) return;
+      const restored = { ...createInitialRentalWizardState(), ...claimed, propertyId } as RentalWizardFormState;
+      saveRentalWizardDraft(restored);
+      setForm(restored);
+      setStep(RENTAL_WIZARD_STEP_COUNT);
+      setMaxStepReached(RENTAL_WIZARD_STEP_COUNT);
+      setGuestAutoSubmit(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [awaitingApplicationRestore, draftReady, linkedPropertyId, mode, portalRestoreChecked, templatePreview]);
+
+  useEffect(() => {
+    if (!guestAutoSubmit || step !== RENTAL_WIZARD_STEP_COUNT || submitting || !form.propertyId.trim()) return;
+    setGuestAutoSubmit(false);
+    handleContinue();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires once when the claimed form is on screen
+  }, [guestAutoSubmit, step, form.propertyId]);
+
   const handleBack = () => {
     if (step <= 1) {
       exitApplication();
@@ -2977,6 +3027,11 @@ function RentalApplicationWizardInner({
               clearApplicationFeeSubmitConfirm();
               setPostSubmit(null);
             }}
+          />
+        ) : guestVerifyOpen ? (
+          <GuestApplicationVerify
+            form={form}
+            onBack={() => setGuestVerifyOpen(false)}
           />
         ) : isVerifyingFeeReturn ? (
           <div className="mt-8 rounded-2xl border border-border bg-card p-6">

@@ -23,6 +23,7 @@ import {
 } from "@/components/portal/portal-payouts-panel";
 import { PayoutWithdrawSheet, type PayoutWithdrawAccount } from "@/components/portal/payout-withdraw-sheet";
 import { ProplaneBalanceCard } from "@/components/portal/proplane-balance-card";
+import { PortalPayoutMethodCard } from "@/components/portal/portal-payout-method-card";
 import { AddBankFlow } from "@/components/portal/add-bank-flow";
 import { isPayoutDestinationSummary, type PayoutDestinationSummary } from "@/components/portal/payout-bank-sheet";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
@@ -382,6 +383,36 @@ function PortalPayoutsSettingsPageInner({ portal }: { portal: PortalPayoutsPorta
         <PortalSettingsRow label="Default payment method"><FieldSingleSelect label="Default payment method" hideLabel variant="cell" value={defaultMethod} disabled={!methodLoaded || methodBusy || !workspace?.owned} onChange={value => void saveMethod(value)} options={[...(balanceMethodEnabled ? [{ value: "balance", label: "PropLane balance" }] : []), { value: "ach", label: "Bank account" }]} /></PortalSettingsRow>
       </PortalSettingsGroup></PortalSettingsSection> : null}
       {portal === "vendor" ? <ProplaneBalanceCard portal={portal} /> : null}
+
+      {portal === "manager" ? (
+        <PortalPayoutMethodCard
+          connectBase={connectBase}
+          setup={balance.setup}
+          schedule={balance.schedule}
+          bank={(() => {
+            const chosen = effectiveBankRows.find((row) => row.default) ?? effectiveBankRows[0];
+            return chosen ? { bankName: chosen.label, last4: chosen.last4 } : null;
+          })()}
+          onChanged={() => { invalidateSharedGets(`${apiBase}/payouts/balance`); void loadBalance(true); void loadBankAccounts(true); }}
+          onFallback={() => setBankSheetOpen(true)}
+          onSchedule={async (interval) => {
+            try {
+              const res = await fetch(`${apiBase}/payouts/schedule`, {
+                method: "PUT",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(interval === "weekly" ? { interval, weeklyAnchor: "monday" } : { interval }),
+              });
+              if (!res.ok) throw new Error("Could not update the schedule");
+              invalidateSharedGets(`${apiBase}/payouts/balance`);
+              await loadBalance(true);
+            } catch {
+              showToast("Could not update the schedule.");
+              void loadBalance(true);
+            }
+          }}
+        />
+      ) : null}
 
       {/* Bank accounts */}
       <PortalSettingsSection

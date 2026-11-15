@@ -4,6 +4,9 @@ import {
   shortTermNightlyRate,
   shortTermStayChargeTitle,
   shortTermStayNightCount,
+  shortTermStayTier,
+  shortTermStayTierLabel,
+  shortTermStayTierNote,
   shortTermStayTotalAmount,
 } from "@/lib/short-term-stay-pricing";
 
@@ -31,10 +34,38 @@ describe("shortTermStayTotalAmount", () => {
     expect(shortTermStayTotalAmount(85, 6)).toBe(510);
   });
 
-  it("never bills only the whole-week portion when leftover nights have no rate", () => {
+  it("prorates a weekly-only rate per night from 7 nights, and leaves under a week unpriced", () => {
     expect(shortTermStayTotalAmount(0, 7, 350)).toBe(350);
-    expect(shortTermStayTotalAmount(0, 8, 350)).toBe(0);
-    expect(shortTermStayTotalAmount(65, 8, 350)).toBe(415);
+    expect(shortTermStayTotalAmount(0, 8, 350)).toBe(400);
+    expect(shortTermStayTotalAmount(0, 6, 350)).toBe(0);
+    expect(shortTermStayTotalAmount(65, 8, 350)).toBe(400);
+  });
+
+  it.each([
+    ["standard", 50, 300, 1000],
+    ["premium", 60, 360, 1200],
+  ])("%s room tiers: nightly, weekly (default 6 x nightly), monthly", (_name, nightly, weekly, monthly) => {
+    expect(shortTermStayTotalAmount(nightly, 3, undefined, monthly)).toBe(nightly * 3);
+    expect(shortTermStayTotalAmount(nightly, 6, undefined, monthly)).toBe(nightly * 6);
+    expect(shortTermStayTotalAmount(nightly, 7, undefined, monthly)).toBe(weekly);
+    expect(shortTermStayTotalAmount(nightly, 7, weekly, monthly)).toBe(weekly);
+    expect(shortTermStayTotalAmount(nightly, 10, undefined, monthly)).toBe(Number(((weekly * 10) / 7).toFixed(2)));
+    expect(shortTermStayTotalAmount(nightly, 27, undefined, monthly)).toBe(Number(((weekly * 27) / 7).toFixed(2)));
+    expect(shortTermStayTotalAmount(nightly, 28, undefined, monthly)).toBe(Number(((monthly * 28) / 30).toFixed(2)));
+    expect(shortTermStayTotalAmount(nightly, 30, undefined, monthly)).toBe(monthly);
+    // Without a monthly rate a long stay stays on the weekly tier.
+    expect(shortTermStayTotalAmount(nightly, 30)).toBe(Number(((weekly * 30) / 7).toFixed(2)));
+  });
+
+  it("names the tier", () => {
+    expect(shortTermStayTier(6, 1000)).toBe("nightly");
+    expect(shortTermStayTier(7, 1000)).toBe("weekly");
+    expect(shortTermStayTier(27, 1000)).toBe("weekly");
+    expect(shortTermStayTier(28, 1000)).toBe("monthly");
+    expect(shortTermStayTier(28)).toBe("weekly");
+    expect(shortTermStayTierLabel("monthly")).toBe("Monthly rate");
+    expect(shortTermStayTierNote(3, 50)).toBe("Nightly: 3 nights × $50");
+    expect(shortTermStayTierNote(30, 50, undefined, 1000)).toBe("30 nights × $1000/month, Monthly rate");
   });
 
   it("returns 0 when rate or nights are invalid", () => {

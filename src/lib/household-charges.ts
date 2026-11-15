@@ -36,6 +36,7 @@ import {
 import { resolvedShortTermPlacementDeposit } from "@/lib/listing-fees";
 import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
 import { placementApplicationFeeCents, resolvedMoveInFeeRaw, stayPlacementLeaseTerm } from "@/lib/listing-placement-standard-fees";
+import { effectiveHoldExpiresAt, holdDeadlineLabel, holdState, resolveHoldFeeCents } from "@/lib/holding-hold";
 import { formatRoomPriceAmount, resolveStayPricing, resolveRoomProrationForSlot, roomDailyRentPrice,
   DAILY_RENT_MONTH_ESTIMATE_DAYS,
   roomPricingIsFlexible,
@@ -332,7 +333,7 @@ export type HouseholdCharge = {
   amountLabel: string;
   balanceLabel: string;
   /** `processing` = ACH bank debit submitted, clearing (3–5 business days) — not payable, not overdue, no reminders/late fees. */
-  status: "pending" | "processing" | "partially_paid" | "paid" | "cancelled" | "refunded" | "failed";
+  status: "pending" | "processing" | "partially_paid" | "paid" | "cancelled" | "refunded" | "void" | "failed";
   /** ISO timestamp when the charge entered `processing` (ACH clearing window). */
   processingStartedAt?: string;
   /** Total cents charged to the resident at checkout, when higher than the charge face amount. */
@@ -349,6 +350,20 @@ export type HouseholdCharge = {
    */
   applicationFeeBasis?: { roomId: string; leaseTerm: string; source: string };
   paidAt?: string;
+  /** Rent only: the room the cycle was billed for (stamped by the recurring sweep; absent on manual charges). */
+  roomLabel?: string;
+  /** `void` only: when, by whom (auth user id) and why an owner voided a paid charge. Never refunds money. */
+  voidedAt?: string;
+  voidedBy?: string;
+  voidReason?: string;
+  /** `holding_deposit` only: when the hold lapses (paid time + the hold window); null/absent = no deadline. */
+  holdExpiresAt?: string;
+  /** `holding_deposit` only: set by the expiry sweep; the money is kept per policy, never auto-refunded. */
+  holdExpiredAt?: string;
+  /** `holding_deposit` only: set by the sweep when the lease was signed inside the window (the deposit path netted the hold). */
+  holdCreditedAt?: string;
+  /** `holding_deposit` only: the room-hold block this fee reserves; the expiry sweep gives it back. */
+  roomHoldBlockId?: string;
   /** How a hand-recorded payment was received (check, cash, card…). */
   paidMethod?: string;
   paidNote?: string;
@@ -1473,10 +1488,40 @@ function upfrontApprovedChargeSlotKey(
   return null;
 }
 
+/** The room part of a rent business key: lower-cased, and empty for the generic "Room" placeholder. */
+export function rentRoomKeyPart(roomLabel: string | null | undefined): string {
+  const room = (roomLabel ?? "").trim().toLowerCase();
+  return !room || room === "room" || room === "—" ? "" : room;
+}
+
+/**
+ * True when ANY rent charge (manual or automatic, paid or not; not void) already covers this tenant, property and
+ * billing period. A charge with no room covers every room of that tenant and property; two charges that both name a
+ * room cover only the same room. A cancelled/waived charge still covers, so a waived month is never re-billed.
+ */
+export function rentPeriodAlreadyCovered(
+  charges: ReadonlyArray<Pick<HouseholdCharge, "kind" | "status" | "residentEmail" | "propertyId" | "rentMonth" | "roomLabel" | "managerUserId" | "migrationSourceId">>,
+  target: { residentEmail: string; propertyId: string; rentMonth: string; roomLabel?: string | null; managerUserId?: string | null },
+): boolean {
+  const email = target.residentEmail.trim().toLowerCase();
+  const room = rentRoomKeyPart(target.roomLabel);
+  return charges.some((c) => {
+    if (c.kind !== "rent" || c.status === "void" || c.status === "refunded") return false;
+    if (target.managerUserId && c.managerUserId && c.managerUserId !== target.managerUserId) return false;
+    if (c.rentMonth !== target.rentMonth || c.propertyId !== target.propertyId) return false;
+    if (c.residentEmail.trim().toLowerCase() !== email) return false;
+    const chargeRoom = rentRoomKeyPart(c.roomLabel);
+    return !room || !chargeRoom || room === chargeRoom;
+  });
+}
+
 export function chargeBusinessKey(charge: HouseholdCharge): string {
   if (charge.migrationSourceId || charge.utilityAllocationId) return `source_record|${charge.managerUserId}|${charge.id}`;
   if (charge.kind === "rent") {
-    return `rent|${charge.residentEmail.trim().toLowerCase()}|${charge.propertyId}|${charge.rentMonth ?? ""}`;
+    const room = rentRoomKeyPart(charge.roomLabel);
+    return room
+      ? `rent|${charge.residentEmail.trim().toLowerCase()}|${charge.propertyId}|${room}|${charge.rentMonth ?? ""}`
+      : `rent|${charge.residentEmail.trim().toLowerCase()}|${charge.propertyId}|${charge.rentMonth ?? ""}`;
   }
   if (
     charge.kind === "utilities" &&
@@ -1795,7 +1840,7 @@ export function isUnpaidHouseholdCharge(charge: HouseholdCharge): boolean {
   // A waived (cancelled) or refunded charge keeps its balance label — it is what
   // the resident WAS asked for, not what they owe. Settled everywhere else that
   // classifies a charge, so it is never unpaid, overdue, or reminder-worthy here.
-  if (charge.status === "cancelled" || charge.status === "refunded") return false;
+  if (charge.status === "cancelled" || charge.status === "refunded" || charge.status === "void") return false;
   if (charge.paidAt) return false;
   if (parseMoneyAmount(charge.balanceLabel) <= 0) return false;
   return true;
@@ -2851,12 +2896,16 @@ export function setApplicantHoldingFee(input: {
   propertyId: string;
   applicationId?: string | null;
   managerUserId?: string | null;
-  amount: number;
+  /** Omit (null/undefined) to use the listing's holding fee, or the $100 default when that is blank. Never written back to a listing. */
+  amount?: number | null;
 }): { ok: true; charge: HouseholdCharge; alreadyPaid: boolean } | { ok: false; error: string } {
   const email = input.residentEmail.trim();
   if (!email.includes("@")) return { ok: false, error: "This applicant has no email address on file." };
   if (!input.propertyId.trim()) return { ok: false, error: "This application has no property on it yet." };
-  const amt = Number(input.amount);
+  const amt =
+    input.amount == null
+      ? resolveHoldFeeCents(getPropertyById(input.propertyId)?.listingSubmission?.holdingDeposit) / 100
+      : Number(input.amount);
   if (!Number.isFinite(amt) || amt <= 0) return { ok: false, error: "Enter a holding fee amount greater than $0." };
   if (amt > 100_000) return { ok: false, error: "That holding fee looks too large — check the amount." };
 
@@ -2935,7 +2984,9 @@ export function holdingDepositCreditCentsForApplication(applicationId: string): 
     (c) =>
       c.applicationId === appId &&
       c.kind === "holding_deposit" &&
-      (c.status === "pending" || c.status === "paid"),
+      (c.status === "pending" || c.status === "paid") &&
+      // A hold that ran out unsigned is kept per policy, never applied to a later deposit.
+      holdState(c) !== "expired",
   );
   if (!charge) return 0;
   return Math.round(parseMoneyAmount(charge.amountLabel) * 100);
@@ -3703,6 +3754,33 @@ export async function recordHouseholdChargeOfflinePayment(
   return true;
 }
 
+/**
+ * Void a PAID charge (owner only, server-enforced). Never refunds: `providerPayment` tells the caller a real card or
+ * bank payment sits behind it, so the UI can say the refund is a separate step.
+ */
+export async function voidHouseholdCharge(
+  chargeId: string,
+  reason: string,
+): Promise<{ ok: true; providerPayment: boolean } | { ok: false; error: string }> {
+  if (!isBrowser() || isDemoModeActive() || householdWritesForbidden()) return { ok: false, error: "Voiding is not available here." };
+  try {
+    const response = await fetch(adminOversightUrl("/api/portal-household-charges"), {
+      method: "POST", headers: { "Content-Type": "application/json" }, signal: householdWriteSignal(),
+      body: JSON.stringify({ action: "voidCharge", id: chargeId, reason: reason.trim() }),
+    });
+    const result = (await response.json().catch(() => ({}))) as { charge?: HouseholdCharge; providerPayment?: boolean; error?: string };
+    if (!response.ok || !result.charge || result.charge.id !== chargeId) return { ok: false, error: result.error || "Could not void this charge." };
+    const confirmed = result.charge;
+    memoryCharges = readAll().map((row) => (row.id === chargeId ? confirmed : row));
+    persistHouseholdStateToSession();
+    householdChargesLastSyncedAt = Date.now();
+    emit();
+    return { ok: true, providerPayment: Boolean(result.providerPayment) };
+  } catch {
+    return { ok: false, error: "Could not void this charge." };
+  }
+}
+
 export function markHouseholdChargePaid(
   chargeId: string,
   managerUserId: string | null,
@@ -4395,12 +4473,13 @@ function syncPendingApprovedChargesFromListing(
             });
           const nightlyRate = stayPricing.dailyRate ?? 0;
           const weeklyRate = stayPricing.weeklyRate;
+          const monthlyRate = stayPricing.monthlyRate;
           const nights = shortTermStayNightCount(leaseStart, leaseEnd);
-          if (nights && shortTermStayCanBePriced(nightlyRate, nights, weeklyRate)) {
+          if (nights && shortTermStayCanBePriced(nightlyRate, nights, weeklyRate, monthlyRate)) {
             out.push({
               kind: "stay_total",
-              amount: shortTermStayTotalAmount(nightlyRate, nights, weeklyRate),
-              title: shortTermStayChargeTitle(nights, nightlyRate, weeklyRate),
+              amount: shortTermStayTotalAmount(nightlyRate, nights, weeklyRate, monthlyRate),
+              title: shortTermStayChargeTitle(nights, nightlyRate, weeklyRate, monthlyRate),
               dueDateLabel: "Before check-in",
             });
           }
@@ -5028,12 +5107,13 @@ export function recordApprovedApplicationCharges(
       });
     const nightlyRate = stayPricing.dailyRate ?? 0;
     const weeklyRate = stayPricing.weeklyRate;
+    const monthlyRate = stayPricing.monthlyRate;
     const nights = shortTermStayNightCount(leaseStart, leaseEnd);
-    if (nights && shortTermStayCanBePriced(nightlyRate, nights, weeklyRate)) {
+    if (nights && shortTermStayCanBePriced(nightlyRate, nights, weeklyRate, monthlyRate)) {
       pushCharge(
         "stay_total",
-        shortTermStayTotalAmount(nightlyRate, nights, weeklyRate),
-        shortTermStayChargeTitle(nights, nightlyRate, weeklyRate),
+        shortTermStayTotalAmount(nightlyRate, nights, weeklyRate, monthlyRate),
+        shortTermStayChargeTitle(nights, nightlyRate, weeklyRate, monthlyRate),
         true,
         "Before check-in",
       );
@@ -5908,7 +5988,7 @@ export function residentLeaseBlockedReasons(email: string, userId: string | null
  *    charge did not go away.
  */
 export function householdChargeManagerBucket(c: HouseholdCharge): ManagerPaymentBucket {
-  if (c.status === "paid" || c.status === "cancelled" || c.status === "refunded") return "paid";
+  if (c.status === "paid" || c.status === "cancelled" || c.status === "refunded" || c.status === "void") return "paid";
   const overdue = c.status !== "processing" && isHouseholdChargeOverdue(c, startOfTodayLocal());
   return overdue ? "overdue" : "pending";
 }
@@ -5916,6 +5996,7 @@ export function householdChargeManagerBucket(c: HouseholdCharge): ManagerPayment
 function managerChargeStatusLabel(c: HouseholdCharge, bucket: ManagerPaymentBucket): string {
   if (c.status === "cancelled") return c.waivedAt ? "Waived" : "Cancelled";
   if (c.status === "refunded") return "Refunded";
+  if (c.status === "void") return "Void";
   if (bucket === "paid") return "Paid";
   return bucket === "overdue" ? "Overdue" : "Pending";
 }
@@ -5981,8 +6062,14 @@ export function householdChargeToLedgerRow(c: HouseholdCharge): DemoManagerPayme
     residentName: c.residentName,
     residentEmail: c.residentEmail,
     chargeTitle: serviceChargeDisplayTitle(c),
-    lineAmount: c.amountLabel,
+    lineAmount: c.status === "void" ? "$0.00" : c.amountLabel,
     amountPaid: c.status === "paid" ? c.amountLabel : "$0.00",
+    ...(c.status === "void"
+      ? { voided: true, voidReason: c.voidReason, voidedLineAmount: c.amountLabel }
+      : {}),
+    ...(c.kind === "holding_deposit" && holdDeadlineLabel(c)
+      ? { holdLabel: holdDeadlineLabel(c) ?? undefined, holdExpiresAt: effectiveHoldExpiresAt(c) ?? undefined }
+      : {}),
     balanceDue: settled ? "$0.00" : c.balanceLabel,
     dueDate: chargeDueLabel(c),
     dueDateSortMs: householdChargeDueDate(c)?.getTime() ?? null,
@@ -6001,13 +6088,16 @@ export function householdChargeToLedgerRow(c: HouseholdCharge): DemoManagerPayme
           : c.status === "refunded" ? ""
           : "Application fee pending — awaiting payment."
         : c.kind === "holding_deposit"
-          ? c.status === "paid"
+          ? c.status === "void"
+            ? `Voided${c.voidReason ? `: ${c.voidReason}` : ""}`
+          : c.status === "paid"
             ? "Holding deposit recorded as paid — credited toward security deposit on approval."
             : "Holding deposit pending — secures the application and credits toward security deposit when paid."
         : c.kind === "work_order_charge"
           ? c.status === "paid" ? "Service charge recorded as paid."
             : c.status === "refunded" ? ""
             : "Service pass-through — resident is billed this amount; mark as paid when you receive payment."
+          : c.status === "void" ? `Voided${c.voidReason ? `: ${c.voidReason}` : ""}. No money was refunded.`
           : c.status === "paid" || c.status === "refunded" ? "" : "Awaiting payment.",
   };
 }
@@ -6137,7 +6227,7 @@ export function markImportedTenancyCharges(marks: ImportedTenancyMarks): { updat
   const next = rows.map((charge) => {
     if (charge.residentEmail.trim().toLowerCase() !== emailLower) return charge;
     if (charge.propertyId !== marks.propertyId) return charge;
-    if (charge.status === "paid" || charge.status === "cancelled" || charge.status === "refunded") return charge;
+    if (charge.status === "paid" || charge.status === "cancelled" || charge.status === "refunded" || charge.status === "void") return charge;
     let mark: ImportedTenancyMonthMark | undefined;
     if (charge.kind === "security_deposit") mark = marks.oneTime?.securityDeposit;
     else if (charge.kind === "move_in_fee") mark = marks.oneTime?.moveInFee;

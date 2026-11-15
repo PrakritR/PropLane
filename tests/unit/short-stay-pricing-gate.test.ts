@@ -19,10 +19,12 @@ function lease(application = app().application): LeasePipelineRow {
 }
 
 describe("short-stay pricing approval and send boundary", () => {
-  it("refuses an eight-night weekly-only stay and allows seven nights or a nightly rate", () => {
-    expect(shortStayPricingBlocker(app(), listing())).toBe(SHORT_STAY_PRICING_INCOMPLETE_MESSAGE);
-    expect(leaseSendGateBlockerAmong(lease(), [app()], listing())).toBe(SHORT_STAY_PRICING_INCOMPLETE_MESSAGE);
+  it("refuses a five-night weekly-only stay and allows a week or more, or a nightly rate", () => {
+    expect(shortStayPricingBlocker(app("2027-10-06"), listing())).toBe(SHORT_STAY_PRICING_INCOMPLETE_MESSAGE);
+    expect(leaseSendGateBlockerAmong(lease(app("2027-10-06").application), [app("2027-10-06")], listing())).toBe(SHORT_STAY_PRICING_INCOMPLETE_MESSAGE);
     expect(leaseSendGateBlockerAmong(lease(app("2027-10-08").application), [app()], listing())).toBeNull();
+    // Eight nights prorate the weekly rate per night.
+    expect(shortStayPricingBlocker(app(), listing())).toBeNull();
     expect(leaseSendGateBlockerAmong(lease(), [app()], listing("55"))).toBeNull();
   });
   it.each(["2027-10-01", "2027-09-30"])("rejects a non-positive stay ending %s instead of clamping it to a night", (end) => {
@@ -31,7 +33,7 @@ describe("short-stay pricing approval and send boundary", () => {
   it("uses the selected resident's own rate instead of another slot's nightly rate", () => {
     const sub = listing("55");
     sub.rooms[0] = { ...sub.rooms[0]!, stayResidentPricing: "per_resident", occupancyCapacity: 2, stayResidentPrices: [{ shortTermRent: "55" }, { shortTermRent: "", weeklyRentPrice: 350 }] };
-    const row = app();
+    const row = app("2027-10-06");
     row.application!.roomChoice1 = "house::room::r2";
     // The room headline still supplies a fallback nightly rate; remove it to make slot 2 weekly-only.
     sub.rooms[0].shortTermRent = "";

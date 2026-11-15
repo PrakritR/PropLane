@@ -183,6 +183,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/expire-holding-deposits",
+      "schedule": "10 * * * *"
+    },
+    {
       "path": "/api/cron/sync-recurring-rent-charges",
       "schedule": "0 13 * * *"
     },

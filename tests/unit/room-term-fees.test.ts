@@ -143,7 +143,8 @@ describe("Application fee and Lease fee are bound to their step", () => {
     // A typed 0 is a real answer ("free for stays"), not "fall back to the shared fee".
     expect(short).toMatchObject({ applicationFee: 20, leaseFee: 0, monthToMonthSurcharge: 0, customStartSurcharge: 0 });
     const nothing = resolveRoomTermFees({ sub: listing(), room: listing().rooms[0], leaseTerm: "Long-term" });
-    expect(nothing).toMatchObject({ leaseFee: 0, monthToMonthSurcharge: 0, customStartSurcharge: 0 });
+    // A blank custom-start surcharge defaults to $100/month when the listing offers Custom dates.
+    expect(nothing).toMatchObject({ leaseFee: 0, monthToMonthSurcharge: 0, customStartSurcharge: 100 });
     // Absent unless set, and never on a Seattle listing even with a saved amount.
     const seattle = listing(
       { occupancyPrices: [{ count: 1, monthToMonthSurcharge: "25" }] },

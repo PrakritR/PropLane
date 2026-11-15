@@ -399,8 +399,8 @@ describe("validateScheduleRequestBody", () => {
     });
   });
 
-  it("rejects weekly without a valid anchor", () => {
-    expect(validateScheduleRequestBody({ interval: "weekly" }).ok).toBe(false);
+  it("defaults an omitted weekly anchor to Monday and rejects an invalid one", () => {
+    expect(validateScheduleRequestBody({ interval: "weekly" })).toEqual({ ok: true, schedule: { interval: "weekly", weeklyAnchor: "monday" } });
     expect(validateScheduleRequestBody({ interval: "weekly", weeklyAnchor: "someday" }).ok).toBe(false);
   });
 

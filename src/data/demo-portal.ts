@@ -217,6 +217,14 @@ export type DemoManagerPaymentLedgerRow = {
   migrationSourceId?: string;
   /** Mirrors `HouseholdCharge.createdAt` — paired with `migrationSourceId` for the Activity entry. */
   createdAt?: string;
+  /** An owner voided this paid charge: it is struck through, counts for nothing, and `lineAmount` is $0.00. */
+  voided?: boolean;
+  voidReason?: string;
+  /** The charge's face amount before it was voided, shown struck through. */
+  voidedLineAmount?: string;
+  /** `holding_deposit` only: the hold's deadline line ("Hold expires Nov 21") for the manager and resident views. */
+  holdLabel?: string;
+  holdExpiresAt?: string;
 };
 
 export type DemoManagerOutgoingPaymentRow = {

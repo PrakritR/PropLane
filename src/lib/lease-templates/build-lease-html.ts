@@ -65,6 +65,7 @@ import {
   shortTermStayNightCount,
   shortTermStayCanBePriced,
   shortTermStayChargeTitle,
+  shortTermStayNightlyTitle,
   shortTermStayTotalAmount,
 } from "@/lib/short-term-stay-pricing";
 
@@ -1188,11 +1189,20 @@ export function buildLeaseHtml(ctxIn: LeaseGenerationContext, config: LeaseJuris
     const dailyCostRaw = propertyTemplatePreview ? "—" : dailyCost !== undefined ? fmtUsd(dailyCost) : "—";
     const depositAmount = propertyTemplatePreview ? undefined : ctx.leaseBilling?.securityDeposit ?? stay.deposit;
     const shortDepositRaw = propertyTemplatePreview ? "—" : depositAmount !== undefined ? fmtUsd(depositAmount) : "—";
-    const pricedStay = stayNights && shortTermStayCanBePriced(dailyCost ?? 0, stayNights, stay.weeklyRate)
-      ? shortTermStayTotalAmount(dailyCost ?? 0, stayNights, stay.weeklyRate) : undefined;
+    // Only an explicit short-term application is billed by stay-length tier. A daily-priced
+    // tenancy that happens to fall inside one month is billed days x daily rate by the ledger.
+    const tiered = a.rentalType === "short_term";
+    const pricedStay = stayNights && shortTermStayCanBePriced(dailyCost ?? 0, stayNights, stay.weeklyRate, stay.monthlyRate)
+      ? tiered
+        ? shortTermStayTotalAmount(dailyCost ?? 0, stayNights, stay.weeklyRate, stay.monthlyRate)
+        : Number(((dailyCost ?? 0) * stayNights).toFixed(2))
+      : undefined;
     const totalRent = propertyTemplatePreview || pricedStay == null ? "—" : fmtUsd(pricedStay);
     const stayCalculation = pricedStay != null && stayNights
-      ? shortTermStayChargeTitle(stayNights, dailyCost ?? 0, stay.weeklyRate).replace(/^Stay total \(/, "").replace(/\)$/, "")
+      ? (tiered
+          ? shortTermStayChargeTitle(stayNights, dailyCost ?? 0, stay.weeklyRate, stay.monthlyRate)
+          : shortTermStayNightlyTitle(stayNights, dailyCost ?? 0)
+        ).replace(/^Stay total \(/, "").replace(/\)$/, "")
       : "";
     // The ledger bills more than rent + deposit on a stay, so the document has to list the
     // rest or its "Total due" understates what the guest owes. Which move-in field applies

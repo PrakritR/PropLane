@@ -18,7 +18,7 @@ import { upsertManagerCharges } from "@/lib/household-charges.server";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { stayBlockSlug } from "@/lib/short-stay/stay-add-ons";
-import { shortTermStayChargeTitle } from "@/lib/short-term-stay-pricing";
+import { shortTermStayChargeTitle, shortTermStayTotalAmount } from "@/lib/short-term-stay-pricing";
 
 export function guestStayChargeId(blockId: string): string {
   return `hc_mgr_stay_${stayBlockSlug(blockId)}_stay_total`;
@@ -45,6 +45,8 @@ type StayBlockFacts = {
   nights: number;
   nightly: number;
   total: number;
+  weekly?: number;
+  monthly?: number;
 };
 
 function stayFacts(row: Record<string, unknown>): StayBlockFacts | null {
@@ -52,8 +54,13 @@ function stayFacts(row: Record<string, unknown>): StayBlockFacts | null {
   const nights = Number(row.quotedNights);
   const quoted = Number(row.quotedTotal);
   if (!Number.isFinite(nightly) || nightly <= 0 || !Number.isInteger(nights) || nights < 1) return null;
-  const total = Number.isFinite(quoted) && quoted > 0 ? quoted : Math.round(nightly * nights * 100) / 100;
-  return { nights, nightly, total };
+  const weekly = Number(row.quotedWeekly);
+  const monthly = Number(row.quotedMonthly);
+  const weeklyRate = Number.isFinite(weekly) && weekly > 0 ? weekly : undefined;
+  const monthlyRate = Number.isFinite(monthly) && monthly > 0 ? monthly : undefined;
+  const total =
+    Number.isFinite(quoted) && quoted > 0 ? quoted : shortTermStayTotalAmount(nightly, nights, weeklyRate, monthlyRate);
+  return { nights, nightly, total, weekly: weeklyRate, monthly: monthlyRate };
 }
 
 export type EnsureStayChargeResult =
@@ -109,7 +116,7 @@ export async function ensureGuestStayCharge(
     propertyLabel: input.propertyLabel,
     managerUserId: input.ownerId,
     kind: "stay_total",
-    title: shortTermStayChargeTitle(facts.nights, facts.nightly),
+    title: shortTermStayChargeTitle(facts.nights, facts.nightly, facts.weekly, facts.monthly),
     amountLabel: label,
     balanceLabel: label,
     status: "pending",

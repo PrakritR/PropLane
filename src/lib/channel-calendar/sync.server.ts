@@ -83,7 +83,7 @@ export function icalEventsToImportedRanges(
 
 /** A real channel export is a few hundred KB at most; anything past this is not a calendar. */
 export const IMPORT_MAX_BYTES = 2 * 1024 * 1024;
-const IMPORT_MAX_REDIRECTS = 3;
+const IMPORT_MAX_REDIRECTS = 5;
 
 /** Read a response body as text, stopping (and cancelling the stream) the moment it passes the cap. */
 async function readCappedText(res: Response, maxBytes: number): Promise<string> {
@@ -127,8 +127,11 @@ function isSafeIcalRedirect(raw: string): boolean {
 
 /** A calendar answers `text/calendar` or opens with BEGIN:VCALENDAR; HTML and JSON do neither. */
 export function looksLikeIcalResponse(contentType: string | null, body: string): boolean {
-  if ((contentType ?? "").toLowerCase().includes("text/calendar")) return body.includes("BEGIN:VCALENDAR");
-  return body.replace(/^\uFEFF/, "").trimStart().startsWith("BEGIN:VCALENDAR");
+  const type = (contentType ?? "").split(";")[0]!.trim().toLowerCase();
+  // Only an iCal-ish (or missing) content type can carry a calendar; HTML and JSON never do.
+  if (type && !["text/calendar", "text/plain", "application/octet-stream", "application/ics", "application/calendar", "binary/octet-stream"].includes(type)) return false;
+  const text = body.replace(/^\uFEFF/, "").trim();
+  return text.startsWith("BEGIN:VCALENDAR") && /END:VCALENDAR\s*$/.test(text);
 }
 
 /**
@@ -206,7 +209,11 @@ export async function fetchChannelIcs(
       }
       const text = await readCappedText(res, IMPORT_MAX_BYTES);
       if (isIcal ? !looksLikeIcalResponse(res.headers.get("content-type"), text) : !text.includes("BEGIN:VCALENDAR")) {
-        throw new Error("Response was not a valid calendar file.");
+        throw new Error(
+          isIcal
+            ? "That link did not return an iCal calendar (it must start with BEGIN:VCALENDAR). Check that you pasted the calendar export link, not a web page."
+            : "Response was not a valid calendar file.",
+        );
       }
       return text;
     }

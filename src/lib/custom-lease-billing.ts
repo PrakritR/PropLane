@@ -1,8 +1,9 @@
 import { listingPresetFeeAppliesToLeaseType } from "@/lib/listing-fee-scope";
-import { listingPresetFeeAmount } from "@/lib/listing-fees";
+import { listingPresetFeeAmount, resolveListingFees } from "@/lib/listing-fees";
 import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
-import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { isCustomCalendarLease } from "@/lib/rental-application/lease-dates";
+import { resolveAllowedLeaseTerms, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { CUSTOM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { DEFAULT_CUSTOM_LEASE_SURCHARGE, isCustomCalendarLease } from "@/lib/rental-application/lease-dates";
 
 export const CUSTOM_LEASE_SURCHARGE_FEE_ID = "preset:custom_lease_surcharge";
 export const CUSTOM_LEASE_SURCHARGE_CHARGE_LABEL = "Custom lease";
@@ -34,6 +35,13 @@ export function shouldBillCustomLeaseSurcharge(
 
 export function customLeaseSurchargeAmount(sub: ManagerListingSubmissionV1 | null | undefined): number {
   if (!sub) return 0;
+  // Blank means "not priced yet" and defaults to $100/month; an amount the manager typed
+  // (including 0) is theirs.
+  const row = resolveListingFees(sub).find((fee) => fee.presetId === "custom_lease_surcharge");
+  if (!row || !String(row.amount ?? "").trim()) {
+    // Blank defaults only when the listing actually offers a Custom (calendar) term.
+    return resolveAllowedLeaseTerms(sub).includes(CUSTOM_LEASE_TERM) ? DEFAULT_CUSTOM_LEASE_SURCHARGE : 0;
+  }
   return listingPresetFeeAmount(sub, "custom_lease_surcharge");
 }
 

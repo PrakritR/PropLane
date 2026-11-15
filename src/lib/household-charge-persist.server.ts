@@ -7,6 +7,8 @@ import {
   reconcileDuplicateChargeList,
   syncLedgerChargeEntry,
 } from "@/lib/reports/ledger-sync";
+import { notifyHoldPlaced } from "@/lib/holding-deposit-expiry.server";
+import { holdExpiresAtFor } from "@/lib/holding-hold";
 import { emitHouseholdChargeTransition } from "@/lib/domain-action-events.server";
 
 export type HouseholdChargeWriteRow = {
@@ -51,6 +53,11 @@ export async function persistHouseholdChargeRows(
   const confirmedIds: string[] = [];
   let chargeWriteError: string | null = null;
   for (const row of mappedRows) {
+    // A paid hold fee carries its deadline: paid time + 7 days, stamped once.
+    if (row.kind === "holding_deposit" && row.status === "paid" && !row.row_data.holdExpiresAt) {
+      const deadline = holdExpiresAtFor(typeof row.row_data.paidAt === "string" ? row.row_data.paidAt : row.updated_at);
+      if (deadline) row.row_data = { ...row.row_data, holdExpiresAt: deadline };
+    }
     if (existingOwnerById.has(row.id)) {
       const stored = existingRecordById.get(row.id);
       if (stored && isDeepStrictEqual(stored.row_data, row.row_data) &&
@@ -111,6 +118,7 @@ export async function persistHouseholdChargeRows(
       if (!isNewRow && prevFingerprint === nextFingerprint) continue;
       if (nextStatus === "paid" && prevStatus !== "paid") {
         await cancelFuturePaymentRemindersForCharge(db, managerId, chargeId).catch(() => undefined);
+        if (row.kind === "holding_deposit") await notifyHoldPlaced(db, managerId, row.row_data as HouseholdCharge);
       }
       // No paid→pending branch here: the paid-sticky guard skips those rows,
       // so a downgrade can only arrive via action:"unmarkPaid" (which restores

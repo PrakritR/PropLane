@@ -7,6 +7,7 @@ import type { MockProperty } from "@/data/types";
 import { activeApplicationWizardSteps } from "@/lib/rental-application/application-field-catalog";
 import { normalizeCustomApplicationFields } from "@/lib/manager-listing-submission";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
+import { loadEffectiveApplicationProperty } from "@/lib/rental-application/validate-application-submit.server";
 import { countValidationErrors, validateRentalWizardStep } from "@/lib/rental-application/validate";
 
 /**
@@ -40,21 +41,12 @@ export async function loadListingForApplicationValidation(
 ): Promise<Pick<MockProperty, "id" | "listingSubmission"> | null> {
   const id = propertyId.trim();
   if (!id) return null;
-  const { data } = await db
-    .from("manager_property_records")
-    .select("id, property_data")
-    .eq("id", id)
-    .maybeSingle();
-  if (!data) return null;
-  const propertyData =
-    data.property_data && typeof data.property_data === "object" && !Array.isArray(data.property_data)
-      ? (data.property_data as Record<string, unknown>)
-      : null;
-  const listingSubmission = propertyData?.listingSubmission;
-  return {
-    id: String(data.id ?? id),
-    listingSubmission: listingSubmission as MockProperty["listingSubmission"],
-  };
+  // The listing as the applicant was SHOWN it: with the workspace's shared application form applied, exactly as
+  // `publicListingProjection` and the submit validator resolve it. Reading the listing's own triplet alone required
+  // questions the workspace form had turned off (SSN), so an application was refused after its fee was paid.
+  const read = await loadEffectiveApplicationProperty(db, id);
+  if (!read.ok || !read.property) return null;
+  return { id: read.property.id || id, listingSubmission: read.property.listingSubmission };
 }
 
 /**

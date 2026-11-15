@@ -41,9 +41,9 @@ describe("fetchChannelIcs for Other calendar", () => {
 
   it("refuses an HTML answer and a calendar-typed answer that is not a calendar", async () => {
     pinned.fetch.mockResolvedValueOnce(calendar("<html><body>Sign in</body></html>", "text/html"));
-    await expect(fetchChannelIcs(HOUFY, "ical")).rejects.toThrow(/not a valid calendar file/);
+    await expect(fetchChannelIcs(HOUFY, "ical")).rejects.toThrow(/did not return an iCal calendar/);
     pinned.fetch.mockResolvedValueOnce(calendar("<html>Sign in</html>", "text/calendar"));
-    await expect(fetchChannelIcs(HOUFY, "ical")).rejects.toThrow(/not a valid calendar file/);
+    await expect(fetchChannelIcs(HOUFY, "ical")).rejects.toThrow(/did not return an iCal calendar/);
   });
 
   it("follows a redirect to another public https site but never to http or a private host", async () => {
@@ -55,6 +55,27 @@ describe("fetchChannelIcs for Other calendar", () => {
       await expect(fetchChannelIcs(HOUFY, "ical", { label: "Houfy" })).rejects.toThrow(/outside its own calendar links/);
       expect(pinned.fetch).toHaveBeenCalledTimes(1);
     }
+  });
+
+  it("reads an Agoda-style link with no .ics path, whatever iCal content type it answers with", async () => {
+    const AGODA = "https://ycs.agoda.com/en-us/api/ycs/ical?propertyId=123&token=abc";
+    for (const type of ["text/calendar", "text/plain; charset=utf-8", "application/octet-stream"]) {
+      pinned.fetch.mockReset().mockResolvedValueOnce(calendar(ICS, type));
+      await expect(fetchChannelIcs(AGODA, "ical", { label: "Agoda" }), type).resolves.toContain("BEGIN:VCALENDAR");
+    }
+    pinned.fetch.mockReset().mockResolvedValueOnce(new Response(ICS, { status: 200 }));
+    await expect(fetchChannelIcs(AGODA, "ical")).resolves.toContain("END:VCALENDAR");
+  });
+
+  it("follows up to five redirects and refuses the sixth", async () => {
+    const hop = (n: number) => `https://h${n}.example.net/ical`;
+    pinned.fetch.mockReset();
+    for (let n = 1; n <= 5; n += 1) pinned.fetch.mockResolvedValueOnce(redirect(hop(n)));
+    pinned.fetch.mockResolvedValueOnce(calendar());
+    await expect(fetchChannelIcs(HOUFY, "ical")).resolves.toContain("BEGIN:VCALENDAR");
+    pinned.fetch.mockReset();
+    for (let n = 1; n <= 6; n += 1) pinned.fetch.mockResolvedValueOnce(redirect(hop(n)));
+    await expect(fetchChannelIcs(HOUFY, "ical", { label: "Agoda" })).rejects.toThrow(/redirected too many times/);
   });
 
   it("hands the caller's timeout to the fetch", async () => {

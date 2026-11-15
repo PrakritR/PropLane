@@ -439,7 +439,9 @@ export function validateScheduleRequestBody(body: unknown): ValidateScheduleResu
     return { ok: false, error: "Choose a valid schedule." };
   }
   if (interval === "weekly") {
-    const weeklyAnchor = (body as Record<string, unknown>).weeklyAnchor;
+    // An omitted day is the default (Monday); a day that is sent must be a real one.
+    const sent = (body as Record<string, unknown>).weeklyAnchor;
+    const weeklyAnchor = sent === undefined ? "monday" : sent;
     if (!WEEKLY_ANCHORS.includes(weeklyAnchor as WeeklyAnchor)) {
       return { ok: false, error: "Choose a day of the week." };
     }

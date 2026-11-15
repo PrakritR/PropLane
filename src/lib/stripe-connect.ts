@@ -87,13 +87,13 @@ export async function createAxisConnectAccount(
       axis_portal: opts.axisPortal ?? "portal",
     },
     // Withdraw-only (C2-SX8) once MANUAL_PAYOUT_POLICY_ENABLED is on; until then vendor
-    // accounts under vendor banking are manual and managers keep weekly/Friday deposits.
+    // accounts under vendor banking are manual and managers get weekly/Monday deposits.
     settings: {
       payouts: {
         schedule:
           manualPayoutPolicyEnabled() || (opts.axisPortal === "vendor" && vendorBankingEnabled())
             ? { interval: "manual" as const }
-            : { interval: "weekly" as const, weekly_anchor: "friday" as const },
+            : { interval: "weekly" as const, weekly_anchor: "monday" as const },
       },
     },
   }, {

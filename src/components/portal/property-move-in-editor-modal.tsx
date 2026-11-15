@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { HouseInfoEditor } from "@/components/portal/house-info-sections";
@@ -67,6 +69,7 @@ export function PropertyMoveInEditorModal({
   canEdit: boolean;
   onError: (message: string) => void;
 }) {
+  const [revealDoorCode, setRevealDoorCode] = useState(false);
   const [draftInfo, setDraftInfo] = useState(houseInfo);
   const [instr, setInstr] = useState(houseInstructions);
   const [photos, setPhotos] = useState(housePhotos);
@@ -183,13 +186,26 @@ export function PropertyMoveInEditorModal({
         <div className="space-y-4" data-attr="property-move-in-room-editor">
           <div>
             <label className="mb-1.5 block text-xs font-semibold text-muted">Room door code</label>
+            <div className="flex items-center gap-2">
             <Input
               aria-label="Room door code"
+              type={revealDoorCode ? "text" : "password"}
+              autoComplete="off"
+              placeholder={roomDraft.doorCode?.trim() ? undefined : "Missing"}
               disabled={!canEdit}
               value={roomDraft.doorCode ?? ""}
               onChange={(e) => setRoomDraft((r) => (r ? { ...r, doorCode: e.target.value } : r))}
               data-attr="property-move-in-room-door-code"
             />
+            {canEdit ? (
+              <PortalIconAction
+                icon={revealDoorCode ? EyeOff : Eye}
+                label={revealDoorCode ? "Hide door code" : "Show door code"}
+                onClick={() => setRevealDoorCode((v) => !v)}
+                data-attr="property-move-in-room-door-code-reveal"
+              />
+            ) : null}
+            </div>
           </div>
           <SinglePhotoField
             label="Door photo"

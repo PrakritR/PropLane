@@ -96,7 +96,7 @@ vi.mock("@/lib/channel-calendar/sync.server", async () => {
   };
 });
 
-import { GET } from "@/app/api/calendar/export/[token]/route";
+import { GET, HEAD } from "@/app/api/calendar/export/[token]/route";
 import { importedRangesForFeed } from "@/lib/channel-calendar/export-feed";
 
 const conn = (id: string, provider: string, token: string, ranges: { start: string; end: string }[], roomId = "r1") => ({
@@ -183,6 +183,51 @@ describe("calendar export feed", () => {
     tables.data.external_calendar_connections![1]!.export_token = "tok-air";
     const ics = await feed("tok-air");
     expect(has(ics, AIRBNB) && has(ics, BOOKING)).toBe(true);
+  });
+});
+
+describe("calendar export feed as a channel validator sees it (Agoda)", () => {
+  const ask = (method: "GET" | "HEAD") => {
+    const fn = method === "GET" ? GET : HEAD;
+    return fn(new Request("https://x.test/api/calendar/export/tok-air.ics", { method }), { params: Promise.resolve({ token: "tok-air.ics" }) });
+  };
+
+  it("GET answers 200 text/calendar, inline, with every required iCal field and CRLF lines", async () => {
+    seed();
+    const res = await ask("GET");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/calendar; charset=utf-8");
+    expect(res.headers.get("content-disposition") ?? "").not.toMatch(/attachment/i);
+    expect(res.headers.get("location")).toBeNull();
+    const ics = await res.text();
+    expect(ics).not.toMatch(/<html/i);
+    expect(ics.startsWith("BEGIN:VCALENDAR\r\n")).toBe(true);
+    for (const field of ["VERSION:2.0", "PRODID:", "BEGIN:VEVENT", "UID:", "DTSTAMP:", "DTSTART;VALUE=DATE:", "DTEND;VALUE=DATE:", "END:VCALENDAR"]) {
+      expect(ics, field).toContain(field);
+    }
+    expect(ics.replace(/\r\n/g, "").includes("\n")).toBe(false);
+    for (const line of ics.split("\r\n")) expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
+  });
+
+  it("HEAD answers the same status and headers with no body", async () => {
+    seed();
+    const res = await ask("HEAD");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/calendar; charset=utf-8");
+    expect(await res.text()).toBe("");
+  });
+
+  it("every event UID in a feed is unique", async () => {
+    seed();
+    const uids = (await (await ask("GET")).text()).split("\r\n").filter((l) => l.startsWith("UID:"));
+    expect(uids.length).toBeGreaterThan(1);
+    expect(new Set(uids).size).toBe(uids.length);
+  });
+
+  it("an unknown token is a plain 404, never a redirect or an HTML page", async () => {
+    seed();
+    const res = await GET(new Request("https://x.test/api/calendar/export/nope.ics"), { params: Promise.resolve({ token: "nope.ics" }) });
+    expect(res.status).toBe(404);
   });
 });
 

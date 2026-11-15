@@ -12,8 +12,8 @@ cards, square 3px corners, numbered section headers.
 | --- | --- |
 | `/rent/browse`, `/rent/w/<slug>` | Find a home: four dropdown filters (Budget, Move in by, Area, Room type) + search, flat cards |
 | `/rent/listings/<id>` | The listing, photos first (`listing-gallery.tsx`: swipe strip on phone, lead + 4 grid and a full-screen viewer on desktop), numbered sections, sticky card / phone dock with Tour · Book (captain, Nov 12: no Monthly / Short stay control, no move-in or room pickers, no short-stay block on the listing) and, beside them, **Message** and **Text us** (§ Message and Text us). Each room's details carry the same two |
-| `/rent/tours-contact` | Book a tour: day cells and time buttons over `listOpenTourSlots` with no account wall (the room is a dropdown defaulting to "not sure yet"; the account is asked at Your details), or the requested-time picker when the house has no open slot ([`tours-scheduling.md`](tours-scheduling.md) § Requested time). Its Message tab is the same Message form (a phone and a texted code, no account wall) |
-| `/rent/apply` | The apply wizard inside `.ps` (palette re-pointed, no fork) |
+| `/rent/tours-contact` | Book a tour: day cells and time buttons over `listOpenTourSlots` with no account at all (captain, Nov 14: a guest gives name, phone, email and a time; the room is a dropdown defaulting to "not sure yet"), or the requested-time picker when the house has no open slot ([`tours-scheduling.md`](tours-scheduling.md) § Requested time). Its Message tab is the same Message form (a phone and a texted code, no account wall) |
+| `/rent/apply` | The apply wizard inside `.ps` (palette re-pointed, no fork). No account wall (captain, Nov 14): the answers stay in the browser, and Submit asks the renter to prove a phone or mailbox (`GuestApplicationVerify`) |
 | `/l/<token>`, `/apply/<code>`, `/tour/<code>`, `/start/<token>` | Phone-bound doors (expired, code gate, phone bind, rent card, finish setup, personal account link) |
 
 The `gallery` link purpose still redirects to `/rent/listings/<id>`; that page now leads with the photos.
@@ -29,13 +29,26 @@ The auth screens (`AuthSplitShell`) use the same font and tokens, with a full-bl
   `PublicFooter` for both the `(public)` layout (homepage, phone-bound doors) and the `(rent)` layout. No
   route-specific chrome fork.
 - **`/rent` is the WEB channel; the one number it may carry is the configured PropLane line, only in "Text us"**
-  (captain, Nov 12; replaces the Oct 20 rule that /rent carried no number). Tour, Book, tours and apply still go
-  through a resident account into the resident portal, with no number. The `(rent)` layout keeps the chrome (navbar,
+  (captain, Nov 12; replaces the Oct 20 rule that /rent carried no number). Tour and Apply need NO account (captain, Nov 14, overriding the Oct 20 / Nov 3 account-first rules; see below) and carry no number. The `(rent)` layout keeps the chrome (navbar,
   footer) on an EMPTY texting snapshot, so no number reaches the menu or the footer, and passes the real
   `getPublicTextingConfig()` snapshot only to the page CONTENT through a nested `PublicTextingProvider`. A /rent page
   therefore shows exactly one number, from that config and never a literal; `sms:` appears only on the Text us control
   (`ListingTextUsLink`) and never `tel:`; with no number configured Text us is not drawn and the page carries no number
   at all. Guard: `tests/unit/rent-web-channel.test.tsx`.
+- **Guest tour and guest apply (captain, Nov 14: renters from Facebook, Zillow and Roomies book and apply with NO account).**
+  *Tour:* `POST /api/public/partner-inquiries` accepts `kind:"tour"` with no session. It rate-limits per IP and per phone, re-derives the home
+  from the database (`loadGuestTourListing`: a LIVE listing; the body never names an owner or a status), files through the one
+  `createTourInquiry` (`guestApplicant`, the published-slot and double-book checks unchanged) with the `sms` notice channel and a server-owned
+  `guestTour` flag, and records the prospect on the spine (`recordGuestTourProspect`, an UNVERIFIED phone identity, source `tour`, no ops alert).
+  Confirmation goes by `notifyGuestTourConfirmed` (email + text, never a /resident link). A signed-in resident keeps the account path. A tour fee
+  is raised only for an account, as for an SMS prospect.
+  *Apply:* the wizard keeps no server row for a guest. Submit stores the finished draft (`POST /api/public/application-drafts`, table
+  `guest_application_drafts`: SHA-256 of an unguessable token only, 24 h, body wiped on claim), then the renter proves a phone (the phone sign-in
+  door, `intent: resident_signup`, which creates the phone-only resident only after the code) or a mailbox (the emailed `token_hash` link through
+  `email-onboarding/start`, destination decided by the server). The resident portal's apply page claims the draft
+  (`POST /api/resident/application-drafts/claim`: the session's CONFIRMED email or VERIFIED phone must be the one the draft names; the token and
+  property id are only lookup keys) and submits it through the ordinary signed-in write, so the pre-apply gate (`preApplySubmitGate`), the fee gate and
+  every other submit check still run. No account exists before proof.
 - **Message and Text us** (design-1112 §1, §5). *Message* is the third action in the card and the phone dock and
   "Message about this room" in each room's details (never inside a manager's own preview). It opens
   `ListingMessageSheet` (`listing-message-sheet.tsx`, `.ps` classes, no email field, no subtext): message, phone, optional

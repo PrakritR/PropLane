@@ -1308,7 +1308,7 @@ function listingFeeToDisplayRow(
       detail: "Non-standard lease dates",
       price,
       status: "Monthly",
-      body: `${title}: ${price} per month when the lease does not start on the 1st or end on the last day of a month.`,
+      body: `${title}: ${price} per month when the lease starts or ends on a day other than the 1st (a month-end counts as aligned), billed once per month.`,
     };
   }
 

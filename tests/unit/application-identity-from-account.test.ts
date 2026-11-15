@@ -192,7 +192,8 @@ vi.mock("@/lib/auth/link-resident-on-application-submit", () => ({
 vi.mock("@/lib/auth/provision-approved-resident", () => ({ provisionApprovedResidentAccount: async () => ({ ok: true }) }));
 vi.mock("@/lib/screening/order-screening", () => ({ tryAutoOrderScreening: async () => undefined }));
 // Submit validation (including "a template without these questions asks for neither") has its own coverage above.
-vi.mock("@/lib/rental-application/validate-application-submit.server", () => ({
+vi.mock("@/lib/rental-application/validate-application-submit.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rental-application/validate-application-submit.server")>()),
   validateResidentApplicationRowForPersistence: async () => ({ ok: true }),
 }));
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: async () => false }));

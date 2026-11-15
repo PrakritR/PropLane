@@ -263,8 +263,12 @@ async function prepareRequestedTimeTour(
   row: Record<string, unknown>,
   propertyId: string,
   verifiedApplicantEmail: string | null,
+  guestApplicant: boolean,
 ): Promise<{ ok: true } | Extract<CreateTourInquiryResult, { ok: false }>> {
-  if (!verifiedApplicantEmail?.trim()) {
+  /* A guest (captain, Nov 14: a renter from a listing site books with no account) is keyed on the email typed, which is a
+     claim and proves nothing; the route's per-IP and per-phone limits and the one-open-request rule below bound it. */
+  const accountKey = (verifiedApplicantEmail?.trim() || (guestApplicant ? textValue(row.email) : "")).trim();
+  if (!accountKey) {
     return { ok: false, reason: "sign_in_required", error: "Sign in to request a tour time." };
   }
   const first = requestedWindowsFromRow(row)[0];
@@ -294,7 +298,7 @@ async function prepareRequestedTimeTour(
 
   /* One open request per account and home: a pending one is answered (or declined) before another is filed, so a signed-in
      account cannot flood a host's queue. Then a ceiling per account per hour. */
-  const account = verifiedApplicantEmail.trim().toLowerCase();
+  const account = accountKey.toLowerCase();
   const { data: filed, error: filedError } = await db
     .from("portal_schedule_records")
     .select("row_data")
@@ -349,6 +353,11 @@ export async function createTourInquiry(
     verifiedApplicantEmail?: string | null;
     /** Server-authenticated resident ID, never supplied in the request body. */
     verifiedApplicantUserId?: string | null;
+    /**
+     * A guest with no account (the public web form, captain Nov 14). Only the route that already rate-limited and re-derived
+     * the listing sets it. It lets a requested-time tour be filed against the typed email; it verifies nothing.
+     */
+    guestApplicant?: boolean;
     /** Listing site the prospect came from (the `pl_src` cookie); re-validated against the allowlist here. */
     sourceChannel?: string | null;
     /**
@@ -379,6 +388,8 @@ export async function createTourInquiry(
   delete incoming.id;
   // Server-owned too: the fee stamp below is set only when a fee charge was really raised.
   delete incoming.tourFee;
+  // Server-owned: set below only for a guest (no-account) tour, and read at confirmation to pick the guest notice.
+  delete incoming.guestTour;
   const notify = args.notify !== false;
 
   const id = crypto.randomUUID();
@@ -404,6 +415,7 @@ export async function createTourInquiry(
   // This marker is server-owned. Public callers can never name an SMS sender
   // merely by adding fields to `incoming`.
   row.smsOrigin = args.smsOrigin?.senderPhoneE164 ? "leasing_sms" : "non_sms";
+  if (args.guestApplicant === true) row.guestTour = true;
   // The channel the guest is answered on (confirmed, rescheduled, cancelled, removed): a tour made on the web
   // or in the app is answered by email + the resident portal and never by text; one made by text, by text.
   row.noticeChannel = args.smsOrigin?.senderPhoneE164 || args.noticeChannel === "sms" ? "sms" : "portal";
@@ -425,7 +437,7 @@ export async function createTourInquiry(
   // request for a time that was never on offer.
   let requestedTime = false;
   if (claimsRequestedTime && isTour && propertyId) {
-    const requested = await prepareRequestedTimeTour(db, row, propertyId, args.verifiedApplicantEmail ?? null);
+    const requested = await prepareRequestedTimeTour(db, row, propertyId, args.verifiedApplicantEmail ?? null, args.guestApplicant === true);
     if (!requested.ok) return requested;
     requestedTime = true;
   } else if (claimsRequestedTime) {

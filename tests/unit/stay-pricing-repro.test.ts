@@ -194,15 +194,16 @@ describe("stay pricing: document and ledger agree", () => {
 
     recordApprovedApplicationCharges(applicantRow(propertyId, email, app), MANAGER_ID, true, { leaseExecuted: true });
     // An EXPLICIT short-term stay bills checkout-exclusive nights: Mar 10 to Mar 20 is 10
-    // nights, not 11 days. A daily-basis tenancy on a standard application still bills the
-    // inclusive 11 (see the tests below), which is why the two counts differ.
-    expect(rentCharges(email)[0]?.amount).toBe("$550.00");
+    // nights, not 11 days, on the weekly tier (7-27 nights): 6 x $55 = $330/week, x 10/7.
+    // A daily-basis tenancy on a standard application still bills the inclusive 11 days at
+    // the daily rate (see the tests below), which is why the two counts differ.
+    expect(rentCharges(email)[0]?.amount).toBe("$471.43");
 
     const html = leaseHtml(app);
     expect(html).toContain("$55.00 per day");
     expect(html).not.toContain("$40.00 per day");
     // Same 10 nights the ledger just billed. Document and ledger agree, which is the point.
-    expect(html).toContain("$550.00");
+    expect(html).toContain("$471.43");
   });
 
   it("3. blank listing short-term fields render no em-dash when the room carries a daily price", () => {

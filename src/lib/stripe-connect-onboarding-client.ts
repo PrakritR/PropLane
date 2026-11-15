@@ -1,6 +1,6 @@
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 
-export type StripeConnectEmbeddedComponent = "account_onboarding" | "account_management";
+export type StripeConnectEmbeddedComponent = "account_onboarding" | "account_management" | "notification_banner" | "payouts";
 
 export type StripeConnectAccountSession = {
   clientSecret: string;

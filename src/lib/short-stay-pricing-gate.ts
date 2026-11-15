@@ -47,5 +47,5 @@ export function shortStayPricingBlocker(row: ShortStayPricingPlacement, submissi
   const end = parseFlexibleLocalDate(app.leaseEnd);
   const nights = start && end && end > start ? shortTermStayNightCount(app.leaseStart, app.leaseEnd) : null;
   if (!nights) return "Set valid check-in and check-out dates before approving or sending the lease.";
-  return shortTermStayCanBePriced(pricing.dailyRate ?? 0, nights, pricing.weeklyRate) ? null : SHORT_STAY_PRICING_INCOMPLETE_MESSAGE;
+  return shortTermStayCanBePriced(pricing.dailyRate ?? 0, nights, pricing.weeklyRate, pricing.monthlyRate) ? null : SHORT_STAY_PRICING_INCOMPLETE_MESSAGE;
 }

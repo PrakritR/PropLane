@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { loadConnectAndInitialize, type StripeConnectInstance } from "@stripe/connect-js";
-import { ConnectAccountManagement, ConnectAccountOnboarding, ConnectComponentsProvider } from "@stripe/react-connect-js";
+import { ConnectAccountManagement, ConnectAccountOnboarding, ConnectComponentsProvider, ConnectNotificationBanner, ConnectPayouts } from "@stripe/react-connect-js";
 import { fetchStripeConnectAccountSession, type StripeConnectEmbeddedComponent } from "@/lib/stripe-connect-onboarding-client";
 
 /**
@@ -16,12 +16,15 @@ export function StripeConnectEmbedded({
   connectBase,
   component,
   onExit,
+  onUnavailable,
 }: {
   /** `/api/stripe/connect` for a manager, `/api/vendor/stripe-connect` for a vendor. */
   connectBase: string;
   component: StripeConnectEmbeddedComponent;
   /** Fires when onboarding reports the user is done (finished or backed out). The caller re-fetches the balance/setup status here. Account management has no such signal — its modal's own close is the caller's cue. */
   onExit?: () => void;
+  /** Fires once when Stripe cannot be started (no publishable key, a refused session). The caller shows its in-app fallback. */
+  onUnavailable?: (message: string) => void;
 }) {
   const [instance, setInstance] = useState<StripeConnectInstance | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,15 +43,20 @@ export function StripeConnectEmbedded({
         });
         if (!cancelled) setInstance(stripeConnectInstance);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Could not start Stripe.");
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : "Could not start Stripe.";
+        setError(message);
+        onUnavailable?.(message);
       }
     })();
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onUnavailable is a callback, not a restart trigger
   }, [connectBase, component]);
 
   if (error) {
+    if (onUnavailable) return null;
     return <p className="rounded-xl border px-4 py-3 text-sm portal-banner-danger">{error}</p>;
   }
 
@@ -62,6 +70,10 @@ export function StripeConnectEmbedded({
     <ConnectComponentsProvider connectInstance={instance}>
       {component === "account_onboarding" ? (
         <ConnectAccountOnboarding onExit={() => onExit?.()} />
+      ) : component === "payouts" ? (
+        <ConnectPayouts />
+      ) : component === "notification_banner" ? (
+        <ConnectNotificationBanner />
       ) : (
         <ConnectAccountManagement />
       )}

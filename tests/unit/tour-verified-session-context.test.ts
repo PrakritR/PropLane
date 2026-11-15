@@ -52,12 +52,12 @@ it("does not link when ensuring resident access fails", async () => {
   expect(state.link).not.toHaveBeenCalled();
 });
 
-it.each(["unconfirmed", "missing", "mismatch", "view-as"])("refuses a %s tour before creation", async (kind) => {
+it.each(["unconfirmed", "missing", "mismatch", "view-as"])("does not link a %s session: a guest tour with a bad phone is refused before creation", async (kind) => {
   if (kind === "unconfirmed") state.user.email_confirmed_at = null;
   if (kind === "missing") state.user.email = "";
   if (kind === "mismatch") state.profileEmail = "other@example.test";
   if (kind === "view-as") state.user.__viewAs = { portal: "resident", target: { roles: ["resident"] } };
   const response = await POST(new Request("http://localhost/api/public/partner-inquiries", { method: "POST", body: JSON.stringify({ row: { kind: "tour", email: "r@example.test" } }) }));
-  expect(response.status).toBe(401);
+  expect(response.status).toBe(400);
   expect(state.create).not.toHaveBeenCalled();
 });

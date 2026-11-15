@@ -107,7 +107,7 @@ async function listPendingChargesForResident(args: {
   for (const row of data ?? []) {
     const charge = (row as { row_data?: HouseholdCharge }).row_data;
     if (!charge?.id) continue;
-    if (charge.status === "paid" || charge.status === "cancelled" || charge.status === "refunded") continue;
+    if (charge.status === "paid" || charge.status === "cancelled" || charge.status === "refunded" || charge.status === "void") continue;
     out.push(charge);
   }
   return out;

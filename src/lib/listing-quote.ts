@@ -23,8 +23,8 @@
  * If any of those change, this follows them. It must never grow a rule of its own.
  */
 
-import { shortTermStayNightCount, shortTermStayCanBePriced, shortTermStayTotalAmount, shortTermStayChargeTitle } from "@/lib/short-term-stay-pricing";
-import { parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
+import { shortTermStayNightCount, shortTermStayCanBePriced, shortTermStayTotalAmount, shortTermStayTierNote } from "@/lib/short-term-stay-pricing";
+import { DEFAULT_CUSTOM_LEASE_SURCHARGE, parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import {
   feeAppliesToResidentSlot,
@@ -274,11 +274,12 @@ export function buildListingQuote(
       ? parseMoneyAmount(room.shortTermRent ?? "") || room.dailyRentPrice || 0
       : parseMoneyAmount(sub.shortTermDailyCost ?? "");
   const weekly = stayPricing ? stayPricing.weeklyRate ?? 0 : staySlot?.weeklyRentPrice ?? room?.weeklyRentPrice ?? 0;
+  const stayMonthly = stayPricing ? stayPricing.monthlyRate : undefined;
   const start = parseFlexibleLocalDate(options.leaseStart);
   const end = parseFlexibleLocalDate(options.leaseEnd);
   const stayNights = isStay && start && end && end > start ? shortTermStayNightCount(options.leaseStart, options.leaseEnd) : null;
-  const stayTotal = stayNights && shortTermStayCanBePriced(nightly, stayNights, weekly)
-    ? shortTermStayTotalAmount(nightly, stayNights, weekly) : null;
+  const stayTotal = stayNights && shortTermStayCanBePriced(nightly, stayNights, weekly, stayMonthly)
+    ? shortTermStayTotalAmount(nightly, stayNights, weekly, stayMonthly) : null;
   const stayTermRent = room?.termPricing?.[leaseTerm]?.monthlyRent;
   const hasStayRate =
     !isStay ||
@@ -384,8 +385,10 @@ export function buildListingQuote(
   if (!isStay && startKind === "m2m" && arrangementRow?.monthToMonthSurcharge && !foldMonthlyIntoRent) {
     monthlyRent += parseMoneyAmount(arrangementRow.monthToMonthSurcharge);
   }
-  if (!isStay && startKind === "cst" && arrangementRow?.customStartSurcharge) {
-    monthlyRent += parseMoneyAmount(arrangementRow.customStartSurcharge);
+  if (!isStay && startKind === "cst") {
+    monthlyRent += String(arrangementRow?.customStartSurcharge ?? "").trim()
+      ? parseMoneyAmount(arrangementRow!.customStartSurcharge!)
+      : DEFAULT_CUSTOM_LEASE_SURCHARGE;
   }
   const recurringTotal = recurring.reduce(
     (sum, f) => sum + listingFeeMonthlyEquivalent(f.amount, f.cadence ?? "monthly"),
@@ -408,7 +411,7 @@ export function buildListingQuote(
    */
   const firstPeriodExtras = [...folded, ...recurring];
   const signingLines: ListingQuoteLine[] = isStay ? [{
-    key: rentKey, label: "Stay total", note: stayTotal !== null ? shortTermStayChargeTitle(stayNights!, nightly, weekly) : undefined,
+    key: rentKey, label: "Stay total", note: stayTotal !== null ? shortTermStayTierNote(stayNights!, nightly, weekly, stayMonthly) : undefined,
     amount: stayTotal ?? 0, amountPending: stayTotal === null, dueAtSigning: rentDueAtSigning,
   }] : hasStayRate
     ? [

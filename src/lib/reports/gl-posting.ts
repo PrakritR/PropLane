@@ -749,3 +749,82 @@ export async function backfillGlFromSources(
 
   return { posted, skipped };
 }
+
+/**
+ * Reverse one posted journal (a charge's or a payment's) with a balanced mirror entry: every line swaps its
+ * debit and credit, `is_reversal` is true and `reversed_entry_id` names the original. The original is never
+ * edited or deleted, so the books keep both. Idempotent: a journal that already has a reversal is left alone,
+ * and a source with no journal (nothing was ever posted) returns null.
+ */
+export async function reverseGlJournalForSource(
+  db: SupabaseClient,
+  input: { managerUserId: string; sourceType: GlSourceType; sourceId: string; entryDate: string; memo: string },
+): Promise<string | null> {
+  const originalId = await journalEntryExists(db, input.managerUserId, input.sourceType, input.sourceId);
+  if (!originalId) return null;
+  const { data: already, error: alreadyError } = await db
+    .from("gl_journal_entries")
+    .select("id")
+    .eq("reversed_entry_id", originalId)
+    .eq("is_reversal", true)
+    .maybeSingle();
+  if (alreadyError) throw new Error(`GL reversal lookup failed: ${alreadyError.message}`);
+  if (already?.id) return String(already.id);
+
+  const { data: lines, error: linesReadError } = await db
+    .from("gl_journal_lines")
+    .select("account_code, debit_cents, credit_cents, property_id, resident_user_id, vendor_id, memo")
+    .eq("journal_entry_id", originalId);
+  if (linesReadError) throw new Error(`GL reversal lines read failed: ${linesReadError.message}`);
+  const original = (lines ?? []) as Array<{
+    account_code: string; debit_cents: number; credit_cents: number;
+    property_id: string | null; resident_user_id: string | null; vendor_id: string | null; memo: string | null;
+  }>;
+  if (original.length === 0) return null;
+  const mirrored = original.map((line) => ({
+    accountCode: line.account_code,
+    debitCents: Number(line.credit_cents),
+    creditCents: Number(line.debit_cents),
+    propertyId: line.property_id,
+    residentUserId: line.resident_user_id,
+    vendorId: line.vendor_id,
+    memo: input.memo,
+  }));
+  assertBalanced(mirrored);
+
+  const now = new Date().toISOString();
+  const { data: entry, error: entryError } = await db
+    .from("gl_journal_entries")
+    .insert({
+      manager_user_id: input.managerUserId,
+      property_id: original[0]!.property_id,
+      entry_date: input.entryDate,
+      memo: input.memo,
+      source_type: input.sourceType,
+      source_id: input.sourceId,
+      is_reversal: true,
+      reversed_entry_id: originalId,
+      updated_at: now,
+    })
+    .select("id")
+    .single();
+  if (entryError || !entry?.id) throw new Error(`GL reversal insert failed: ${entryError?.message ?? "unknown"}`);
+  const reversalId = String(entry.id);
+  const { error: insertLinesError } = await db.from("gl_journal_lines").insert(
+    mirrored.map((line) => ({
+      journal_entry_id: reversalId,
+      account_code: line.accountCode,
+      debit_cents: line.debitCents,
+      credit_cents: line.creditCents,
+      property_id: line.propertyId,
+      resident_user_id: line.residentUserId,
+      vendor_id: line.vendorId,
+      memo: line.memo,
+    })),
+  );
+  if (insertLinesError) {
+    await db.from("gl_journal_entries").delete().eq("id", reversalId);
+    throw new Error(`GL reversal lines insert failed: ${insertLinesError.message}`);
+  }
+  return reversalId;
+}

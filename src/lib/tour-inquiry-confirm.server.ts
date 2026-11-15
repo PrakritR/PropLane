@@ -19,6 +19,7 @@ import { syncPlannedTourToGoogleCalendar } from "@/lib/google-calendar/sync.serv
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { notifyTenantTourConfirmed } from "@/lib/tour-notification-delivery.server";
+import { notifyGuestTourConfirmed } from "@/lib/guest-notices.server";
 import type { TourNotificationChannels, TourNotificationResult } from "@/lib/tour-notification-delivery.server";
 import { isActivePlannedTourEvent, slotKeyForInstant } from "@/lib/tour-slot-math";
 import { emitTourClaimedEvent } from "@/lib/tour-events.server";
@@ -454,7 +455,15 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     // The tool path has no live request; links then resolve to the production
     // origin, which is correct for a confirmed-tour email.
     const notifyReq = opts.req ?? new Request(PRODUCTION_APP_ORIGIN);
-    tenantNotification = await notifyTenantTourConfirmed(
+    // A guest tour (no account) is confirmed by email + text with no /resident link; a manager's own custom body wins.
+    tenantNotification = row.guestTour === true && !opts.notificationBody && !opts.notificationSubject
+      ? await notifyGuestTourConfirmed(
+        db,
+        row,
+        { start, end, managerUserId, adminLabel: selectedWindow.adminLabel },
+        instructions || undefined,
+      )
+      : await notifyTenantTourConfirmed(
       db,
       notifyReq,
       row,

@@ -48,7 +48,9 @@ import {
   formatShortStayMoney,
   listingOffersShortStay,
   shortStayRangeLabel,
+  shortStayRoomMonthly,
   shortStayRoomNightly,
+  shortStayRoomWeekly,
   shortStayTotal,
 } from "@/lib/short-stay-request";
 
@@ -70,6 +72,9 @@ export type ShortStayListing = {
   roomLabel: string;
   /** Dollars per night. */
   nightly: number;
+  /** The room's own weekly / monthly rates (the 7-27 and 28+ night tiers); absent when unset. */
+  weekly?: number;
+  monthly?: number;
 };
 
 export type LoadShortStayListingResult =
@@ -112,6 +117,8 @@ export async function loadShortStayListing(
       room,
       roomLabel: room.name?.trim() || `Room ${roomIndex + 1}`,
       nightly,
+      weekly: shortStayRoomWeekly(room),
+      monthly: shortStayRoomMonthly(room),
     },
   };
 }
@@ -193,7 +200,7 @@ export async function createShortStayRows(
       results.push({ ok: false, range, status: 409, error: "That room was just booked for those dates." });
       continue;
     }
-    const total = shortStayTotal(listing.nightly, range.nights);
+    const total = shortStayTotal(listing.nightly, range.nights, listing.weekly, listing.monthly);
 
     // What the property's add-on rule says about THESE nights, against the room's other stays. An unreadable
     // calendar offers nothing (fail closed); it never blocks the stay itself.
@@ -242,6 +249,8 @@ export async function createShortStayRows(
       rateBasis: "daily",
       quotedNights: range.nights,
       quotedTotal: total,
+      ...(listing.weekly ? { quotedWeekly: listing.weekly } : {}),
+      ...(listing.monthly ? { quotedMonthly: listing.monthly } : {}),
       guests,
       residentName: actor.name,
       residentPhone: actor.phone,

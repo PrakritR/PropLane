@@ -37,9 +37,9 @@ export function buildProspectApplyHref(
     bundleId: params.bundleId,
   });
   if (auth.ready && auth.userId && auth.hasResidentRole) return step;
-  // A listing's action buttons make a resident account first, then land on the step (captain, Oct 20): the
-  // web flow stays, behind the account. Texting is the other path ("Text us"), with no account at all.
-  return params.propertyId?.trim() ? residentCreateAccountHref(step) : buildRentalApplyHref(params);
+  // Captain, Nov 14: a renter from Facebook / Zillow / Roomies applies WITHOUT an account (replaces the Oct 20 account-first
+  // rule). The public apply page takes the application; a phone or mailbox is proven at Submit.
+  return buildRentalApplyHref(params);
 }
 
 /**
@@ -54,8 +54,8 @@ export function buildProspectTourHref(
   if (auth.ready && auth.userId && auth.hasResidentRole) {
     return residentPortalTourSchedulePath(pid);
   }
-  // Same as apply: a resident account first, then the tour scheduler for this home.
-  return pid ? residentCreateAccountHref(residentPortalTourSchedulePath(pid)) : buildTourContactHref(pid);
+  // Captain, Nov 14: a guest books a tour with a name, phone and email and no account (replaces the Nov 3 account-first rule).
+  return buildTourContactHref(pid);
 }
 
 /** The resident portal's short-stay request (the contract with `/resident/applications/stay`), prefilled with the picks. */

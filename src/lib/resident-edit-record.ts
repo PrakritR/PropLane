@@ -123,7 +123,7 @@ export function groupResidentEditCharges(charges: readonly ResidentEditCharge[])
 
 /** "$1,950 paid of $4,875" — cancelled and refunded charges are neither owed nor received. */
 export function residentEditPaidOfLine(charges: readonly ResidentEditCharge[]): string | null {
-  const counted = charges.filter((c) => c.status !== "cancelled" && c.status !== "refunded");
+  const counted = charges.filter((c) => c.status !== "cancelled" && c.status !== "refunded" && c.status !== "void");
   if (counted.length === 0) return null;
   const total = counted.reduce((sum, c) => sum + c.amountCents, 0);
   const paid = counted.filter((c) => c.status === "paid").reduce((sum, c) => sum + c.amountCents, 0);

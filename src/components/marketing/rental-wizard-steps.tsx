@@ -2358,6 +2358,9 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
     const codeWaived = Boolean(form.applicationFeeWaived);
     const managerUserIdForPay = resolvedManagerUserId.trim() || prop?.managerUserId?.trim() || "";
     const feeStillDue = applicationFeeGate.needsFee && !applicationFeeGate.paid;
+    // A guest (no account yet) sees the real fee here, but pays it only after the phone or mailbox proof, in the
+    // resident portal that claims the held application: no card form before there is an account to bind it to.
+    const guestPaysAfterVerify = Boolean(p.guestApplicant) && feeStillDue;
     const feeCharge =
       form.propertyId.trim() && form.email.trim()
         ? findApplicationFeeCharge(form.email, form.propertyId.trim(), null)
@@ -2465,12 +2468,17 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
             )}
           </div>
         ) : null}
-        {feeStillDue ? (
+        {guestPaysAfterVerify ? (
+          <div className="rounded-2xl border px-4 py-4 text-sm portal-banner-info" data-attr="application-fee-after-verify">
+            Pay the {appFeeLabel} application fee after you verify.
+          </div>
+        ) : null}
+        {feeStillDue && !guestPaysAfterVerify ? (
           <div className="rounded-2xl border border-border bg-card px-4 py-4 text-sm text-foreground">
             <span className="font-semibold text-foreground">Payment method:</span> Card or Apple Pay
           </div>
         ) : null}
-        {feeStillDue ? (
+        {feeStillDue && !guestPaysAfterVerify ? (
           applicationFeeGate.pending ? (
             <div className="flex min-h-[80px] items-center justify-center rounded-2xl border border-border bg-card text-sm text-muted">
               Confirming the application fee…

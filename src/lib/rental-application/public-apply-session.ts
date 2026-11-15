@@ -76,11 +76,10 @@ export function publicApplyReturnPath(input: {
 }
 
 /**
- * A resident account is required to apply (PLAN-0924-1421) — there is no guest
- * path left to remember. Kept as a stub so a stale session key written before
- * the gate closed cannot reopen it.
+ * Retired session key from the account-first gate (PLAN-0924-1421); always false. The guest path that replaced it
+ * (captain, Nov 14) is not a remembered bypass: it is the verify-at-Submit step, and nothing reads this.
  *
- * @deprecated Always false. Do not reintroduce a guest bypass.
+ * @deprecated Always false.
  */
 export function hasPublicApplyGuestContinue(gateKey: string): boolean {
   void gateKey;
@@ -110,8 +109,8 @@ export type PublicApplyView = "account-prompt" | "signed-in-create-resident" | "
 /**
  * Decide what the public apply surface renders when a property link is present:
  *
- *  - SIGNED OUT → the anonymous "Before you apply" account prompt (create an
- *    account or sign in), owned by the public-apply gate.
+ *  - SIGNED OUT → the wizard itself, no account wall (captain, Nov 14); the phone or
+ *    mailbox is proven at Submit and the account is created only after that.
  *  - SIGNED IN but NOT a resident (a manager or vendor — residents are
  *    redirected to the portal apply flow before this surface mounts) → the
  *    "create your resident account" prompt: they add a separate resident
@@ -121,8 +120,8 @@ export type PublicApplyView = "account-prompt" | "signed-in-create-resident" | "
  *  - No property link, or a resume link from the applicant's own email → the
  *    wizard directly.
  *
- * An account is required (PLAN-0924-1421): nothing a visitor can click in the
- * prompt reaches the wizard without one.
+ * An account is NOT required to fill the application (captain, Nov 14, overriding
+ * PLAN-0924-1421): submitting needs a proven phone or mailbox.
  */
 export function resolvePublicApplyView(input: {
   propertyId?: string;
@@ -142,5 +141,7 @@ export function resolvePublicApplyView(input: {
   if (!key) return "wizard";
   if (input.resumeFromEmailLink) return "wizard";
   if (input.hasResidentRole) return "wizard";
-  return input.signedInNonResident ? "signed-in-create-resident" : "account-prompt";
+  // A signed-out renter applies with NO account (captain, Nov 14: Facebook / Zillow / Roomies renters apply first). The
+  // proof comes at Submit (`GuestApplicationVerify`), and the account is created only after it.
+  return input.signedInNonResident ? "signed-in-create-resident" : "wizard";
 }

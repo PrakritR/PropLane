@@ -27,7 +27,7 @@ import {
   updatePendingManagerProperty,
 } from "@/lib/demo-property-pipeline";
 import type { ManagerListingSubmissionV1, ManagerRoomResidentMoveIn, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
-import { isEntireHomeListing, reconcileRoomResidentMoveIn } from "@/lib/manager-listing-submission";
+import { isEntireHomeListing, reconcileRoomResidentMoveIn, roomsMissingDoorCode } from "@/lib/manager-listing-submission";
 import { roomIndicesInListingOrder } from "@/lib/listing-floor-order";
 import { moveInFactTexts } from "@/lib/property-record-row-facts";
 
@@ -168,6 +168,7 @@ export function ManagerPropertyRoomMoveInPanel({
   const showInternalCard = canViewInternal ?? canEdit;
   const entireHome = isEntireHomeListing(sub);
   const roomIndices = useMemo(() => roomIndicesInListingOrder(sub.rooms), [sub.rooms]);
+  const missingDoorCodes = useMemo(() => roomsMissingDoorCode(sub), [sub]);
 
   const [houseInstructions, setHouseInstructions] = useState(sub.houseMoveInInstructions ?? "");
   const [housePhotos, setHousePhotos] = useState(sub.houseMoveInPhotoDataUrls ?? []);
@@ -569,6 +570,26 @@ export function ManagerPropertyRoomMoveInPanel({
                   : [],
               )}
             />
+          ) : null}
+
+          {activeMoveTab === "rooms" && missingDoorCodes.length > 0 ? (
+            <div className="px-4 py-3" data-attr="property-move-in-missing-door-codes">
+              <h3 className="text-sm font-semibold text-foreground">Rooms missing a door code</h3>
+              <ul className="mt-2 space-y-1">
+                {missingDoorCodes.map((room) => (
+                  <li key={room.id}>
+                    <button
+                      type="button"
+                      className="text-sm text-primary hover:underline"
+                      onClick={() => openMoveEditor({ kind: "room", roomId: room.id })}
+                      data-attr={`property-move-in-missing-door-code-${room.id}`}
+                    >
+                      {room.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           ) : null}
 
           {activeMoveTab === "rooms"

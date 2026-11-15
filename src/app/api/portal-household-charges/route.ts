@@ -33,6 +33,9 @@ import {
   syncLedgerPaymentEntry,
 } from "@/lib/reports/ledger-sync";
 import { emitHouseholdChargeTransition } from "@/lib/domain-action-events.server";
+import { notifyHoldPlaced } from "@/lib/holding-deposit-expiry.server";
+import { holdExpiresAtFor } from "@/lib/holding-hold";
+import { voidPaidCharge } from "@/lib/household-charge-void.server";
 import { persistHouseholdChargeRows } from "@/lib/household-charge-persist.server";
 import { resolvePropertyPayoutOwners } from "@/lib/payments/property-payout-owner.server";
 
@@ -312,6 +315,7 @@ export async function POST(req: Request) {
       paidAt?: string;
       method?: string;
       note?: string;
+      reason?: string;
       charges?: Record<string, unknown>[];
       rentProfiles?: Record<string, unknown>[];
       confirmWrites?: boolean;
@@ -346,7 +350,7 @@ export async function POST(req: Request) {
       if (!sameReceipt && !["pending", "failed"].includes(existing.status)) {
         return NextResponse.json({ error: "Refresh this charge before recording payment." }, { status: 409 });
       }
-      const updated: HouseholdCharge = { ...current, id, managerUserId: ownerId, status: "paid", paidAt: paidAt.toISOString(), paidMethod: method, paidNote: note, balanceLabel: "$0.00" };
+      const updated: HouseholdCharge = { ...current, id, managerUserId: ownerId, status: "paid", paidAt: paidAt.toISOString(), paidMethod: method, paidNote: note, balanceLabel: "$0.00", ...(current.kind === "holding_deposit" ? { holdExpiresAt: holdExpiresAtFor(paidAt.toISOString()) ?? undefined } : {}) };
       if (!sameReceipt) {
         // Compare the server snapshot to prevent a concurrent payment or amount edit being overwritten.
         let update = db.from("portal_household_charge_records").update({ status: "paid", row_data: updated, updated_at: now }).eq("id", id).eq("status", existing.status);
@@ -357,6 +361,7 @@ export async function POST(req: Request) {
       }
       await syncLedgerPaymentEntry(db, updated);
       await cancelFuturePaymentRemindersForCharge(db, ownerId, id);
+      if (!sameReceipt && updated.kind === "holding_deposit") await notifyHoldPlaced(db, ownerId, updated);
       return NextResponse.json({ ok: true, charge: updated });
     }
 
@@ -437,6 +442,20 @@ export async function POST(req: Request) {
       // Already pending: the client's stale copy may reconcile itself. No
       // financial, provider, reminder, or ledger fields change on this route.
       return NextResponse.json({ ok: true });
+    }
+
+    // Void a PAID charge: owner only, reason required, never deletes and never refunds (see voidPaidCharge).
+    if (body.action === "voidCharge") {
+      if (user.role !== "manager") return NextResponse.json({ error: "Only the workspace owner can void a paid charge." }, { status: 403 });
+      const id = body.id?.trim();
+      if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const { data: scoped } = await db.from("portal_household_charge_records").select("property_id").eq("id", id).maybeSingle();
+      if (scoped && !rowInWorkspaceScope(scoped.property_id ? String(scoped.property_id) : null, workspaceScope)) {
+        return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      }
+      const result = await voidPaidCharge(db, { chargeId: id, actorUserId: user.id, reason: body.reason });
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+      return NextResponse.json({ ok: true, charge: result.charge, alreadyVoid: result.alreadyVoid, providerPayment: result.providerPayment, refunded: false });
     }
 
     const charges = Array.isArray(body.charges) ? body.charges : [];
@@ -547,7 +566,7 @@ export async function POST(req: Request) {
         // row, or a pending row promoted to paid here, must use the dedicated
         // server-authorized payment path instead.
         const storedStatus = previousStatusById.get(id);
-        if (["paid", "processing", "partially_paid", "refunded"].includes(storedStatus ?? "")) continue;
+        if (["paid", "processing", "partially_paid", "refunded", "void"].includes(storedStatus ?? "")) continue;
         if (typeof c.status !== "string" || !["pending", "cancelled", "failed"].includes(c.status)) continue;
         // A WAIVER IS STICKY too: a stale tab still holding the pending lease fee must not bring it back.
         // Restoring is a deliberate manager action through /api/manager/lease-fee-waivers.

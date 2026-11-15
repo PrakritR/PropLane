@@ -34,10 +34,11 @@ describe("resolvePublicApplyView", () => {
     ).toBe("signed-in-create-resident");
   });
 
-  it("shows the anonymous account prompt for a signed-out visitor with a property link", () => {
+  // Captain, Nov 14: a renter from Facebook / Zillow / Roomies applies with NO account; the proof comes at Submit.
+  it("opens the wizard for a signed-out visitor with a property link (no account wall)", () => {
     expect(
       resolvePublicApplyView({ gateKey: propertyId, guestContinue: false, signedInNonResident: false }),
-    ).toBe("account-prompt");
+    ).toBe("wizard");
   });
 
   it("gates portfolio apply links the same way as a single-property link", () => {
@@ -54,18 +55,17 @@ describe("resolvePublicApplyView", () => {
     );
   });
 
-  // PLAN-0924-1421 closed guest apply. A stale `guestContinue` — from an old
-  // session key or an old caller — must not unlock the wizard.
+  // A stale `guestContinue` is ignored: a signed-in non-resident still gets the resident-account prompt.
   it("keeps a signed-in non-resident gated even when guestContinue is true", () => {
     expect(
       resolvePublicApplyView({ gateKey: propertyId, guestContinue: true, signedInNonResident: true }),
     ).toBe("signed-in-create-resident");
   });
 
-  it("keeps a signed-out visitor gated even when guestContinue is true", () => {
+  it("treats a signed-out visitor the same whatever guestContinue says", () => {
     expect(
       resolvePublicApplyView({ gateKey: propertyId, guestContinue: true, signedInNonResident: false }),
-    ).toBe("account-prompt");
+    ).toBe("wizard");
   });
 
   it("still opens the wizard for the applicant's own tokened resume link", () => {
@@ -113,9 +113,9 @@ describe("group invitation account return", () => {
       expect(returned.searchParams.get("rentalType")).toBe("short_term");
     }
   });
-  it("gates an invite without a property and preserves its group on the portal return", () => {
+  it("opens the wizard for an invite without a property and preserves its group on the portal return", () => {
     const gateKey = publicApplyGateKey({ groupLeaderAppId: "PROPLANE-ABCD1234" });
-    expect(resolvePublicApplyView({ gateKey, signedInNonResident: false })).toBe("account-prompt");
+    expect(resolvePublicApplyView({ gateKey, signedInNonResident: false })).toBe("wizard");
     expect(publicApplyReturnPath({ groupLeaderAppId: "PROPLANE-ABCD1234" })).toBe("/resident/applications/apply?groupLeaderAppId=PROPLANE-ABCD1234");
   });
   it("keeps untrusted invite text inside a query value, never a destination", () => {

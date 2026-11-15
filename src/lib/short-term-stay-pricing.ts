@@ -80,16 +80,39 @@ export function shortTermNightlyRate(raw: string | undefined | null): number {
   return Number.isFinite(amount) && amount > 0 ? amount : 0;
 }
 
+/** Stay-length tiers (captain's pricing system): 1-6 nights nightly, 7-27 weekly, 28+ monthly. */
+export const STAY_WEEKLY_TIER_MIN_NIGHTS = 7;
+export const STAY_MONTHLY_TIER_MIN_NIGHTS = 28;
+/** A monthly-rate stay is prorated per night over this many nights, so 30 nights = the monthly rate. */
+export const STAY_MONTH_NIGHTS = 30;
+/** The weekly rate when a room has none: six nights at the nightly rate. */
+export const STAY_DEFAULT_WEEKLY_NIGHTS = 6;
+
+export type ShortStayTier = "nightly" | "weekly" | "monthly";
+
+const roundCents = (n: number) => Number(n.toFixed(2));
+const positive = (n: number | undefined | null): n is number => typeof n === "number" && Number.isFinite(n) && n > 0;
+
+/** The weekly rate that applies: the room's own, else 6 x its nightly rate. */
+export function shortTermEffectiveWeeklyRate(nightlyRate: number, weeklyRate?: number): number | undefined {
+  if (positive(weeklyRate)) return weeklyRate;
+  return positive(nightlyRate) ? roundCents(nightlyRate * STAY_DEFAULT_WEEKLY_NIGHTS) : undefined;
+}
+
+/** Which tier prices a stay of `nights`. Monthly needs a monthly rate; without one 28+ stays stay weekly. */
+export function shortTermStayTier(nights: number, monthlyRate?: number): ShortStayTier {
+  if (nights >= STAY_MONTHLY_TIER_MIN_NIGHTS && positive(monthlyRate)) return "monthly";
+  if (nights >= STAY_WEEKLY_TIER_MIN_NIGHTS) return "weekly";
+  return "nightly";
+}
+
+export function shortTermStayTierLabel(tier: ShortStayTier): string {
+  return tier === "monthly" ? "Monthly rate" : tier === "weekly" ? "Weekly rate" : "Nightly";
+}
+
 /**
- * How a stay splits into whole weeks and leftover nights (PRP-463).
- *
- * A manager who quotes a weekly rate means it: twelve nights is one week plus five
- * nights, not twelve nights at the nightly rate. The weekly rate is a REAL price and is
- * deliberately cheaper than seven nights, so billing nightly across a long stay
- * overcharges the guest against the rate they were quoted.
- *
- * With no weekly rate — or a stay shorter than a week — this is the nightly maths it has
- * always been, so nothing already booked changes.
+ * Informational split into whole weeks and leftover nights. Pricing no longer bills this way
+ * (weekly stays are prorated per night).
  */
 export function shortTermStaySplit(
   nights: number,
@@ -100,53 +123,91 @@ export function shortTermStaySplit(
   return { weeks: Math.floor(nights / 7), nights: nights % 7 };
 }
 
-/** A weekly-only rate covers exact weeks, never unpriced leftover nights. */
-export function shortTermStayCanBePriced(nightlyRate: number, nights: number, weeklyRate?: number): boolean {
+/** Whether the rates on hand can price a stay of `nights` (weekly/monthly-only rates cover their own tier). */
+export function shortTermStayCanBePriced(
+  nightlyRate: number,
+  nights: number,
+  weeklyRate?: number,
+  monthlyRate?: number,
+): boolean {
   if (!Number.isFinite(nights) || nights <= 0 || !Number.isInteger(nights)) return false;
-  if (Number.isFinite(nightlyRate) && nightlyRate > 0) return true;
-  return Number.isFinite(weeklyRate) && (weeklyRate ?? 0) > 0 && nights % 7 === 0;
+  if (positive(nightlyRate)) return true;
+  if (positive(weeklyRate) && nights >= STAY_WEEKLY_TIER_MIN_NIGHTS) return true;
+  return positive(monthlyRate) && nights >= STAY_MONTHLY_TIER_MIN_NIGHTS;
 }
 
+/**
+ * The one stay-total decision. 1-6 nights: nightly x n. 7-27 nights: weekly x n/7 (weekly
+ * defaults to 6 x nightly). 28+ nights: monthly x n/30 when the room has a monthly rate.
+ */
 export function shortTermStayTotalAmount(
   nightlyRate: number,
   nights: number,
   weeklyRate?: number,
+  monthlyRate?: number,
 ): number {
-  if (!shortTermStayCanBePriced(nightlyRate, nights, weeklyRate)) return 0;
-  const split = shortTermStaySplit(nights, weeklyRate);
-  if (split.weeks > 0) {
-    // Completeness was checked above; leftover nights always have a real price.
-    const remainder = nightlyRate > 0 ? split.nights * nightlyRate : 0;
-    return Number((split.weeks * (weeklyRate ?? 0) + remainder).toFixed(2));
+  if (!shortTermStayCanBePriced(nightlyRate, nights, weeklyRate, monthlyRate)) return 0;
+  const tier = shortTermStayTier(nights, monthlyRate);
+  if (tier === "monthly") return roundCents((monthlyRate! * nights) / STAY_MONTH_NIGHTS);
+  if (tier === "weekly") {
+    const weekly = shortTermEffectiveWeeklyRate(nightlyRate, weeklyRate);
+    if (weekly) return roundCents((weekly * nights) / 7);
   }
-  if (!(nightlyRate > 0)) return 0;
-  return Number((nightlyRate * nights).toFixed(2));
+  return positive(nightlyRate) ? roundCents(nightlyRate * nights) : 0;
 }
+
+const stayMoney = (n: number) => (n % 1 === 0 ? `$${n}` : `$${n.toFixed(2)}`);
 
 export function shortTermStayChargeTitle(
   nights: number,
   nightlyRate: number,
   weeklyRate?: number,
+  monthlyRate?: number,
 ): string {
-  const money = (n: number) => (n % 1 === 0 ? `$${n}` : `$${n.toFixed(2)}`);
-  const split = shortTermStaySplit(nights, weeklyRate);
-  if (split.weeks > 0) {
-    const weekLabel = split.weeks === 1 ? "1 week" : `${split.weeks} weeks`;
-    const parts = [`${weekLabel} × ${money(weeklyRate ?? 0)}`];
-    if (split.nights > 0) {
-      parts.push(`${split.nights === 1 ? "1 night" : `${split.nights} nights`} × ${money(nightlyRate)}`);
-    }
-    return `Stay total (${parts.join(" + ")})`;
-  }
   const nightLabel = nights === 1 ? "1 night" : `${nights} nights`;
-  return `Stay total (${nightLabel} × ${money(nightlyRate)})`;
+  const tier = shortTermStayTier(nights, monthlyRate);
+  if (tier === "monthly") {
+    return `Stay total (${nightLabel} × ${stayMoney(monthlyRate!)}/month, ${shortTermStayTierLabel(tier)})`;
+  }
+  const weekly = tier === "weekly" ? shortTermEffectiveWeeklyRate(nightlyRate, weeklyRate) : undefined;
+  if (weekly) return `Stay total (${nightLabel} × ${stayMoney(weekly)}/week, ${shortTermStayTierLabel(tier)})`;
+  return `Stay total (${nightLabel} × ${stayMoney(nightlyRate)})`;
+}
+
+/** The plain "N nights × $rate" title, with no tier (a daily-priced tenancy bills days x rate). */
+export function shortTermStayNightlyTitle(nights: number, nightlyRate: number): string {
+  return `Stay total (${nights === 1 ? "1 night" : `${nights} nights`} × ${stayMoney(nightlyRate)})`;
+}
+
+/** UI line for quotes and checkout: the tier label ahead of the math. */
+export function shortTermStayTierNote(
+  nights: number,
+  nightlyRate: number,
+  weeklyRate?: number,
+  monthlyRate?: number,
+): string {
+  const title = shortTermStayChargeTitle(nights, nightlyRate, weeklyRate, monthlyRate);
+  const inner = title.replace(/^Stay total \(/, "").replace(/\)$/, "");
+  const tier = shortTermStayTier(nights, monthlyRate);
+  return tier === "nightly" ? `${shortTermStayTierLabel(tier)}: ${inner}` : inner;
 }
 
 /** Inverse of {@link shortTermStayChargeTitle} for manager payment edits. */
 export function parseShortTermStayChargeTitle(
   title: string,
-): { nights: number; nightlyRate: number; weeks?: number; weeklyRate?: number } | null {
+): { nights: number; nightlyRate: number; weeks?: number; weeklyRate?: number; monthlyRate?: number } | null {
   const trimmed = title.trim();
+  const tiered = trimmed.match(
+    /^Stay total \((\d+) nights? × (\$[\d.]+)\/(week|month), (?:Weekly|Monthly) rate\)$/i,
+  );
+  if (tiered) {
+    const nights = Number(tiered[1]);
+    const rate = parseMoneyAmount(tiered[2] ?? "");
+    if (!(nights > 0) || !(rate > 0)) return null;
+    return tiered[3]!.toLowerCase() === "month"
+      ? { nights, nightlyRate: 0, monthlyRate: rate }
+      : { nights, nightlyRate: 0, weeklyRate: rate };
+  }
   const weekly = trimmed.match(
     /^Stay total \((\d+) weeks? × (\$[\d.]+)(?: \+ (\d+) nights? × (\$[\d.]+))?\)$/i,
   );

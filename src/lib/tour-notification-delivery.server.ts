@@ -1184,7 +1184,7 @@ async function deliverTenantTourConfirmed(
   inquiry: TourInquiryPayload,
   window: { start: string; end: string; managerUserId: string; adminLabel?: string },
   instructions?: string,
-  opts?: { subject?: string; body?: string },
+  opts?: { subject?: string; body?: string; /** Replaces the generated confirmation text (a guest tour has no account, so no portal wording). */ smsText?: string },
   channels?: TourNotificationChannels,
 ): Promise<TourNotificationResult> {
   const guestEmail = textField(inquiry as Record<string, unknown>, "email");
@@ -1257,7 +1257,7 @@ async function deliverTenantTourConfirmed(
     inquiryId: textField(inquiry as Record<string, unknown>, "id") || null,
     allowConversationEvidence: inquiryAllowsConversationSmsEvidence(inquiry),
     deliveryKey: `${textField(inquiry as Record<string, unknown>, "id") || "tour"}:${window.start}:${window.end}`,
-    text: `Your tour of ${ctx.propertyTitle} is confirmed${
+    text: opts?.smsText?.trim() || `Your tour of ${ctx.propertyTitle} is confirmed${
       ctx.tourStartIso ? ` for ${formatTourTimeRange(ctx.tourStartIso, ctx.tourEndIso)}` : ""
     }.${instructions ? ` ${instructions.trim()}` : ""} Reply here with any questions. Details: ${listingLink}.`,
   }) : { requested: false, sent: false, skipped: true };
@@ -1271,7 +1271,7 @@ export async function notifyTenantTourConfirmed(
   inquiry: TourInquiryPayload,
   window: { start: string; end: string; managerUserId: string; adminLabel?: string },
   instructions?: string,
-  opts?: { subject?: string; body?: string },
+  opts?: { subject?: string; body?: string; /** Replaces the generated confirmation text (a guest tour has no account, so no portal wording). */ smsText?: string },
   channels?: TourNotificationChannels,
 ): Promise<TourNotificationResult> {
   // The manager's own copy (PLAN-0915): with auto-confirm on, nobody in the

@@ -88,15 +88,14 @@ describe("public apply Checkout return bypasses only the account and listing gat
     ["return", ""],
     ["success", "   "],
     ["unrecognized", "cs_return"],
-  ])("keeps the normal account gate for checkout=%s and session=%s", async (checkout, sessionId) => {
+  ])("does not treat checkout=%s and session=%s as a verified return, and shows no account wall (captain, Nov 14)", async (checkout, sessionId) => {
     searchParams = new URLSearchParams({ propertyId: "unpublished-property", session_id: sessionId });
     if (checkout) searchParams.set("fee_checkout", checkout);
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     await act(async () => { render(<PublicApplyClient />); });
-    expect(screen.getByText("Account required")).toBeTruthy();
+    expect(screen.queryByText("Account required")).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(wizard).not.toHaveBeenCalled();
   });
 });
 

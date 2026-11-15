@@ -98,7 +98,7 @@ export function summarizeRentForMonth(charges: readonly HouseholdCharge[], month
   const people = new Map<string, { name: string; house: string; open: HouseholdCharge[]; paid: HouseholdCharge[] }>();
   for (const charge of charges) {
     if (!RENT_CHARGE_KINDS.has(charge.kind)) continue;
-    if (charge.status === "cancelled" || charge.status === "refunded") continue;
+    if (charge.status === "cancelled" || charge.status === "refunded" || charge.status === "void") continue;
     if (chargeMonth(charge) !== month) continue;
     const key = (charge.residentUserId || charge.residentEmail || charge.residentName || charge.id).toString().toLowerCase();
     const slot = people.get(key) ?? { name: charge.residentName || charge.residentEmail || "Resident", house: charge.propertyLabel || "", open: [], paid: [] };

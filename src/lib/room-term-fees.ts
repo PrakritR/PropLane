@@ -35,6 +35,7 @@ import {
   resolvePlacementStandardFees,
 } from "@/lib/listing-placement-standard-fees";
 import { parseMoneyAmount } from "@/lib/parse-money";
+import { DEFAULT_CUSTOM_LEASE_SURCHARGE } from "@/lib/rental-application/lease-dates";
 import { listingFoldsAllMonthlyFeesIntoRent, type RentRuleAddress } from "@/lib/seattle-rent-rule";
 import {
   AIRBNB_LEASE_TERM,
@@ -246,7 +247,14 @@ export function resolveRoomTermFees(input: {
       scope === "long" && !listingFoldsAllMonthlyFeesIntoRent(input.sub, input.listingProperty)
         ? money(row?.monthToMonthSurcharge)
         : 0,
-    customStartSurcharge: scope === "long" ? money(row?.customStartSurcharge) : 0,
+    customStartSurcharge:
+      scope === "long"
+        ? String(row?.customStartSurcharge ?? "").trim()
+          ? money(row?.customStartSurcharge)
+          : roomPricingFeeVisibility(input.sub, room, input.listingProperty).customStartSurcharge
+          ? DEFAULT_CUSTOM_LEASE_SURCHARGE
+          : 0
+        : 0,
   };
 }
 

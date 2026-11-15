@@ -113,7 +113,7 @@ function chargeAmount(c: HouseholdCharge): number {
 // cancelled charge was waived and a refunded one was returned. Both contribute zero to the
 // remaining collection, and neither may be dropped from the snapshot — a missing row falls
 // back to the FULL contractual amount and re-quotes an obligation the manager voided.
-const SETTLED_CHARGE_STATUSES = new Set<HouseholdCharge["status"]>(["paid", "cancelled", "refunded"]);
+const SETTLED_CHARGE_STATUSES = new Set<HouseholdCharge["status"]>(["paid", "cancelled", "refunded", "void"]);
 
 function chargeIsSettled(c: HouseholdCharge): boolean {
   return SETTLED_CHARGE_STATUSES.has(c.status);
@@ -121,7 +121,7 @@ function chargeIsSettled(c: HouseholdCharge): boolean {
 
 // Voided money: waived or returned, so it never becomes a disclosure, a credit, or a receipt.
 function chargeIsVoided(c: HouseholdCharge): boolean {
-  return c.status === "cancelled" || c.status === "refunded";
+  return c.status === "cancelled" || c.status === "refunded" || c.status === "void";
 }
 
 // Money that has not CLEARED is still owed. A clearing ACH ("processing"), a part payment
@@ -305,8 +305,8 @@ export function buildLeaseBillingSnapshot(
   const shortPricing = isShortTerm ? pricing : undefined;
   const dailyRent = !isShortTerm && pricing.basis === "daily" ? pricing.dailyRate : undefined;
   const stayNights = shortTermStayNightCount(applicant.application?.leaseStart, applicant.application?.leaseEnd);
-  const stayRent = shortPricing && stayNights != null && shortTermStayCanBePriced(shortPricing.dailyRate ?? 0, stayNights, shortPricing.weeklyRate)
-    ? shortTermStayTotalAmount(shortPricing.dailyRate ?? 0, stayNights, shortPricing.weeklyRate)
+  const stayRent = shortPricing && stayNights != null && shortTermStayCanBePriced(shortPricing.dailyRate ?? 0, stayNights, shortPricing.weeklyRate, shortPricing.monthlyRate)
+    ? shortTermStayTotalAmount(shortPricing.dailyRate ?? 0, stayNights, shortPricing.weeklyRate, shortPricing.monthlyRate)
     : undefined;
 
   const monthlyRent = placement.signedMonthlyRent;

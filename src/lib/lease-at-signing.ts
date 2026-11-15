@@ -32,7 +32,7 @@ export const AT_SIGNING_UNPAID_MESSAGE =
   "Pay your lease fee and move-in costs first. Signing unlocks as soon as the payment goes through.";
 export const AT_SIGNING_UNPAID_CODE = "AT_SIGNING_UNPAID";
 
-const SETTLED_STATUSES: ReadonlySet<HouseholdCharge["status"]> = new Set(["paid", "cancelled", "refunded"]);
+const SETTLED_STATUSES: ReadonlySet<HouseholdCharge["status"]> = new Set(["paid", "cancelled", "refunded", "void"]);
 
 /**
  * When the at-signing gate shipped. A line created from here on is gated; a line

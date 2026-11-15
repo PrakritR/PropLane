@@ -1,6 +1,9 @@
 import type Stripe from "stripe";
 import { getStripe } from "@/lib/stripe";
 import { ensureManualPayoutPolicy } from "@/lib/manual-payout-policy.server";
+import { manualPayoutPolicyEnabled } from "@/lib/manual-payout-policy-flag";
+import { ensureAutomaticPayoutSchedule } from "@/lib/payout-schedule-default.server";
+import { notifyOwnerOfFailedPayout } from "@/lib/payout-failed-notice.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { connectAccountReadyForAchPayouts, connectAccountTransfersActive } from "@/lib/stripe-connect";
 import { refreshPayoutDestinationsCacheFromStripe } from "@/lib/stripe-external-accounts.server";
@@ -69,7 +72,8 @@ export async function handleStripeAccountUpdated(db: SupabaseClient, account: St
   // Read BEFORE the write: "becomes payout-ready" is a transition, and only a transition is texted.
   const { data: before } = await db.from("profiles").select("stripe_connect_payouts_enabled").eq("id", targetId).maybeSingle();
   const wasPayoutReady = (before as { stripe_connect_payouts_enabled?: unknown } | null)?.stripe_connect_payouts_enabled === true;
-  if (account.settings?.payouts?.schedule?.interval &&
+  // Withdraw-only is a captain-controlled rollout: with the flag off an automatic schedule is the owner's choice.
+  if (manualPayoutPolicyEnabled() && account.settings?.payouts?.schedule?.interval &&
       account.settings.payouts.schedule.interval !== "manual") {
     await ensureManualPayoutPolicy(getStripe(), account.id);
   }
@@ -109,6 +113,15 @@ export async function handleStripeAccountUpdated(db: SupabaseClient, account: St
       vendorUserId: targetId,
       facts: { reason: String(snapshot.disabledReason).replace(/[._]/g, " ") },
     });
+  }
+
+  // First time payout-ready: payouts go automatic (weekly Monday) unless the owner already chose a schedule.
+  if (!wasPayoutReady && account.payouts_enabled && connectAccountTransfersActive(account)) {
+    try {
+      await ensureAutomaticPayoutSchedule(getStripe(), account, { vendorOwned: await isVendorOwnedAccount(db, targetId).catch(() => true) });
+    } catch {
+      console.error("[stripe webhook] automatic payout schedule failed");
+    }
   }
 
   // Someone who asked for payouts by text hears when they are set up (a failure here never fails the webhook).
@@ -360,6 +373,9 @@ export async function handleConnectPayoutEvent(
   const { data: prior } = await db.from("stripe_payouts").select("status").eq("stripe_payout_id", payout.id).maybeSingle();
   await upsertStripePayoutRecord(db, managerUserId, payout, connectAccountId, stripe);
   await notifyVendorOfPayoutEvent(db, managerUserId, payout, (prior as { status?: string } | null)?.status ?? null);
+  if (payout.status === "failed" && !(await isVendorOwnedAccount(db, managerUserId).catch(() => true))) {
+    await notifyOwnerOfFailedPayout(db, managerUserId, payout, (prior as { status?: string } | null)?.status ?? null);
+  }
 }
 
 /**

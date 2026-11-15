@@ -99,7 +99,7 @@ describe("applicant stay quote", () => {
     expect(quote.applicationFees[0]?.amount).toBe(20);
   });
 
-  it.each([["2027-10-28", 350], ["2027-10-29", null]])("weekly-only pricing is complete only for exact weeks through %s", (leaseEnd, expected) => {
+  it.each([["2027-10-28", 350], ["2027-10-29", 400], ["2027-10-24", null]])("weekly-only pricing prorates per night from a week, and is incomplete under one, through %s", (leaseEnd, expected) => {
     const sub = listing();
     sub.shortTermDailyCost = "";
     sub.customFees = sub.customFees.filter((fee) => fee.presetId !== "short_term_nightly");
@@ -126,10 +126,10 @@ describe("applicant stay quote", () => {
       expect(errors.leaseEnd).toContain("weekly rate");
       expect(html).not.toContain("<strong>Rent for Stay:</strong> $350.00");
     } else {
-      expect(charge?.amountLabel).toBe("$350.00");
-      expect(snapshot.stayRent).toBe(350);
+      expect(charge?.amountLabel).toBe(`$${expected.toFixed(2)}`);
+      expect(snapshot.stayRent).toBe(expected);
       expect(errors.leaseEnd).toBeUndefined();
-      expect(html).toContain("$350.00");
+      expect(html).toContain(`$${expected.toFixed(2)}`);
     }
   });
 
@@ -141,15 +141,15 @@ describe("applicant stay quote", () => {
     cachePublicExtraListings([property], { silent: true });
     const choice = { ...input, roomChoice1: "slot-house::room::r2", residentSlot: 2, leaseEnd: "2027-10-29" };
     const quote = applicantListingQuote(sub, choice)!;
-    expect(quote.stayTotal).toBe(415); // one week at $350 + one night at $65
+    expect(quote.stayTotal).toBe(400); // 8 nights on the weekly tier: $350 x 8/7
     const application = { ...choice, residentSlot: undefined, propertyId: property.id, rentalType: "short_term" as const, fullLegalName: "QA Resident" };
     const row = { id: "quote-app", name: "QA Resident", email: "quote@example.test", propertyId: property.id,
       managerUserId: "quote-manager", assignedRoomChoice: choice.roomChoice1, application } as DemoApplicantRow;
     recordApprovedApplicationCharges(row, "quote-manager", true, { leaseExecuted: true });
-    expect(readHouseholdCharges().find((charge) => charge.residentEmail === row.email && charge.kind === "stay_total")?.amountLabel).toBe("$415.00");
-    expect(buildLeaseBillingSnapshot(row, "quote-manager").stayRent).toBe(415);
+    expect(readHouseholdCharges().find((charge) => charge.residentEmail === row.email && charge.kind === "stay_total")?.amountLabel).toBe("$400.00");
+    expect(buildLeaseBillingSnapshot(row, "quote-manager").stayRent).toBe(400);
     const html = buildLeaseHtml({ application, submission: sub, landlordLegalName: "QA Manager", generatedAtIso: "2027-10-01T00:00:00Z" }, SEATTLE_LEASE_CONFIG);
-    expect(html).toContain("$415.00");
+    expect(html).toContain("$400.00");
     expect(html).not.toContain("$520.00");
   });
 });

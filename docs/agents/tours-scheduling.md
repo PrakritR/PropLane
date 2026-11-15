@@ -598,3 +598,12 @@ lives in `src/lib/calendar-availability-window.ts`; the hatched bands and the gr
 - **A channel calendar is a WRITE on the house**, not the read access this availability row grants —
   see [`integrations.md`](integrations.md) § A channel calendar is a WRITE on the house, which owns
   the Integrations page, the Connect popup and the channel calendars' access levels.
+
+## Guest tours (no account; captain, Nov 14)
+
+Overrides the Nov 3 "a tour needs a signed-in account" rule. `POST /api/public/partner-inquiries` files a `kind:"tour"` for a visitor with no session:
+name, phone, email and a slot (or a requested time when the house has no open slot). The route rate-limits per IP and per phone, re-derives the
+home (`loadGuestTourListing`), strips any body `status`, and calls `createTourInquiry` with `guestApplicant` (slot arbitration, `slotKey` Pacific
+and the double-book check are unchanged). The row carries a server-owned `guestTour` flag and the `sms` notice channel, so the received and
+confirmed notices go by email and text with no /resident link (`notifyGuestTourConfirmed`); there is no guest manage link. The prospect is recorded on
+the spine as an unverified phone identity. Identity verification, when a deployment requires it, still refuses a guest (fail closed).

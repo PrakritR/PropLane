@@ -10,7 +10,12 @@ import { evaluateRoomRange, addRangeDays, normalizeRangeDay, rangeDaysBetween } 
 import { roomDailyRentPrice, type RoomPricingLike } from "@/lib/room-pricing";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { shortStayRangeHasRoom } from "@/lib/short-stay-availability";
-import { shortTermNightlyRate } from "@/lib/short-term-stay-pricing";
+import {
+  shortTermNightlyRate,
+  shortTermStayTier,
+  shortTermStayTierLabel,
+  shortTermStayTotalAmount,
+} from "@/lib/short-term-stay-pricing";
 
 export const SHORT_STAY_MAX_NIGHTS = 28;
 export const SHORT_STAY_MAX_DAYS_AHEAD = 180;
@@ -57,8 +62,26 @@ export function shortStayNights(checkIn: string, checkOut: string): number | nul
   return rangeDaysBetween(a, b);
 }
 
-export function shortStayTotal(nightly: number, nights: number): number {
-  return Math.round(nightly * nights * 100) / 100;
+/** The room's own weekly rate for a stay, when it has one (blank means 6 x nightly, applied by the total). */
+export function shortStayRoomWeekly(room: ShortStayRoomLike | null | undefined): number | undefined {
+  const weekly = Number(room?.weeklyRentPrice);
+  return Number.isFinite(weekly) && weekly > 0 ? weekly : undefined;
+}
+
+/** The room's monthly rent, which prices a 28+ night stay (prorated over 30 nights). */
+export function shortStayRoomMonthly(room: ShortStayRoomLike | null | undefined): number | undefined {
+  const monthly = Number(room?.monthlyRent);
+  return Number.isFinite(monthly) && monthly > 0 ? monthly : undefined;
+}
+
+/** The stay total through the one tier decision (1-6 nightly, 7-27 weekly, 28+ monthly). */
+export function shortStayTotal(nightly: number, nights: number, weekly?: number, monthly?: number): number {
+  return shortTermStayTotalAmount(nightly, nights, weekly, monthly);
+}
+
+/** "Nightly" / "Weekly rate" / "Monthly rate" for a stay of `nights`. */
+export function shortStayTierLabel(nights: number, monthly?: number): string {
+  return shortTermStayTierLabel(shortTermStayTier(nights, monthly));
 }
 
 export function formatShortStayMoney(amount: number): string {

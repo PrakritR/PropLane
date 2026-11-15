@@ -80,17 +80,17 @@ function lease(row: DemoApplicantRow, extra: Partial<LeasePipelineRow> = {}): Le
 }
 
 describe("a short stay may not be approved or sent until every night of it can be priced", () => {
-  it("blocks the eight-night weekly-only stay on BOTH the approve and the send gate", () => {
+  it("blocks the five-night weekly-only stay on BOTH the approve and the send gate", () => {
     const weeklyOnly = listing();
-    const eightNights = stay("2027-10-01", "2027-10-09");
+    const eightNights = stay("2027-10-01", "2027-10-06");
 
-    scene("SCENE 1 — eight nights, and the room has only a $350 weekly rate");
-    line("Ava Lee · Oct 1 → Oct 9", "8 nights · room rates: weekly $350, nightly —");
+    scene("SCENE 1 — five nights, and the room has only a $350 weekly rate");
+    line("Ava Lee · Oct 1 → Oct 6", "5 nights · room rates: weekly $350, nightly —");
     const approve = shortStayPricingBlocker(eightNights, weeklyOnly);
     const send = leaseSendGateBlockerAmong(lease(eightNights), [eightNights], weeklyOnly);
     line("manager taps Approve", verdict(approve));
     line("manager taps Send lease", verdict(send));
-    transcript.push("  (a weekly-only rate cannot price the 8th night, so neither gate lets it through)");
+    transcript.push("  (a weekly-only rate cannot price a stay under a week, so neither gate lets it through)");
 
     expect(approve).toBe(send);
     expect(approve).toMatch(/nightly rate that covers the full stay/);
@@ -99,7 +99,7 @@ describe("a short stay may not be approved or sent until every night of it can b
   it("lets the same stay through at whole weeks, or once a nightly rate exists", () => {
     const weeklyOnly = listing();
     const sevenNights = stay("2027-10-01", "2027-10-08");
-    const eightNights = stay("2027-10-01", "2027-10-09");
+    const eightNights = stay("2027-10-01", "2027-10-06");
 
     scene("SCENE 2 — the two ways the manager clears it");
     const shortened = leaseSendGateBlockerAmong(lease(sevenNights), [sevenNights], weeklyOnly);

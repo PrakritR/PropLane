@@ -14,7 +14,7 @@ export const GUEST_STAYS_TIMEOUT_MS = 15_000;
 export type BookableListing = {
   propertyId: string;
   propertyLabel: string;
-  rooms: Array<{ id: string; label: string; nightly: number; sleeps: number }>;
+  rooms: Array<{ id: string; label: string; nightly: number; weekly?: number; monthly?: number; sleeps: number }>;
   confirmsInstantly: boolean;
   /** The listing's house rules text (may be empty) and what a short stay requires, for the request page's agreement. */
   houseRules?: string;

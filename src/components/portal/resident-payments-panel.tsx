@@ -1,5 +1,6 @@
 "use client";
 
+import { holdDeadlineLabel } from "@/lib/holding-hold";
 import { formatChargeDueLabel, formatChargeMoneyLabel, looksLikeDueDate } from "@/lib/charge-due-label";
 import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
@@ -1185,6 +1186,9 @@ export function ResidentPaymentsPanel({
         ) : null}
         {row.status === "paid" && row.paidAt ? (
           <p className="mt-2 text-xs text-muted">Marked paid {safeFormatDateTime(row.paidAt)}</p>
+        ) : null}
+        {holdDeadlineLabel(row) ? (
+          <p className="mt-1 text-xs font-medium text-foreground" data-attr="resident-hold-deadline">{holdDeadlineLabel(row)}</p>
         ) : null}
         {row.blocksLeaseUntilPaid && row.status === "pending" && !leaseFullySigned ? (
           <p className="mt-3 text-sm text-amber-900">

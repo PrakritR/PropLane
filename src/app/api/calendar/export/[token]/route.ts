@@ -207,7 +207,13 @@ async function recordExportFeedError(db: ReturnType<typeof createSupabaseService
   }
 }
 
-/** Public iCal export for Airbnb "Import calendar" — token is the only auth. */
+/** HEAD (some validators probe with it): the GET's status and headers, no body. */
+export async function HEAD(req: Request, context: { params: Promise<{ token: string }> }) {
+  const res = await GET(req, context);
+  return new NextResponse(null, { status: res.status, headers: res.headers });
+}
+
+/** Public iCal export for Airbnb / Agoda "Import calendar" — token is the only auth; /api/calendar is not a middleware-protected prefix. */
 export async function GET(
   req: Request,
   context: { params: Promise<{ token: string }> },
@@ -275,7 +281,8 @@ export async function GET(
       status: 200,
       headers: {
         "Content-Type": "text/calendar; charset=utf-8",
-        "Content-Disposition": `attachment; filename="proplane-${connection.room_id}.ics"`,
+        // inline: some channel validators (Agoda's among them) reject an attachment response.
+        "Content-Disposition": `inline; filename="proplane-${connection.room_id}.ics"`,
         "Cache-Control": "no-store",
       },
     });
