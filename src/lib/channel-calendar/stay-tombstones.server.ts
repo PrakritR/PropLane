@@ -10,8 +10,9 @@ import {
   channelStayTombstoneKey,
   channelStayTombstoneKeyOf,
   importedRangeUid,
-  tombstoneKeySetOf,
+  tombstonePruneOf,
   type ChannelStayTombstone,
+  type ChannelStayTombstonePrune,
   type StoredChannelStayTombstone,
 } from "@/lib/channel-calendar/stay-tombstones";
 import { isPhoneLast4, isReservationCode } from "@/lib/channel-calendar/reservation-details";
@@ -85,12 +86,16 @@ export async function loadChannelStayTombstoneRecords(
   return out;
 }
 
-/** Every tombstone for these houses, as keys (what a sync prunes against). */
+/**
+ * Every tombstone for these houses, as the keys a sync prunes against AND the dates each removal
+ * carried (a reservation the feed now lists with different dates is new information, see
+ * `pruneTombstonedRanges`). Both halves travel in one value so a caller cannot hold one without the other.
+ */
 export async function loadChannelStayTombstoneKeys(
   db: SupabaseClient,
   propertyIds: readonly string[],
-): Promise<Set<string>> {
-  return tombstoneKeySetOf(await loadChannelStayTombstoneRecords(db, propertyIds));
+): Promise<ChannelStayTombstonePrune> {
+  return tombstonePruneOf(await loadChannelStayTombstoneRecords(db, propertyIds));
 }
 
 /** Delete tombstone rows by record id. Throws on failure, so a sync never half-clears silently. */

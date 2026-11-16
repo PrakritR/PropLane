@@ -159,7 +159,9 @@ export async function listManagerChannelCalendarBookings(
       .order("created_at", { ascending: true }),
     // A stay the manager removed never draws, even if a sync that was already in
     // flight stored it again (C2-AB7).
-    slim ? Promise.resolve(new Set<string>()) : loadChannelStayTombstoneKeys(db, allowed),
+    slim
+      ? Promise.resolve({ keys: new Set<string>(), removedDates: new Map<string, { start: string; end: string }>() })
+      : loadChannelStayTombstoneKeys(db, allowed),
   ]);
   const { data, error } = connectionsRead;
   if (error) throw new Error(error.message);
@@ -200,7 +202,8 @@ export async function listManagerChannelCalendarBookings(
         pruneTombstonedRanges(
           connection.imported_ranges ?? [],
           { propertyId: connection.property_id, roomId: connection.room_id, provider: connection.provider },
-          tombstoneKeys,
+          tombstoneKeys.keys,
+          tombstoneKeys.removedDates,
         ).kept,
         guestNames.get(connection.id),
         stayRows.get(connection.id),

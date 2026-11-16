@@ -12,7 +12,7 @@ import { findDuplicateExpenses } from "@/lib/finance/expense-duplicates.server";
 import { describeDuplicate, validOverrideReason, type DuplicateMatch } from "@/lib/finance/duplicate-payment";
 import { isIsoDate, isPaymentMethod, isPaymentStatus, type PaymentStatus } from "@/lib/finance/payment-fields";
 import { isCategoryDeductible, SYSTEM_CHART_ACCOUNTS } from "@/lib/reports/categories";
-import { postGlManualIncomeEntry, rebuildExpenseRowGl, deleteExpenseRowGl, postExpenseRowGl, type ExpenseGlRow } from "@/lib/reports/gl-posting";
+import { postGlManualIncomeEntry, rebuildExpenseRowGl, deleteExpenseRowGl, deleteGlJournalForSource, postExpenseRowGl, type ExpenseGlRow } from "@/lib/reports/gl-posting";
 import type { WorkspaceRowScope } from "@/lib/workspaces/row-scope.server";
 
 /** Income category codes accepted by manual income entries. */
@@ -107,6 +107,10 @@ export async function recordManualIncome(
     });
     if (!journalId) throw new Error("GL journal was not posted.");
   } catch (glError) {
+    // `insertJournalEntry` commits the journal before the ledger link that can throw, so the
+    // rollback drops both sides: a journal without its source row would inflate the books and no
+    // repair sweep looks for one.
+    await deleteGlJournalForSource(db, { managerUserId, sourceType: "manual", sourceId: entryId }).catch(() => undefined);
     await db.from("ledger_entries").delete().eq("id", entryId).eq("manager_user_id", managerUserId);
     console.error("manual income GL post failed", glError instanceof Error ? glError.message : "unknown");
     return { ok: false, status: 500, error: "The entry could not be posted to the books. Nothing was saved; try again." };
@@ -374,6 +378,10 @@ export async function recordManualExpense(
   try {
     await postExpenseRowGl(db, glRow(managerUserId, data as Record<string, unknown>));
   } catch (glError) {
+    // A due-dated row posts two journals (`bill-approve` then `bill-pay`), so the first is already
+    // committed when the second throws: the rollback drops every journal the row owns before the
+    // row itself. A journal without its source row would inflate the books and no sweep finds it.
+    await deleteExpenseRowGl(db, managerUserId, entryId).catch(() => undefined);
     await db.from("manager_expense_entries").delete().eq("id", entryId).eq("manager_user_id", managerUserId);
     console.error("manual expense GL post failed", glError instanceof Error ? glError.message : "unknown");
     return { ok: false, status: 500, error: "The entry could not be posted to the books. Nothing was saved; try again." };

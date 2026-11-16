@@ -749,7 +749,15 @@ export function ManagerPaymentsLedgerPanel({
         showToast("Enter a valid number of nights.");
         return;
       }
-      amt = shortTermStayTotalAmount(parsed.nightlyRate, nights, parsed.weeklyRate, parsed.monthlyRate);
+      const repriced = shortTermStayTotalAmount(parsed.nightlyRate, nights, parsed.weeklyRate, parsed.monthlyRate);
+      if (!(repriced > 0)) {
+        const tierWord = parsed.monthlyRate ? "monthly" : "weekly";
+        showToast(
+          `This stay is priced at a ${tierWord} rate, which cannot price ${nights} ${nights === 1 ? "night" : "nights"}. Set a nightly rate on the room, or change the dates instead.`,
+        );
+        return;
+      }
+      amt = repriced;
       title = shortTermStayChargeTitle(nights, parsed.nightlyRate, parsed.weeklyRate, parsed.monthlyRate);
     }
     const dueLabel = editDueDateDraft.trim() ? dueDateInputToLabel(editDueDateDraft) : undefined;
@@ -792,6 +800,14 @@ export function ManagerPaymentsLedgerPanel({
     // The write is bounded (see household-charges HOUSEHOLD_WRITE_TIMEOUT_MS), so a
     // stalled request on the phone resolves "failed" instead of spinning forever.
     const outcome = await handle.confirmed;
+    if (outcome === "conflict") {
+      // A uniqueness guard refused this row (a second live rent charge for one billing month):
+      // the local copy is already rolled back and retrying the same figure cannot help.
+      showToast("Another charge already covers that billing period — nothing was changed. Edit that charge instead.");
+      onRowsChanged?.();
+      onScheduleChanged?.();
+      return;
+    }
     if (outcome === "failed") {
       // The amount has been rolled back to what the server still holds; keep the
       // editor open with the typed figure so the manager can retry without

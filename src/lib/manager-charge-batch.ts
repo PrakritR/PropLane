@@ -114,7 +114,12 @@ export async function createChargesForResidentsConfirmed(
       return;
     }
     created.push(handle.charge);
-    pending.push(handle.confirmed.then((outcome) => (outcome === "failed" ? resident : null)).catch(() => resident));
+    // `conflict` is the server refusing the row, so it was not billed either.
+    pending.push(
+      handle.confirmed
+        .then((outcome) => (outcome === "failed" || outcome === "conflict" ? resident : null))
+        .catch(() => resident),
+    );
   });
   const unsaved = (await Promise.all(pending)).filter((r): r is BatchChargeResident => r !== null);
   return { created, failed, unsaved };

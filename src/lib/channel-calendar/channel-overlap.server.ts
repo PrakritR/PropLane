@@ -50,7 +50,8 @@ export async function loadChannelOverlapRanges(db: SupabaseClient, propertyId: s
     const kept = pruneTombstonedRanges(
       connection.imported_ranges ?? [],
       { propertyId, roomId: connection.room_id, provider: connection.provider },
-      tombstones,
+      tombstones.keys,
+      tombstones.removedDates,
     ).kept;
     const wholeHome = connection.room_id === propertyId;
     const roomLabel = wholeHome ? "The whole home" : roomLabelOf(record?.property ?? null, connection.room_id, connection.label);

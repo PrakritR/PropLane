@@ -108,7 +108,7 @@ describe("(a) a forced sync brings back a removed reservation the channel still 
     const synced = await syncChannelCalendarConnection(db, "conn-1", { force: true });
     expect(synced.imported_ranges.map((r) => r.sourceUid).sort()).toEqual(["uid-marcus", "uid-priya"]);
     expect(tables.portal_schedule_records).toHaveLength(0);
-    expect(await loadChannelStayTombstoneKeys(db, ["prop-1"])).toEqual(new Set());
+    expect((await loadChannelStayTombstoneKeys(db, ["prop-1"])).keys).toEqual(new Set());
 
     // Idempotent: a second forced sync overwrites the connection's ranges, so no UID is ever doubled, and the
     // listing's block id is the stable one for (connection, uid).
@@ -138,7 +138,7 @@ describe("(b) the channel dropped the event: it stays removed", () => {
     expect(tables.portal_schedule_records).toHaveLength(2);
     feedIs(feedOf(PRIYA_EV));
     await syncChannelCalendarConnection(db, "conn-1");
-    expect(await loadChannelStayTombstoneKeys(db, ["prop-1"])).toEqual(new Set(["prop-1|room-1|airbnb|uid-future"]));
+    expect((await loadChannelStayTombstoneKeys(db, ["prop-1"])).keys).toEqual(new Set(["prop-1|room-1|airbnb|uid-future"]));
   });
 });
 

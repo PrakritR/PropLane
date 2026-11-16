@@ -98,7 +98,7 @@ export function pruneTombstonedRanges(
   ranges: readonly ChannelCalendarImportedRange[],
   connection: { propertyId: string; roomId: string; provider: string },
   tombstoneKeys: ReadonlySet<string>,
-  removedDates: ReadonlyMap<string, { start: string; end: string }> | undefined = REMOVED_DATES.get(tombstoneKeys),
+  removedDates?: ReadonlyMap<string, { start: string; end: string }>,
 ): { kept: ChannelCalendarImportedRange[]; dropped: ChannelCalendarImportedRange[] } {
   const kept: ChannelCalendarImportedRange[] = [];
   const dropped: ChannelCalendarImportedRange[] = [];
@@ -124,13 +124,20 @@ export function pruneTombstonedRanges(
   return { kept, dropped };
 }
 
-const REMOVED_DATES = new WeakMap<ReadonlySet<string>, ReadonlyMap<string, { start: string; end: string }>>();
+/**
+ * Everything {@link pruneTombstonedRanges} needs, carried in ONE value.
+ *
+ * The dates must travel with the keys: a caller holding only the key set prunes by UID alone, so a
+ * reservation the feed now lists with different dates would be dropped instead of stored again.
+ */
+export type ChannelStayTombstonePrune = {
+  keys: Set<string>;
+  removedDates: Map<string, { start: string; end: string }>;
+};
 
-/** A plain key set that also remembers (out of band) the dates each tombstone removed. */
-export function tombstoneKeySetOf(tombstones: readonly ChannelStayTombstone[]): Set<string> {
-  const keys = new Set(tombstones.map(channelStayTombstoneKeyOf));
-  REMOVED_DATES.set(keys, removedDatesByKey(tombstones));
-  return keys;
+/** The key set and the dates each tombstone removed, for {@link pruneTombstonedRanges}. */
+export function tombstonePruneOf(tombstones: readonly ChannelStayTombstone[]): ChannelStayTombstonePrune {
+  return { keys: new Set(tombstones.map(channelStayTombstoneKeyOf)), removedDates: removedDatesByKey(tombstones) };
 }
 
 /** Tombstone key -> the dates that were removed, for {@link pruneTombstonedRanges}. */

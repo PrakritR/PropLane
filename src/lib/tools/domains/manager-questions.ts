@@ -33,6 +33,7 @@ import { coManagerModuleAllowed } from "@/lib/co-manager-permissions";
 import { isHouseholdChargeOverdue } from "@/lib/household-charges";
 import { dollarsToCents } from "@/lib/reports/money";
 import { queryIncomeStatement } from "@/lib/reports/queries";
+import { intersectPropertyScopes } from "@/lib/reports/workspace-scope";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import { isBookingResidencyRow } from "@/lib/manager-applications-storage";
 
@@ -301,12 +302,15 @@ export const getResidentSnapshotTool = defineTool({
   },
 });
 
+/** Houses the P&L lists in detail. Beyond this the totals still cover every house (see the handler). */
+const PL_HOUSE_DETAIL_LIMIT = 12;
+
 // ---- get_house_profit_loss --------------------------------------------------------------------
 
 export const getHouseProfitLossTool = defineTool({
   name: "get_house_profit_loss",
   description:
-    "Income, expenses and net per house for a date range (default: this calendar month so far), highest net first, plus the portfolio total. Use for 'income vs expenses per house this month', 'which house makes the most', 'is 5259 profitable'. `from` and `to` are YYYY-MM-DD. Figures come from the ledger and bills through the same income statement the Reports page shows; never add or estimate one yourself. Security deposits are excluded from income.",
+    "Income, expenses and net per house for a date range (default: this calendar month so far), highest net first, plus the portfolio total. Use for 'income vs expenses per house this month', 'which house makes the most', 'is 5259 profitable'. `from` and `to` are YYYY-MM-DD. Figures come from the ledger and bills through the same income statement the Reports page shows; never add or estimate one yourself. `total` always covers EVERY house you may read; `houses` details at most 12 of them (highest net first) and `housesOmitted` says how many are not listed, so never present the listed rows as the whole portfolio. Security deposits are excluded from income.",
   kind: "read",
   inputSchema: z
     .object({
@@ -323,7 +327,9 @@ export const getHouseProfitLossTool = defineTool({
     const houses: Array<{ house: string; income: string; expenses: string; net: string; netCents: number }> = [];
     let incomeTotal = 0;
     let expenseTotal = 0;
-    for (const [propertyId, title] of [...titles.entries()].slice(0, 12)) {
+    const readable = [...titles.entries()];
+    const listed = readable.slice(0, PL_HOUSE_DETAIL_LIMIT);
+    for (const [propertyId, title] of listed) {
       const report = await queryIncomeStatement(ctx.db, ctx.landlordId, { propertyId, from, to, workspacePropertyIds });
       const income = dollarsToCents(String(report.meta?.totalIncome ?? "0"));
       const expense = dollarsToCents(String(report.meta?.totalExpense ?? "0"));
@@ -331,11 +337,22 @@ export const getHouseProfitLossTool = defineTool({
       expenseTotal += expense;
       houses.push({ house: title, income: usd(income), expenses: usd(expense), net: usd(income - expense), netCents: income - expense });
     }
+    // `total` is the PORTFOLIO total, never the sum of a truncated house list: past the detail limit
+    // it comes from one statement scoped to every house this turn may read, so the per-house loop
+    // stays bounded while the figure the model quotes stays complete.
+    const housesOmitted = readable.length - listed.length;
+    if (housesOmitted > 0) {
+      const scope = intersectPropertyScopes(workspacePropertyIds, readable.map(([propertyId]) => propertyId));
+      const all = await queryIncomeStatement(ctx.db, ctx.landlordId, { from, to, workspacePropertyIds: scope });
+      incomeTotal = dollarsToCents(String(all.meta?.totalIncome ?? "0"));
+      expenseTotal = dollarsToCents(String(all.meta?.totalExpense ?? "0"));
+    }
     houses.sort((a, b) => b.netCents - a.netCents);
     return {
       from,
       to,
       houses: houses.map((h) => ({ house: h.house, income: h.income, expenses: h.expenses, net: h.net })),
+      housesOmitted,
       total: { income: usd(incomeTotal), expenses: usd(expenseTotal), net: usd(incomeTotal - expenseTotal) },
     };
   },

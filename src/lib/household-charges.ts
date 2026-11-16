@@ -700,6 +700,7 @@ function scheduleHouseholdMirrorPost(): void {
     charges: readAll(),
     rentProfiles: readRentProfiles(),
   })
+    .then(({ ok }) => ok)
     .catch(() => false)
     .finally(() => {
       householdMirrorInFlight = null;
@@ -772,9 +773,17 @@ function householdWriteSignal(): AbortSignal | undefined {
   return requestTimeoutSignal(householdWriteTimeoutMs);
 }
 
-async function postHouseholdPayloadAwait(body: unknown): Promise<boolean> {
-  if (!isBrowser() || isDemoModeActive()) return false;
-  if (householdWritesForbidden()) return false;
+/**
+ * A charge write the server ACCEPTED (2xx) can still have refused individual rows: a database
+ * uniqueness guard (a second live rent charge for one billing month) answers 200 with the refused
+ * ids in `conflictChargeIds`. Those rows were NOT written, so a 2xx alone is not proof a row landed
+ * and every caller that reports an outcome reads the refused ids too.
+ */
+type HouseholdPostResult = { ok: boolean; conflictChargeIds: string[] };
+
+async function postHouseholdPayloadAwait(body: unknown): Promise<HouseholdPostResult> {
+  if (!isBrowser() || isDemoModeActive()) return { ok: false, conflictChargeIds: [] };
+  if (householdWritesForbidden()) return { ok: false, conflictChargeIds: [] };
   const signal = householdWriteSignal();
   const res = await fetch(adminOversightUrl("/api/portal-household-charges"), {
     method: "POST",
@@ -782,7 +791,18 @@ async function postHouseholdPayloadAwait(body: unknown): Promise<boolean> {
     body: JSON.stringify(body),
     ...(signal ? { signal } : {}),
   });
-  return res.ok;
+  if (!res.ok) return { ok: false, conflictChargeIds: [] };
+  // An unreadable body is an accepted write with nothing refused, never a failure.
+  let parsed: { conflictChargeIds?: unknown } | null = null;
+  try {
+    parsed = (await res.json()) as { conflictChargeIds?: unknown } | null;
+  } catch {
+    parsed = null;
+  }
+  const conflictChargeIds = Array.isArray(parsed?.conflictChargeIds)
+    ? parsed.conflictChargeIds.filter((id): id is string => typeof id === "string")
+    : [];
+  return { ok: true, conflictChargeIds };
 }
 
 function deleteChargeRowFromServer(id: string) {
@@ -795,11 +815,12 @@ function mirrorChargeRows(rows: HouseholdCharge[]) {
 
 /** Await server persistence after regenerating charges so a forced sync cannot resurrect stale rows. */
 export async function mirrorHouseholdChargesToServerAwait(): Promise<boolean> {
-  return postHouseholdPayloadAwait({
+  const { ok, conflictChargeIds } = await postHouseholdPayloadAwait({
     action: "replace",
     charges: readAll(),
     rentProfiles: readRentProfiles(),
   });
+  return ok && conflictChargeIds.length === 0;
 }
 
 /** Confirm only the billing rows associated with the authoritative application. */
@@ -3077,7 +3098,7 @@ export function recordWorkOrderResidentCharge(input: {
     action: "replace",
     charges: [charge],
     rentProfiles: readRentProfiles(),
-  }).then((ok) => {
+  }).then(({ ok }) => {
     if (ok) emit();
   });
   return charge;
@@ -3800,7 +3821,7 @@ export function markHouseholdChargePaid(
     action: "replace",
     charges: [updated],
     rentProfiles: readRentProfiles(),
-  }).then((ok) => {
+  }).then(({ ok }) => {
     if (ok) emit();
     void import("@/lib/service-requests-storage").then(({ syncServiceRequestPaidFromCharge }) => {
       syncServiceRequestPaidFromCharge(chargeId);
@@ -3856,7 +3877,7 @@ export function markPastDueHouseholdChargesPaid(
     action: "replace",
     charges: updated,
     rentProfiles: readRentProfiles(),
-  }).then((ok) => {
+  }).then(({ ok }) => {
     if (ok) emit();
   });
   return { markedIds: [...targets] };
@@ -3873,7 +3894,9 @@ export async function markHouseholdChargePending(
   if (rows[i]!.status === "pending") return true;
   // A settled source has no accounting-safe correction path yet. Wait for
   // server authorization before changing the browser copy.
-  const confirmed = await postHouseholdPayloadAwait({ action: "unmarkPaid", id: chargeId }).catch(() => false);
+  const confirmed = await postHouseholdPayloadAwait({ action: "unmarkPaid", id: chargeId })
+    .then(({ ok }) => ok)
+    .catch(() => false);
   if (!confirmed) return false;
   const next = [...rows];
   // Clear dueDateLabel so parseDueDateLabelToDate returns null → isHouseholdChargeOverdue is false
@@ -5595,9 +5618,11 @@ export function recordLegacyApplicationSigningCharges(
  * `local-only` is NOT a failure: a demo session, a resident session, and a
  * non-browser caller all deliberately skip the server write, and reporting those
  * as errors would cry wolf on every demo. Only `failed` means the server was
- * asked and said no.
+ * asked and said no. `conflict` is a narrower no: the write was authorized and
+ * a database uniqueness guard refused this row (a second live rent charge for
+ * one billing month), so retrying the same figure cannot help.
  */
-export type HouseholdChargeWriteOutcome = "saved" | "local-only" | "failed";
+export type HouseholdChargeWriteOutcome = "saved" | "local-only" | "failed" | "conflict";
 
 export interface HouseholdChargeWriteHandle {
   /** Resolves once the server has actually answered. */
@@ -5622,17 +5647,20 @@ async function confirmHouseholdChargeWrite(
   previous: HouseholdCharge,
 ): Promise<HouseholdChargeWriteOutcome> {
   if (!householdServerWriteAttempted()) return "local-only";
-  let ok = false;
+  let result: HouseholdPostResult = { ok: false, conflictChargeIds: [] };
   try {
-    ok = await postHouseholdPayloadAwait({
+    result = await postHouseholdPayloadAwait({
       action: "replace",
       charges: [updated],
       rentProfiles: readRentProfiles(),
     });
   } catch {
-    ok = false;
+    result = { ok: false, conflictChargeIds: [] };
   }
-  if (ok) return "saved";
+  // A refused row is reverted like a failed write (the server still holds the old copy) and
+  // reported as `conflict`, which names the reason rather than the connection.
+  const refused = result.ok && result.conflictChargeIds.includes(updated.id);
+  if (result.ok && !refused) return "saved";
   const rows = readAll();
   const i = rows.findIndex((r) => r.id === previous.id);
   if (i !== -1) {
@@ -5640,7 +5668,7 @@ async function confirmHouseholdChargeWrite(
     reverted[i] = previous;
     writeAll(reverted);
   }
-  return "failed";
+  return refused ? "conflict" : "failed";
 }
 
 /**
@@ -5898,7 +5926,9 @@ export function createManagerChargeWithConfirmation(
     charges: [charge],
     rentProfiles: readRentProfiles(),
   })
-    .then((ok): HouseholdChargeWriteOutcome => (ok ? "saved" : "failed"))
+    .then(({ ok, conflictChargeIds }): HouseholdChargeWriteOutcome =>
+      !ok ? "failed" : conflictChargeIds.includes(charge.id) ? "conflict" : "saved",
+    )
     .catch((): HouseholdChargeWriteOutcome => "failed");
   return { charge, confirmed };
 }

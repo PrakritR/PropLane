@@ -421,7 +421,11 @@ export async function createTourInquiry(
   row.noticeChannel = args.smsOrigin?.senderPhoneE164 || args.noticeChannel === "sms" ? "sms" : "portal";
   const propertyId = typeof row["propertyId"] === "string" ? row["propertyId"] : null;
   const isTour = textValue(row.kind) === "tour";
-  if (isTour) {
+  // A tour needs NO account (captain, Nov 14), so the baseline resident identity gate — which refuses
+  // every null principal while the flag is on — does not reach a guest tour. A guest is bounded by the
+  // per-IP and per-phone limits and the re-derived listing in `/api/public/partner-inquiries` instead.
+  // A SIGNED-IN requester is still gated.
+  if (isTour && args.guestApplicant !== true) {
     const identity = await resolveBaselineResidentIdentity(db, args.verifiedApplicantUserId ?? null);
     if (identity === "required") return { ok: false, reason: "identity_required", error: "Sign in and verify your identity to request a tour." };
     if (identity === "unavailable") return { ok: false, reason: "identity_unavailable", error: "Identity verification is unavailable." };

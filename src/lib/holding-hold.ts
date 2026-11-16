@@ -69,7 +69,7 @@ export function holdDeadlineLabel(charge: HoldCharge, now: Date = new Date()): s
  */
 export function holdCreditCents(charge: HoldCharge & { amountLabel?: string }, depositCents: number, now: Date = new Date()): number {
   if (charge.kind !== "holding_deposit") return 0;
-  if (charge.status === "pending") return Math.min(Math.round(parseMoneyAmount(charge.amountLabel ?? "") * 100), Math.max(0, depositCents));
+  // Only a hold that was actually paid credits the deposit; the window runs from the paid time.
   if (charge.status !== "paid" || holdState(charge, now) === "expired") return 0;
   return Math.min(Math.round(parseMoneyAmount(charge.amountLabel ?? "") * 100), Math.max(0, depositCents));
 }

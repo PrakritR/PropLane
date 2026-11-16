@@ -459,8 +459,12 @@ export async function POST(req: Request) {
       if (user.role !== "manager") return NextResponse.json({ error: "Only the workspace owner can void a paid charge." }, { status: 403 });
       const id = body.id?.trim();
       if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-      const { data: scoped } = await db.from("portal_household_charge_records").select("property_id").eq("id", id).maybeSingle();
-      if (scoped && !rowInWorkspaceScope(scoped.property_id ? String(scoped.property_id) : null, workspaceScope)) {
+      // Fail closed: an unreadable row is not an in-scope row.
+      const { data: scoped, error: scopedError } = await db.from("portal_household_charge_records").select("property_id").eq("id", id).maybeSingle();
+      if (scopedError) {
+        return NextResponse.json({ error: "Could not read this charge. Please try again." }, { status: 503 });
+      }
+      if (!scoped || !rowInWorkspaceScope(scoped.property_id ? String(scoped.property_id) : null, workspaceScope)) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }
       const result = await voidPaidCharge(db, { chargeId: id, actorUserId: user.id, reason: body.reason });

@@ -4,7 +4,7 @@ import { icalEventsToImportedRanges } from "@/lib/channel-calendar/sync.server";
 import {
   channelStayTombstoneKeyOf,
   pruneTombstonedRanges,
-  tombstoneKeySetOf,
+  tombstonePruneOf,
   type ChannelStayTombstone,
 } from "@/lib/channel-calendar/stay-tombstones";
 import { parseIcsCalendar } from "@/lib/ical/parse";
@@ -48,16 +48,17 @@ describe("a one-night Booking.com reservation in the feed", () => {
 
   it("root cause: a removal tombstone on the same UID and dates keeps it out of every sync", () => {
     const ranges = icalEventsToImportedRanges(parseIcsCalendar(FEED("20261114", "20261115")));
-    const keys = tombstoneKeySetOf([tombstone]);
+    const { keys, removedDates } = tombstonePruneOf([tombstone]);
     expect(keys.has(channelStayTombstoneKeyOf(tombstone))).toBe(true);
-    const out = pruneTombstonedRanges(ranges, ROOM, keys);
+    const out = pruneTombstonedRanges(ranges, ROOM, keys, removedDates);
     expect(out.kept).toEqual([]);
     expect(out.dropped).toHaveLength(1);
   });
 
   it("fix: the same UID listed with DIFFERENT dates (a changed or rebooked stay) is stored again", () => {
     const changed = icalEventsToImportedRanges(parseIcsCalendar(FEED("20261114", "20261116")));
-    const out = pruneTombstonedRanges(changed, ROOM, tombstoneKeySetOf([tombstone]));
+    const prune = tombstonePruneOf([tombstone]);
+    const out = pruneTombstonedRanges(changed, ROOM, prune.keys, prune.removedDates);
     expect(out.kept).toHaveLength(1);
     expect(out.dropped).toEqual([]);
   });

@@ -123,7 +123,7 @@ describe("Remove stay -> next sync -> Undo", () => {
     expect(tombstone.manager_user_id).toBe(MANAGER);
     // Server-stamped: which connection it came off and who removed it (the Removed stays list reads both).
     expect(tombstone.row_data).toMatchObject({ connectionId: "conn-1", removedBy: MANAGER });
-    expect(await loadChannelStayTombstoneKeys(db, ["prop-1"])).toEqual(new Set(["prop-1|room-1|airbnb|uid-marcus"]));
+    expect((await loadChannelStayTombstoneKeys(db, ["prop-1"])).keys).toEqual(new Set(["prop-1|room-1|airbnb|uid-marcus"]));
 
     // The feed still lists Marcus; the sync must not bring him back.
     const synced = await syncChannelCalendarConnection(db, "conn-1");

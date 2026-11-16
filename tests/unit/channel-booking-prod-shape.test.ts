@@ -9,7 +9,7 @@ vi.mock("@/lib/channel-calendar/airbnb-residents.server", () => ({
   upsertAirbnbResidentsFromImportedRanges: async () => undefined,
   releaseAirbnbResidentsAbsentFromFeed: async () => undefined,
 }));
-vi.mock("@/lib/channel-calendar/stay-tombstones.server", () => ({ loadChannelStayTombstoneKeys: async () => new Set<string>(), loadChannelStayTombstoneRecords: async () => [], deleteChannelStayTombstoneRecords: async () => undefined }));
+vi.mock("@/lib/channel-calendar/stay-tombstones.server", () => ({ loadChannelStayTombstoneKeys: async () => ({ keys: new Set<string>(), removedDates: new Map<string, { start: string; end: string }>() }), loadChannelStayTombstoneRecords: async () => [], deleteChannelStayTombstoneRecords: async () => undefined }));
 
 import { syncChannelCalendarConnection } from "@/lib/channel-calendar/sync.server";
 

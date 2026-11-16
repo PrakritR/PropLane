@@ -43,20 +43,23 @@ describe("requireCronSecret", () => {
   });
 });
 
-describe("the growth and reminder crons share one gate", () => {
+describe("the migrated crons share one gate", () => {
   for (const route of [
     "cron/growth-engage",
     "cron/growth-insights",
     "cron/growth-publish",
     "cron/growth-draft",
     "cron/dispatch-reminders",
+    "cron/expire-holding-deposits",
+    "cron/recurring-payables",
+    "cron/vendor-check-ins",
   ]) {
     it(route, () => {
       const src = readFileSync(`${process.cwd()}/src/app/api/${route}/route.ts`, "utf8");
       expect(src).toContain('import { requireCronSecret } from "@/lib/cron-auth.server";');
       expect(src).toContain("if (!requireCronSecret(req))");
-      // No local copy of the rule in these five to drift out of step with the shared one.
-      // Other cron routes are not migrated yet; see the TODO on requireCronSecret.
+      // No local copy of the rule in these to drift out of step with the shared one.
+      // Other cron routes are not migrated yet; see the note on requireCronSecret.
       expect(src).not.toContain("function isAuthorized");
       expect(src).not.toContain("CRON_SECRET");
     });

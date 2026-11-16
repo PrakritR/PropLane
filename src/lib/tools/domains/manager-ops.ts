@@ -478,7 +478,11 @@ export const listRecentLeadsTool = defineTool({
       : { data: [] };
     const leadByKey = new Map(((leadRows ?? []) as Array<Record<string, unknown>>).map((r) => [str(r.phone_key), r] as const));
     const houseIds = [...new Set([...leadByKey.values()].map((r) => str(r.assigned_property_id)).filter(Boolean))];
-    const { data: houseRows } = houseIds.length ? await ctx.db.from("manager_property_records").select("id, row_data").in("id", houseIds) : { data: [] };
+    // The lead ids come from the SHARED PropLane-line pool, so the label read is scoped to the owner
+    // as well as the id: a row that is not this manager's never names one of their houses.
+    const { data: houseRows } = houseIds.length
+      ? await ctx.db.from("manager_property_records").select("id, row_data").eq("manager_user_id", ctx.landlordId).in("id", houseIds)
+      : { data: [] };
     const houseName = new Map(((houseRows ?? []) as Array<Record<string, unknown>>).map((r) => [str(r.id), propertyLabel(r.row_data)] as const));
     const needle = (input.q ?? "").trim().toLowerCase();
     const leads = rows
