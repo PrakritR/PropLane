@@ -189,10 +189,33 @@ staging / production are human steps.
 
 ## Files
 
-`src/lib/owner-management/` (policies, fee math, statements, owner texting, expenses), `src/lib/managed-finance/` (party ledger,
-capture crediting, refunds, disputes, vendor bills, balances, withdrawals, reconciliation). Routes: `/api/portal/owner-management/*`
-(admin / workspace), `/api/owner/*` (owner), `/api/vendor/managed-finance/*`, `/api/cron/owner-management`. Migration
-`supabase/migrations/20261018270000_owner_management.sql`. Tests `tests/unit/owner-management-*.test.ts`, `tests/unit/managed-finance-*.test.ts`.
+This is the one inventory of the managed-finance surfaces; do not keep a second list elsewhere.
+
+`src/lib/owner-management/` (policies, fee math and percent, statements, owner texting, alerts, service-fee split),
+`src/lib/managed-finance/` (party ledger, capture crediting, refunds, disputes, vendor bills and bill pay, splits, earnings,
+balances, withdrawals, payout setup, admin payouts, funding model, payee, statements and tax packages, reconciliation).
+Routes: `/api/portal/managed-finance/*` (`bill-outlook`, `vendor-charge`) and `/api/portal/managed-payout-status` (manager /
+staff), `/api/owner/*` with `/api/owner/finances/*` (owner), `/api/earnings*` (the signed-in person's own party),
+`/api/vendor/managed-finance/*`, `/api/admin/managed-finance`, `/api/admin/managed-workspaces[/..]` (incl.
+`[workspaceId]/policies`), `/api/admin/managed-policies/[id]`, `/api/admin/payouts`,
+`/api/cron/owner-management` (hourly: reconciliation every run; vendor weekly batch Mondays Pacific; owner statements on the 1st).
+UI: Finances › Owner payouts (`finances/owner-payouts-panel.tsx`), Finances › Earnings (`finances/earnings-panel.tsx`), the vendor
+Finances "PropLane balance" (`vendor-managed-balance.tsx`), admin "Managed funds" (`admin-managed-finance-panel.tsx`) and admin
+Money › Payouts (`admin-payouts-panel.tsx`).
+
+Integration points, each a small additive branch in an otherwise hardened file: `household-captured-source.server.ts`
+(`creditManagedIfApplicable`: a managed capture is allocated in the party ledger instead of credited to a hold — card Checkout,
+manual bank and autopay), `household-charge-refund-rail.server.ts` (the `managed` rail refunds from the platform balance, no
+`reverse_transfer`), `stripe-webhook-financials.ts` (refund and dispute hooks), `stripe-household-charge-checkout.server.ts`
+(a cart mixing a managed workspace with another payee is refused), `work-order-approve-pay.server.ts` and
+`pay-from-balance/route.ts` (a managed workspace pays vendors from PropLane funds, through `payBillFromBalance` — thresholds and
+the duplicate guard are § Payouts and splits § Bill pay), `vendor-invoice-pay.server.ts` (no Stripe Checkout for a managed
+invoice), `queryOwnerStatement` (the real fee on a managed house).
+
+Migrations `supabase/migrations/20261018270000_owner_management.sql` and `20261115130000_payout_splits.sql`. Dev proof:
+`scripts/prove-managed-finance.ts` (Stripe TEST mode, dev database only). Tests `tests/unit/owner-management-*.test.ts`,
+`tests/unit/managed-finance-*.test.ts`, `tests/unit/owner-payouts-panel.test.tsx`, `tests/unit/admin-managed-finance-panel.test.tsx`,
+`tests/unit/vendor-managed-balance.test.tsx`.
 
 ## Withdrawal idempotency and hand-posted vendor charges
 

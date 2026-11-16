@@ -920,21 +920,15 @@ No migration, no flag, no product code: one guarded operations script. Runbook (
 
 ## W17 - Owner management: PropLane-held funds, party ledger, owner and vendor withdrawals
 
-Authoritative design, Stripe research, ledger and legal flag: [`owner-management.md`](owner-management.md). Migration `20261018270000_owner_management.sql` (dev applied, ledger row recorded). Dev proof: `scripts/prove-managed-finance.ts` (Stripe TEST mode only, dev database only; refuses anything else).
+Authoritative design, Stripe research, ledger and legal flag: [`owner-management.md`](owner-management.md). `20261018270000_owner_management.sql` is applied on dev with its ledger row recorded.
 
 Flags: none. A workspace is managed only when it has an ACCEPTED `managed_workspace_fee_policies` row (recorded by an admin, or created automatically for a PropLane Service workspace - nobody signs a fee policy: [`owner-management.md`](owner-management.md) § Automatic management fee); with none, every code path below is the unchanged self-serve flow. Every read of a new table treats 42P01 / 42703 / PGRST205 as "not managed".
 
-Files:
-
-- `src/lib/owner-management/` - `fee-math.ts` (pure: floor fee on the month's cumulative figure, leasing/minimum, spread, pro rata refund split, Pacific months), `policies.server.ts` (draft / attest / end, `ensureServiceFeePolicy` and `setServiceManagementFee`; atomic `activate_managed_policy`), `monthly-statements.server.ts`, `owner-line.server.ts` (the owner on the PropLane line: runs before routing in `inbound-seam.server.ts`), `alerts.server.ts`.
-- `src/lib/managed-finance/` - `ledger.server.ts`, `capture.server.ts` (allocation of a verified platform capture), `adjustments.server.ts` (refunds, disputes), `vendor-bills.server.ts` (bills + owner approval), `withdrawals.server.ts` (reserve, Transfer, Payout, reconcile, weekly batch), `finances.server.ts`, `statement.ts`, `tax-package*.ts`, `reconcile.server.ts`, `resolve.server.ts`.
-- Edits to hardened files, each a small additive branch: `household-captured-source.server.ts` (`creditManagedIfApplicable`: a managed capture is allocated in the party ledger instead of credited to a hold, for card Checkout, manual bank and autopay), `household-charge-refund-rail.server.ts` (`managed` rail: refund from the platform balance, no `reverse_transfer`), `stripe-webhook-financials.ts` (refund and dispute hooks), `stripe-household-charge-checkout.server.ts` (a cart mixing a managed workspace with another payee is refused), `work-order-approve-pay.server.ts` and `pay-from-balance/route.ts` (a managed workspace pays vendors from PropLane funds; above the owner's repair amount the owner is asked first), `vendor-invoice-pay.server.ts` (no Stripe Checkout for a managed invoice), `queryOwnerStatement` (the real fee on a managed house).
-- Routes: `/api/owner/finances/*`, `/api/vendor/managed-finance/*`, `/api/admin/managed-finance`, `/api/admin/managed-workspaces[/..]`, `/api/admin/managed-policies/[id]`, cron `/api/cron/owner-management` (hourly: reconciliation every run; vendor weekly batch Mondays Pacific; owner statements on the 1st).
-- UI: `src/components/portal/finances/owner-payouts-panel.tsx` (Finances › Owner payouts, `/portal/financials/owner-payouts`), the vendor Finances "PropLane balance" section (`vendor-managed-balance.tsx`), admin "Managed funds" (`admin-managed-finance-panel.tsx`, `/admin/managed-finance`).
+Files, routes, surfaces, integration points and tests: [`owner-management.md`](owner-management.md) § Files. They kept growing
+after this W-section was written (splits, per-person earnings, bill pay, the admin Payouts panel), so they are listed in that one
+place only — see also its § Payouts and splits.
 
 Invariants: see `owner-management.md` § Invariants. In one line: the ledger balances, every post is idempotent on a Stripe/source id, a party never withdraws more than the ledger says is matured and owed, ownership is re-derived from the policy / property / session at every write, and a managed capture that cannot be allocated throws (never falls back to a hold).
-
-Tests: `tests/unit/owner-management-*.test.ts`, `tests/unit/managed-finance-*.test.ts`, `tests/unit/owner-payouts-panel.test.tsx`, `tests/unit/admin-managed-finance-panel.test.tsx`, `tests/unit/vendor-managed-balance.test.tsx`.
 
 ## W21 - Owner portal (RETIRED Oct 19)
 

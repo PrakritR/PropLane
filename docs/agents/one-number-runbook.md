@@ -74,6 +74,21 @@ node scripts/one-number/list-migrations.mjs --since 202610     # the files on di
 `--since` is a filename prefix, so that call also prints the earlier October files; this batch is every version
 from `20261018090000` on, and the table below is the list it must match.
 
+**A version already in the ledger is never re-run by `db:push`.** `20261112230000_managed_workspace_mover` is
+edited in place as new tables land (its `managed_move_classification()` lists gained `gig_posts` with
+`20261115140000` and `managed_split_rules` / `managed_split_allocations` with `20261115130000`), so on any
+database that pushed it earlier the deployed function still lacks those entries and the mover would stop on
+their rows. The whole file is `create table if not exists` + `create or replace function`, so re-apply that one
+file by hand on every such database — before the one-shot or Admin > Service > Attach is used:
+
+```bash
+npm run db:apply-sql -- supabase/migrations/20261112230000_managed_workspace_mover.sql
+npm run db:apply-sql -- supabase/migrations/20261112240000_managed_mover_key_rewrite.sql   # re-applies the rewrite on top
+```
+
+Order matters: `20261112240000` `create or replace`s the same mover, so it must follow. On a fresh database
+`db:push` applies both in timestamp order and nothing extra is needed.
+
 The one-number migrations, in order (a file marked "branch" is not on `on/migration`'s base; it lands with its
 branch, and `db:push` applies it only once merged):
 
@@ -185,7 +200,7 @@ branch, and `db:push` applies it only once merged):
 | 20261112200100 | `stay_messages_and_platform` | New service-role-only table `stay_message_sends` (the check-in / check-out send ledger, one row per stay and kind; RLS on, every client privilege revoked); additive and idempotent |
 | 20261112210000 | `personal_email_proofs` | New service-role-only table `personal_email_proofs` (SHA-256 of a single-use mailbox-proof token bound to one user and one email, 24 h expiry; RLS on, every client privilege revoked); additive and idempotent |
 | 20261112220000 | `channel_payout_records` | Two new service-role-only tables, `channel_payout_records` (Airbnb / Booking.com reservation and payout reporting rows, unique on platform + confirmation code + kind) and `channel_finance_mail` (last forwarded mail and review queue). Additive, RLS on, no client grant; never a resident charge or party-ledger row |
-| 20261112230000 | `managed_workspace_mover` | New service-role-only table `managed_workspace_ownership_moves` (single-apply marker + undo record) and the functions `managed_move_classification`, `managed_move_pk_columns`, `managed_move_scope_predicate`, `move_managed_workspace_to_service_owner`, `undo_managed_workspace_move` (service_role execute only). Writes nothing by itself: the move runs only from `scripts/one-shot/managed-workspaces-to-admin-20261112.mts` or Admin > Service > Attach. Additive and idempotent |
+| 20261112230000 | `managed_workspace_mover` | New service-role-only table `managed_workspace_ownership_moves` (single-apply marker + undo record) and the functions `managed_move_classification`, `managed_move_pk_columns`, `managed_move_scope_predicate`, `move_managed_workspace_to_service_owner`, `undo_managed_workspace_move` (service_role execute only). Writes nothing by itself: the move runs only from `scripts/one-shot/managed-workspaces-to-admin-20261112.mts` or Admin > Service > Attach. Additive and idempotent. **Edited in place as new tables land** — on a database that already applied this version, re-apply it (and then `20261112240000`) by hand per the note above §2 |
 | 20261112240000 | `managed_mover_key_rewrite` | `create or replace` of the mover and its undo: owner-embedded text keys (Team chat `team-thread:<o>:…`, House chat `house-thread:<o>:…`, `sms_notice_<hash>` thread ids, `<o>:<role>:<ref>` SMS conversation keys and their aliases/references) are rewritten to the service owner in the same transaction, old values stashed for undo; a key collision stops the run; per-person Assistant threads never move. New helper functions `managed_move_rename_inbox_thread` (service_role only). Writes nothing by itself |
 | 20261112250000 | `channel_payout_records_workspace_key` | Adds the stored generated column `channel_payout_records.workspace_key` (NULL workspace folded to the nil uuid) and a unique index on owner + platform + code + kind + that key, replacing the owner-level `channel_payout_records_key`: a booking's record is identified INSIDE its workspace, so an import while another workspace is active can no longer re-point an existing row's `workspace_id`. Additive and idempotent; the replaced constraint was strictly stronger, so no row can conflict; no grant, policy or data change |
 | 20261113100000 | `rent_cycle_unique_guard` | One partial unique index `portal_household_charge_rent_cycle_unique` on `portal_household_charge_records` (manager + lower(resident email) + property + `rentMonth`) for live rent charges created on or after 2026-11-14, so a manual Dec rent charge and the automatic cycle cannot both land for one month. Void / cancelled / refunded and imported rows are excluded; existing duplicates are reported by a notice and left untouched. Additive and idempotent; no row is changed or deleted |

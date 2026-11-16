@@ -304,7 +304,11 @@ it runs in one transaction under the account-lifecycle advisory lock, and it nev
   a client with no other live workspace, otherwise the run stops), **keep** (the client's own money, identity and pre-management
   history: fee policy, party/hold/payout/GL/statement tables, billing; asserted, never written) or **special** (workspace, houses,
   numbers, emails, seats: dedicated steps). A table with an identity column that is not on the list and holds rows for the client
-  STOPS the run; `tests/unit/managed-move-classification.test.ts` fails a new one.
+  STOPS the run; `tests/unit/managed-move-classification.test.ts` fails a new one. The list lives inside
+  `20261112230000_managed_workspace_mover.sql` and is **extended in place** as new tables land — a green test proves the file,
+  not the database, and `db:push` never re-runs a version it already applied. Re-apply that file by hand (then
+  `20261112240000`, which `create or replace`s the mover on top of it) on every such database before the mover or Attach runs
+  there: [`one-number-runbook.md`](one-number-runbook.md) § 2 Migrations.
 - **Stops** (reported on a dry run, raised before anything is written on a real one): service owner lacks the admin role, owner is not
   the expected client, a house not owned by the client, open checkout attempts (24 h) or reserved/unknown withdrawals, another owner of
   record or a non-owner seat of the client, unclassified rows, account-level rows with another live workspace.
