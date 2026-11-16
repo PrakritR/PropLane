@@ -84,10 +84,12 @@ export function generateIcsCalendar(
     const endInclusive = range.end.trim() || start;
     if (!start) continue;
     const dtEndExclusive = addDaysYmd(endInclusive, 1);
-    // Two ranges can start the same day, so the UID carries the end date and a stable hash of the range.
+    // Two ranges can start the same day, so the UID carries the end date as well. Nothing else: the UID is
+    // the key a channel updates an event by, so every byte of it that can change re-keys the whole feed
+    // (a delete plus an add on the consumer's side). A second identical range gets a stable hashed suffix.
     const base = options?.uidPrefix ? `${options.uidPrefix}-${start}-${dtEndExclusive}` : `proplane-block-${start}-${dtEndExclusive}`;
-    let uid = `${base}-${stableHash(`${options?.uidPrefix ?? ""}|${start}|${dtEndExclusive}`)}`;
-    for (let n = 2; seenUids.has(uid); n += 1) uid = `${base}-${stableHash(`${uid}|${n}`)}`;
+    let uid = base;
+    for (let n = 2; seenUids.has(uid); n += 1) uid = `${base}-${stableHash(`${base}|${n}`)}`;
     seenUids.add(uid);
     lines.push(
       "BEGIN:VEVENT",

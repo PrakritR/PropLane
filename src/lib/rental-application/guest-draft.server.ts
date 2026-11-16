@@ -121,23 +121,35 @@ export async function claimGuestApplicationDraft(
   const propertyId = input.propertyId.trim();
   if (!propertyId) return { ok: false, reason: "none" };
 
-  let query = db
-    .from("guest_application_drafts")
-    .select("id, email, phone_e164, property_id, draft")
-    .eq("status", "pending")
-    .eq("property_id", propertyId)
-    .gt("expires_at", now.toISOString())
-    .order("created_at", { ascending: false })
-    .limit(5);
+  let tokenHash: string | null = null;
   if (input.token !== undefined && input.token !== null) {
     if (!isWellFormedGuestDraftToken(input.token)) return { ok: false, reason: "none" };
-    query = query.eq("token_hash", hashGuestDraftToken(input.token));
+    tokenHash = hashGuestDraftToken(input.token);
   }
-  const { data, error } = await query;
-  if (error) return { ok: false, reason: "unavailable" };
-  const match = ((data ?? []) as Row[]).find(
-    (row) => (email && text(row.email).toLowerCase() === email) || (phone && text(row.phone_e164) === phone),
-  );
+  // The proven contact is part of the QUERY, not a filter over a truncated page: a busy listing can hold
+  // more pending drafts than any page size, and the no-token path (a texted sign-in link opened on another
+  // device) is the production one. Each proven contact gets its own exact-match read; the newest wins.
+  const runContactQuery = async (column: "email" | "phone_e164", value: string) => {
+    let query = db
+      .from("guest_application_drafts")
+      .select("id, email, phone_e164, property_id, draft, created_at")
+      .eq("status", "pending")
+      .eq("property_id", propertyId)
+      .gt("expires_at", now.toISOString())
+      .eq(column, value)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (tokenHash) query = query.eq("token_hash", tokenHash);
+    return query;
+  };
+  const candidates: Row[] = [];
+  for (const [column, value] of [["email", email], ["phone_e164", phone]] as const) {
+    if (!value) continue;
+    const { data, error } = await runContactQuery(column, value);
+    if (error) return { ok: false, reason: "unavailable" };
+    candidates.push(...((data ?? []) as Row[]));
+  }
+  const match = candidates.sort((a, b) => text(b.created_at).localeCompare(text(a.created_at)))[0];
   if (!match || !isRecord(match.draft)) return { ok: false, reason: "none" };
 
   // One claim wins. The body is wiped in the same statement that takes it.

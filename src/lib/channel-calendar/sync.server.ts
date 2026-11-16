@@ -125,13 +125,37 @@ function isSafeIcalRedirect(raw: string): boolean {
   }
 }
 
-/** A calendar answers `text/calendar` or opens with BEGIN:VCALENDAR; HTML and JSON do neither. */
+/**
+ * A content type that can never carry a calendar: a sign-in page, an API error, an image. Everything else
+ * (`text/calendar`, `text/plain`, `application/octet-stream`, a host's own `application/x-ical` or
+ * `application/download`, or no header at all) is decided by the BODY - a closed allowlist would refuse a
+ * real channel feed served under a type nobody listed.
+ */
+function contentTypeCannotBeIcal(type: string): boolean {
+  if (/^(image|video|audio|font|multipart)\//.test(type)) return true;
+  return [
+    "text/html",
+    "application/xhtml+xml",
+    "application/json",
+    "text/json",
+    "application/ld+json",
+    "application/xml",
+    "text/xml",
+    "application/javascript",
+    "text/javascript",
+    "application/pdf",
+    "application/zip",
+  ].includes(type);
+}
+
+/** A calendar opens with BEGIN:VCALENDAR and carries its END; HTML and JSON never do. */
 export function looksLikeIcalResponse(contentType: string | null, body: string): boolean {
   const type = (contentType ?? "").split(";")[0]!.trim().toLowerCase();
-  // Only an iCal-ish (or missing) content type can carry a calendar; HTML and JSON never do.
-  if (type && !["text/calendar", "text/plain", "application/octet-stream", "application/ics", "application/calendar", "binary/octet-stream"].includes(type)) return false;
+  if (type && contentTypeCannotBeIcal(type)) return false;
   const text = body.replace(/^\uFEFF/, "").trim();
-  return text.startsWith("BEGIN:VCALENDAR") && /END:VCALENDAR\s*$/.test(text);
+  // END:VCALENDAR must be present (a body cut short by the size cap loses it), but it need not be the
+  // very last byte: some hosts append a trailing marker after the terminator.
+  return text.startsWith("BEGIN:VCALENDAR") && text.includes("END:VCALENDAR");
 }
 
 /**

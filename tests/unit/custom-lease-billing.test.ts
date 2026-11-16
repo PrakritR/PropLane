@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   CUSTOM_LEASE_SURCHARGE_CHARGE_LABEL,
   CUSTOM_LEASE_SURCHARGE_FEE_ID,
+  customLeaseSurchargeAmount,
   recurringMonthlyFeesForLease,
   shouldBillCustomLeaseSurcharge,
 } from "@/lib/custom-lease-billing";
@@ -22,6 +23,8 @@ import {
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
 import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
+import { CUSTOM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { DEFAULT_CUSTOM_LEASE_SURCHARGE } from "@/lib/rental-application/lease-dates";
 import type { MockProperty } from "@/data/types";
 import type { DemoApplicantRow } from "@/lib/manager-applications-storage";
 
@@ -188,6 +191,28 @@ describe("custom lease surcharge billing", () => {
         (c) => c.residentEmail === email && c.customFeeId === CUSTOM_LEASE_SURCHARGE_FEE_ID,
       ),
     ).toBe(false);
+  });
+
+  it("the $100 blank default needs a Custom term offered, and never outranks a removed row", () => {
+    const offersCustom = () => {
+      const sub = createDefaultListingSubmission();
+      sub.rooms = [{ ...sub.rooms[0]!, id: "room-1", name: "Room A", monthlyRent: 1200 }];
+      sub.allowedLeaseTerms = [CUSTOM_LEASE_TERM];
+      return normalizeManagerListingSubmissionV1(sub);
+    };
+    // Blank amount + a Custom term on offer: the default prices it.
+    expect(customLeaseSurchargeAmount(offersCustom())).toBe(DEFAULT_CUSTOM_LEASE_SURCHARGE);
+    // The manager removed the row. A removal is their decision, so nothing is billed.
+    const removed = { ...offersCustom(), removedStandardListingFeeRows: ["customLeaseSurcharge"] };
+    expect(customLeaseSurchargeAmount(removed as ManagerListingSubmissionV1)).toBe(0);
+    expect(
+      recurringMonthlyFeesForLease(removed as ManagerListingSubmissionV1, [], {
+        leaseStart: "2026-06-15",
+        leaseEnd: "2027-06-14",
+        leaseTerm: "12-Month",
+        rentalType: "standard",
+      }),
+    ).toEqual([]);
   });
 
   it("recurringMonthlyFeesForLease drops the surcharge when dates become standard", () => {

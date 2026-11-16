@@ -331,6 +331,8 @@ export async function POST(req: Request) {
     const now = new Date().toISOString();
     let confirmedChargeIds: string[] = [];
     let confirmedProfileIds: string[] = [];
+    /** Rows a database uniqueness guard refused. Reported, never silent, and never a reason to drop the batch. */
+    let conflictChargeIds: string[] = [];
 
     if (body.action === "recordOfflinePayment") {
       const id = typeof body.id === "string" ? body.id.trim() : "";
@@ -653,7 +655,7 @@ export async function POST(req: Request) {
           updated_at: now,
         });
       }
-      const { chargeWriteError, confirmedIds } = await persistHouseholdChargeRows(db, mappedRows, {
+      const { chargeWriteError, confirmedIds, conflictIds } = await persistHouseholdChargeRows(db, mappedRows, {
         actor: { id: user.id, role: user.role },
         now,
         chargeIds,
@@ -665,6 +667,7 @@ export async function POST(req: Request) {
       });
       if (chargeWriteError) return NextResponse.json({ error: chargeWriteError }, { status: 500 });
       confirmedChargeIds = confirmedIds;
+      conflictChargeIds = conflictIds;
     }
 
     if (rentProfiles.length > 0) {
@@ -771,7 +774,13 @@ export async function POST(req: Request) {
       }
     }
 
-    return NextResponse.json(body.confirmWrites === true ? { ok: true, confirmedChargeIds, confirmedProfileIds } : { ok: true });
+    // A refused row is reported alongside the confirmed ones (the mirror treats an unconfirmed id as
+    // not written) instead of failing the whole batch on one duplicate.
+    return NextResponse.json(
+      body.confirmWrites === true
+        ? { ok: true, confirmedChargeIds, confirmedProfileIds, ...(conflictChargeIds.length > 0 ? { conflictChargeIds } : {}) }
+        : { ok: true, ...(conflictChargeIds.length > 0 ? { conflictChargeIds } : {}) },
+    );
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to save charges.";
     return NextResponse.json({ error: message }, { status: 500 });

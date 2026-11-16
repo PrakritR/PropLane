@@ -10,15 +10,25 @@ type Row = Record<string, unknown>;
 const USER = "11111111-1111-4111-8111-111111111111";
 const MANAGER = "22222222-2222-4222-8222-222222222222";
 
-function dbWith(rows: Row[] | Error) {
+/**
+ * `rows` answers the subject read; `sharedRows` (when given) answers the follow-up that looks for the same
+ * (manager, address) pair on ANOTHER subject's application.
+ */
+function dbWith(rows: Row[] | Error, sharedRows?: Row[] | Error) {
   const calls: Array<[string, unknown]> = [];
+  let reads = 0;
   const chain: Record<string, unknown> = {
     select: () => chain,
     eq: (column: string, value: unknown) => {
       calls.push([column, value]);
       return chain;
     },
-    limit: async () => (rows instanceof Error ? { data: null, error: { message: rows.message } } : { data: rows, error: null }),
+    in: () => chain,
+    limit: async () => {
+      const answer = reads === 0 ? rows : (sharedRows ?? []);
+      reads += 1;
+      return answer instanceof Error ? { data: null, error: { message: answer.message } } : { data: answer, error: null };
+    },
   };
   return { db: { from: () => chain } as never, calls };
 }
@@ -29,6 +39,27 @@ describe("loadResidentChargeBinding", () => {
     const binding = await loadResidentChargeBinding(db, USER);
     expect(calls).toEqual([["row_data->>residentUserId", USER]]);
     expect(binding).toEqual({ applicationIds: ["app-fekadu"], managerEmails: [{ managerUserId: MANAGER, email: "fekadu.b@example.com" }] });
+  });
+
+  it("drops the address shape when the same manager has that address on another subject's application", async () => {
+    const other = "33333333-3333-4333-8333-333333333333";
+    const { db } = dbWith(
+      [{ id: "app-fekadu", manager_user_id: MANAGER, resident_email: "house@example.com" }],
+      [
+        { manager_user_id: MANAGER, resident_email: "house@example.com", subject: USER },
+        { manager_user_id: MANAGER, resident_email: "house@example.com", subject: other },
+      ],
+    );
+    // A reused address is never ownership: only the subject's own application id survives.
+    expect(await loadResidentChargeBinding(db, USER)).toEqual({ applicationIds: ["app-fekadu"], managerEmails: [] });
+  });
+
+  it("keeps the application id when the shared-address check itself fails", async () => {
+    const { db } = dbWith(
+      [{ id: "app-fekadu", manager_user_id: MANAGER, resident_email: "house@example.com" }],
+      new Error("boom"),
+    );
+    expect(await loadResidentChargeBinding(db, USER)).toEqual({ applicationIds: ["app-fekadu"], managerEmails: [] });
   });
 
   it("drops an id or address that could break out of a filter value", async () => {

@@ -161,6 +161,30 @@ describe("claim needs proof, and is single use", () => {
     expect(rows[0]!.status).toBe("pending");
   });
 
+  it("finds the applicant's draft on a listing holding more pending drafts than a page", async () => {
+    // The production path carries NO token (the texted sign-in link opens on another device), so the proven
+    // contact has to be part of the query: a page of the newest drafts would not contain this one.
+    for (let i = 0; i < 12; i += 1) {
+      rows.push({
+        id: `other-${i}`, status: "pending", property_id: "prop-1",
+        email: `someone-${i}@example.test`, phone_e164: null, token_hash: `hash-${i}`,
+        draft: { fullLegalName: `Other ${i}` }, expires_at: "2099-01-01T00:00:00.000Z",
+        created_at: `2026-11-14T10:00:${String(i).padStart(2, "0")}.000Z`,
+      });
+    }
+    rows.push({
+      id: "mine", status: "pending", property_id: "prop-1",
+      email: "jordan@example.test", phone_e164: "+12065550142", token_hash: "hash-mine",
+      draft: { fullLegalName: "Jordan Guest" }, expires_at: "2099-01-01T00:00:00.000Z",
+      created_at: "2026-11-14T09:00:00.000Z",
+    });
+    const claimed = await claimGuestApplicationDraft(makeDb() as never, {
+      userId: "u1", contact: { email: "jordan@example.test", phoneE164: null }, propertyId: "prop-1",
+    });
+    expect(claimed).toMatchObject({ ok: true, propertyId: "prop-1" });
+    expect(rows.find((row) => row.id === "mine")).toMatchObject({ status: "claimed", claimed_by_user_id: "u1" });
+  });
+
   it("does not look up a malformed token", async () => {
     await held();
     expect(await claimGuestApplicationDraft(makeDb() as never, { userId: "u1", contact: { email: "jordan@example.test", phoneE164: null }, propertyId: "prop-1", token: "x" })).toEqual({ ok: false, reason: "none" });

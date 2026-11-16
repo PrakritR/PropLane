@@ -64,6 +64,10 @@ export async function expireHoldingDeposits(db: SupabaseClient, now: Date = new 
       .select("id, manager_user_id, resident_email, status, row_data")
       .eq("kind", "holding_deposit")
       .eq("status", "paid")
+      // Only holds that are still open: a stamped row is skipped below anyway, and paging every hold
+      // ever paid across every workspace 24x a day grows without bound against the egress budget.
+      .is("row_data->>holdExpiredAt", null)
+      .is("row_data->>holdCreditedAt", null)
       .order("id")
       .range(offset, offset + 499);
     if (error) throw new Error(`Could not list holding deposits: ${error.message}`);
