@@ -122,6 +122,16 @@ describe("sending the link", () => {
     expect(sms.send).not.toHaveBeenCalled();
   });
 
+  it("a tour link is capped per workspace; an application link is not", async () => {
+    const fake = seed();
+    rate.keys.length = 0;
+    await sendGuestSignupLink(fake.db, { kind: "tour", tourInquiryId: "inq-1" });
+    expect(rate.keys.some((k) => k.startsWith("guest-signup-link-tour-ws:"))).toBe(true);
+    rate.keys.length = 0;
+    await sendGuestSignupLink(fake.db, { kind: "apply", draftToken: DRAFT_TOKEN });
+    expect(rate.keys.some((k) => k.startsWith("guest-signup-link-tour-ws:"))).toBe(false);
+  });
+
   it("a tour link needs a guest tour that ticked the SMS box", async () => {
     const fake = seed();
     tours.inquiry = { ...tours.inquiry!, smsConsent: false };

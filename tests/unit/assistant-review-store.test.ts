@@ -30,7 +30,12 @@ function actorFor(db: FakeDb, workspaceId = WS_A): ReviewActor {
 let db: FakeDb;
 beforeEach(() => {
   vi.clearAllMocks();
-  db = createFakeDb({ assistant_thread_reviews: [], property_knowledge_entries: [], sms_line_thread_state: [] }) as never as FakeDb;
+  db = createFakeDb({ assistant_thread_reviews: [], property_knowledge_entries: [], sms_line_thread_state: [],
+    manager_property_records: [
+      { id: "house-1", workspace_id: WS_A, manager_user_id: "owner-1", property_data: {}, row_data: {} },
+      { id: "house-2", workspace_id: WS_A, manager_user_id: "owner-1", property_data: {}, row_data: {} },
+      { id: "house-x", workspace_id: WS_B, manager_user_id: "owner-9", property_data: {}, row_data: {} },
+    ] }) as never as FakeDb;
 });
 
 describe("flag a reply", () => {
@@ -75,6 +80,19 @@ describe("correct a reply: house knowledge the assistant reads, never an instruc
     // Another workspace's assistant never reads it; neither does an audience it was not written for.
     expect(await loadAnswerableEntries(db as never, { workspaceId: WS_B, allowedPropertyIds: null, audiences: ["all", "residents", "team"] })).toEqual([]);
     expect(await loadAnswerableEntries(db as never, { workspaceId: WS_A, allowedPropertyIds: null, audiences: ["all"] })).toEqual([]);
+  });
+
+  it("refuses a house outside the workspace, and a delegated seat's team-wide or unassigned correction", async () => {
+    const base = { threadKey: "t1", messageRef: "m1", question: "q", correction: "fixed" };
+    expect(await correctReply(actorFor(db), { ...base, propertyId: "house-x", audience: "residents" })).toMatchObject({ ok: false, status: 403 });
+    expect(await correctReply(actorFor(db), { ...base, propertyId: "nope", audience: "residents" })).toMatchObject({ ok: false, status: 403 });
+    const delegated = { ...actorFor(db), allowedPropertyIds: ["house-1"] };
+    expect(await correctReply(delegated, { ...base, audience: "residents" })).toMatchObject({ ok: false, status: 403 });
+    expect(await correctReply(delegated, { ...base, propertyId: "house-2", audience: "residents" })).toMatchObject({ ok: false, status: 403 });
+    expect(await correctReply(delegated, { ...base, propertyId: "house-1", audience: "all" })).toMatchObject({ ok: false, status: 403 });
+    expect(db.tables.property_knowledge_entries).toHaveLength(0);
+    expect((await correctReply(delegated, { ...base, propertyId: "house-1", audience: "residents" })).ok).toBe(true);
+    expect(db.tables.property_knowledge_entries).toHaveLength(1);
   });
 
   it("refuses an empty correction", async () => {

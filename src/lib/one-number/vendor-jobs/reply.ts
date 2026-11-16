@@ -50,13 +50,21 @@ export function composeVendorJobsReply(input: {
   filteredByArea: boolean;
   unknownArea: string | null;
   link: VendorLineLink;
+  /** PropLane Jobs: priced jobs (a code, the kind, the general area, the time, the pay). Shown first, with how to take one. */
+  gigs?: { code: string; line: string }[];
 }): string {
   const lines: string[] = [];
   if (input.firstReply && VENDOR_LINE_COPY.welcome) lines.push(VENDOR_LINE_COPY.welcome);
+  const gigs = input.gigs ?? [];
   const what = input.tradeLabel ? `${input.tradeLabel.toLowerCase()} jobs` : "jobs";
   const where = input.placeLabel ? ` near ${input.placeLabel}` : input.unknownArea ? ` near ${input.unknownArea}` : "";
+  if (gigs.length > 0) {
+    lines.push(`Priced jobs${where}:`);
+    gigs.forEach((g) => lines.push(g.line));
+    lines.push(`Reply YES and the code to take one, like YES ${gigs[0]!.code}.`);
+  }
   if (input.jobs.length === 0) {
-    lines.push(`No open ${what}${where} right now. ${VENDOR_LINE_COPY.none}`);
+    if (gigs.length === 0) lines.push(`No open ${what}${where} right now. ${VENDOR_LINE_COPY.none}`);
   } else {
     lines.push(input.filteredByArea || input.placeLabel ? `Open ${what}${where}:` : `Open ${what} ${VENDOR_LINE_COPY.anyArea}`);
     input.jobs.forEach((job, i) => lines.push(jobLine(i + 1, job)));
@@ -68,8 +76,9 @@ export function composeVendorJobsReply(input: {
   else if (input.link.kind === "busy") lines.push(VENDOR_LINE_COPY.linkBusy);
   let text = toGsm7(lines.join("\n"));
   // Over the cap: drop job lines from the end, never the link.
-  while (text.length > MAX_REPLY_CHARS && lines.some((l) => /^\d\. /.test(l))) {
-    const idx = lines.map((l) => /^\d\. /.test(l)).lastIndexOf(true);
+  const isJobLine = (l: string) => /^(\d\. |[A-Z0-9]{4} - )/.test(l);
+  while (text.length > MAX_REPLY_CHARS && lines.some(isJobLine)) {
+    const idx = lines.map(isJobLine).lastIndexOf(true);
     lines.splice(idx, 1);
     text = toGsm7(lines.join("\n"));
   }

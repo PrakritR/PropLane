@@ -8,9 +8,25 @@ import { loadPlatformOpsPhones } from "@/lib/one-number/inbound-alert.server";
 import { readServiceOwnerOrThrow } from "@/lib/one-number/service-line.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { sendTextFromServiceOwner } from "@/lib/service/service-manager.server";
+import { rateLimit } from "@/lib/rate-limit";
 import { resolveOwnedWorkNumber } from "@/lib/sms/resolve-owned-work-number.server";
 import { SERVICE_ALERT_PHONE_SMS_PURPOSE } from "@/lib/sms/team-notice-consent.server";
 import { buildNonPhoneAlertText, nonPhoneConversationKey, type NonPhoneSender } from "@/lib/sms/non-phone-sender";
+
+/** Ops text alerts for short-code / alphanumeric senders (spoofable, unauthenticated): per sender and across all senders, per hour. */
+export const NON_PHONE_ALERT_SENDER_LIMIT_PER_HOUR = 5;
+export const NON_PHONE_ALERT_GLOBAL_LIMIT_PER_HOUR = 30;
+const HOUR_MS = 60 * 60 * 1000;
+
+async function nonPhoneAlertAllowed(sender: string): Promise<boolean> {
+  try {
+    const key = createHash("sha256").update(sender.toLowerCase()).digest("hex").slice(0, 24);
+    if (!(await rateLimit(`nonphone-alert:sender:${key}`, NON_PHONE_ALERT_SENDER_LIMIT_PER_HOUR, HOUR_MS)).ok) return false;
+    return (await rateLimit("nonphone-alert:global", NON_PHONE_ALERT_GLOBAL_LIMIT_PER_HOUR, HOUR_MS)).ok;
+  } catch {
+    return false; // fail closed: the message is stored, only the text alert is skipped
+  }
+}
 
 export type NonPhoneInboundResult = { stored: boolean; reason: "stored" | "duplicate" | "not_propline_line" | "no_service_owner"; alerted: number };
 
@@ -55,7 +71,9 @@ export async function ingestNonPhoneSenderText(
 
   // One alert per message: the dedupe key is the MessageSid plus the phone, so a retry of the same text never double-sends.
   let alerted = 0;
-  if (sid) {
+  // Over the cap the message is still stored (admin Communication shows it); only the text alert is skipped. A retry of an
+  // already-stored message spends no budget (the per-phone dedupe key keeps it from double-sending).
+  if (sid && (!stored || (await nonPhoneAlertAllowed(input.from.sender)))) {
     const phones = await loadPlatformOpsPhones(db);
     const text = toGsm7(buildNonPhoneAlertText(input.from.sender, input.body));
     for (const phone of phones) {

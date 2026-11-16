@@ -13,6 +13,7 @@
  * Either way they land in the resident portal's apply page, which claims the held draft (the session is the proof) and
  * submits it through the ordinary signed-in write. Nothing here creates an account or an application row.
  */
+import { isUnsafeRedirectPath } from "@/lib/auth/normalize-post-auth-path";
 import { useState } from "react";
 import { CodeInput } from "@/components/public/phone-bound-link-ui";
 import { normalizeE164 } from "@/lib/phone-e164";
@@ -177,7 +178,7 @@ export function GuestApplicationVerify({ form, onBack }: { form: RentalWizardFor
         setError("That code did not work. Ask for a new code.");
         return;
       }
-      window.location.assign(typeof verified.data.next === "string" && verified.data.next.startsWith("/") ? verified.data.next : nextPath);
+      window.location.assign(typeof verified.data.next === "string" && !isUnsafeRedirectPath(verified.data.next) ? verified.data.next : nextPath);
     } finally {
       setBusy(false);
     }

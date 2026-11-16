@@ -78,7 +78,7 @@ export async function POST(req: Request) {
     const out = await sendWebChatPhoneCode(deps, { visitorId: visitor.visitorId, ip, propertyId: request.propertyId, phone: request.phone });
     return out.ok ? reply({ ok: true }, {}, visitor) : reply({ error: out.error }, { status: out.status }, visitor);
   }
-  const out = await verifyWebChatPhone(deps, { visitorId: visitor.visitorId, ip, propertyId: request.propertyId, phone: request.phone, otp: request.otp });
+  const out = await verifyWebChatPhone(deps, { visitorId: visitor.visitorId, ip, propertyId: request.propertyId, phone: request.phone, otp: request.otp, smsConsent: request.smsConsent });
   return out.ok ? reply({ ok: true, merged: out.merged }, {}, visitor) : reply({ error: out.error, ...(out.needsNewCode ? { needsNewCode: true } : {}) }, { status: out.status }, visitor);
 }
 

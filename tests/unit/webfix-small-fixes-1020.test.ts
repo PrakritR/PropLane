@@ -41,9 +41,11 @@ describe("the web channel never carries the PropLane number", () => {
     expect(layout).not.toMatch(/\+1\d{10}|206[\s).-]*678/);
   });
 
-  it("the auth brand panel shows no number and the shell reads none", () => {
-    expect(read("src/components/auth/auth-brand-panel.tsx")).not.toMatch(/phone|auth-brand-number/);
-    expect(read("src/components/auth/auth-split-shell.tsx")).not.toContain("getPublicTextingConfig");
+  // Superseded Nov 15 (captain: publish the PropLane line as widely as possible): the panel now shows the configured line.
+  it("the auth brand panel shows the configured PropLane line, read by the shell, as an sms: link only", () => {
+    expect(read("src/components/auth/auth-brand-panel.tsx")).toContain("auth-brand-number");
+    expect(read("src/components/auth/auth-brand-panel.tsx")).not.toContain("tel:");
+    expect(read("src/components/auth/auth-split-shell.tsx")).toContain("getPublicTextingConfig");
   });
 
   it("the listing page carries no short-stay card (captain, Nov 12), and never a duplicated id for one", () => {

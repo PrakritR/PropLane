@@ -17,7 +17,7 @@ export type StatementLine = {
 
 export type StatementRowKind =
   | "rent" | "fee" | "refund" | "fee_returned" | "vendor_charge" | "dispute_hold" | "dispute_release" | "withdrawal" | "withdrawal_returned"
-  | "bill" | "adjustment";
+  | "bill" | "adjustment" | "split";
 
 export type StatementRow = {
   id: string;
@@ -91,6 +91,10 @@ export function buildOwnerStatement(lines: readonly StatementLine[], fromIso: st
           href: text(d.job_href) || null, propertyId: text(d.property_id) || null,
         });
         break;
+      case "split_allocation":
+      case "split_reversal":
+        rows.push({ id: `${id}:split`, date, kind: "split", label: splitLabel(line.kind, credit), amountCents: credit, availableOn: credit > 0 ? line.availableOn : undefined, propertyId: text(d.property_id) || null });
+        break;
       case "dispute_opened":
         rows.push({ id: `${id}:hold`, date, kind: "dispute_hold", label: "Held for a payment dispute", amountCents: credit });
         break;
@@ -127,6 +131,8 @@ export function buildVendorStatement(lines: readonly StatementLine[], fromIso: s
     const id = line.journalId;
     if (line.kind === "vendor_bill") {
       rows.push({ id: `${id}:bill`, date: line.postedAt, kind: "bill", amountCents: credit, label: text(d.title) || "Service", href: null });
+    } else if (line.kind === "split_allocation" || line.kind === "split_reversal") {
+      rows.push({ id: `${id}:split`, date: line.postedAt, kind: "split", amountCents: credit, label: splitLabel(line.kind, credit), propertyId: text(d.property_id) || null });
     } else if (line.kind === "withdrawal_reserve") {
       rows.push({ id: `${id}:wd`, date: line.postedAt, kind: "withdrawal", amountCents: credit, label: "Withdrawal to your bank" });
     } else if (line.kind === "withdrawal_failed") {
@@ -138,13 +144,19 @@ export function buildVendorStatement(lines: readonly StatementLine[], fromIso: s
   return finish(fromIso, toIso, beginning, ending, rows);
 }
 
+/** A payout split, from the side of the party reading it: the owner gives a share away, a payee receives one. A reversal is the mirror image. */
+function splitLabel(kind: string, credit: number): string {
+  if (kind === "split_reversal") return credit > 0 ? "Share returned after a refund" : "Share reversed after a refund";
+  return credit > 0 ? "Your share of rent (payout split)" : "Shared with your team (payout split)";
+}
+
 function finish(fromIso: string, toIso: string, beginning: number, ending: number, rows: StatementRow[]): Statement {
   const sum = (kinds: StatementRowKind[]) => rows.filter((r) => kinds.includes(r.kind)).reduce((s, r) => s + r.amountCents, 0);
   const rentGross = sum(["rent", "refund"]);
   const fee = sum(["fee", "fee_returned"]);
   const vendor = sum(["vendor_charge"]);
   const bills = sum(["bill"]);
-  const other = sum(["dispute_hold", "dispute_release", "adjustment"]);
+  const other = sum(["dispute_hold", "dispute_release", "adjustment", "split"]);
   const withdrawals = sum(["withdrawal", "withdrawal_returned"]);
   return {
     fromIso, toIso, beginningCents: beginning, rows,

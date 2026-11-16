@@ -134,6 +134,7 @@ import { managerServicesWriteTools } from "./domains/services-write";
 import { managerDispatchTools } from "./domains/vendor-dispatch";
 import { managerVendorMessageTools } from "./domains/vendor-message";
 import { managerServiceBoardTools } from "./domains/service-board";
+import { managerGigTools } from "./domains/gig-post";
 import { managerAnnounceTools } from "./domains/announce";
 import { confirmTourInquiryTool } from "./domains/tours-write";
 import { prepareShortStayTool, quoteShortStaysTool, requestShortStayTool } from "./domains/short-stay-sms";
@@ -300,6 +301,8 @@ export const agentRegistry = buildRegistry([
   // Text one roster vendor, and post an open service (or a tour-host job) to the public work board.
   ...managerVendorMessageTools,
   ...managerServiceBoardTools,
+  // PropLane Jobs: a priced tour-showing / cleaning / odd job, offered by text to vendors who cover the area.
+  ...managerGigTools,
   // Announcements to house groups (or each resident one on one when a house has no group).
   ...managerAnnounceTools,
   // Bookings reads + room-block writes (calendar area). remove_room_block is destructive.
@@ -375,6 +378,8 @@ let managerSmsRegistry: ToolRegistry<AgentContext> | null = null;
 
 export function buildManagerSmsRegistry(
   access?: ManagerSmsAccess | null,
+  /** `readOnly`: withhold every write tool regardless of seat (the voice surface: caller ID is spoofable). */
+  options?: { readOnly?: boolean },
 ): ToolRegistry<AgentContext> {
   // Memoized: the filter is static, and `buildRegistry` runs `zodToJsonSchema`
   // over every write tool to enforce the identity-field rule. That is real work
@@ -389,7 +394,7 @@ export function buildManagerSmsRegistry(
   );
   // A read-only seat gets no write tool at all (not even an inline one such as update_thread): nothing can be proposed.
   const forAccess = (registry: ToolRegistry<AgentContext>): ToolRegistry<AgentContext> =>
-    access?.readOnly ? buildRegistry([...registry.values()].filter((tool) => tool.kind !== "write")) : registry;
+    access?.readOnly || options?.readOnly ? buildRegistry([...registry.values()].filter((tool) => tool.kind !== "write")) : registry;
   if (access?.mode !== "delegated" && !access?.workspacePropertyIds) return forAccess(managerSmsRegistry);
   if (access?.mode !== "delegated") {
     return forAccess(buildRegistry(

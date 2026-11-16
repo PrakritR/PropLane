@@ -22,6 +22,7 @@ import type { AdminProplaneLinePanel } from "@/components/portal/admin-proplane-
 import type { AdminPromoCodesPanel } from "@/components/portal/admin-promo-codes-panel";
 import type { AdminFinancesPanel } from "@/components/portal/admin-finances-panel";
 import type { AdminManagedFinancePanel } from "@/components/portal/admin-managed-finance-panel";
+import type { AdminPayoutsPanel } from "@/components/portal/admin-payouts-panel";
 import type { GrowthAdminClient } from "@/components/portal/growth-admin-client";
 import type { ResidentDashboard } from "@/components/portal/resident-dashboard";
 import type { ResidentMoveInPanel } from "@/components/portal/resident-move-in-panel";
@@ -97,6 +98,7 @@ export type PortalPanels = Partial<{
   AdminPromoCodesPanel: typeof AdminPromoCodesPanel;
   AdminFinancesPanel: typeof AdminFinancesPanel;
   AdminManagedFinancePanel: typeof AdminManagedFinancePanel;
+  AdminPayoutsPanel: typeof AdminPayoutsPanel;
   GrowthAdminClient: typeof GrowthAdminClient;
   ResidentDashboard: typeof ResidentDashboard;
   ResidentMoveInPanel: typeof ResidentMoveInPanel;

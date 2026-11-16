@@ -13,6 +13,7 @@ import { readServiceOwnerOrThrow } from "@/lib/one-number/service-line.server";
 import { userDefaultWorkspaceId } from "@/lib/communication/manager-assistant-workspace.server";
 import { holdsAdminRole, recognizeServiceManagerInbound } from "@/lib/sms/service-manager-inbound.server";
 import { groupPreferenceCommand } from "@/lib/house-groups/ra-policy";
+import { handleFirstHomeText } from "@/lib/one-number/signup/first-home.server";
 import { runDemoTurn } from "@/lib/one-number/demo/run-demo-turn.server";
 import { isDemoStartText } from "@/lib/one-number/demo/script";
 import { hasLiveDemo } from "@/lib/one-number/demo/store.server";
@@ -302,6 +303,13 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
   if (!person && inviteCommandApplies(input.body)) {
     const text = await handleInviteCommand(db, { workspaceId: candidate.workspaceId, ownerUserId: candidate.ownerUserId, body: input.body, messageSid: input.messageSid }).catch(() => null);
     if (text) return { kind: "handled", twiml: text };
+  }
+  // A landlord who just signed up by text is mid "add your first home" (address, rooms and rent, when, rules, photos): their
+  // texts are that walkthrough's until it ends. One primary-key read per manager text; only a phone with a live walkthrough
+  // whose account owns that verified phone is ever handled.
+  if (!person) {
+    const firstHome = await handleFirstHomeText(db, { phoneE164: input.fromPhone, body: input.body, messageSid: input.messageSid }).catch(() => ({ handled: false as const }));
+    if (firstHome.handled) return { kind: "handled", twiml: firstHome.reply };
   }
   // A manager can run the sandbox DEMO from their own phone. While it lasts their texts are the demo's,
   // never the real manager agent's, and the demo touches no real workspace row.

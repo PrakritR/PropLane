@@ -1328,6 +1328,12 @@ export const buildProspectLinksTool = defineTool({
  * moves no money; the phone is read from the verified turn, never from the model. Only the PropLane line (service
  * catalog, SMS) runs the sign-up conversation ahead of this agent, so every other surface answers `unavailable` and the
  * agent keeps sending the ordinary links.
+ *
+ * DELIBERATE EXCEPTION to "kind: read tools do not write": this tool creates a sign-up session row, yet stays `read`
+ * (no confirm card; the prospect cannot confirm in the loop). Bounded on purpose: the phone comes from the verified turn
+ * (`scope.prospectPhoneE164`), never model input; the destination must be a live, resolvable listing; the sign-up only
+ * texts a code to that same phone; and the ACCOUNT is created only after the person echoes the code back by text. Do not
+ * widen it (no other fields, no other targets); anything that does more must be a `defineWriteTool`.
  */
 export const startProspectSignupTool = defineTool({
   name: "start_prospect_signup",

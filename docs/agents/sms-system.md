@@ -299,6 +299,11 @@ threads the same way across the mapped-manager cohort instead of returning one
 flat feed. The manager/admin SMS UI keys rows on `conversationKey` and sorts via
 `sortSmsConversationRows` (Newest / Oldest / Name A–Z / House).
 
+**Voice manager access is read-only.** Caller ID (Twilio `From`) is spoofable and a
+call has no second factor, so a manager/admin identity resolved from it gets the manager
+SMS registry with every write tool withheld (`buildManagerSmsRegistry(access, { readOnly: true })`
+in `src/lib/agent/manager-voice-agent.server.ts`). Changes go through the portal or SMS.
+
 **Voice call notes land in the same Communication thread.**
 A manager voice turn writes the spoken line and the assistant reply through
 `logManagerSmsMessage` with a `voice:` message sid (`src/lib/voice/log-voice-call-notes.server.ts`).

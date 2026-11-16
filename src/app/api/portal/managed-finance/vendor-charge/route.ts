@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { getReportsAuthContext } from "@/lib/reports/auth";
 import { LedgerError } from "@/lib/managed-finance/ledger.server";
-import { gateAndPostManagedVendorBill, VENDOR_CHARGE_DAILY_AUTO_CAP_THRESHOLDS } from "@/lib/managed-finance/vendor-bills.server";
+import { VENDOR_CHARGE_DAILY_AUTO_CAP_THRESHOLDS } from "@/lib/managed-finance/vendor-bills.server";
+import { payBillFromBalance } from "@/lib/managed-finance/bill-pay.server";
+import { describeDuplicate } from "@/lib/finance/duplicate-payment";
 
 export const runtime = "nodejs";
 
@@ -48,11 +50,16 @@ export async function POST(req: Request) {
   if (!vendor) return NextResponse.json({ error: "Vendor not found." }, { status: 404 });
   const propertyId = typeof body.propertyId === "string" && body.propertyId.trim() ? body.propertyId.trim() : null;
   try {
-    const result = await gateAndPostManagedVendorBill(auth.db, {
-      workspaceId, vendorUserId, amountCents, title, propertyId, sourceType: "manual", sourceId: `${workspaceId}:${chargeKey}`,
+    // Pay from balance: the duplicate-payment guard, the workspace's approval threshold (default $500) and idempotency on the key.
+    const result = await payBillFromBalance(auth.db, {
+      workspaceId, vendorUserId, amountCents, title, propertyId, clientKey: chargeKey, dailyAutoApproveCapThresholds: VENDOR_CHARGE_DAILY_AUTO_CAP_THRESHOLDS,
+      overrideReason: typeof body.overrideReason === "string" ? body.overrideReason : null,
       vendorLabel: String((vendor as { full_name?: string; email?: string }).full_name || (vendor as { email?: string }).email || "Vendor"),
       jobDate: new Date().toISOString().slice(0, 10),
-    }, new Date(), { dailyAutoApproveCapThresholds: VENDOR_CHARGE_DAILY_AUTO_CAP_THRESHOLDS });
+    });
+    if (result.status === "duplicate") {
+      return NextResponse.json({ error: "This looks like a payment already made.", code: "DUPLICATE_PAYMENT", matches: result.matches.map(describeDuplicate) }, { status: 409 });
+    }
     if (result.status === "pending_owner") return NextResponse.json({ status: "pending_owner" }, { status: 202 });
     if (result.status === "declined") return NextResponse.json({ error: "The owner declined this charge.", code: "OWNER_DECLINED" }, { status: 409 });
     return NextResponse.json({ status: "posted" });

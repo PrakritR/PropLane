@@ -91,7 +91,7 @@ const LEGACY_DOCUMENTS_TAB_MAP: Record<string, string> = {
   "rental-days": "income-documents",
   library: "other",
 };
-const FINANCIALS_TABS = ["overview", "reports", "income-statement", "profitability", "income", "expenses", "trial-balance", "balance-sheet", "general-ledger", "cash-flow-statement", "payout-history", "owner-payouts", "trust-account-balance", "security-deposits", "financial-diagnostics", "ap-aging", "bills", "budget-vs-actual", "bank-reconciliation", "owner-statement", "owner-distributions"] as const;
+const FINANCIALS_TABS = ["overview", "reports", "income-statement", "profitability", "income", "expenses", "trial-balance", "balance-sheet", "general-ledger", "cash-flow-statement", "payout-history", "owner-payouts", "earnings", "trust-account-balance", "security-deposits", "financial-diagnostics", "ap-aging", "bills", "budget-vs-actual", "bank-reconciliation", "owner-statement", "owner-distributions"] as const;
 
 const MANAGER_INBOX_TABS = ["unopened", "opened", "schedule", "sent", "trash"] as const;
 
@@ -303,7 +303,7 @@ export async function renderPortalSectionWith(
     AdminCreateManagerClient, AdminCreateResidentClient, AdminAxisUsersClient, AdminTestWorkspacesClient,
     AdminEventsClient, AdminProfileSection, AdminCommunication,
     AdminBugFeedbackClient, AdminHealthClient, AdminPaymentsPanel, AdminUnassignedLeadsPanel, AdminServicePanel, AdminProplaneLinePanel, AdminPromoCodesPanel,
-    AdminFinancesPanel, AdminManagedFinancePanel, GrowthAdminClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
+    AdminFinancesPanel, AdminManagedFinancePanel, AdminPayoutsPanel, GrowthAdminClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
     ResidentFormsSection, ResidentCommunication, VendorCommunication, ResidentPaymentsPanel,
     ResidentDocumentsPanel, ResidentApplicationsPanel, ResidentStayRequest, ResidentTourPanel, ResidentLeasePanel,
     ResidentProfileSection, PortalBugFeedbackPanel, VendorDashboard, VendorWorkOrdersPanel, VendorTaskList,
@@ -798,6 +798,11 @@ export async function renderPortalSectionWith(
   if (kind === "admin" && section === "managed-finance") {
     if (tabParts?.length) notFound();
     return <AdminManagedFinancePanel />;
+  }
+
+  if (kind === "admin" && section === "payouts") {
+    if (tabParts?.length) notFound();
+    return <AdminPayoutsPanel />;
   }
 
   if (kind === "admin" && section === "growth") {

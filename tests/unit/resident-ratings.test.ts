@@ -246,8 +246,10 @@ describe("rating input and residency rules (pure)", () => {
     const approved = { bucket: "approved", application: {} };
     expect(assessResidency(approved, { leaseExecuted: false })).toEqual({ ok: false, reason: "no_lease_or_stay" });
     expect(assessResidency(approved, { leaseExecuted: true })).toEqual({ ok: true });
-    expect(assessResidency({ ...approved, manuallyAdded: true }, { leaseExecuted: false })).toEqual({ ok: true });
-    expect(assessResidency({ ...approved, bookingResidency: true }, { leaseExecuted: false })).toEqual({ ok: true });
+    expect(assessResidency(approved, { leaseExecuted: false, stayConfirmed: true })).toEqual({ ok: true });
+    // Self-attested row flags are manager-written and never tenancy evidence.
+    expect(assessResidency({ ...approved, manuallyAdded: true }, { leaseExecuted: false }).ok).toBe(false);
+    expect(assessResidency({ ...approved, bookingResidency: true }, { leaseExecuted: false }).ok).toBe(false);
     expect(assessResidency({ bucket: "pending" }, { leaseExecuted: true })).toEqual({ ok: false, reason: "not_approved" });
     expect(assessResidency({ ...approved, smsLead: true }, { leaseExecuted: true }).ok).toBe(false);
     expect(assessResidency({ ...approved, withdrawnAt: "2026-01-01" }, { leaseExecuted: true }).ok).toBe(false);
@@ -320,11 +322,38 @@ describe("rate permission", () => {
     expect(await saveManagerRating(asDb(db), OWNER, "AXIS-1001", { stars: 4 })).toMatchObject({ ok: false, status: 409 });
   });
 
-  it("a manager-onboarded tenant (manuallyAdded) with a proven account counts as a stay", async () => {
+  it("a manager-flagged tenant (manuallyAdded) with no lease or stay evidence cannot be rated", async () => {
     const db = fakeDb(
       baseSeed({ manager_application_records: [application({}, { manuallyAdded: true })], portal_lease_pipeline_records: [] }),
     );
-    expect(await saveManagerRating(asDb(db), OWNER, "AXIS-1001", { stars: 3 })).toMatchObject({ ok: true });
+    expect(await saveManagerRating(asDb(db), OWNER, "AXIS-1001", { stars: 3 })).toMatchObject({ ok: false, status: 409 });
+    expect(db.tables.resident_ratings).toHaveLength(0);
+  });
+
+  it("a confirmed stay stamped with this resident's login counts; another guest's or a hold does not", async () => {
+    const block = (rd: Row) => ({ id: "b1", property_id: "prop-a", record_type: "room_date_block", row_data: rd });
+    const run = async (rd: Row) => {
+      const db = fakeDb(
+        baseSeed({
+          manager_application_records: [application({}, { bookingResidency: true })],
+          portal_lease_pipeline_records: [],
+          portal_schedule_records: [block(rd)],
+        }),
+      );
+      return saveManagerRating(asDb(db), OWNER, "AXIS-1001", { stars: 3 });
+    };
+    expect(await run({ residentUserId: RESIDENT, bookingStatus: "confirmed", checkIn: "2026-01-01" })).toMatchObject({ ok: true });
+    expect(await run({ residentUserId: "someone-else", bookingStatus: "confirmed", checkIn: "2026-01-01" })).toMatchObject({ ok: false, status: 409 });
+    expect(await run({ residentUserId: RESIDENT, bookingStatus: "hold", checkIn: "2026-01-01" })).toMatchObject({ ok: false, status: 409 });
+  });
+
+  it("no proven account reads as an empty view and refuses writes generically (no account oracle)", async () => {
+    const db = fakeDb({ ...baseSeed(), profiles: [{ id: RESIDENT, email: "different@example.com" }] });
+    const read = await loadManagerRatingsView(asDb(db), OWNER, "AXIS-1001");
+    expect(read).toEqual({ ok: true, view: expect.objectContaining({ available: false, rateRefusal: null, canRate: false }) });
+    const write = await saveManagerRating(asDb(db), OWNER, "AXIS-1001", { stars: 3 });
+    expect(write).toMatchObject({ ok: false, status: 409 });
+    expect(JSON.stringify(write)).not.toMatch(/no PropLane account/i);
   });
 
   it("a Viewer seat cannot rate: Residents must be granted at edit on this house", async () => {

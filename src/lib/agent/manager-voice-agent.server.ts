@@ -3,7 +3,7 @@
  * with spoken replies instead of texted ones.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { buildManagerSmsRegistry, MANAGER_INLINE_WRITE_TOOLS } from "@/lib/tools";
+import { buildManagerSmsRegistry } from "@/lib/tools";
 import type { AgentContext } from "@/lib/tools/context";
 import { PROMPT_IDS } from "@/lib/agent/prompt-metadata";
 import { MANAGER_SMS_AGENT_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
@@ -28,7 +28,9 @@ export type ManagerVoiceTurn = SmsAgentTurn;
 const VOICE_ADDENDUM =
   "You are speaking on a phone call, not texting. Keep replies concise and easy to hear. " +
   "When offering tour times, read at most three options unless asked for more. " +
-  "Always call list_open_tour_slots before quoting availability.";
+  "Always call list_open_tour_slots before quoting availability. " +
+  "Calls are read-only: you cannot change, send, schedule or approve anything by voice. " +
+  "For any change, tell the caller to use the portal or to text this number.";
 
 const MANAGER_VOICE_SURFACE: SmsAgentSurface = {
   sessionKind: "manager_voice",
@@ -41,7 +43,8 @@ const MANAGER_VOICE_SURFACE: SmsAgentSurface = {
     messageOut: "manager_voice_message_out",
     actionProposed: "manager_voice_action_proposed",
   },
-  allowWriteTools: MANAGER_INLINE_WRITE_TOOLS,
+  // Voice is read-only: no write tool is ever proposed on a call (see the registry below).
+  allowWriteTools: [],
   maxReplyChars: 900,
   messageChannel: "voice",
 };
@@ -81,7 +84,9 @@ export async function runManagerVoiceAgentTurn(
   const turn = await runSmsAgentTurn<AgentContext>(db, {
     ctx: args.ctx,
     surface,
-    registry: buildManagerSmsRegistry(access),
+    // Caller ID (Twilio `From`) is spoofable and a call has no second factor, so a manager/admin identity resolved
+    // from it may READ but never write: the manager SMS registry with every write tool withheld.
+    registry: buildManagerSmsRegistry(access, { readOnly: true }),
     sessionLandlordId: args.ctx.landlordId,
     phoneE164: args.managerPhoneE164,
     inboundText: args.inboundText,

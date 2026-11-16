@@ -4,6 +4,7 @@ import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { alertManagerOfOwnerEvent } from "@/lib/owner-management/alerts.server";
 import { LedgerError } from "@/lib/managed-finance/ledger.server";
+import { reverseSplitsForRefund } from "@/lib/managed-finance/splits.server";
 
 /**
  * Refunds and disputes against a PropLane-managed workspace's captured rent. Both reverse the owner / fee split in the party
@@ -57,6 +58,8 @@ export async function applyManagedRefund(db: SupabaseClient, refund: Stripe.Refu
   if (error || !result || (result.status !== "created" && result.status !== "exists")) {
     throw new LedgerError(409, `A managed refund could not be applied (${result?.reason ?? error?.message ?? "refused"}).`);
   }
+  // A payout split pays out of the owner's share, so a refund takes the same pro-rata part back from each payee.
+  await reverseSplitsForRefund(db, { allocationId: alloc.id, refundId: refund.id });
   return true;
 }
 

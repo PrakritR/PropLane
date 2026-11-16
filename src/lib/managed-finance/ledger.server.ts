@@ -64,7 +64,8 @@ export type PostJournalInput = {
   workspaceId: string | null;
   kind:
     | "rent_capture" | "refund" | "dispute_opened" | "dispute_won" | "dispute_lost" | "vendor_bill" | "vendor_bill_reversal"
-    | "withdrawal_reserve" | "withdrawal_complete" | "withdrawal_failed" | "adjustment" | "directory_claim";
+    | "withdrawal_reserve" | "withdrawal_complete" | "withdrawal_failed" | "adjustment" | "directory_claim"
+    | "split_allocation" | "split_reversal";
   key: string;
   sourceType?: string | null;
   sourceId?: string | null;

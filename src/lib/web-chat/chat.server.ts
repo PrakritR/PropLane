@@ -78,7 +78,7 @@ export interface WebChatDeps {
   phone: {
     sendCode(input: { listing: MessageListing; phoneKey: string; subjectId: string }): Promise<{ ok: true } | { ok: false; reason: "rate_limited" | "unavailable" | "failed" }>;
     verifyCode(input: { phoneKey: string; subjectId: string; code: string; now: Date }): Promise<{ ok: true } | { ok: false; reason: "locked" | "wrong" }>;
-    markVerified(input: { phoneE164: string }): Promise<void>;
+    markVerified(input: { phoneE164: string; smsConsent: boolean }): Promise<void>;
     stitch(input: { workspaceId: string; visitorId: string; phoneE164: string }): Promise<StitchResult | null>;
   };
 }
@@ -199,7 +199,7 @@ export async function sendWebChatPhoneCode(
  */
 export async function verifyWebChatPhone(
   deps: WebChatDeps,
-  input: { visitorId: string; ip: string; propertyId: string; phone: string; otp: string },
+  input: { visitorId: string; ip: string; propertyId: string; phone: string; otp: string; smsConsent?: boolean },
 ): Promise<WebChatOutcome<{ merged: boolean }>> {
   const L = WEB_CHAT_LIMITS;
   const phoneKey = publicBindPhoneKey(input.phone);
@@ -219,7 +219,7 @@ export async function verifyWebChatPhone(
     return { ok: false, status: 400, error: "That code did not work." };
   }
   const at = deps.now().toISOString();
-  await deps.phone.markVerified({ phoneE164 });
+  await deps.phone.markVerified({ phoneE164, smsConsent: input.smsConsent === true });
   const stitched = await deps.phone.stitch({ workspaceId: listing.workspaceId, visitorId: input.visitorId, phoneE164 });
   await deps.sessions.patch(session.id, { phoneE164, phoneVerifiedAt: at, ...(stitched && stitched.ok ? { threadId: stitched.threadId } : {}) });
   return { ok: true, merged: Boolean(stitched && stitched.ok) };
@@ -344,8 +344,10 @@ export function createWebChatDeps(db: SupabaseClient): WebChatDeps {
         if (verified.ok) return { ok: true };
         return { ok: false, reason: verified.reason === "locked" ? "locked" : "wrong" };
       },
-      async markVerified({ phoneE164 }) {
-        await recordOptIn(db, phoneE164, null, "web-chat").catch(() => undefined);
+      async markVerified({ phoneE164, smsConsent }) {
+        // A code proves the phone (the thread merge); only the visitor's own tick on the carrier consent box
+        // (`SmsConsentCheckbox`, unchecked by default) records an SMS opt-in.
+        if (smsConsent) await recordOptIn(db, phoneE164, null, "web-chat").catch(() => undefined);
         await upsertPhoneContact(db, { phoneE164, verified: true, source: "web_chat" }).catch(() => undefined);
       },
       async stitch({ workspaceId, visitorId, phoneE164 }) {

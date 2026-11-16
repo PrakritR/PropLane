@@ -9,6 +9,7 @@ import { GrowthAdminClient } from "@/components/portal/growth-admin-client";
 import { AdminHealthClient } from "@/components/portal/admin-health-client";
 import { AdminFinancesPanel } from "@/components/portal/admin-finances-panel";
 import { AdminManagedFinancePanel } from "@/components/portal/admin-managed-finance-panel";
+import { AdminPayoutsPanel } from "@/components/portal/admin-payouts-panel";
 import { AdminPaymentsPanel } from "@/components/portal/admin-payments-panel";
 import { AdminPromoCodesPanel } from "@/components/portal/admin-promo-codes-panel";
 import { AdminUnassignedLeadsPanel } from "@/components/portal/admin-unassigned-leads-panel";
@@ -32,6 +33,7 @@ const panels: PortalPanels = {
   AdminHealthClient,
   AdminFinancesPanel,
   AdminManagedFinancePanel,
+  AdminPayoutsPanel,
   AdminPaymentsPanel,
   AdminPromoCodesPanel,
   AdminUnassignedLeadsPanel,

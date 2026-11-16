@@ -18,6 +18,8 @@ import {
 
 export const GUEST_LINKS_PER_PHONE_PER_HOUR = 3;
 export const GUEST_LINKS_PER_SUBJECT_PER_HOUR = 5;
+/** A tour inquiry has no proof it came from the same browser, so one workspace's tour links are capped as a whole. */
+export const GUEST_TOUR_LINKS_PER_WORKSPACE_PER_HOUR = 20;
 const HOUR_MS = 60 * 60 * 1000;
 
 export type GuestSignupSendInput =
@@ -74,6 +76,9 @@ export async function sendGuestSignupLink(db: SupabaseClient, input: GuestSignup
   const keys = [
     [`guest-signup-link-phone:${phoneRateKey(phone)}`, GUEST_LINKS_PER_PHONE_PER_HOUR],
     [`guest-signup-link-subject:${hashGuestDraftToken(subjectId).slice(0, 32)}`, GUEST_LINKS_PER_SUBJECT_PER_HOUR],
+    ...(input.kind === "tour"
+      ? ([[`guest-signup-link-tour-ws:${hashGuestDraftToken(listing.workspaceId).slice(0, 32)}`, GUEST_TOUR_LINKS_PER_WORKSPACE_PER_HOUR]] as const)
+      : []),
   ] as const;
   for (const [key, max] of keys) {
     if (!(await rateLimit(key, max, HOUR_MS)).ok) return { ok: false, status: 429, error: "Too many links were sent. Try again in an hour." };

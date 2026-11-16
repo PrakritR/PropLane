@@ -101,6 +101,7 @@ export const EXTERNAL_EXCLUDED_TOOL_NAMES = new Set([
   "dispatch_vendor",
   "message_vendor",
   "post_service_to_board",
+  "post_gig",
   "announce_to_house",
   "update_room_block",
   // Manager operations by text (one-number W8): they answer a texting manager and stay on the assistants.

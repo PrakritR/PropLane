@@ -31,6 +31,10 @@ describe("parseWebChatRequest", () => {
     expect(parseWebChatRequest({ action: "phone_code", propertyId: "p", phone: "(206) 555-0142" })).toMatchObject({ ok: true });
     expect(parseWebChatRequest({ action: "phone_verify", propertyId: "p", phone: "2065550142", otp: "12 34 56" })).toMatchObject({ ok: true, value: { otp: "123456" } });
     expect(parseWebChatRequest({ action: "phone_verify", propertyId: "p", phone: "2065550142", otp: "" })).toMatchObject({ ok: false });
+    // SMS consent is only ever the visitor's own explicit tick: anything but `true` is no consent.
+    expect(parseWebChatRequest({ action: "phone_verify", propertyId: "p", phone: "2065550142", otp: "123456" })).toMatchObject({ ok: true, value: { smsConsent: false } });
+    expect(parseWebChatRequest({ action: "phone_verify", propertyId: "p", phone: "2065550142", otp: "123456", smsConsent: "yes" })).toMatchObject({ ok: true, value: { smsConsent: false } });
+    expect(parseWebChatRequest({ action: "phone_verify", propertyId: "p", phone: "2065550142", otp: "123456", smsConsent: true })).toMatchObject({ ok: true, value: { smsConsent: true } });
     expect(parseWebChatRequest({ action: "wat", propertyId: "p" })).toMatchObject({ ok: false });
   });
 

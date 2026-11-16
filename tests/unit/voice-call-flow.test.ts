@@ -41,6 +41,14 @@ describe("what a caller says", () => {
     expect(spokenConsentDeclined("")).toBe(false);
     expect(spokenConsentGivenLoosely("")).toBe(false);
   });
+
+  it("never reads a qualified okay as consent to record", () => {
+    expect(spokenConsentGivenLoosely("Okay.")).toBe(true);
+    expect(spokenConsentGivenLoosely("okay, but don't record me")).toBe(false);
+    expect(spokenConsentGivenLoosely("fine without recording")).toBe(false);
+    expect(spokenConsentGivenLoosely("sure not recorded please")).toBe(false);
+    expect(spokenConsentGivenLoosely("okay so I was wondering about the room on brooklyn")).toBe(false);
+  });
 });
 
 describe("which pages are texted after the call", () => {

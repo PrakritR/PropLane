@@ -13,6 +13,7 @@
 import { MessageCircle, Phone, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { SmsConsentCheckbox } from "@/components/marketing/sms-consent-checkbox";
 import { CodeInput } from "@/components/public/phone-bound-link-ui";
 import { useIsClient } from "@/hooks/use-is-client";
 import { createCoalescedRefresher } from "@/lib/coalesced-refresh";
@@ -66,6 +67,7 @@ export function WebChatLauncher({ propertyId, roomId = null, label }: { property
   const [verified, setVerified] = useState(false);
   const [phoneStep, setPhoneStep] = useState<"hidden" | "phone" | "code">("hidden");
   const [phone, setPhone] = useState("");
+  const [smsConsent, setSmsConsent] = useState(false);
   const [otp, setOtp] = useState("");
   const hasTurns = turns.length > 0;
   const lastActivity = useRef(0);
@@ -221,7 +223,7 @@ export function WebChatLauncher({ propertyId, roomId = null, label }: { property
     if (busy || otp.length !== 6) return;
     setBusy(true);
     setError("");
-    const result = await call({ action: "phone_verify", phone, otp });
+    const result = await call({ action: "phone_verify", phone, otp, smsConsent });
     setBusy(false);
     if (!result.ok) return setError(result.error ?? "That code did not work.");
     setVerified(true);
@@ -289,6 +291,7 @@ export function WebChatLauncher({ propertyId, roomId = null, label }: { property
                         <span>Phone</span>
                         <input className="ps-input" type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} data-attr="web-chat-phone" />
                       </label>
+                      <SmsConsentCheckbox checked={smsConsent} onChange={setSmsConsent} inputId="web-chat-sms-consent" ps />
                       <button type="button" className="ps-btn ps-btn-blue" disabled={busy || !phoneLooksComplete(phone)} onClick={() => void requestCode()} data-attr="web-chat-phone-send">
                         Text me a code
                       </button>

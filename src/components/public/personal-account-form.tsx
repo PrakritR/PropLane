@@ -1,5 +1,6 @@
 "use client";
 
+import { isUnsafeRedirectPath } from "@/lib/auth/normalize-post-auth-path";
 import Link from "next/link";
 import { useState } from "react";
 import { DoorButton, DoorShell } from "@/components/public/phone-bound-link-ui";
@@ -36,7 +37,7 @@ export function PersonalAccountForm({ token, prefill }: { token: string; prefill
         body: JSON.stringify({ fullName, email, ...(provider ? { provider } : { password }) }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string; nextPath?: string; propertyPath?: string | null; signedIn?: boolean };
-      if (res.ok && typeof data.nextPath === "string") {
+      if (res.ok && typeof data.nextPath === "string" && !isUnsafeRedirectPath(data.nextPath)) {
         return { nextPath: data.nextPath, propertyPath: data.propertyPath ?? null, signedIn: data.signedIn === true };
       }
       if (res.status === 409) setNeedsSignIn(true);

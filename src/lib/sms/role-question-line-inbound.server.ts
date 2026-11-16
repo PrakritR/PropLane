@@ -18,6 +18,7 @@ import {
   roleQuestionFor,
   withOptOut,
 } from "@/lib/sms/propline-first-text";
+import { startManagerSignupByText } from "@/lib/one-number/signup/flow.server";
 import { ensureRecipientInitiatedReplyConsent } from "@/lib/sms/signup-line-inbound.server";
 import { loadWorkspaceById } from "@/lib/workspaces/active.server";
 
@@ -136,7 +137,11 @@ export async function handleRoleQuestionInbound(
       reply = RESIDENT_NOT_FOUND_REPLY;
     } else if (role === "manage") {
       await saveOnboardingState(db, phoneKey, { role: "landlord", stage: "finish_sent", askedAt: null }, now).catch(() => false);
-      reply = MANAGE_OWN_REPLY;
+      // A landlord is walked through the free account by text (name, business, homes, code), then their first home.
+      // Nothing is created before the phone proves itself; an existing account, a sign-up in progress or a busy line
+      // keeps the plain create-account link.
+      const started = serviceLine ? await startManagerSignupByText(db, { phoneE164: phone }).catch(() => null) : null;
+      reply = started?.started ? started.reply : MANAGE_OWN_REPLY;
     } else if (role === "looking") {
       await saveOnboardingState(db, phoneKey, { role: "searcher", askedAt: null }, now).catch(() => false);
       return { handled: false };

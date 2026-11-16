@@ -138,6 +138,17 @@ describe("ingestNonPhoneSenderText", () => {
     expect(again.stored).toBe(false);
     expect(db.rows).toHaveLength(1);
   });
+  it("caps ops text alerts per sender per hour: over the cap the message is still stored, the alert is skipped", async () => {
+    const db = fakeDb();
+    const results = [];
+    for (let i = 0; i < 7; i++) {
+      results.push(await ingestNonPhoneSenderText(db as never, { from: { kind: "alphanumeric", sender: "SPAMMER" }, toPhone: LINE, body: `msg ${i}`, messageSid: `SMcap${i}` }));
+    }
+    expect(results.every((r) => r.stored)).toBe(true);
+    expect(db.rows).toHaveLength(7);
+    expect(results.filter((r) => r.alerted > 0)).toHaveLength(5);
+    expect(mocks.sendText).toHaveBeenCalledTimes(5);
+  });
   it("ignores a text to a number that is not the PropLane line", async () => {
     mocks.owned.mockResolvedValue({ managerId: "someone-else", workspaceId: null, messagingServiceSid: "MG1" });
     const db = fakeDb();

@@ -12,12 +12,12 @@ export async function GET(request: Request) {
   const result = await requireKnowledgeActor("read");
   if (!result.ok) return result.response;
   const { actor } = result;
-  return handleAssistantReviewGet({ db: actor.db, userId: actor.userId, workspaceId: actor.workspaceId, ownerUserId: actor.ownerUserId }, new URL(request.url));
+  return handleAssistantReviewGet({ db: actor.db, userId: actor.userId, workspaceId: actor.workspaceId, ownerUserId: actor.ownerUserId, allowedPropertyIds: actor.allowedPropertyIds }, new URL(request.url));
 }
 
 export async function POST(request: Request) {
   const result = await requireKnowledgeActor("edit");
   if (!result.ok) return result.response;
   const { actor } = result;
-  return handleAssistantReviewPost({ db: actor.db, userId: actor.userId, workspaceId: actor.workspaceId, ownerUserId: actor.ownerUserId }, request);
+  return handleAssistantReviewPost({ db: actor.db, userId: actor.userId, workspaceId: actor.workspaceId, ownerUserId: actor.ownerUserId, allowedPropertyIds: actor.allowedPropertyIds }, request);
 }

@@ -299,6 +299,14 @@ describe("get_resident_snapshot", () => {
     expect(JSON.stringify(out)).not.toContain("$950.00");
   });
 
+  it("withholds the monthly rent from a seat with neither the Leases nor the Payments grant", async () => {
+    const noMoney = { ...delegatedAccess, permissionsByOwner: { [A]: { p_a1: { residents: true, services: true } } } };
+    const out = (await getResidentSnapshotTool.handler(makeManagerRowsCtx(tables(), { managerSmsAccess: noMoney as never }), { q: "priya" })) as { residents: Array<{ monthlyRent: unknown }> };
+    expect(out.residents[0]!.monthlyRent).toBeNull();
+    const withLeases = (await getResidentSnapshotTool.handler(makeManagerRowsCtx(tables(), { managerSmsAccess: delegatedAccess as never }), { q: "priya" })) as { residents: Array<{ monthlyRent: unknown }> };
+    expect(withLeases.residents[0]!.monthlyRent).toBe("$950");
+  });
+
   it("says so when nobody matches", async () => {
     expect(((await getResidentSnapshotTool.handler(makeManagerRowsCtx(tables()), { q: "nobody" })) as { count: number }).count).toBe(0);
   });

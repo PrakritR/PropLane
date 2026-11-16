@@ -33,6 +33,8 @@ export const adminPortal: PortalDefinition = {
     { section: "finances", label: "Finances", tabs: [] },
     // PropLane-held owner and vendor funds: platform cash, what is owed, fee policies per managed workspace (owner management).
     { section: "managed-finance", label: "Managed funds", tabs: [] },
+    // Every PropLane-held balance, payout split rules per managed workspace, held / failed payouts with reasons, the staff audit.
+    { section: "payouts", label: "Payouts", tabs: [] },
     // SERVICE (PropLane's own managed portfolio, one-number W15) is ONE sidebar row (`ADMIN_SECTION_TABS.service`)
     // whose tabs are these three sections: the service workspaces (one per city, owned by the service owner account;
     // the tab is labelled Workspaces and keeps its own Workspaces / Vendors / Network tabs), the PropLane line (the
@@ -78,6 +80,7 @@ export const ADMIN_PORTAL_SMOKE_PATHS = [
   { label: "PropLane line", path: "/admin/proplane-line" },
   { label: "Unassigned leads", path: "/admin/unassigned-leads" },
   { label: "Managed funds", path: "/admin/managed-finance" },
+  { label: "Payouts", path: "/admin/payouts" },
   { label: "Accounts", path: "/admin/axis-users" },
   { label: "Payments", path: "/admin/payments" },
   { label: "Promo codes", path: "/admin/promo-codes" },

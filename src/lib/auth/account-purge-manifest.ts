@@ -1151,6 +1151,18 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     resident: { detachEmails: ["resident_email"] },
   },
   {
+    // Payout splits (docs/agents/owner-management.md § Payouts and splits): a rule is void without its payee, so it goes with them.
+    table: "managed_split_rules",
+    phase: 1,
+    manager: { ids: ["payee_user_id"] },
+  },
+  {
+    // What each rule paid out of each payment: financial history (the ledger journal is the money truth). A deleted payee is detached.
+    table: "managed_split_allocations",
+    phase: 1,
+    manager: { detachIds: ["payee_user_id"] },
+  },
+  {
     table: "owner_expenses",
     phase: 1,
     manager: { detachIds: ["owner_user_id"] },
@@ -1186,6 +1198,26 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["user_id"] },
     vendor: { ids: ["user_id"] },
     resident: { ids: ["user_id"] },
+  },
+  {
+    // PropLane Jobs (Nov 15): a priced job a manager posted. The manager owns it (it goes with their service); the vendor
+    // who took it is only referenced, so deleting that vendor detaches the pointer and leaves the manager's record.
+    table: "gig_posts",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+    vendor: { detachIds: ["accepted_vendor_user_id"] },
+  },
+  {
+    // One row per vendor a job was offered to; a child of gig_posts (cascades) and the vendor's own history.
+    table: "gig_offers",
+    phase: 1,
+    vendor: { ids: ["vendor_user_id"] },
+  },
+  {
+    // "Add your first home" by text: the landlord's in-progress answers, keyed on the phone and naming the login.
+    table: "sms_first_home_sessions",
+    phase: 1,
+    manager: { ids: ["user_id"] },
   },
   {
     // Short stays by text: the options quoted to a texter for one manager's listing, held until a YES books them.
@@ -1559,6 +1591,9 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   party_ledger_lines: "Lines of party_ledger_journals (cascade from the journal); party keys are text, kept as financial history.",
   party_withdrawals: "Owner / vendor withdrawal records keyed on a text party key; money history kept after the account is gone.",
   owner_ledger_flags: "Daily reconciliation flags; carry no account column.",
+  payout_staff_actions: "Append-only staff audit of payout holds, retries, split-rule edits and bill thresholds; the actor detaches (on delete set null), the row is kept as the audit.",
+  managed_payout_holds: "Staff holds on a text party key (owner:<id> / vendor:<id>); cascade with the workspace, the audit row in payout_staff_actions is the record.",
+  managed_payout_settings: "Per-workspace bill-pay approval threshold; cascades with the workspace.",
   phone_bound_links: "Phone-bound signed links; keyed on a phone, cascade with the workspace.",
   phone_bound_link_sessions: "Verified link sessions; cascade with the link.",
   phone_otp_challenges: "Hashed one-time codes keyed on a phone; expire in minutes.",

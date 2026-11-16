@@ -15,7 +15,9 @@ import { profilePhoneVariants } from "@/lib/sms-consent";
 import { parseNameFromInboundText } from "@/lib/sms/inbound-text-classification";
 import { phoneKeyOf } from "@/lib/sms/phone-key";
 import { buildVendorLineContext } from "@/lib/tools/vendor-line-context";
-import { listOpenJobsNearTool } from "@/lib/tools/domains/vendor-line";
+import { listOpenGigsNearTool, listOpenJobsNearTool } from "@/lib/tools/domains/vendor-line";
+import { handleGigReplyText } from "@/lib/jobs/gig-offers.server";
+import { parseGigReply } from "@/lib/jobs/gig-parse";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 
 /**
@@ -141,6 +143,21 @@ export async function handlePropLaneVendorText(
   const now = (deps.now ?? (() => new Date()))();
   const phoneKey = phoneKeyOf(phone);
 
+  // PropLane Jobs: "YES", "YES K7Q2" or "NO" answering a priced job we texted (or one listed below). Read by code; a bare YES
+  // needs exactly one open offer for THIS verified vendor, a stranger is only invited to sign up (never accepted).
+  if (parseGigReply(body)) {
+    const accountForReply = await resolveVendorAccountByPhone(db, phone);
+    const gigTurn = await handleGigReplyText(db, {
+      vendorUserId: accountForReply?.userId ?? null,
+      body,
+      signupLink: async () => {
+        const minted = await mintSetupLink(db, { kind: "vendor", phoneKey, context: { source: "direct" }, origin: deps.origin, now });
+        return minted.ok ? minted.url : null;
+      },
+    }, { now: () => now, origin: deps.origin }).catch(() => ({ handled: false as const }));
+    if (gigTurn.handled) return { handled: true, reply: gigTurn.reply, vendorUserId: gigTurn.vendorUserId, leadId: null };
+  }
+
   // Looking for a place to live is never a vendor turn, however this phone was read before. Intent is decided per
   // MESSAGE (captain, Oct 19): a live `sms_vendor_leads` row has no expiry, so without this escape one "handyman
   // here" locked that phone out of the catalog search for good.
@@ -203,9 +220,19 @@ export async function handlePropLaneVendorText(
     } catch (error) {
       console.error("vendor line job list failed", error instanceof Error ? error.message : "unknown");
     }
+    // The priced PropLane Jobs among the open ones, each with the code a YES answers with. A job shown there is not repeated below.
+    const gigsNear = listed && !(unknownArea && !areaText)
+      ? await listOpenGigsNearTool.handler(ctx, { ...(boardTrade ? { trade: boardTrade as (typeof VENDOR_TRADE_OPTIONS)[number] } : {}), ...(areaText ? { area: areaText } : {}) }).catch(() => null)
+      : null;
+    const dupes = new Set(gigsNear?.duplicateKeys ?? []);
+    if (listed && dupes.size > 0) {
+      const kept = listed.jobs.filter((j) => !dupes.has(`${j.trade}|${j.area}|${j.when}`));
+      listed = { ...listed, jobs: kept, total: Math.max(kept.length, listed.total - (listed.jobs.length - kept.length)) };
+    }
     reply = listed
       ? composeVendorJobsReply({
           firstReply,
+          gigs: gigsNear?.gigs.map((g) => ({ code: g.code, line: g.line })),
           jobs: unknownArea && !areaText ? [] : listed.jobs,
           total: unknownArea && !areaText ? 0 : listed.total,
           placeLabel: listed.place?.label ?? null,

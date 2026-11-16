@@ -188,6 +188,7 @@ describe("managed read-only policy", () => {
       "/api/auth",
       "/api/bug-feedback-attachments",
       "/api/cron",
+      "/api/earnings",
       "/api/internal",
       "/api/manager/payment-methods",
       "/api/manager/plan-addons",

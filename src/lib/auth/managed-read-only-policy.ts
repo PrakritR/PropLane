@@ -33,6 +33,8 @@ export const MANAGED_READ_ONLY_ALLOWED_PATHS: readonly string[] = [
   "/api/number-subscription",
   // her own money and the fee-policy sign
   "/api/owner/finances",
+  // Earnings: her own balance, report and withdrawal (the server derives whose balance from the session)
+  "/api/earnings",
   "/api/owner/messages",
   "/api/portal/proplane-balance/withdraw",
   // her other portals

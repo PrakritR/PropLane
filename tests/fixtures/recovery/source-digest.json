@@ -1,5 +1,5 @@
 {
-  "sha256": "e553d2d32e5c2a6107c762ec46a781cca0cae2bfccfb6f7a080783e24513da0a",
+  "sha256": "5fedf882142c3ccab8640da385472a4a8d66d959c77f7e4fbd8c945ad800bfac",
   "selection": "SQL migrations containing account_recovery_, resident_move_in_forms, CREATE/DROP/ALTER TABLE and admin_team_atomic_revoke; plus purge manifest and recovery policy",
   "missing_dev_catalog": [
     "applicant_preapply_checks",
@@ -13,8 +13,8 @@
   ],
   "reviewed_change": {
     "date": "2026-11-15",
-    "reason": "Nov 15 round: 20261115100000 adds web_chat_sessions (a Quick chat visitor; service-role only, RLS on, classified in ACCOUNT_PURGE_RETAINED) and widens two check constraints; 20261115110000 finance phase A adds manager_recurring_payables (owner-scoped, purged and moved with the workspace) plus additive expense/vendor columns; 20261115120000 adds assistant_thread_reviews (workspace-scoped flag/correct/pause rows, purged, cascades with the workspace, moved by the managed mover). The mover classification (20261112230000, not yet applied beyond dev) gains both tables. None of these tables is in the historical dev hook catalog, which is unchanged.",
-    "selected_source_paths": 352,
-    "previous_sha256": "6e743d68bd6a8b4b8b06d8270e65e4fef2bdf47c4036a55cb1f93d871a4b571b"
+    "reason": "Nov 15 round: 20261115100000 adds web_chat_sessions (a Quick chat visitor; service-role only, RLS on, classified in ACCOUNT_PURGE_RETAINED) and widens two check constraints; 20261115110000 finance phase A adds manager_recurring_payables (owner-scoped, purged and moved with the workspace) plus additive expense/vendor columns; 20261115120000 adds assistant_thread_reviews (workspace-scoped flag/correct/pause rows, purged, cascades with the workspace, moved by the managed mover). The mover classification (20261112230000, not yet applied beyond dev) gains both tables. None of these tables is in the historical dev hook catalog, which is unchanged. Payout splits round: 20261115130000 payout_splits widens the party_ledger_journals kind check and adds five service-role-only tables (managed_split_rules and managed_split_allocations, purged / detached on account deletion; managed_payout_holds, payout_staff_actions and managed_payout_settings, retained with reasons, no client grants, RLS on); the mover classification keeps the two payee-keyed tables. None is in the historical dev hook catalog, which is unchanged. PropLane Jobs round: 20261115140000 propline_jobs adds gig_posts (purged, vendor pointer detached, moved with the managed workspace), gig_offers (purged for the vendor, cascades from gig_posts) and sms_first_home_sessions (purged); all service-role only, RLS on, additive. None is in the historical dev hook catalog, which is unchanged. Payout splits round: 20261115130000 payout_splits widens the party_ledger_journals kind check and adds five service-role-only tables (managed_split_rules and managed_split_allocations, purged / detached on account deletion; managed_payout_holds, payout_staff_actions and managed_payout_settings, retained with reasons, no client grants, RLS on); the mover classification keeps the two payee-keyed tables. None is in the historical dev hook catalog, which is unchanged.",
+    "selected_source_paths": 354,
+    "previous_sha256": "5fedf882142c3ccab8640da385472a4a8d66d959c77f7e4fbd8c945ad800bfac"
   }
 }

@@ -86,7 +86,8 @@ describe("the manager conversation, one question per text", () => {
     // Nothing is created on the strength of the caller id alone.
     expect(w.provisioned).toHaveLength(0);
     const r6 = await turn(code);
-    expect(r6).toBe("You're set, Jane. Your PropLane account is ready. Manage everything right here by text, or open your portal: https://proplane.ai/auth/confirm?token_hash=HASH&type=magiclink");
+    // A new landlord goes straight on to their first home in the same conversation (docs/agents/one-number.md, PropLane Jobs).
+    expect(r6).toBe("You're set, Jane. Your PropLane account is ready. Manage everything right here by text, or open your portal: https://proplane.ai/auth/confirm?token_hash=HASH&type=magiclink Want to add your first home now? Text its street address, like 4709A 8th Ave. Or reply LATER.");
     expect(w.provisioned).toHaveLength(1);
     expect(w.provisioned[0]).toMatchObject({
       phoneE164: PHONE,

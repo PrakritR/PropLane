@@ -1999,6 +1999,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       toPhone,
       messageSid,
       body,
+      hasMedia: (Number(media.NumMedia) || 0) > 0,
     });
     if (signupLine.handled) {
       mark("route:signup-line");

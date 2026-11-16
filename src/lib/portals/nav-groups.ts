@@ -119,7 +119,7 @@ export const ADMIN_SECTION_TABS: Record<string, AdminSectionTabGroup> = {
   // is keyed on `service`, which the native bottom bar also uses. The "Property management" heading and the
   // all-owners Properties list are gone.
   service: { label: "Service", sections: ["service", "proplane-line", "unassigned-leads"] },
-  money: { label: "Money", sections: ["payments", "promo-codes", "finances", "managed-finance"] },
+  money: { label: "Money", sections: ["payments", "promo-codes", "finances", "managed-finance", "payouts"] },
   support: { label: "Support", sections: ["bugs-feedback", "events", "health"] },
 };
 

@@ -15,6 +15,7 @@ import { pacificDayKey } from "@/lib/house-groups/time";
 import { policyEndBoundary, type PolicyRow } from "@/lib/owner-management/policies.server";
 import { verifiedCapturedChargeAvailability } from "@/lib/platform-owner-recovery.server";
 import { LedgerError } from "@/lib/managed-finance/ledger.server";
+import { applySplitsForPaymentIntent } from "@/lib/managed-finance/splits.server";
 
 /**
  * Allocate one verified platform capture of a managed workspace's resident payment to owner / PropLane / deposits. The
@@ -238,6 +239,9 @@ export async function creditManagedCapture(
     if (error || !result) throw new LedgerError(500, "Could not allocate the payment.");
     if (result.status === "conflict") continue;
     if (result.status === "created" || result.status === "exists") {
+      // Payout splits: divide the owner's share by the rules in force on the payment date. Idempotent per payment, so it also runs
+      // on a replay (`exists`); a failure throws and Stripe redelivers, which finishes the split. Never skipped.
+      await applySplitsForPaymentIntent(db, { workspaceId: policy.workspaceId, paymentIntentId: input.paymentIntentId });
       return { status: result.status, journalId: String(result.journal_id) };
     }
     throw new LedgerError(409, `The payment could not be allocated (${result.reason ?? "refused"}).`, result.reason);

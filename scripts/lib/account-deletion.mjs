@@ -196,6 +196,9 @@ export const DELETE_ORDER = [
   "sms_vendor_leads",
   "sms_setup_links",
   "sms_signup_sessions",
+  "sms_first_home_sessions",
+  "gig_offers",
+  "gig_posts",
   "sms_stay_offers",
   "inbound_sms_log",
   "house_group_messages",
@@ -322,6 +325,8 @@ export const DELETE_ORDER = [
   // Owner management (docs/agents/owner-management.md): the owner-side rows; the party ledger itself is retained financial history.
   "owner_expenses",
   "owner_statements",
+  "managed_split_allocations",
+  "managed_split_rules",
   "managed_rent_allocations",
   "managed_workspace_fee_policies",
   "mcp_oauth_authorization_codes",

@@ -93,18 +93,19 @@ function ymd(value: string | null | undefined): string {
 
 /**
  * Has this person REALLY lived (or be living) in the rater's workspace? An approved application is not a stay: the
- * tenancy starts at the executed lease, an approved guest booking, or a manager's own onboarding of an existing
- * tenant (`manuallyAdded`, the same signals `residentDirectoryStage` uses). A move-in date still in the future is not
- * a stay yet. `leaseExecuted` is the server's answer from the lease pipeline, never the request's.
+ * tenancy starts at the executed lease or a confirmed short stay whose server-stamped guest login is this person.
+ * `manuallyAdded` and `bookingResidency` live in `row_data` the manager writes, so they are never evidence. A move-in
+ * date still in the future is not a stay yet. `leaseExecuted` and `stayConfirmed` are the server's answers from the
+ * lease pipeline and the stay rows, never the request's.
  */
 export function assessResidency(
   facts: RatingApplicationFacts,
-  evidence: { leaseExecuted: boolean; today?: string },
+  evidence: { leaseExecuted: boolean; stayConfirmed?: boolean; today?: string },
 ): { ok: true } | { ok: false; reason: ResidencyRefusal } {
   if (facts.smsLead || facts.withdrawnAt || facts.mergedInto || facts.bucket !== "approved") {
     return { ok: false, reason: "not_approved" };
   }
-  const tenancy = evidence.leaseExecuted || facts.manuallyAdded === true || facts.bookingResidency === true;
+  const tenancy = evidence.leaseExecuted || evidence.stayConfirmed === true;
   if (!tenancy) return { ok: false, reason: "no_lease_or_stay" };
   const today = evidence.today ?? new Date().toISOString().slice(0, 10);
   const start = ymd(facts.manualResidentDetails?.moveInDate) || ymd(facts.leaseStart);

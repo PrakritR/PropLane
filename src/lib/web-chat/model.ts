@@ -18,7 +18,7 @@ export type WebChatSend = {
   clientMessageId: string;
 };
 export type WebChatPhoneCode = { action: "phone_code"; propertyId: string; phone: string };
-export type WebChatPhoneVerify = { action: "phone_verify"; propertyId: string; phone: string; otp: string };
+export type WebChatPhoneVerify = { action: "phone_verify"; propertyId: string; phone: string; otp: string; smsConsent: boolean };
 export type WebChatRequest = WebChatSend | WebChatPhoneCode | WebChatPhoneVerify;
 
 export type ParsedWebChat =
@@ -53,7 +53,7 @@ export function parseWebChatRequest(raw: unknown): ParsedWebChat {
   if (action === "phone_code") return phone ? { ok: true, value: { action, propertyId, phone } } : { ok: false, error: "Enter a US phone number." };
   if (action === "phone_verify") {
     const otp = typeof body.otp === "string" ? body.otp.replace(/\D/g, "").slice(0, 8) : "";
-    return phone && otp ? { ok: true, value: { action, propertyId, phone, otp } } : { ok: false, error: "That code did not work." };
+    return phone && otp ? { ok: true, value: { action, propertyId, phone, otp, smsConsent: body.smsConsent === true } } : { ok: false, error: "That code did not work." };
   }
   return { ok: false, error: "Bad request." };
 }

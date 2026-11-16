@@ -454,3 +454,8 @@ one party's single conversation is attributed to whichever service spoke to them
   A finished service offers only Delete. An add-on's trash is its delete confirm, and its ⋯ keeps only Decline
   request. The ⋯ of a maintenance service holds Reschedule / Auto-schedule / Unpublish / Leave a review and is
   absent when empty. The home demo draws the same header and thread (`DemoServiceThread`, `SERVICE_THREADS`).
+
+## PropLane Jobs (Nov 15)
+
+- A priced job a manager posts ("show Room 3 Saturday 2pm, $40", "clean my rooms, $120") is an ordinary service: one row in `portal_work_order_records` (Tours or Cleaning category), the one lifecycle vocabulary Open, Assigned, Scheduled, Completed, plus a `gig_posts` overlay for the offered price and reply code. `createGigPost` (`src/lib/jobs/gig-posts.server.ts`) is its only writer.
+- A vendor taking it (YES by text or Take it in the portal) files a SUBMITTED bid at the offered price; only the manager's approval of a submitted bid hires, and the approved amount is immutable. Vendors see the kind, the general area, the window and the price only until then. Details: [`one-number.md`](one-number.md) § PropLane Jobs.

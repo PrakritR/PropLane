@@ -23,6 +23,7 @@ import {
   type SignupRole,
 } from "@/lib/one-number/signup/intent";
 import { provisionSmsSignupAccount, type SmsSignupInput, type SmsSignupResult } from "@/lib/one-number/signup/provision.server";
+import { startFirstHomeWalkthrough } from "@/lib/one-number/signup/first-home.server";
 import { mintPhoneSignInLink } from "@/lib/one-number/signup/sign-in-link.server";
 import {
   deleteSignupSession,
@@ -336,6 +337,41 @@ export async function startTourSignup(
   return { started: true, reply: toGsm7(`To book a tour I will set up your PropLane account right here by text. ${SIGNUP_COPY.askName} ${SIGNUP_COPY.stop}`) };
 }
 
+/**
+ * The role question's "I manage my own property" answer, and any other door that already KNOWS the sender is a landlord:
+ * start the same reply-based manager sign-up (name -> business -> homes -> optional email -> code echo -> account) instead of
+ * only sending a link. It creates nothing itself, so the proof of the phone is still the code the person texts back; the
+ * same starts-per-phone and line-wide limits apply, and a phone that already has an account or a sign-up in progress is
+ * never started again (`has_account` / `in_progress`: the caller keeps its ordinary reply).
+ */
+export async function startManagerSignupByText(
+  db: SupabaseClient,
+  input: { phoneE164: string },
+  deps: Pick<SignupDeps, "now" | "findOwners" | "webLink" | "origin"> = {},
+): Promise<TourSignupStart> {
+  const now = (deps.now ?? (() => new Date()))();
+  const phone = input.phoneE164;
+  const phoneKey = phoneKeyOf(phone);
+  if (!/^\d{10}$/.test(phoneKey) || !isAllowedPhoneAuthDestination(phone)) return { started: false, reason: "unavailable" };
+  const read = await readSignupSession(db, phoneKey);
+  if (!read.available) return { started: false, reason: "unavailable" };
+  if (read.session && read.session.step !== "done" && !signupSessionExpired(read.session, now)) return { started: false, reason: "in_progress" };
+  const owners = await (deps.findOwners ?? phoneOwners)(db, phone).catch(() => null);
+  if (owners === null) return { started: false, reason: "unavailable" };
+  if (owners.length > 0) return { started: false, reason: "has_account" };
+  const byPhone = await rateLimit(`sms-signup-start:${phoneRateKey(phone)}`, SIGNUP_STARTS_PER_PHONE_PER_HOUR, 60 * 60 * 1000);
+  const global = byPhone.ok ? await rateLimit("sms-signup-start-global", SIGNUP_STARTS_GLOBAL_PER_HOUR, 60 * 60 * 1000) : byPhone;
+  if (!global.ok) return { started: false, reason: "busy" };
+  await pruneStaleSessions(db, now);
+  const saved = await writeSignupSession(db, { phoneKey, phoneE164: phone, role: "manager", step: "name", answers: { source: "explicit" }, lastSid: null, lastKind: "landlord_start", now });
+  if (!saved) return { started: false, reason: "unavailable" };
+  const link = await (deps.webLink
+    ? deps.webLink(db, { role: "manager", phoneKey })
+    : defaultWebLink(db, { role: "manager", phoneKey }, deps.origin)
+  ).catch(() => null);
+  return { started: true, reply: toGsm7(introText("manager", link)) };
+}
+
 function introText(role: SignupRole, webLink: string | null): string {
   const lead = `Welcome to PropLane! I will set up your ${ROLE_NAME[role]} account right here by text. ${SIGNUP_COPY.askName}`;
   const web = webLink ? ` Prefer the website? Sign up here: ${webLink}` : "";
@@ -535,7 +571,10 @@ async function codeStep(
   await save({ step: "done", answers: { source: session.answers.source, ...tourAnswers(session.answers) }, kind: "done", userId: result.userId, completedAt: now.toISOString() });
   await db.from("sms_setup_links").update({ revoked_at: now.toISOString() }).eq("phone_key", phoneKey).is("used_at", null).is("revoked_at", null).then(() => undefined, () => undefined);
 
-  return welcomeReply(db, { phone, role: session.role, answers: session.answers, userId: result.userId }, deps);
+  // A landlord goes straight on to their first home (address, rooms and rent, when, rules, photos) in the same conversation.
+  const firstHome = session.role === "manager" ? await startFirstHomeWalkthrough(db, { phoneE164: phone, userId: result.userId, now }).catch(() => null) : null;
+  const welcome = await welcomeReply(db, { phone, role: session.role, answers: session.answers, userId: result.userId }, deps);
+  return firstHome && welcome.handled ? say(`${welcome.reply} ${firstHome}`) : welcome;
 }
 
 /** "You're set": the one confirmation a finished sign-up gets, with a one-tap sign-in link minted fresh each time. */

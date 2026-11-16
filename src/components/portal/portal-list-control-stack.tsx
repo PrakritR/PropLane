@@ -32,6 +32,7 @@ import {
   ArrowLeft,
   ArrowUpFromLine,
   Ticket,
+  Briefcase,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { DestinationNav, type DestinationNavItem } from "@/components/ui/destination-nav";
@@ -75,6 +76,7 @@ const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
   ArrowUpFromLine, // Withdraw (vendor Finances band)
   ArrowLeft, // Back to reports (Money → a report's own page)
   Ticket, // Promo codes (property Applications band)
+  Briefcase, // Post a job (Services band: a priced tour showing / cleaning offered to vendors)
 ]);
 
 /** `Add <noun>` — the one accessible-name shape a list band's primary uses. */

@@ -181,3 +181,7 @@ Files: `src/lib/vendor-dispatch/service-roster.server.ts`, `tests/unit/service-r
   `row_data.publishCategory` and read by `publicServiceProjection` / `listOpenJobsNear`; publishing never rewrites the service's own
   `category`, which is what its Services bucket and `WORK_ORDER_CATEGORY_TO_EXPENSE` derive from. Tests:
   `tests/unit/{vendor-own-number-work-ask,message-vendor-tool,post-service-to-board-tool}.test.ts`.
+
+## PropLane Jobs offers (Nov 15)
+
+A priced posting is NOT a dispatch run: no rule, no approval loop, no engine. `fanOutGigOffers` texts up to 8 matching, consenting vendors from the PropLane line (3 gig offers per vendor per day, one per job and vendor, STOP final) and a YES files a submitted bid at the offered price for the manager to approve. The vendor line's read `list_open_gigs_near` shows the same jobs by code. See [`one-number.md`](one-number.md) § PropLane Jobs.

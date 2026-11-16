@@ -62,3 +62,22 @@ export function financeErrorResponse(error: unknown, fallback: string): NextResp
   console.error("[managed-finance]", error instanceof Error ? error.name : "unknown");
   return NextResponse.json({ error: fallback }, { status: 500 });
 }
+
+export type EarningsPersonContext = { db: SupabaseClient; userId: string };
+
+/**
+ * The gate for `/api/earnings*`: any signed-in person. Earnings is the session's OWN balance on the party ledger (owner seat, team
+ * member share, vendor bills); there is nothing to authorize beyond the session because nothing in a request names whose balance
+ * it is. An account with no share simply sees an empty page, and the Earnings tab is drawn only when there is something to show.
+ */
+export async function requireEarningsPerson(): Promise<EarningsPersonContext | NextResponse> {
+  const session = await resolveRouteSessionUser({ route: "earnings" });
+  if (!session.ok) return NextResponse.json({ error: session.error }, { status: session.status });
+  const db = createSupabaseServiceRoleClient();
+  try {
+    if ((await resolveAuthenticatedBusinessAccess(session.user.id, db)).kind === "denied") return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  } catch {
+    return NextResponse.json({ error: "PropLane could not check your sign-in. Try again." }, { status: 503 });
+  }
+  return { db, userId: session.user.id };
+}

@@ -5,6 +5,8 @@ export type ResidentComposePrefill = {
   body: string;
   /** Manager compose picker — email wins when both are set. */
   recipientEmail?: string;
+  /** The manager's name, matched when their address here is a work email the picker does not list. */
+  recipientName?: string;
   managerUserId?: string;
   propertyId?: string;
   propertyTitle?: string;

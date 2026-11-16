@@ -44,7 +44,7 @@ export type OwnerFinancesView = {
   occupancy: { houses: number; units: number; occupied: number } | null;
 };
 
-function toStatementLines(lines: LedgerLineRow[]): StatementLine[] {
+export function toStatementLines(lines: LedgerLineRow[]): StatementLine[] {
   return lines.map((l) => ({
     journalId: l.journalId, amountCents: l.amountCents, availableOn: l.availableOn, postedAt: l.postedAt, kind: l.kind,
     detail: l.detail, sourceType: l.sourceType, sourceId: l.sourceId,
@@ -59,7 +59,7 @@ export function parseMonth(raw: string | null | undefined, now: Date = new Date(
   return raw && /^\d{4}-(0[1-9]|1[0-2])$/.test(raw) ? raw : pacificMonthKey(now);
 }
 
-async function withdrawalsFor(db: SupabaseClient, kind: "owner" | "vendor", party: string, workspaceId: string | null): Promise<WithdrawalView[]> {
+export async function withdrawalsFor(db: SupabaseClient, kind: "owner" | "vendor", party: string, workspaceId: string | null): Promise<WithdrawalView[]> {
   let q = db.from("party_withdrawals").select("id, amount_cents, status, created_at, stripe_payout_id").eq("party_kind", kind).eq("party_id", party).order("created_at", { ascending: false }).limit(25);
   if (workspaceId) q = q.eq("workspace_id", workspaceId);
   const { data, error } = await q;

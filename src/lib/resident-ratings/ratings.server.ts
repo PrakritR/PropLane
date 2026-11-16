@@ -154,11 +154,37 @@ export async function residencyHasExecutedLease(db: Db, subject: RatingSubject):
   return false;
 }
 
+/**
+ * A confirmed short stay on this house whose guest login is this person. `residentUserId` on a `room_date_block` is
+ * stamped by `createShortStayRows` and preserved by the schedule route (a body value is stripped), so it is
+ * server-owned, unlike `manuallyAdded` / `bookingResidency` on the application row.
+ */
+export async function residencyHasConfirmedStay(db: Db, subject: RatingSubject): Promise<boolean> {
+  if (!subject.residentUserId) return false;
+  const { data, error } = await db
+    .from("portal_schedule_records")
+    .select("id, row_data")
+    .eq("property_id", subject.propertyId)
+    .eq("record_type", "room_date_block")
+    .limit(1000);
+  if (error) return false;
+  const today = new Date().toISOString().slice(0, 10);
+  for (const stored of data ?? []) {
+    const rd = stored.row_data as Record<string, unknown> | null;
+    if (!rd || typeof rd !== "object") continue;
+    if (str(rd.residentUserId) !== subject.residentUserId) continue;
+    if (str(rd.bookingStatus) !== "confirmed") continue;
+    const checkIn = str(rd.checkIn).slice(0, 10);
+    if (checkIn && checkIn <= today) return true;
+  }
+  return false;
+}
+
 async function residencyFor(db: Db, subject: RatingSubject) {
-  // Cheap signals first: the lease pipeline is only read when the row itself does not already say "tenancy".
-  const selfEvidenced = subject.facts.manuallyAdded === true || subject.facts.bookingResidency === true;
-  const leaseExecuted = selfEvidenced ? false : await residencyHasExecutedLease(db, subject);
-  return assessResidency(subject.facts, { leaseExecuted });
+  // Tenancy comes only from server-owned evidence; the row's own `manuallyAdded` / `bookingResidency` never count.
+  const leaseExecuted = await residencyHasExecutedLease(db, subject);
+  const stayConfirmed = leaseExecuted ? false : await residencyHasConfirmedStay(db, subject);
+  return assessResidency(subject.facts, { leaseExecuted, stayConfirmed });
 }
 
 /** The ONE write decision: the rater's workspace must have housed this person AND the rater must edit Residents there. */
@@ -170,7 +196,7 @@ async function canRateHere(db: Db, userId: string, subject: RatingSubject): Prom
 
 /* ------------------------------ manager reads ----------------------------- */
 
-const NO_ACCOUNT_REFUSAL = "This resident has no PropLane account yet, so there is no one to attach a rating to.";
+const GENERIC_RATE_REFUSAL = "You can rate someone once they have a signed lease or a stay with you.";
 
 const EMPTY_VIEW: ManagerRatingsView = {
   available: false,
@@ -185,7 +211,8 @@ export async function loadManagerRatingsView(db: Db, userId: string, rawId: stri
   const loaded = await loadRatingSubject(db, userId, rawId);
   if (!loaded.ok) return loaded;
   const { subject, admin } = loaded;
-  if (!subject.residentUserId) return { ok: true, view: { ...EMPTY_VIEW, rateRefusal: NO_ACCOUNT_REFUSAL } };
+  // No account reads exactly like an empty view, so this is not an account-existence oracle.
+  if (!subject.residentUserId) return { ok: true, view: EMPTY_VIEW };
 
   const submitted = isSubmittedApplicantRow(subject.facts);
   const residency = await residencyFor(db, subject);
@@ -232,11 +259,10 @@ export async function saveManagerRating(
   const { subject, admin } = loaded;
   if (admin) return { ok: false, status: 403, error: "Only the workspace that housed this person can rate them." };
 
+  // One generic refusal for "no account" and "no residency", so a write never reveals whether an account exists.
+  if (!subject.residentUserId) return { ok: false, status: 409, error: GENERIC_RATE_REFUSAL };
   const residency = await residencyFor(db, subject);
   if (!residency.ok) return { ok: false, status: 409, error: RESIDENCY_REFUSAL_MESSAGE[residency.reason] };
-  if (!subject.residentUserId) {
-    return { ok: false, status: 409, error: NO_ACCOUNT_REFUSAL };
-  }
   if (!(await canRateHere(db, userId, subject))) {
     return { ok: false, status: 403, error: "You need edit access to Residents to rate someone." };
   }

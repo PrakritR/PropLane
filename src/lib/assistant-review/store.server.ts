@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SharedLineRole } from "@/lib/one-number/contracts";
 import { loadThreadPause, pauseThreadAi, resumeThreadAi } from "@/lib/one-number/session.server";
+import { loadOwnedProperty } from "@/lib/one-number/knowledge/scope.server";
 import { createEntry } from "@/lib/one-number/knowledge/store.server";
 import { isMissingSchemaError } from "@/lib/one-number/config.server";
 import type { KnowledgeAudience } from "@/lib/one-number/knowledge/types";
@@ -45,7 +46,18 @@ function mapRow(raw: Row): AssistantReviewRow {
 }
 
 /** Who acts: the signed-in person, the workspace's owner, and the workspace. All re-derived server-side by the caller. */
-export type ReviewActor = { db: SupabaseClient; userId: string; workspaceId: string; ownerUserId: string };
+export type ReviewActor = {
+  db: SupabaseClient;
+  userId: string;
+  workspaceId: string;
+  ownerUserId: string;
+  /**
+   * Houses a DELEGATED actor (a co-manager seat) may write knowledge for. Absent/null = unrestricted (the workspace owner,
+   * or a platform admin on a workspace they run). An array, even an empty one, makes the actor delegated: a correction must
+   * then name one of these houses and can never be team-wide or audience "all".
+   */
+  allowedPropertyIds?: readonly string[] | null;
+};
 
 /**
  * Is the assistant paused on this conversation? Honored by EVERY auto-reply path (SMS leasing agent, the resident thread
@@ -201,10 +213,22 @@ export async function correctReply(
   const question = cleanText(input.question, 300) || "Correction";
   if (!isReviewThreadKey(input.threadKey) || !messageRef) return { ok: false, error: "Pick the reply to correct.", status: 400 };
   if (!correction) return { ok: false, error: "Write what the answer should have been.", status: 400 };
+  const propertyId = input.propertyId?.trim() || null;
+  // Same rules as `saveKnowledgeAnswerTool`: the house must be this workspace's (the id is a request value, never trusted),
+  // and a delegated seat writes only for its assigned houses, never team-wide.
+  if (propertyId) {
+    const owned = await loadOwnedProperty(actor.db, actor.ownerUserId, propertyId);
+    if (!owned || owned.workspaceId !== actor.workspaceId) return { ok: false, error: "That house is not in this workspace.", status: 403 };
+  }
+  if (actor.allowedPropertyIds) {
+    if (!propertyId || !actor.allowedPropertyIds.includes(propertyId) || input.audience === "all") {
+      return { ok: false, error: "You can only correct answers for the houses assigned to you.", status: 403 };
+    }
+  }
   try {
     const entry = await createEntry(actor.db, {
       workspaceId: actor.workspaceId,
-      propertyId: input.propertyId?.trim() || null,
+      propertyId,
       topic: normalizeTopic(undefined),
       question,
       answer: correction,

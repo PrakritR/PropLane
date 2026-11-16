@@ -106,6 +106,9 @@ import {
   type ManagerServiceRequestBucket,
 } from "@/components/portal/pro-service-request-detail";
 import { ManagerAddServiceModal } from "@/components/portal/pro-add-service-modal";
+import { PostJobPopup } from "@/components/portal/post-job-popup";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { Briefcase } from "lucide-react";
 import { ManagerEditServiceRequestsModal } from "@/components/portal/pro-edit-service-requests-modal";
 import { ScheduleServiceVisitModal } from "@/components/portal/schedule-service-visit-modal";
 import { ServiceEditPopup } from "@/components/portal/service-edit-popup";
@@ -301,6 +304,7 @@ export function ManagerAllServicesPanel({
     if (reqBucket !== requestBucketProp) setReqBucket(requestBucketProp);
   }
   const [addServiceOpen, setAddServiceOpen] = useState(false);
+  const [postJobOpen, setPostJobOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const [addChargeOpen, setAddChargeOpen] = useState(false);
   const [addPaymentOpen, setAddPaymentOpen] = useState(false);
@@ -1404,7 +1408,7 @@ export function ManagerAllServicesPanel({
           dataAttr: "services-list-search",
           ariaLabel: "Search services",
         }}
-        actions={<>{servicesFilterSheet}{headerExtra}</>}
+        actions={<>{servicesFilterSheet}<PortalIconAction icon={Briefcase} label="Post a job" data-attr="services-post-job" onClick={() => setPostJobOpen(true)} />{headerExtra}</>}
         primary={
           <PortalPrimaryIconAction
             label="Add service"
@@ -1433,6 +1437,7 @@ export function ManagerAllServicesPanel({
 
   const servicesModals = (
     <>
+      <PostJobPopup open={postJobOpen} onClose={() => setPostJobOpen(false)} managerUserId={userId} onPosted={() => setDataTick((t) => t + 1)} />
       <ManagerAddServiceModal
         open={addServiceOpen}
         onClose={() => setAddServiceOpen(false)}

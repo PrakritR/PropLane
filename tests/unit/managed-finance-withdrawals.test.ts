@@ -627,3 +627,50 @@ describe("weekly batch and vendors without a login", () => {
     expect(reserves[0]!.args).toMatchObject({ p_party: "vendor:ven-1", p_source: "weekly_batch" });
   });
 });
+
+describe("payout splits and staff holds (withdrawal gate)", () => {
+  const MEMBER = "mem-1";
+  const member = { kind: "owner" as const, userId: MEMBER, workspaceId: WS, amountCents: 20_000, clientKey: "m1" };
+
+  it("a team member paid by a split withdraws from THEIR OWN party in that workspace, with no reserve target", async () => {
+    account.value = { id: "acct_mem", metadata: { axis_user_id: MEMBER } };
+    const f = setup({}, {
+      profiles: [{ id: MEMBER, stripe_connect_account_id: "acct_mem" }],
+      managed_split_allocations: [{ id: "sa1", workspace_id: WS, payee_user_id: MEMBER, payee_kind: "member" }],
+    });
+    const r = await withdrawFromManagedFunds(makeStripe() as never, f.db, member);
+    expect(r).toMatchObject({ ok: true });
+    expect(f.rpcCalls.find((c) => c.name === "reserve_party_withdrawal")!.args).toMatchObject({ p_kind: "owner", p_party: `owner:${MEMBER}`, p_workspace: WS, p_reserve: 0 });
+  });
+
+  it("a person with no policy and no split row is refused before anything is reserved", async () => {
+    account.value = { id: "acct_mem", metadata: { axis_user_id: MEMBER } };
+    const f = setup({}, { profiles: [{ id: MEMBER, stripe_connect_account_id: "acct_mem" }], managed_split_allocations: [] });
+    const r = await withdrawFromManagedFunds(makeStripe() as never, f.db, member);
+    expect(r).toMatchObject({ ok: false, status: 403 });
+    expect(f.rpcCalls).toHaveLength(0);
+  });
+
+  it("a split row in ANOTHER workspace is not a grant here", async () => {
+    account.value = { id: "acct_mem", metadata: { axis_user_id: MEMBER } };
+    const f = setup({}, {
+      profiles: [{ id: MEMBER, stripe_connect_account_id: "acct_mem" }],
+      managed_split_allocations: [{ id: "sa1", workspace_id: "ws-other", payee_user_id: MEMBER, payee_kind: "member" }],
+    });
+    expect(await withdrawFromManagedFunds(makeStripe() as never, f.db, member)).toMatchObject({ ok: false, status: 403 });
+  });
+
+  it("an active staff hold refuses the withdrawal (409 PAYOUT_HELD) before the ledger or Stripe is touched", async () => {
+    const f = setup({}, { managed_payout_holds: [{ id: "h1", party_id: `owner:${OWNER}`, workspace_id: WS, reason: "Review", released_at: null }] });
+    const stripe = makeStripe();
+    const r = await withdrawFromManagedFunds(stripe as never, f.db, owner);
+    expect(r).toMatchObject({ ok: false, status: 409, code: "PAYOUT_HELD" });
+    expect(f.rpcCalls).toHaveLength(0);
+    expect(stripe.transfers.create).not.toHaveBeenCalled();
+  });
+
+  it("a released hold no longer blocks", async () => {
+    const f = setup({}, { managed_payout_holds: [{ id: "h1", party_id: `owner:${OWNER}`, workspace_id: WS, reason: "Review", released_at: "2026-06-01T00:00:00Z" }] });
+    expect(await withdrawFromManagedFunds(makeStripe() as never, f.db, owner)).toMatchObject({ ok: true });
+  });
+});

@@ -194,6 +194,8 @@ describe("leasing SMS agent registry", () => {
         "list_open_tour_slots",
         "lookup_property_knowledge",
         "request_tour",
+        // `start_prospect_signup` is `kind: "read"` but starts a sign-up session: a documented, bounded exception (phone from
+        // the verified turn, live listing only, account only after the code echo). See its doc comment in leasing-sms.ts.
         "start_prospect_signup",
         "suppress_redundant_reply",
       ].sort(),

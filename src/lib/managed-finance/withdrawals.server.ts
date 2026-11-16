@@ -5,6 +5,7 @@ import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { retrieveManagerConnectAccountOrNull } from "@/lib/stripe-connect";
 import { resolvePayoutsReadiness } from "@/lib/stripe-payouts-readiness.server";
+import { activePayoutHold } from "@/lib/managed-finance/splits.server";
 import { alertManagerOfOwnerEvent } from "@/lib/owner-management/alerts.server";
 import { listPoliciesForWorkspace } from "@/lib/owner-management/policies.server";
 import {
@@ -122,7 +123,15 @@ async function resolveParty(db: SupabaseClient, input: WithdrawInput): Promise<
   if (!workspaceId) return { error: "Choose a workspace.", status: 404 };
   const policies = await listPoliciesForWorkspace(db, workspaceId);
   const mine = policies.filter((p) => p.ownerUserId === input.userId && p.signedAt);
-  if (mine.length === 0) return { error: "Not found.", status: 404 };
+  if (mine.length === 0) {
+    // A team member paid by a payout split: their own party in this workspace, proven by a split row that names them. They hold no
+    // fee policy, so there is no reserve target; the ledger's own figure and the per-party lock still bound the withdrawal.
+    const { data: share, error: shareError } = await db
+      .from("managed_split_allocations").select("id").eq("workspace_id", workspaceId).eq("payee_user_id", input.userId).eq("payee_kind", "member").limit(1);
+    if (shareError && !["42P01", "PGRST205"].includes(String(shareError.code ?? ""))) throw new LedgerError(500, "Could not check your earnings.");
+    if (((share ?? []) as unknown[]).length > 0) return { partyId: ownerParty(input.userId), workspaceId, reserveCents: 0, account: "owner_payable" };
+    return { error: "Not found.", status: 404 };
+  }
   // An ended agreement still lets the owner withdraw what they are owed; only an active one holds back a reserve.
   const active = mine.find((p) => p.status === "active");
   return { partyId: ownerParty(input.userId), workspaceId, reserveCents: active?.terms.reserveTargetCents ?? 0, account: "owner_payable" };
@@ -142,6 +151,14 @@ export async function withdrawFromManagedFunds(stripe: Stripe, db: SupabaseClien
 
   const destination = await resolvePayoutDestination(stripe, db, input.userId).catch(() => ({ error: "Could not check your payout account. Try again." }));
   if ("error" in destination) return { ok: false, status: 402, error: destination.error, code: "PAYOUTS_NOT_READY" };
+
+  // Staff may hold one party's withdrawals (never their balance). A read that fails refuses: a hold must never be skipped by a blink.
+  try {
+    const hold = await activePayoutHold(db, party.partyId, party.workspaceId);
+    if (hold) return { ok: false, status: 409, code: "PAYOUT_HELD", error: "Withdrawals are on hold for this account. PropLane support can tell you why." };
+  } catch {
+    return { ok: false, status: 503, error: "Could not check your payout status. Try again in a moment." };
+  }
 
   const key = withdrawalKey(input, party.partyId, party.workspaceId);
 

@@ -133,8 +133,8 @@ describe("titleWithoutAddress", () => {
 });
 
 describe("the vendor-line registry", () => {
-  it("is one read tool and no write", () => {
-    expect([...vendorLineRegistry.values()].map((t) => t.name)).toEqual(["list_open_jobs_near"]);
+  it("is two read tools and no write", () => {
+    expect([...vendorLineRegistry.values()].map((t) => t.name)).toEqual(["list_open_jobs_near", "list_open_gigs_near"]);
     expect([...vendorLineRegistry.values()].every((t) => t.kind === "read")).toBe(true);
   });
 

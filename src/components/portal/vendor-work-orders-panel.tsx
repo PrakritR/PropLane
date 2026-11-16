@@ -17,6 +17,7 @@ import { VendorSettingsGear } from "@/components/portal/vendor-settings-gear";
 import { VendorQuoteWizard } from "@/components/portal/vendor-quote-wizard";
 import { VendorEstimateBidSection } from "@/components/portal/vendor-estimate-bid-section";
 import { VendorFindWorkList } from "@/components/portal/vendor-find-work-list";
+import { VendorOpenGigs } from "@/components/portal/vendor-open-gigs";
 import { VendorDispatchOffers } from "@/components/portal/vendor-dispatch-offers";
 import { RecordBandFilter, RecordTabBand } from "@/components/portal/record-list-band";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
@@ -1239,6 +1240,7 @@ export function VendorWorkOrdersPanel({
         </p>
       ) : null}
       {!isFindWork && stageTabId === "open" ? <VendorDispatchOffers /> : null}
+      {isFindWork ? <VendorOpenGigs /> : null}
       {isFindWork ? (
         <PortalRecordListSurface
           isEmpty={boardVisible.length === 0}

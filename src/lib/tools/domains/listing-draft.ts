@@ -1,7 +1,5 @@
 import { z } from "zod";
-import { submissionToDraftAdminRow } from "@/lib/demo-admin-property-inventory";
-import { draftIdFor } from "@/lib/one-number/onboarding/house-draft.server";
-import { submissionFromImportedProperty } from "@/lib/property-import/to-submission";
+import { draftIdFor, saveTextListingDraft } from "@/lib/one-number/onboarding/house-draft.server";
 import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
 import { writeAuditLog, updateAuditResult, auditDayBucket } from "../audit";
@@ -277,53 +275,19 @@ export const createListingDraftByTextTool = defineWriteTool({
       dedupeKey,
     });
     if (!audit.recorded && !audit.duplicate) throw new Error("Could not record the action; no draft was saved.");
-    const roomCount = input.roomCount;
-    const rentFor = (index: number) => Math.round(input.rentsUsd.length === 1 ? input.rentsUsd[0]! : input.rentsUsd[index]!);
-    const submission = submissionFromImportedProperty({
-      key: "text-listing",
-      name: input.address,
+    const saved = await saveTextListingDraft(ctx.db, {
+      userId: ctx.landlordId,
+      flowId: input.flowId,
       address: input.address,
-      city: "",
-      state: "",
-      zip: "",
-      propertyType: "house",
-      rentByRoom: roomCount > 1,
-      bedrooms: roomCount,
-      bathrooms: null,
-      monthlyRent: roomCount > 1 ? null : rentFor(0),
-      deposit: null,
-      rooms: roomCount > 1 ? Array.from({ length: roomCount }, (_, i) => ({ label: `Room ${i + 1}`, rent: rentFor(i), deposit: null, sourceRow: null })) : [],
-      sourceSheet: "",
-      sourceRows: [],
-      needsLook: [],
-      confidence: "medium",
+      roomCount: input.roomCount,
+      rentsUsd: input.rentsUsd,
+      details: input.details ?? null,
+      workspaceId: ctx.workspace?.id?.trim() || null,
     });
-    if (input.details) submission.houseOverview = input.details;
-    const row = {
-      ...submissionToDraftAdminRow(submission, ctx.landlordId, propertyId, {}),
-      source: "text_setup" as const,
-      importedAt: new Date().toISOString(),
-    };
-    const { data: existing } = await ctx.db.from("manager_property_records").select("manager_user_id, status").eq("id", propertyId).maybeSingle();
-    if (existing && (String(existing.manager_user_id) !== ctx.landlordId || existing.status !== "draft")) {
-      throw new Error("That draft was already changed in PropLane, so I left it alone.");
-    }
-    const workspaceId = ctx.workspace?.id?.trim();
-    const { error } = await ctx.db.from("manager_property_records").upsert(
-      {
-        id: propertyId,
-        manager_user_id: ctx.landlordId,
-        status: "draft",
-        row_data: row,
-        property_data: null,
-        ...(workspaceId ? { workspace_id: workspaceId } : {}),
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" },
-    );
-    if (error) {
+    if (!saved.ok) {
+      if (saved.error === "changed_elsewhere") throw new Error("That draft was already changed in PropLane, so I left it alone.");
       await updateAuditResult(ctx, dedupeKey, { error: "save_failed" }, { clearDedupeKey: true });
-      throw new Error(error.message.includes("10 property records") ? "This workspace is at its 10 listing limit, so I could not save another draft." : "The draft could not be saved.");
+      throw new Error(saved.error === "limit" ? "This workspace is at its 10 listing limit, so I could not save another draft." : "The draft could not be saved.");
     }
     await updateAuditResult(ctx, dedupeKey, { propertyId });
     return {

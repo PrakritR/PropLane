@@ -37,7 +37,12 @@ export function spokenConsentDeclined(speech: string): boolean {
 
 /** "okay", "sure" and "that's fine" are consent on the recording line; the generic confirm vocabulary does not carry them. */
 export function spokenConsentGivenLoosely(speech: string): boolean {
-  return /^(ok|okay|sure|fine|alright|all right|continue|go on|that'?s fine|that is fine|no problem)\b/.test(String(speech ?? "").trim().toLowerCase());
+  const text = String(speech ?? "").toLowerCase().replace(/[.!?,]+/g, " ").replace(/\s+/g, " ").trim();
+  // Washington is all-party consent: only a short, unqualified affirmative counts. "okay, but don't record me" or any
+  // utterance that mentions recording or carries a negation is unclear, and the line asks again.
+  if (!text || text.split(" ").length > 5) return false;
+  if (/\b(no|not|don'?t|do not|never|stop|record|recording|recorded|but|without)\b/.test(text)) return false;
+  return /^(ok|okay|sure|fine|alright|all right|continue|go on|that'?s fine|that is fine)\b/.test(text);
 }
 
 const OFFER_ORDER: readonly ProspectLinkKind[] = ["tour", "apply", "stay", "listing", "browse"];

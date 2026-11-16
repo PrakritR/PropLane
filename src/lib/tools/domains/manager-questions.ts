@@ -252,7 +252,7 @@ const CLOSED_CHARGE = new Set(["paid", "cancelled", "void", "refunded", "failed"
 export const getResidentSnapshotTool = defineTool({
   name: "get_resident_snapshot",
   description:
-    "Everything about one resident in one call: house, room, monthly rent, email, lease dates and days left, and what they owe now (open balance and the overdue part). Find them by `q`, part of a name, email, room or house; up to 5 matches are returned, so ask which one when more than one fits. Use for 'tell me about Priya', 'what does room 3 pay', 'does Sam owe anything', 'when does Jordan's lease end'. The balance is withheld (null) for a seat without the Payments grant on that house, and the lease for one without Leases. Amounts and days are computed by the tool.",
+    "Everything about one resident in one call: house, room, monthly rent, email, lease dates and days left, and what they owe now (open balance and the overdue part). Find them by `q`, part of a name, email, room or house; up to 5 matches are returned, so ask which one when more than one fits. Use for 'tell me about Priya', 'what does room 3 pay', 'does Sam owe anything', 'when does Jordan's lease end'. The balance is withheld (null) for a seat without the Payments grant on that house, and the lease for one without Leases; the rent needs either grant. Amounts and days are computed by the tool.",
   kind: "read",
   inputSchema: z.object({ q: z.string().min(2).max(80).describe("Part of a resident's name, email, room or house.") }).strict(),
   handler: async (ctx, input) => {
@@ -283,7 +283,10 @@ export const getResidentSnapshotTool = defineTool({
           email: email || null,
           house: str(r.property) || null,
           room: str(r.assignedRoomChoice) || null,
-          monthlyRent: typeof r.signedMonthlyRent === "number" ? usd(Math.round(r.signedMonthlyRent * 100)) : null,
+          // Rent is lease/payment data: same read grant as the lease dates and the balance.
+          monthlyRent: !(may(propertyId, "leases") || may(propertyId, "payments"))
+            ? null
+            : typeof r.signedMonthlyRent === "number" ? usd(Math.round(r.signedMonthlyRent * 100)) : null,
           lease: !may(propertyId, "leases")
             ? null
             : lease

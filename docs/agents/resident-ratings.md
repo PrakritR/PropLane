@@ -32,8 +32,10 @@ row without the record's frozen `manager_user_id`, as the housemates route does)
 
 - **Real residency in the rater's workspace**, `assessResidency`: an approved,
   not withdrawn application AND an executed lease on that house (read from
-  `portal_lease_pipeline_records`, `leaseIsFullyExecuted`), or a manager-onboarded
-  tenant (`manuallyAdded`), or an approved guest booking (`bookingResidency`).
+  `portal_lease_pipeline_records`, `leaseIsFullyExecuted`), or a confirmed short stay
+  whose server-stamped `room_date_block.residentUserId` is the resident. `manuallyAdded` /
+  `bookingResidency` are manager-written `row_data` and never count; a record with no
+  proven account reads as an empty view and refuses with the generic residency message.
   Current or ended both count; a move-in date still ahead does not. An approved
   application alone is not a stay.
 - **The rater edits Residents on that house**: `managerHasCoManagerPermissionForProperty(

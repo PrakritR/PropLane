@@ -549,17 +549,32 @@ export function ManagerCommunicationComposeModal({
     if (next) setSendVia((previous) => (JSON.stringify(previous) === defaultViaKey ? previous : next));
   }, [open, isManager, initialDraft, defaultViaKey]);
 
-  // A staged resident draft names its manager: pick them once the list is here.
+  // A staged resident draft names its manager: pick them once the list is here. Once per draft: the contact list
+  // is re-read while the modal is open, and re-running would re-pick a recipient the person just removed.
+  const preselectedDraftKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!open || isManager || !nonManagerDraft || contacts.length === 0) return;
+    if (!open || isManager || !nonManagerDraft) {
+      if (!open) preselectedDraftKeyRef.current = null;
+      return;
+    }
+    if (contacts.length === 0) return;
+    const draftKey = JSON.stringify(nonManagerDraft);
+    if (preselectedDraftKeyRef.current === draftKey) return;
     const email = nonManagerDraft.recipientEmail?.trim().toLowerCase();
+    const recipientName = nonManagerDraft.recipientName?.trim().toLowerCase();
     const managerId = nonManagerDraft.managerUserId?.trim();
+    // A house starter names the manager's WORK email, while the picker lists the account email, so an
+    // address match alone misses it. Fall back to the name, then to the only manager the list holds.
+    const managers = contacts.filter((c) => c.role === "manager");
     const hit =
       (managerId
         ? contacts.find((c) => c.id === `mgr-${managerId}` || c.id === managerId)
         : undefined) ??
-      (email ? contacts.find((c) => c.email.trim().toLowerCase() === email) : undefined);
+      (email ? contacts.find((c) => c.email.trim().toLowerCase() === email) : undefined) ??
+      (recipientName ? managers.find((c) => c.name.trim().toLowerCase() === recipientName) : undefined) ??
+      (email || recipientName ? (managers.length === 1 ? managers[0] : undefined) : undefined);
     if (!hit) return;
+    preselectedDraftKeyRef.current = draftKey;
     // The category goes first: the person's key is only valid once its category is selected,
     // and the prune below would drop it if both landed in the same pass.
     setSelectedCategories([composeCategoryForContact(portal, hit)]);

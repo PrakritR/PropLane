@@ -569,6 +569,7 @@ function ResidentUnifiedInbox({
       subject: `Question about ${target.houseLabel}`,
       body: "",
       recipientEmail: target.email,
+      ...(target.managerName ? { recipientName: target.managerName } : {}),
     });
   };
 

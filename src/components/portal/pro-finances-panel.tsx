@@ -56,6 +56,7 @@ import {
   type FinancesPeriodKind,
 } from "@/components/portal/finances/finances-overview";
 import { ManagerFinancesReports } from "@/components/portal/finances/finances-reports";
+import { EarningsPanel, useEarningsAllowed } from "@/components/portal/finances/earnings-panel";
 import { OwnerPayoutsPanel, useOwnerPayoutsAllowed } from "@/components/portal/finances/owner-payouts-panel";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import {
@@ -400,6 +401,7 @@ const FINANCE_TABS = [
   { id: "cash-flow-statement", label: "Cash flow" },
   { id: "payout-history", label: "Payout history" },
   { id: "owner-payouts", label: "Owner payouts" },
+  { id: "earnings", label: "Earnings" },
   { id: "trust-account-balance", label: "Trust account" },
   { id: "security-deposits", label: "Deposits" },
   { id: "financial-diagnostics", label: "Diagnostics" },
@@ -1034,21 +1036,24 @@ export function ManagerFinancesPanel({
   // Owner payouts is a third door, drawn only for the owner of record of a PropLane-managed workspace (the server
   // answers 403 for everyone else, so the tab never shows for a normal manager).
   const ownerPayoutsAllowed = useOwnerPayoutsAllowed();
+  // Earnings is a fourth door, drawn only for a person who holds a share on the party ledger (owner seat, payout split, vendor bills).
+  const earningsAllowed = useEarningsAllowed();
   const financeTabItems = useMemo(
     () =>
-      [...FINANCE_TAB_DESTINATIONS, ...(ownerPayoutsAllowed ? [{ id: "owner-payouts", label: "Owner payouts" }] : [])].map((tab) => ({
+      [...FINANCE_TAB_DESTINATIONS, ...(ownerPayoutsAllowed ? [{ id: "owner-payouts", label: "Owner payouts" }] : []), ...(earningsAllowed ? [{ id: "earnings", label: "Earnings" }] : [])].map((tab) => ({
         ...tab,
         href: `${basePath}/financials/${tab.id}`,
       })),
-    [basePath, ownerPayoutsAllowed],
+    [basePath, ownerPayoutsAllowed, earningsAllowed],
   );
 
   const isOverviewTab = tabId === "overview";
   const isReportsHubTab = tabId === "reports";
   const isOwnerPayoutsTab = tabId === "owner-payouts";
-  const activeFinanceDestinationId = isOverviewTab ? "overview" : isOwnerPayoutsTab ? "owner-payouts" : "reports";
+  const isEarningsTab = tabId === "earnings";
+  const activeFinanceDestinationId = isOverviewTab ? "overview" : isOwnerPayoutsTab ? "owner-payouts" : isEarningsTab ? "earnings" : "reports";
 
-  const specialFinancePanels = new Set(["bills", "bank-reconciliation", "security-deposits", "owner-distributions", "owner-payouts", "overview", "reports", "income", "expenses"]);
+  const specialFinancePanels = new Set(["bills", "bank-reconciliation", "security-deposits", "owner-distributions", "owner-payouts", "earnings", "overview", "reports", "income", "expenses"]);
   const showScopedReportFilters = !specialFinancePanels.has(tabId);
   const isTransactionTab = tabId === "income" || tabId === "expenses";
   const activeDefaultSort = DEFAULT_SORT[tabId] ?? { key: "date", dir: "desc" as const };
@@ -1340,7 +1345,7 @@ export function ManagerFinancesPanel({
         }))}
         activeDestinationId={activeFinanceDestinationId}
         destinationAriaLabel="Finance view"
-        actions={isReportsHubTab || isOwnerPayoutsTab ? undefined : isOverviewTab ? <PortalIconAction icon={Landmark} label="Balance & payouts" data-attr="finances-balance-payouts" onClick={() => router.push(`${basePath}/profile?tab=payments`)} /> : <><PortalIconAction icon={ArrowLeft} label="Back to reports" onClick={() => router.push(`${basePath}/financials/reports`)} />{financesCommandActions}</>}
+        actions={isReportsHubTab || isOwnerPayoutsTab || isEarningsTab ? undefined : isOverviewTab ? <PortalIconAction icon={Landmark} label="Balance & payouts" data-attr="finances-balance-payouts" onClick={() => router.push(`${basePath}/profile?tab=payments`)} /> : <><PortalIconAction icon={ArrowLeft} label="Back to reports" onClick={() => router.push(`${basePath}/financials/reports`)} />{financesCommandActions}</>}
         primary={isOverviewTab ? <PortalPrimaryIconAction label="Add financial entry" data-attr="finances-add-expense-top" onClick={() => setEntryChooser(true)} /> : undefined}
 
         activeFilterChips={
@@ -1364,6 +1369,8 @@ export function ManagerFinancesPanel({
         <ManagerFinancesReports basePath={basePath} />
       ) : isOwnerPayoutsTab ? (
         <OwnerPayoutsPanel />
+      ) : isEarningsTab ? (
+        <EarningsPanel basePath={basePath} />
       ) : tabId === "bills" ? (
         <ManagerBillsPanel ref={billsRef} />
       ) : tabId === "bank-reconciliation" ? (
