@@ -97,6 +97,8 @@ describe("resident registry gating", () => {
         "list_open_tour_slots",
         "request_tour",
         "lookup_property_knowledge",
+        // The portal assistant's public-catalog search (absent on SMS and email).
+        "find_homes_on_proplane",
       ].sort(),
     );
   });
@@ -117,7 +119,7 @@ describe("resident registry gating", () => {
   it("approved phase on a paid manager exposes the full resident toolset", () => {
     const registry = buildResidentRegistry(gatingCtx("approved", "paid"));
     expect([...registry.keys()].sort()).toEqual(
-      [...SERVICES_TOOLS, ...INBOX_TOOLS, ...DOCUMENTS_TOOLS, ...UNGATED_TOOLS].sort(),
+      [...SERVICES_TOOLS, ...INBOX_TOOLS, ...DOCUMENTS_TOOLS, ...UNGATED_TOOLS, "find_homes_on_proplane"].sort(),
     );
   });
 

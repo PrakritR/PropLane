@@ -32,6 +32,7 @@ import { getMyStayCheckInTool } from "./domains/resident/stay-check-in";
 import { getResidentLinksTool } from "./domains/portal-links";
 import { residentListOpenTourSlotsTool, residentRequestTourTool } from "./domains/tours";
 import { residentSmsListingTools } from "./domains/resident/sms-listings";
+import { findHomesOnPropLaneTool } from "./domains/resident/public-homes";
 import {
   listMyServiceRequestsTool,
   listMyWorkOrdersTool,
@@ -152,6 +153,8 @@ const APPLICATION_PHASE_TOOLS = new Set([
   "get_listing_details",
   "check_room_availability",
   "get_listing_link",
+  // The public catalog search (portal only): someone still applying is exactly who is looking for a place.
+  "find_homes_on_proplane",
 ]);
 
 /**
@@ -166,7 +169,10 @@ export const residentAgentRegistry: ToolRegistry<ResidentAgentContext> = buildRe
  * + messaging; a free-tier manager hides services/documents tools.
  */
 export function buildResidentRegistry(ctx: ResidentAgentContext): ToolRegistry<ResidentAgentContext> {
-  const tools = [...ALL_RESIDENT_TOOLS, ...(ctx.channel === "sms" ? residentSmsListingTools : [])].filter((tool) => {
+  // Listing reads by channel: resident SMS reads the texted manager's own listings; the portal assistant searches the
+  // public PropLane catalog (the /rent pages) so a resident looking for a place gets real homes and links.
+  const listingTools = ctx.channel === "sms" ? residentSmsListingTools : ctx.channel === "email" ? [] : [findHomesOnPropLaneTool];
+  const tools = [...ALL_RESIDENT_TOOLS, ...listingTools].filter((tool) => {
     if (ctx.phase === "application" && !APPLICATION_PHASE_TOOLS.has(tool.name)) return false;
     if (ctx.channel === "sms" && PORTAL_ONLY_TOOLS.has(tool.name)) return false;
     const section = TOOL_SECTION[tool.name];
