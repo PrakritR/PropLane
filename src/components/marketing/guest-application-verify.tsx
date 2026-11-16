@@ -23,7 +23,6 @@ import type { RentalWizardFormState } from "@/lib/rental-application/types";
 const TOKEN_KEY = "axis:guest-application-draft-token:v1";
 const CLAIM_ATTEMPT_KEY = "axis:guest-application-claim-attempt:v1";
 
-type Method = "sms" | "email";
 type Stage = "choose" | "code" | "email-sent" | "link-sent";
 
 function storage(): Storage | null {

@@ -277,6 +277,10 @@ allowlist below.**
   vendor's trade and area, so a ref is not a way around the list. A service leaves the board the moment it is hired
   (`acceptWorkOrderBid` clears `published`), completed, cancelled or unpublished; a vendor the manager removed
   (`withdrawn` offer) cannot ask again.
+- **Priced PropLane Jobs sit above the board on the same tab** (`VendorOpenGigs`, `GET|POST /api/vendor/gigs`): the kind,
+  the general area, the window, the offered price and a short code. Take it files a SUBMITTED bid at that price through the
+  same cycle (the manager still approves one bid, and the accepted amount is immutable). Owner:
+  [`one-number.md`](one-number.md) § PropLane Jobs.
 - **Throttles:** `BOARD_REQUESTS_PER_VENDOR_PER_HOUR` per vendor, `MAX_BOARD_REQUESTS_PER_SERVICE` per service.
 - **Contact is held until they bid (Decide #3).** The roster row made for a board or link vendor carries
   `origin` and `contactHeldUntilBid: true` with a blank phone and email (a texted vendor's phone is the one the

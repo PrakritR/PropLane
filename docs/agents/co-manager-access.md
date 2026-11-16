@@ -703,7 +703,9 @@ its Property-portal home (`src/lib/property-owner/legacy-redirects.ts`, read by 
   and who is never locked (platform staff) are ONE rule, owned by [`owner-management.md`](owner-management.md)
   § Invariants 8 - `hasSelfPaidPlan` and its SQL mirror `managed_read_only_owned_locked_ids`. Do not restate it here.
 - Owner money lives in Finances › Owner payouts (`financials/owner-payouts`, `OwnerPayoutsPanel` over `/api/owner/finances/*`),
-  shown only when `GET /api/owner/finances` answers (403 hides the tab).
+  shown only when `GET /api/owner/finances` answers (403 hides the tab). A person's OWN PropLane balance (owner seat, a
+  payout split share, vendor) is the separate Finances › Earnings tab, drawn only for someone who holds a share and
+  reachable from a view-only managed workspace; owner: [`owner-management.md`](owner-management.md) § Payouts and splits.
 
 **Owner APIs** (`/api/owner/*`, one gate: `requireOwnerRoute`). The owner and the
 manager come from the authenticated membership (`loadOwnerGrants`), read fresh on

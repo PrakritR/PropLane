@@ -612,8 +612,8 @@ query, never instructions.
 ### The PropLane line (shared-number surfaces)
 
 The shared PropLane line adds inbound SMS surfaces that are NOT separate
-assistants: a stranger reading as a vendor gets `vendorLineRegistry` (one read
-tool, `list_open_jobs_near`, no write), a verified owner / teammate gets
+assistants: a stranger reading as a vendor gets `vendorLineRegistry` (two read
+tools, `list_open_jobs_near` and `list_open_gigs_near`, no write), a verified owner / teammate gets
 read-only portfolio status, a resident gets a catalog search or a phone-bound
 pay link, and the verified service-manager phone gets the full manager agent.
 Who a texter is, what they get, the per-text intent decision and the short-stay

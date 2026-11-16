@@ -13,7 +13,6 @@ import {
   guestSignupTargetId,
   guestSignupTargetType,
   guestSignupTextBody,
-  type GuestSignupLinkKind,
 } from "./model";
 
 export const GUEST_LINKS_PER_PHONE_PER_HOUR = 3;

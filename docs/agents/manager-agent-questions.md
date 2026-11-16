@@ -120,7 +120,7 @@ does not store a source field per lead; say so rather than guess.
 |---|---|---|---|
 | 62 | Who lives at 5259 Brooklyn? | `list_residents` (property) | Co-mgr: yes |
 | 63 | Tell me about Priya | `get_resident_snapshot` **NEW** | house, room, rent, lease, balance. API: excluded |
-| 64 | What does room 3 pay? | `get_resident_snapshot` **NEW** | |
+| 64 | What does room 3 pay? | `get_resident_snapshot` **NEW** | rent is null without the Leases or the Payments grant |
 | 65 | How do I reach Sam? | `get_resident_snapshot` **NEW** (email) | phone is not returned |
 | 66 | Who has pets? | not stored | pet policy is on the listing, not per resident; say so |
 | 67 | Record a move-out | `record_move_out` (write) | |
