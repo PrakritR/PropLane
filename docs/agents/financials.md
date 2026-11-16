@@ -173,6 +173,22 @@ and the budget is NOT released) or `review`. The deposit disposition keeps its o
 or all 12 reviewed migrations, and nothing else
 (`scripts/identity-deposit-release-manifest.mjs`).
 
+**Voiding a PAID charge is the undo that moves no money** (`voidPaidCharge`,
+`src/lib/household-charge-void.server.ts`; `action: "voidCharge"` on
+`/api/portal-household-charges`). Owner only — the signed-in user must BE the row's
+`manager_user_id` (the workspace owner, or the service owner on a managed workspace), never a
+co-manager, a Property owner seat or a resident — and a 3-300 character reason is required. It
+never deletes and never refunds: the row stays at `status: "void"` with `voidedAt` / `voidedBy` /
+`voidReason`, one `audit_log` `charge_voided` row is written FIRST (nothing moves if it cannot
+be), and the books get a balanced reversal plus the removal of the charge's own `entry_type =
+"charge"` ledger line (`voidLedgerEntriesForCharge`). Refused: anything not `paid`, a
+`security_deposit` (return it through Return deposit), and a charge that already carries a
+refund. Idempotent — voiding a void charge re-runs only the ledger step, so a half-finished void
+repairs. `void` is sticky everywhere after that: the full-list mirror will not take a `void` row
+back to `pending`, and `buildRentDueSummary` skips it like `cancelled`. A real card/bank payment
+behind the charge is reported as `providerPayment` so the UI can say the money is still with the
+resident's payment, not returned.
+
 **Deleting a charge deletes its ledger line — and only that line.**
 `deleteLedgerEntriesForCharge` (`ledger-sync.ts`) removes the `entry_type = "charge"`
 `ledger_entries` row with that `source_charge_id`, never its `payment` / `refund`
@@ -301,8 +317,25 @@ keeps finishing through Stripe's embedded `account_onboarding` /
   vendor's own id for a vendor-initiated row (vendors and managers share the
   same `profiles.stripe_connect_account_id` column).
 - A newly created Connect account defaults to **automatic weekly payouts
-  (Friday)** (`createAxisConnectAccount` in `src/lib/stripe-connect.ts`); the
+  (Monday)** (`createAxisConnectAccount` in `src/lib/stripe-connect.ts`); the
   in-app **Withdraw** action works regardless of the schedule interval.
+- **"Payouts just work."** When an account FIRST becomes payout-ready and is still on manual,
+  `account.updated` switches it to `DEFAULT_AUTOMATIC_PAYOUT_SCHEDULE` (weekly, Mondays) through
+  `ensureAutomaticPayoutSchedule` (`src/lib/payout-schedule-default.server.ts`). It never
+  overrides a daily / weekly / monthly choice the holder already made, never runs while the
+  withdraw-only policy below is on, and never touches a vendor account (vendor banking owns its
+  own schedule). **Payout method** is one card in the app
+  (`PortalPayoutMethodCard`, `portal-payout-method-card.tsx`): not set up mounts Stripe's
+  embedded onboarding in place, set up shows the bank as `Bank •••• 1234` (only the last four
+  Stripe returns, never more), the automatic schedule (Weekly Mondays | Daily — Manual is
+  withdraw-only and has no row) and Stripe's read-only balance and history; if Stripe's
+  components cannot load the card steps aside and the page's own "Add a bank account" flow is
+  the fallback.
+- **A failed payout is told once.** `payout.failed` on a manager's or Property owner's account
+  runs `notifyOwnerOfFailedPayout` (`payout-failed-notice.server.ts`): inbox + email with
+  Stripe's own customer-safe `failure_message` (or the failure code, or a plain fallback),
+  trimmed to 200 characters and never the destination; idempotent on the payout id, never
+  throws, and vendor accounts are skipped (vendor banking tells them).
 - **Identity verification** — `src/lib/stripe-connect-identity.server.ts`:
   `getIdentityRequirements` maps Stripe's `currently_due`/`past_due` to a
   typed field list (an unmapped key sets `fallbackToEmbedded`, never dropped
@@ -517,7 +550,7 @@ deletion (`ACCOUNT_PURGE_RETAINED`). Migration
 
 **Schema** — `supabase/migrations/20260712130000_receivables_phase6.sql`: `manager_billing_settings`, `manager_payment_plans`, `manager_late_fee_waivers`.
 
-**Charge status** — `HouseholdCharge.status` extended: `pending|partially_paid|paid|cancelled|refunded|failed` + optional `paidAmountCents`; `applyPartialPaymentCents` in `nsf-fees.ts`.
+**Charge status** — Phase 6 added `partially_paid` and optional `paidAmountCents` (`applyPartialPaymentCents` in `nsf-fees.ts`). The current set of statuses is the `HouseholdCharge.status` union in `src/lib/household-charges.ts`; do not re-list it here.
 
 **NSF** — `payment_intent.payment_failed` webhook marks charge `failed` and `createNsfFeeForFailedPayment` when `manager_billing_settings.nsfFeeEnabled` (default $35).
 **The NSF fee id is per failed payment attempt** (`nsfFeeIdForCharge`,

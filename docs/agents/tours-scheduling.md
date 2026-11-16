@@ -142,39 +142,42 @@ later — `tourAvailabilityHasUpcoming` — because a grid whose every slot has 
 identical to an empty one. A FAILED availability read is still never rendered as either
 (see the doc comment in `tour-schedule-flow.tsx`).
 
-## Times first, account at "Your details" (Nov 3)
+## Times first, then "Your details" (Nov 3 flow, Nov 14 identity)
 
 `/rent/tours-contact` shows a signed-out prospect the room dropdown (default "not sure yet"), days and times at once; there is no up-front
 `ProspectGuestAccountGate` on the Tour tab (Message keeps it). The flow is two steps, Date & time then Your details
-(`TourScheduleFlow`). Your details for a signed-out visitor is `TourAccountStep` (Apple / Google / email / sign in), carrying
+(`TourScheduleFlow`). On the PUBLIC page Your details collects name, phone, email, notes and an opt-in "Text me about this tour", and
+books with no account — see § Guest tours below, which is the authoritative identity rule. `TourAccountStep` (Apple / Google / email /
+sign in) is now only the EMBEDDED resident flow's answer to a session that expired mid-booking; it carries
 `next=/resident/tour/schedule?propertyId=&slot=<slotKey>&room=<roomId|any>` (`tourSchedulePath`, `src/lib/tour-schedule-link.ts`).
-**Nothing is written before sign-in**: no hold, no inquiry. `/resident/tour/schedule` reads `slot` + `room` as a PREFILL
+`/resident/tour/schedule` reads `slot` + `room` as a PREFILL
 (`initialSlotKey` / `initialRoom`), opens on Your details with the account's name/email/phone filled, one "Request tour". The server
 re-checks everything; a slot or room in a URL is never trusted. A refusal (duplicate, rate limit, slot taken) renders inline on the step
 (`TourRefusal`) with the pick kept; a taken slot lists the next four open times. The email path preserves the pick on the server-decided
 signup handoff: `email_onboarding_handoffs.tour_slot_key` (+ `property_id`, `listing_room_id`) -> `/api/auth/email-onboarding/continue`
 -> `/auth/continue` rebuilds the fixed `/resident/tour/schedule` path.
-**Enforced server-side (captain, Nov 3: no anonymous booking).** `POST /api/public/partner-inquiries` refuses ANY `kind: "tour"` row
-(slot-mode and requested-time) without a signed-in session: 401 `sign_in_required`, before anything is read or written, failing closed when
-the session cannot be read; the body's `email` is never an identity. The only anonymous use left is `kind: "partner"` (the partner-meeting
-scheduler, no tour). Server callers do not use this route: the assistant's tour tools and the leasing SMS agent call `createTourInquiry`
-directly. Guards: `tests/unit/partner-inquiry-sms-consent.test.ts`, `tests/unit/tour-verified-session-context.test.ts`.
+`POST /api/public/partner-inquiries` serves both: a session when there is one, and otherwise the guest path (the body's `email` is still
+never an identity — a guest is bounded by the per-IP and per-phone limits and the re-derived home instead). `kind: "partner"` (the
+partner-meeting scheduler, no tour) is anonymous as it always was. Server callers do not use this route: the assistant's tour tools and
+the leasing SMS agent call `createTourInquiry` directly. Guards: `tests/unit/partner-inquiry-sms-consent.test.ts`,
+`tests/unit/tour-verified-session-context.test.ts`.
 
-There is no application-before-tour gate (removed Nov 10, captain); anyone signed in can request a tour.
+There is no application-before-tour gate (removed Nov 10, captain), and no account gate either (Nov 14): anyone may request a tour.
 
 ## Requested time: a house with no open slot (`requestKind: "requested_time"`)
 
 When `listOpenTourSlots` returns nothing, the booking flow (`tour-schedule-flow.tsx`) offers any day from tomorrow for 60 days
 and any 30-minute time 8:00 AM-7:30 PM Pacific instead of a dead calendar ("Thu, Oct 29 at 4:00 PM · request"). The mode is
 **server-decided**: `createTourInquiry` accepts the client's claim only after re-reading `listOpenTourSlots` (any open slot, or
-an unresolved house, refuses it), requiring a signed-in account (`verifiedApplicantEmail`, 401 `sign_in_required`), and
-`resolveRequestedTourWindow` (`src/lib/tour-request-time.ts`): the `slotKey` is derived with `slotKeyForInstant`, the instant must
+an unresolved house, refuses it), requiring an email to key the request on — the session's `verifiedApplicantEmail`, or for a guest
+(§ Guest tours) the one typed, which proves nothing and is bounded by the route's per-IP and per-phone limits instead; neither present
+is 401 `sign_in_required` — and `resolveRequestedTourWindow` (`src/lib/tour-request-time.ts`): the `slotKey` is derived with `slotKeyForInstant`, the instant must
 sit exactly on a Pacific half hour, inside 8:00-19:30, tomorrow or later. It is stored pending with `requestKind` (a body value is
 stripped, never trusted), filed under the property owner after `managerMayHostPropertyTour`, eligible hosts via
 `resolveEligibleTourHostUserIds({ requestMode: true })` (no published slot needed), never proposed for auto-confirm. Confirming
-it always runs the double-book check. **One open request per account and home**: a pending requested-time row for the same
-property and verified email is refused `duplicate_request` (409) so a host's queue cannot be flooded, and the account is held to
-five requests an hour (`rate_limited`, 429); a failed read of the existing requests refuses rather than filing a second one.
+it always runs the double-book check. **One open request per requester and home**: a pending requested-time row for the same
+property and the same keying email is refused `duplicate_request` (409) so a host's queue cannot be flooded, and that requester is held
+to five requests an hour (`rate_limited`, 429); a failed read of the existing requests refuses rather than filing a second one.
 The manager's notice reads "<Name> wants to tour <property> on <Day, Mon D> at <h:mm AM/PM>".
 With open slots, only those slots are offered, exactly as before.
 

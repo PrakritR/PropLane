@@ -448,6 +448,32 @@ the applicant has already PAID is never re-priced or deleted from there.
 (`paidHoldingDepositCreditCents`) are kept for now as `@deprecated`/back-compat
 only; do not add new AUTOMATIC pre-approval call sites.
 
+**A paid hold reserves the room for 7 days, and the money is never auto-refunded.**
+`src/lib/holding-hold.ts` holds every hold decision (pure, no IO) so the manager view, the
+resident view, the approval credit and the expiry sweep cannot drift: the fee is the listing's
+`holdingDeposit`, or `DEFAULT_HOLD_FEE_CENTS` ($100) when that is blank, and the window is
+`HOLD_WINDOW_DAYS` (7) **from the PAID time** (`holdExpiresAt`, stamped by both the Stripe and
+the offline-receipt paths; `effectiveHoldExpiresAt` derives it from `paidAt` for rows written
+before the stamp). `holdState` is `none` / `active` / `expired` and `holdDeadlineLabel` is the
+one line the resident and manager rows show ("Hold expires Nov 21").
+
+- **Paid → the room is held.** `notifyHoldPlaced` calls `reserveRoomForHold`
+  (`holding-room-block.server.ts`), which writes a NAMED `room_date_block` ("Hold — <applicant>")
+  from the paid date to the deadline, through the same shape the bookings core stores,
+  idempotent on the charge id. It needs the application to name a room and no overlapping
+  booking; a clash never blocks the payment, it just leaves the hold without a block. Then the
+  holder (and the manager) are told.
+- **Signed inside the window → credited.** `holdCreditCents` applies the whole hold toward the
+  security deposit, never more than the deposit, and nothing once the hold has expired.
+- **Ran out → released, not refunded.** `/api/cron/expire-holding-deposits` (hourly) runs
+  `expireHoldingDeposits` (`holding-deposit-expiry.server.ts`): a lease signed inside the window
+  stamps `holdCreditedAt` and drops the hold's block (the lease booking takes the room over);
+  otherwise it stamps `holdExpiredAt`, cancels the hold's `room_date_block` so the room is
+  bookable again, and emits `holding_deposit_expired` to the manager. The money is KEPT per the
+  holding-deposit policy — status stays `paid`, nothing is refunded and no ledger line moves.
+  Idempotent: a stamped row is skipped and the compare-and-swap on `updated_at` refuses a
+  concurrent edit. Never touches a confirmed booking.
+
 Coverage (application fee + waiver codes): `tests/unit/application-fee-checkout-fee-payer.test.ts`
 (Connect destination, ownership guard, server-stored fee amount, plan-based
 itemization) and `tests/unit/application-fee-waiver.test.ts` (code CRUD,

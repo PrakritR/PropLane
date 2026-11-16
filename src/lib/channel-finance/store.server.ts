@@ -197,7 +197,6 @@ export async function recordFinanceMail(
 /** One workspace, never another's: its owner, its id, and (for the owner's default workspace only) rows mail filed before a workspace was known. */
 export type FinanceScope = { ownerUserId: string; workspaceId: string; includeUnplaced: boolean };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function inScope<T>(query: T, scope: FinanceScope): T {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const q = (query as any).eq("manager_user_id", scope.ownerUserId);

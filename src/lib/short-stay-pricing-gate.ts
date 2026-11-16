@@ -29,7 +29,10 @@ export function needsShortStayPricingCheck(row: ShortStayPricingPlacement): bool
   return row.application?.rentalType === "short_term" && !row.application.bundleId?.trim();
 }
 
-/** Same rates and night coverage as the quote, agreement and approval ledger. No monthly fallback. */
+/**
+ * Same rates and night coverage as the quote, agreement and approval ledger: all three stay-length tiers
+ * (nightly, weekly, and the room's monthly rate for a 28+ night stay) through `shortTermStayCanBePriced`.
+ */
 export function shortStayPricingBlocker(row: ShortStayPricingPlacement, submission: ShortStayPricingSubmission): string | null {
   if (!needsShortStayPricingCheck(row)) return null;
   if (submission === "unreadable") return "Could not verify the stay pricing. Try again in a moment.";

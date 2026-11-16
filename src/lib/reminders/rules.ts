@@ -104,7 +104,7 @@ export const REMINDER_SUBJECT_KINDS = [
   "stay_arrival_guide",
   "stay_checkout_reminder",
   // ---- Move-in arrival (checkin-1028): the long-term resident's twin of `stay_arrival_guide`, at the
-  // check-in reveal (24 h before move-in), with a link to the Check-in tab. ----
+  // check-in reveal (10:00 local the day before move-in), with a link to the Check-in tab. ----
   "move_in_arrival",
 ] as const;
 

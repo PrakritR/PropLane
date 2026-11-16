@@ -253,7 +253,8 @@ const REQUESTED_TIME_REQUESTS_PER_HOUR = 5;
  * Requested-time mode, gated on the server.
  *
  * Allowed ONLY when the property truly has no open slot right now (re-read here with `listOpenTourSlots`,
- * the one answer to "what is open" - the client's claim proves nothing), for a signed-in account, for a
+ * the one answer to "what is open" - the client's claim proves nothing), for a requester we can key the
+ * request on (a signed-in account, or a guest's typed email), for a
  * 30-minute time between 8:00 AM and 8:00 PM Pacific that is tomorrow or later. On success the row is
  * rewritten in place: the window and `slotKey` are derived from the instant, the property's owner is the
  * filed host (re-checked with `managerMayHostPropertyTour`), and `requestKind` is stamped.

@@ -6,7 +6,7 @@ Signed lease billing freezes only missing money terms on the current authorized 
 
 **Short stays are applications (captain, Oct 3, 2026).** A short stay that becomes a tenancy starts one way: the resident portal's Applications **+** picker on its Short term list (`?rentalType=short_term`, `resident-applications-panel.tsx`) opens the same application -> lease -> payments process the long-term apply door does, with `rentalType: "short_term"`. The public listing has no term doors any more (captain, Oct 12): its price card is the price, availability, **Tour** and **Book** (`listing-price-card.tsx`; no Monthly | Short stay control since Nov 12), and nothing there starts a short-term application. That selects the property's short-term application template ("Short-term application": who, contact, dates and room, plus anything the manager added) and short-term lease ("Short term lease"), prices the stay through `resolveStayPricing` (never a second price decision, never utilities), and creates the stay's charges (`stay_total`, short-term move-in fee, deposit) through `recordApprovedApplicationCharges` like any approval. Workspace signing order applies unchanged. The old public hold-and-pay booking (`/rent/stay` form, `POST /api/public/short-stay-booking`) is retired: `/rent/stay` redirects to the short-term application, and `short-stay-booking.server.ts` keeps only the cron/webhook settling for holds that were already in flight: `/api/cron/short-stay-hold-expiry` (every 5 minutes) runs `expireShortStayHolds` (`src/lib/short-stay-hold-expiry.server.ts`), which releases every `bookingStatus: "hold"` date block whose stored `holdExpiresAt` checkout window has passed and cancels that booking's unpaid charges - never one already `paid` or `processing`. That cron is now shared: the same run also expires a guest short-stay request's 24-hour `holdExpiresAt` hold, which is a different flow with its own writer and answer - owned by [`bookings.md`](bookings.md) § Guest portal stays, not restated here. The resident portal files Application, Lease and Payments under two text tabs, Long term and Short term (`src/lib/resident-term-split.ts`, the one decision); Lease and Payments show the tabs only once a short stay exists. Coverage: `tests/unit/short-term-resident-flow.test.ts`. The public listing used to carry a **Request to book** block for a nightly stay (dates, room, guests; removed from the page Nov 12, the portal stay request remains): it asks the manager to hold the room — the same `room_date_block` Add booking saves — and makes no application and no lease, so nothing in this file applies to it (it writes nothing on the public page — the visitor goes through a resident account into `/resident/applications/stay` — and a confirmed stay raises its own `stay_total` charge, never through `recordApprovedApplicationCharges`); it is owned by [`bookings.md`](bookings.md) § Short stays on the public listing and § Guest portal stays.
 
-Applicant short-stay quotes, approval charges and newly generated lease documents use the same selected resident slot and weekly-plus-nightly total (`resolveStayPricing`, `shortTermStayTotalAmount`). Undated pricing receipts show “Dates required”; a monthly room rent is never a stay payment. Applicant arrival/departure controls are removed: the server stamps the property clock and preserves already-submitted clocks. Coverage: `applicant-stay-quote.test.ts`, `application-standard-stay-times.test.ts`. Weekly-only rates cover exact weeks; an unpriced remainder blocks application submission and never becomes a partial ledger or lease total. Existing signed documents remain unchanged. New approval and unsigned lease send also use `shortStayPricingBlocker` (the same `resolveStayPricing` rates and complete-night check): a pre-existing weekly-only application cannot be approved or sent for a partial week with only deposit/fee charges. Server property reads are scoped to the owning manager and fail closed, and the refusal names the thing to fix: a failed read says to try again, a stay linked to no property says to assign the room, and a property with no stay rates says to set a nightly or weekly rate (`ShortStayPricingSubmission`); existing approved metadata writes and signed history are not repriced. Coverage: `short-stay-pricing-gate.test.ts`, `evidence-claude1-forms-gate-1006.test.ts`.
+Applicant short-stay quotes, approval charges and newly generated lease documents use the same selected resident slot and stay-length-tier total (`resolveStayPricing`, `shortTermStayTotalAmount` — see § Stay-length tiers). Undated pricing receipts show “Dates required”; a monthly room rent is never a stay payment. Applicant arrival/departure controls are removed: the server stamps the property clock and preserves already-submitted clocks. Coverage: `applicant-stay-quote.test.ts`, `application-standard-stay-times.test.ts`. A rate that cannot cover the stay's length at all blocks application submission and never becomes a partial ledger or lease total. Existing signed documents remain unchanged. New approval and unsigned lease send also use `shortStayPricingBlocker` (the same `resolveStayPricing` rates and complete-night check): a stay the room's rates cannot price cannot be approved or sent with only deposit/fee charges. Server property reads are scoped to the owning manager and fail closed, and the refusal names the thing to fix: a failed read says to try again, a stay linked to no property says to assign the room, and a property with no stay rates says to set a nightly or weekly rate (`ShortStayPricingSubmission`); existing approved metadata writes and signed history are not repriced. Coverage: `short-stay-pricing-gate.test.ts`, `evidence-claude1-forms-gate-1006.test.ts`.
 
 ## The four lease types (Oct 2026)
 
@@ -64,7 +64,16 @@ filter legitimately offers all four `LEASE_TYPES` and is the one file that test 
   a Seattle listing: `listingOffersMonthToMonthSurcharge` (listing-fees.ts) is the one predicate (hidden row, amount
   0 in `listingPresetFeeAmountIfEnabled`, no fold into Seattle rent, no lease-document line, no quote add-on).
   A rollover tenancy (`rolloverToMonthToMonth`) is billed as the lease it continues and prints no surcharge. The
-  custom-start surcharge still applies to a custom-dated lease. **The jurisdiction is resolved from the stored
+  custom-lease surcharge still applies to a custom-dated lease.
+- **The custom-lease surcharge is a start-OR-end answer, and blank means $100/month.**
+  `isCustomCalendarLease` (`rental-application/lease-dates.ts`) is the one yes/no: custom when the lease starts on a
+  day other than the 1st, OR ends on a day that is neither the 1st (the checkout morning of an aligned term) nor the
+  month's last day. Both ends off-cycle together are still ONE surcharge, billed once per month; with no end date
+  (month-to-month) only the start counts, and no start is never custom. `customLeaseSurchargeAmount`
+  (`custom-lease-billing.ts`) reads the listing's `custom_lease_surcharge` row: an amount the manager typed is theirs
+  (0 included), a row they REMOVED bills nothing, and a BLANK amount means "not priced yet" and defaults to
+  `DEFAULT_CUSTOM_LEASE_SURCHARGE` ($100/month) — but only when the listing actually offers the Custom (calendar)
+  term. The per-term checkbox is deliberately not consulted, because it is derived from the amount being filled. **The jurisdiction is resolved from the stored
   property record FIRST**, before the submission (`listingFoldsAllMonthlyFeesIntoRent(sub, listingProperty)`),
   so every caller that has the property must pass it — `buildListingQuote`, `listingOffersMonthToMonthSurcharge`,
   `resolveRoomTermFees` and the leasing-SMS listing facts all take `listingProperty`. A listing whose
@@ -1494,6 +1503,31 @@ fixture (a $55/day room in Fremont CA, an 11-day stay), before the fix:
    the SF Rent Ordinance paragraph, because any bare `ca` resolved to `san_francisco`.
 6. Monthly room: unchanged. This is the regression baseline and it passed before and after.
 
+### Stay-length tiers (captain, Nov 2026)
+
+A stay's length picks its rate; `shortTermStayTotalAmount` (`short-term-stay-pricing.ts`) is the
+one maths and every quote, charge title, checkout line and lease document goes through it.
+
+| Nights | Tier | Total |
+| --- | --- | --- |
+| 1-6 | `nightly` | nightly x nights |
+| 7-27 | `weekly` | effective weekly x nights / 7 |
+| 28+ | `monthly` | monthly x nights / 30, when the room has a monthly rate |
+
+- The **effective weekly rate** is the room's own weekly rate, else `6 x nightly`
+  (`STAY_DEFAULT_WEEKLY_NIGHTS`), so a week is always cheaper than seven nights without the
+  manager typing a second number.
+- A 28+ night stay stays on the weekly tier when the room has **no** monthly rate; the monthly
+  tier prorates over `STAY_MONTH_NIGHTS` (30), so 30 nights is exactly the monthly rate.
+- Every tier **prorates per night**. The old whole-weeks-plus-leftover-nights billing is gone:
+  `shortTermStaySplit` survives as an informational split only and no longer prices anything, so
+  a weekly-only rate no longer needs exact weeks (`shortTermStayCanBePriced`: a nightly rate
+  prices any length, a weekly-only rate 7+ nights, a monthly-only rate 28+).
+- `shortTermStayChargeTitle` carries the tier in the stored charge title
+  ("Stay total (10 nights x $600/week, Weekly rate)") and `parseShortTermStayChargeTitle` is its
+  inverse for manager payment edits; `shortTermStayNightlyTitle` is the plain untiered title a
+  daily-priced tenancy bills with. Tests: `short-term-stay-pricing`, `applicant-stay-quote`.
+
 ### `resolveStayPricing` (`src/lib/room-pricing.ts`)
 
 The single decision point. The lease document and the charge ledger both call it, so they
@@ -1502,10 +1536,12 @@ cannot quote different numbers for the same resident.
 Precedence, in order:
 
 1. **`rentalType === "short_term"` wins the kind outright.** Short stay, daily basis. The ROOM
-   the applicant selected supplies the rate; `sub.shortTermDailyCost` is the fallback.
-   A negotiated monthly rent deliberately does **not** apply here: the short-term charge branch
-   does not consult `managerRentOverride` either, and letting the document do so would recreate
-   the disagreement this resolver exists to remove.
+   the applicant selected supplies the rates; `sub.shortTermDailyCost` is the nightly fallback.
+   It returns all three stay rates (see § Stay-length tiers): the nightly rate, the EFFECTIVE
+   weekly rate (`shortTermEffectiveWeeklyRate` — the room's own, else 6 x nightly) and the room's
+   `monthlyRent` as the monthly rate. A negotiated monthly rent deliberately does **not** apply
+   here: the short-term charge branch does not consult `managerRentOverride` either, and letting
+   the document do so would recreate the disagreement this resolver exists to remove.
 2. **Negotiated monthly rent** (`managerRentOverride`, then `signedMonthlyRent`) beats the
    room's daily basis, exactly as it already beat the room's listing monthly rent. Mirrors
    `residentNegotiatedMonthlyRent` in `household-charges.ts`.
@@ -2406,7 +2442,7 @@ An accepted lease transition and its action-event delivery intents are persisted
 - **One Approve popup** (`approve-application-dialog.tsx`) from every entry point; bed and rent come from `application-approval-slots.ts`; the last bed is arbitrated by the server (409 `blocked:"capacity"` with the holder) and the popup offers another bed.
 - **Who has signed**: `lease-signers.ts` + `LeaseSignersCard`. A joint shared-room lease is one lease row per roommate linked by `jointRoomGroupId` (`lease-joint-room.ts`); the manager countersigns once, only after every roommate has.
 - **Payments start at the last signature**: `lease-signing-charges.client.ts` calls the existing `freezeSignedLeaseTerms` + `recordApprovedApplicationCharges` (no arithmetic of its own, idempotent). It runs on the manager's countersign, on mark-signed, and from `watchExecutedLeaseCharges` for a lease the resident signed last. It is client-driven because the ledger generator reads the manager's browser-only listing catalog.
-- **A lease the manager never countersigns refunds itself** (off by default). `/api/cron/lease-uncountersigned-refund` (daily) runs `refundUncountersignedMoveInCharges` (`src/lib/lease-uncountersigned-refund.server.ts`) only when `LEASE_UNCOUNTERSIGNED_REFUND_ENABLED` is `1`/`true`/`on` - it moves real money, so a deploy alone never turns it on. It takes leases still `Manager Signature Pending` whose resident signature is older than `UNCOUNTER_SIGN_REFUND_AFTER_DAYS` (45), skipping short stays and anything voided, fully signed or already countersigned, refunds that lease's paid move-in charges (deposit, prorated first month and utilities, lease / move-in / signing fees, other costs) and then voids the lease with a system thread note. It owns no refund math: `decideChargeRefund` + `chargeRefundIdempotencyKey` (`src/lib/charge-refund.ts`) decide and dedupe every refund, and the Stripe refund reverses the Connect transfer. The deadline is filtered in the DATABASE, not in JS - `row_data` carries the lease PDF and generated HTML, so paging the table would pull hundreds of MB through the egress budget every run.
+- **A lease the manager never countersigns refunds itself** (off by default). `/api/cron/lease-uncountersigned-refund` (daily) runs `refundUncountersignedMoveInCharges` (`src/lib/lease-uncountersigned-refund.server.ts`) only when `LEASE_UNCOUNTERSIGNED_REFUND_ENABLED` is `1`/`true`/`on` - it moves real money, so a deploy alone never turns it on. It takes leases still `Manager Signature Pending` whose resident signature is older than `UNCOUNTER_SIGN_REFUND_AFTER_DAYS` (45), skipping short stays and anything voided, fully signed or already countersigned, refunds that lease's paid move-in charges (deposit, prorated first month and utilities, lease / move-in / signing fees, other costs) and then voids the lease with a system thread note. It owns no refund math or dedupe: it goes through the one coordinator, `runHouseholdChargeRefund` — owned by [`financials.md`](financials.md) § Pending is not refunded money, not restated here. The deadline is filtered in the DATABASE, not in JS - `row_data` carries the lease PDF and generated HTML, so paging the table would pull hundreds of MB through the egress budget every run.
 - **Shared-room clauses**: `lease-shared-room-terms.ts` is the one source for the generated lease's clauses and the "Shared room addendum" shown beside an uploaded PDF (the PDF bytes are never edited).
 
 ## Lease `defaultFor` and the stay tabs

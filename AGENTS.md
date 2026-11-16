@@ -436,9 +436,12 @@ the browser that asked for it, and such a link is opened somewhere else. Never
 (`/api/auth/email-onboarding/finish` claims the stored handoff and sets a
 one-shot `proplane_signup_handoff` cookie that `/auth/continue` redeems) — never
 from anything in the URL. The reset route is not an account-existence oracle.
-`RESEND_API_KEY` is load-bearing. **That emailed link is also the one mailbox
-proof for signup**: no account is created, confirmed, or given a password before
-it is opened — [`resident-onboarding.md`](docs/agents/resident-onboarding.md) owns
+`RESEND_API_KEY` is load-bearing. **Proof comes before the account, always**: no
+account is created, confirmed, or given a password until a mailbox is proven by
+that emailed link, or (captain, Nov 14) a phone is proven by a texted code or a
+texted single-use `/l/<token>` link — an email address or a typed phone number is
+never proof on its own.
+[`resident-onboarding.md`](docs/agents/resident-onboarding.md) owns
 the flow and [`manager-account-creation.md`](docs/agents/manager-account-creation.md)
 the manager half.
 

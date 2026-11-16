@@ -60,14 +60,15 @@ working and stays manageable. SpareRoom has no calendar feed, so it is not a Boo
 row: it is a Copy post row under Posting ([`listing-syndication.md`](listing-syndication.md)).
 
 **Other calendar** (`provider: "ical"`) is the row for every site without a row of its
-own - Houfy, Furnished Finder, Expedia, HomeToGo, Vrbo while it is Coming soon, anything
-that publishes an https `.ics`. The manager types the site's name in the popup's **Name**
+own - Agoda, Houfy, Furnished Finder, Expedia, HomeToGo, Vrbo while it is Coming soon,
+anything that publishes an https iCal feed. The manager types the site's name in the popup's **Name**
 field; it is stored in the connection's existing `label` column and is what every label,
 status line, alert ("New Houfy booking") and calendar bar says
 (`channelCalendarProviderLabel(provider, label)`). There is no host allowlist (that is the
-point), so `isValidIcalImportUrl` instead refuses what must never be fetched: http, a path
-that is not `.ics` / `/ical/` / `/calendar/`, credentials in the URL, and loopback, private,
-link-local or internal hosts (`ical-host.ts`). The fetch itself goes through
+point), and no path shape either (Agoda's export is `.../ical?...` or a bare token query, so
+the path says nothing), so `isValidIcalImportUrl` instead refuses only what must never be
+fetched: http, credentials in the URL, and loopback, private, link-local or internal hosts
+(`ical-host.ts`). Whether it really is a calendar is decided by the CONTENT when it is fetched. The fetch itself goes through
 `fetchPinnedPublicHttps` (DNS resolved once, every address must be public, the connection is
 pinned to those addresses, each redirect hop re-vetted), and the first response must be
 `text/calendar` or start with `BEGIN:VCALENDAR`. The popup's check icon calls
@@ -276,6 +277,10 @@ produced a feed link Airbnb rejected). The client no longer sends an `origin`
 query param at all — the route derives it with `resolveRequestOrigin`.
 Coverage: `tests/unit/channel-calendar-export-url.test.ts`,
 `channel-calendar-write-access.test.ts`.
+
+The feed itself answers what a channel's importer probes with, not only what a browser does:
+`HEAD` returns the `GET`'s status and headers with no body, and the body is served
+`Content-Disposition: inline` because some importers (Agoda's among them) reject an attachment.
 
 ### The Channels card
 
