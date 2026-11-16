@@ -76,8 +76,11 @@ export async function recoverInboundEnvelopes(db: SupabaseClient, options: { pro
  if (stale.error) throw new Error("Ingress recovery unavailable");
  for (const row of stale.data ?? []) {
   const retry = (row.checkpoint_stage === "safe" || row.checkpoint_stage === "control") && row.attempts < 3;
-  const update = await db.from("sms_ingress_envelopes").update({ status: retry ? "accepted" : "needs_review", reason: row.checkpoint_stage === "delegated" ? "delegated_receipt" : retry ? "lease_retry" : "uncertain_effect", lease_token: null, lease_until: null, next_attempt_at: new Date(Date.now() + Math.min(60_000, 1000 * 2 ** row.attempts)).toISOString(), updated_at: now }).eq("id", row.id).eq("status", "executing").eq("lease_token", row.lease_token).lt("lease_until", now);
+  const reason = row.checkpoint_stage === "delegated" ? "delegated_receipt" : retry ? "lease_retry" : "uncertain_effect";
+  const update = await db.from("sms_ingress_envelopes").update({ status: retry ? "accepted" : "needs_review", reason, lease_token: null, lease_until: null, next_attempt_at: new Date(Date.now() + Math.min(60_000, 1000 * 2 ** row.attempts)).toISOString(), updated_at: now }).eq("id", row.id).eq("status", "executing").eq("lease_token", row.lease_token).lt("lease_until", now).select("id");
   if (update.error) throw new Error("Ingress recovery unavailable");
+  // A text whose run died mid-flight is parked here, not in the run's own catch: it must surface the same way.
+  if (!retry && (update.data ?? []).length) await import("@/lib/prospect-spine/delivery-issue.server").then((m) => m.reportEnvelopeIssue(db, row.id, reason)).catch(() => undefined);
  }
  for (const [status, field] of [["accepted", "expires_at"], ["prepared", "expires_at"]] as const) {
   const update = await db.from("sms_ingress_envelopes").update({ status: "expired", updated_at: now }).eq("runtime", runtime).eq("account_sid", account).eq("status", status).lt(field, now);
