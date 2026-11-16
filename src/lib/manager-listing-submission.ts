@@ -1763,15 +1763,26 @@ const CUSTOM_APPLICATION_FIELD_TYPES_WITH_OPTIONS = new Set<ManagerCustomApplica
   "multi_select",
 ]);
 
+/**
+ * Strip the separators the `[^a-z0-9]+` squash below can leave at either end.
+ *
+ * Deliberately not `/^-+|-+$/`: the label is typed by whoever writes the
+ * question, and an end-anchored `-+` is re-tried from every position in a long
+ * run of separators, so that regex is quadratic in the length of the label
+ * (`js/polynomial-redos`). Two scans are linear and say the same thing.
+ */
+function trimKeySeparators(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === "-") start += 1;
+  while (end > start && value[end - 1] === "-") end -= 1;
+  return value.slice(start, end);
+}
+
 /** Kebab-case answer key from a question label, unique against `taken`. */
 export function customApplicationFieldKeyFromLabel(label: string, taken: Iterable<string>): string {
   const base =
-    label
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 48) || "question";
+    trimKeySeparators(label.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")).slice(0, 48) || "question";
   const used = new Set(taken);
   if (!used.has(base)) return base;
   let n = 2;

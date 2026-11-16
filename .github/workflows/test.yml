@@ -268,6 +268,44 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      # A standard GitHub runner is 7 GB of RAM and ~3 GB of swap, and this
+      # project's Turbopack compile now peaks above that total. When the VM runs
+      # out of memory the runner itself is lost, so the step reports only "The
+      # runner has received a shutdown signal" / "The operation was canceled" —
+      # no OOM message, no exit code, no type error (actions/runner-images#15179
+      # is the same symptom). That is what this job has been doing since
+      # `ubuntu-latest` moved to the Ubuntu 26.04 image: the same `main` commit
+      # whose nightly build passed on 24.04 is killed on 26.04, so what ran out
+      # first was the headroom, not the code.
+      #
+      # Swap is the only knob: `next build` has no Turbopack memory limit, and
+      # `--max-old-space-size` does not bound it (the compile still peaks at
+      # ~12 GB RSS with the V8 heap capped at 1 GB — the graph lives in the
+      # Rust allocator, outside V8). The compile graph pages fine, and the OS
+      # disk has tens of gigabytes free, so this costs a file and no RAM.
+      - name: Give the production build swap headroom
+        # Headroom, not a gate: if this runner will not take a swapfile the
+        # build still runs, and the log above says why it had less room.
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          free -h
+          df -h /
+          avail_gb=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
+          avail_gb=${avail_gb:-0}
+          size_gb=12
+          if [ "$avail_gb" -lt 24 ]; then size_gb=$(( avail_gb / 2 )); fi
+          if [ "$size_gb" -lt 2 ]; then
+            echo "::warning::Only ${avail_gb}G free on /; skipping the build swapfile. An OOM here is reported as a cancelled step."
+            exit 0
+          fi
+          sudo fallocate -l "${size_gb}G" /next-build-swapfile \
+            || sudo dd if=/dev/zero of=/next-build-swapfile bs=1M count=$(( size_gb * 1024 )) status=none
+          sudo chmod 600 /next-build-swapfile
+          sudo mkswap /next-build-swapfile
+          sudo swapon /next-build-swapfile
+          swapon --show
+          free -h
       - name: Bind local QA build origin
         if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919'
         run: echo "NEXT_PUBLIC_APP_URL=http://localhost:3010" >> "$GITHUB_ENV"

@@ -9,6 +9,40 @@ name: "PropLane CodeQL config"
 # library's HMAC, because the heuristic reads the minted state as a password.
 # HMAC-SHA256 over a machine-generated app secret is the right primitive there,
 # and nothing in this product hashes a user password at all - Supabase Auth owns
-# credentials. Every query stays enabled for `src/` and `scripts/`.
+# credentials.
 paths-ignore:
   - tests
+
+# Two heuristics below are excluded by QUERY, not by path, so every other query
+# keeps scanning every file. Both classify a value as a credential from its
+# NAME, and in this codebase both have only ever fired on a value that is not
+# one. Excluding the query is narrower than the alternative (`paths-ignore` on
+# `src/lib/rate-limit.ts` and `src/lib/household-charges.ts`, which would stop
+# scanning two load-bearing files for everything).
+#
+# `js/insufficient-password-hash` - reported on the keyed digest in
+#   `rateLimit()` (`src/lib/rate-limit.ts`), because an MCP/REST caller's bucket
+#   is `mcp:${auth.keyId}` and the heuristic reads anything returned by
+#   `resolveApiKeyContext` / `findLiveApiKey` as a password. What reaches the
+#   digest is the api-key ROW ID, never the bearer token: the token is hashed
+#   with SHA-256 once at lookup and never leaves `findLiveApiKey`. The digest is
+#   HMAC-SHA256 keyed with the service-role secret so the limiter's table holds
+#   no raw IP, email or phone number - a rate-limit bucket on the request path
+#   is exactly where a deliberately slow KDF must not be. Per the note above,
+#   this product hashes no user password anywhere.
+#
+# `js/clear-text-storage-of-sensitive-data` - reported on two per-tab
+#   `sessionStorage` caches: the charge/rent rows the same signed-in viewer just
+#   fetched (`persistHouseholdStateToSession`, the cache the Supabase egress
+#   budget depends on) and the one-way fingerprint of a native OAuth code
+#   (`src/lib/native/open-url.ts`, whose whole purpose is to NOT store the code).
+#   Neither is a credential, and neither is readable by anything that cannot
+#   already read the rendered page.
+#
+# Re-open both the day this product stores a credential in the browser or hashes
+# a password itself; until then the alerts are noise that hides real findings.
+query-filters:
+  - exclude:
+      id: js/insufficient-password-hash
+  - exclude:
+      id: js/clear-text-storage-of-sensitive-data
