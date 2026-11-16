@@ -147,6 +147,8 @@ export const AUTOMATED_MESSAGE_CATALOG: AutomatedMessageCatalogEntry[] = [
   { domain: "task", event: "task_assigned_vendor", area: "tasks", label: "Task assigned to a vendor", audiences: ["vendor"], placeholders: ["title", "propertyTitle", "dueDateLabel", "managerName", "url"] },
   // ---- Communication ----
   { domain: "message", event: "after_hours_ack", area: "communication", label: "After-hours reply", audiences: ["resident"], placeholders: ["residentName", "resumeLabel", "emergencyPhone"] },
+  // The PropLane Assistant answering a resident's or guest's question in their conversation (codes only inside the reveal window).
+  { domain: "message", event: "assistant_reply", area: "communication", label: "Assistant answers house questions", audiences: ["resident"], placeholders: [] },
   { domain: "message", event: "emergency_flagged", area: "communication", label: "Emergency flagged", audiences: ["resident", "manager"], placeholders: ["residentName", "excerpt"] },
 ];
 

@@ -49,6 +49,13 @@ The auth screens (`AuthSplitShell`) use the same font and tokens, with a full-bl
   (`POST /api/resident/application-drafts/claim`: the session's CONFIRMED email or VERIFIED phone must be the one the draft names; the token and
   property id are only lookup keys) and submits it through the ordinary signed-in write, so the pre-apply gate (`preApplySubmitGate`), the fee gate and
   every other submit check still run. No account exists before proof.
+  *Text me a link* (captain, Nov 14: accounts ideally, plus the SMS link system): a third proof on apply, and the primary account step on a guest tour
+  that ticked the SMS box. `POST /api/public/guest-signup-link` texts a single-use phone-bound `account` link (`target_type` `guest_apply` /
+  `guest_tour`, hash only, 2 h) to the phone ALREADY on the held draft or the guest tour (the request never names a phone), from the home's workspace
+  line as a control text (STOP wins). `/l/<token>` only draws a Continue button; `POST /api/l/<token>/guest-signup` spends it, and opening it IS the
+  phone proof (`completeGuestSignup`: a phone-only resident with the phone VERIFIED, or the one existing account on that phone through
+  `smsProvenSessionAllowed`, never a second; a tour is linked to it) and lands on the apply page, which claims the draft as above. Guard:
+  `tests/unit/guest-signup-link.test.ts`.
 - **Message and Text us** (design-1112 §1, §5). *Message* is the third action in the card and the phone dock and
   "Message about this room" in each room's details (never inside a manager's own preview). It opens
   `ListingMessageSheet` (`listing-message-sheet.tsx`, `.ps` classes, no email field, no subtext): message, phone, optional

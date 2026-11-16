@@ -1,4 +1,5 @@
 import { runInboundMessageAutomation } from "@/lib/inbound-message-automation.server";
+import { residentThreadAutoReplyDeps, runResidentThreadAutoReply } from "@/lib/resident-thread-auto-reply.server";
 import { NextResponse, after } from "next/server";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { track } from "@/lib/analytics/posthog";
@@ -809,9 +810,25 @@ export async function POST(req: Request) {
     // the creators would dedupe the second filing, but asking them to is waste,
     // not a design.
     let workflowQueued = false;
-    const queueResidentWorkflow = (managerUserId: string, residentName?: string) => {
+    const queueResidentWorkflow = (managerUserId: string, residentName?: string, autoReplyThreadId?: string | null) => {
       if (workflowQueued || !managerUserId || senderRole !== "resident") return;
       workflowQueued = true;
+      // The PropLane Assistant answers in this same conversation (house facts, codes inside the reveal window) or hands
+      // the message to the manager. Deferred and best-effort like the rest; the manager's switch and every guard live there.
+      after(
+        runResidentThreadAutoReply(
+          {
+            managerUserId,
+            residentUserId: user.id,
+            residentEmail: senderEmail,
+            residentName: residentName ?? fromName,
+            threadId: autoReplyThreadId ?? replyTarget?.threadId ?? null,
+            messageId: replyTarget ? replyCommitId : (sendId || null),
+            text,
+          },
+          residentThreadAutoReplyDeps(db),
+        ).catch(() => undefined),
+      );
       // Emergency flag and after-hours acknowledgement (PLAN-0915), same
       // deferred, best-effort contract as the workflow filing below.
       after(
@@ -1028,6 +1045,7 @@ export async function POST(req: Request) {
       queueResidentWorkflow(
         managerUserIdForProperty,
         fromName || String(senderFull?.full_name ?? "").trim() || "Resident",
+        chat.threadId,
       );
     }
 

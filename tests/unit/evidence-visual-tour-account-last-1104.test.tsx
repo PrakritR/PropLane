@@ -72,7 +72,7 @@ function pageHtml(container: HTMLElement): string {
   return `<div class="ps ps-j-page"><div class="ps-j-col"><div class="ps-j-title"><h1 class="ps-h1">Book a tour</h1></div><div class="ps-j-stack">${container.innerHTML}</div></div></div>`;
 }
 
-describe("a signed-out visitor picks the time first and is asked for an account at Your details", () => {
+describe("a signed-out visitor picks the time first and gives a name, phone and email at Your details", () => {
   it("step 1 shows the days and times with no account gate in front of them", async () => {
     session.state.userId = null;
     const posts = stubFetch(SLOTS);
@@ -94,7 +94,7 @@ describe("a signed-out visitor picks the time first and is asked for an account 
     expect(posts).toHaveLength(0);
   });
 
-  it("step 2 is the account step, and the pick rides the sign-in next", async () => {
+  it("step 2 is a guest form (name, phone, email) with no account wall", async () => {
     session.state.userId = null;
     const posts = stubFetch(SLOTS);
     const view = render(<TourScheduleFlow property={PROPERTY} returnAfterAuth="/resident/tour" onSuccess={() => {}} />);
@@ -103,20 +103,18 @@ describe("a signed-out visitor picks the time first and is asked for an account 
     fireEvent.click(await screen.findByRole("button", { name: /10 am/i }));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
-    await waitFor(() => expect(document.querySelector('[data-attr="tour-account-step"]')).toBeTruthy());
+    await waitFor(() => expect(document.querySelector('[data-attr="tour-book-submit"]')).toBeTruthy());
     writeEvidencePage("tour-2-signed-out-account-step", pageHtml(view.container), {
-      title: '/rent/tours-contact — signed out, step 2 "Your details": the account is asked for here, with the pick already made',
+      title: '/rent/tours-contact — signed out, step 2 "Your details": a name, phone and email books the tour; no account is asked for',
       width: 900,
     });
 
-    const email = document.querySelector('[data-attr="tour-account-email"]') as HTMLAnchorElement;
-    const next = new URL(new URL(email.getAttribute("href")!, "http://x").searchParams.get("next")!, "http://x");
-    expect(next.pathname).toBe("/resident/tour/schedule");
-    expect(next.searchParams.get("propertyId")).toBe("prop-ballard");
-    expect(next.searchParams.get("slot")).toBe("2099-08-06:20");
-    expect(next.searchParams.get("room")).toBe("any");
-    // No contact form, no booking button, nothing filed before the account exists.
-    expect(document.querySelector('[data-attr="tour-book-submit"]')).toBeNull();
+    expect(document.querySelector('[data-attr="tour-account-step"]')).toBeNull();
+    expect(document.querySelector('[data-attr="tour-account-email"]')).toBeNull();
+    expect(document.getElementById("tour-name")).toBeTruthy();
+    expect(document.getElementById("tour-email")).toBeTruthy();
+    expect(document.getElementById("tour-phone")).toBeTruthy();
+    // Nothing is filed until the visitor presses the book button.
     expect(posts).toHaveLength(0);
   });
 

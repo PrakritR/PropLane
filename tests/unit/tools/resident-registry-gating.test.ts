@@ -76,6 +76,7 @@ const UNGATED_TOOLS = [
   "lookup_property_knowledge",
   // The guest's own stays: check-in / checkout times and the paid early / late add-ons (read-only, no gate).
   "get_my_stay_times",
+  "get_my_stay_check_in",
 ];
 
 describe("resident registry gating", () => {
@@ -87,6 +88,7 @@ describe("resident registry gating", () => {
         "research_my_property_location",
         "get_my_application_status",
         "get_my_stay_times",
+        "get_my_stay_check_in",
         "list_my_inbox_threads",
         "get_my_scheduled_messages",
         "send_message_to_manager",

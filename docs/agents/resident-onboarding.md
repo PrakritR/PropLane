@@ -4,6 +4,7 @@
 > replaces the Nov 3 "account at Your details" rule and the account-first apply gate. The Submit step proves a phone or mailbox, creates the
 > account only after the proof, and submits the held draft as that resident (`guest_application_drafts`, see
 > [`public-journey.md`](public-journey.md) § Guest tour and guest apply). Every invariant below about proof before an account still holds.
+> A texted single-use link (`/l/<token>`, `completeGuestSignup`) is a third proof: the phone it was sent to is proven by opening it, the account is created with that phone VERIFIED (no later phone code) or the one existing holder of the phone is signed in, never a second account.
 
 > **Model (captain decision, Jul 2026).** A prospective resident CREATES AN
 > ACCOUNT and then APPLIES FROM INSIDE THEIR PORTAL. There are three entry

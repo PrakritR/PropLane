@@ -134,6 +134,8 @@ export type DigestFacts = {
   /** null when the workspace has no rent charges this month: the clause is left out. */
   rent: { paidCount: number; unpaidCount: number; unpaidCents: number } | null;
   newLeads: number;
+  /** Today's confirmed tours by name and time: the digest names them when there are a few. */
+  tours?: ReadonlyArray<{ who: string; time: string }>;
 };
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -150,7 +152,15 @@ export function digestIsEmpty(facts: DigestFacts): boolean {
  */
 export function buildMorningDigestText(facts: DigestFacts): string {
   const parts: string[] = [];
-  if (facts.toursToday > 0) parts.push(plural(facts.toursToday, "tour") + " today");
+  if (facts.toursToday > 0) {
+    const named = (facts.tours ?? []).slice(0, 3).map((t) => [t.who, t.time].filter(Boolean).join(" ")).filter(Boolean);
+    const more = facts.toursToday - named.length;
+    parts.push(
+      named.length > 0 && facts.toursToday <= 3
+        ? `${plural(facts.toursToday, "tour")} today (${named.join(", ")}${more > 0 ? ` +${more} more` : ""})`
+        : plural(facts.toursToday, "tour") + " today",
+    );
+  }
   if (facts.openServices > 0) parts.push(plural(facts.openServices, "open service"));
   if (facts.rent && (facts.rent.paidCount > 0 || facts.rent.unpaidCount > 0)) {
     parts.push(

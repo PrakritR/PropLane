@@ -45,12 +45,11 @@ describe("fetchChannelIcs", () => {
     }
   });
 
-  it("gives up after three redirect hops", async () => {
-    const hop = redirect("https://www.airbnb.com/calendar/ical/2.ics");
-    const fetchMock = stubFetch(hop, redirect("https://www.airbnb.com/calendar/ical/3.ics"), redirect("https://www.airbnb.com/calendar/ical/4.ics"),
-      redirect("https://www.airbnb.com/calendar/ical/5.ics"), ok(ICS));
+  it("gives up after five redirect hops", async () => {
+    const hops = [2, 3, 4, 5, 6, 7].map((n) => redirect(`https://www.airbnb.com/calendar/ical/${n}.ics`));
+    const fetchMock = stubFetch(redirect("https://www.airbnb.com/calendar/ical/1.ics"), ...hops, ok(ICS));
     await expect(fetchChannelIcs(AIRBNB, "airbnb")).rejects.toThrow(/redirected too many times/);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   it("re-validates against the right provider (a Vrbo link cannot redirect to Airbnb)", async () => {

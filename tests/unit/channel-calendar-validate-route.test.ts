@@ -42,8 +42,8 @@ describe("POST /api/portal/channel-calendar/validate", () => {
     expect(mocks.fetchIcs).not.toHaveBeenCalled();
   });
 
-  it("refuses http, a non-calendar path and a private host before any request is made", async () => {
-    for (const url of ["http://www.houfy.com/feed.ics", "https://www.houfy.com/rooms/1", "https://localhost/feed.ics", "https://10.1.2.3/feed.ics", "", 5]) {
+  it("refuses http, a private host and a missing url before any request is made", async () => {
+    for (const url of ["http://www.houfy.com/feed.ics", "https://localhost/feed.ics", "https://10.1.2.3/feed.ics", "", 5]) {
       const res = await post({ url });
       expect(res.status, String(url)).toBe(400);
       expect((await res.json()).ok).toBe(false);

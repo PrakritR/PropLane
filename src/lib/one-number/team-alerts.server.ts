@@ -70,7 +70,7 @@ export async function alertWorkspaceTeam(db: SupabaseClient, input: TeamAlertInp
       idempotencyKey: `${key}:${input.kind}`,
       urgent,
       eventLabel: subject,
-      teamNotice: { text: `${urgent ? "Emergency · " : ""}${subject} · ${text}`.slice(0, 500), messageId: `${key}:team` },
+      teamNotice: { text: `${urgent ? "Emergency · " : ""}${text.toLowerCase().startsWith(subject.toLowerCase()) ? text : `${subject} · ${text}`}`.slice(0, 500), messageId: `${key}:team` },
     });
     return { sent: true };
   } catch (error) {

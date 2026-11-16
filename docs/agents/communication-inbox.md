@@ -1343,3 +1343,7 @@ Staff of a PropLane Service workspace read that workspace's conversations whole 
 - **From filter** (manager + admin Filter popover, single-select, per-viewer localStorage): `communication-from-filter.ts` derives Residents / Vendors / Managers / Prospects from the SMS counterparty role, the Team chat id, `prospectContext`, or the contact directory, never a name; unknown = All only. Applicant counts as Prospect. Test: `communication-from-filter.test.ts`.
 - **Team chat roster** = owner + every accepted seat of the workspace (co-managers and PropLane staff seats, any manager role, Viewer reads) via `resolveWorkspaceTeamMembers`; the list also admits `staffWorkspaceOwners`. Test: `team-chat-members-groups.test.ts`.
 - **Chat fit:** thread body clips x-overflow, wraps long strings, media is `max-width:100%`, pane fallback uses `dvh`. Test: `inbox-chat-fit.test.ts`.
+
+## The Assistant answers inside the resident's conversation (Nov 14)
+
+A resident's or guest's in-app message to their manager gets a labelled "PropLane Assistant" reply in the SAME conversation (or a one-line hand-off to the manager), never a second inbox or thread: the contract, the escalation list and the switch are in [`inbox-ai-drafts.md`](inbox-ai-drafts.md) § Server auto-reply. Codes ride only on `get_move_in_info` / `get_my_stay_check_in`, which hold `checkInReveal`.

@@ -54,7 +54,8 @@ describe("classifyRoomAvailability", () => {
     expect(classifyRoomAvailability("")).toBe("now");
     expect(classifyRoomAvailability("2 of 4 beds available")).toBe("now");
     expect(classifyRoomAvailability("Available Oct 1")).toBe("later");
-    expect(classifyRoomAvailability("Available after 11/15")).toBe("later");
+    const ahead = new Date(Date.now() + 60 * 86_400_000);
+    expect(classifyRoomAvailability(`Available after ${ahead.getMonth() + 1}/${ahead.getDate()}`)).toBe("later");
     expect(classifyRoomAvailability("Waitlist")).toBe("later");
     expect(classifyRoomAvailability("Fully booked")).toBe("unavailable");
     expect(classifyRoomAvailability("Not available")).toBe("unavailable");

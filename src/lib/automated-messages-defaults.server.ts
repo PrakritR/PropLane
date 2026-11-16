@@ -127,6 +127,7 @@ function renderDefault(domain: string, event: string, audience: AutomatedMessage
   }
   if (domain === "message") {
     if (event === "after_hours_ack" && audience === "resident") return { subject: "Thanks — we’ll reply in the morning", text: "Thanks — we are offline until 8:00 AM and will reply then. Emergency? Call (206) 555-0100." };
+    if (event === "assistant_reply" && audience === "resident") return { subject: "PropLane Assistant", text: "Check-in is at 3:00 PM. Your room and door codes arrive here the day before." };
     if (event === "emergency_flagged" && audience === "manager") return { subject: "URGENT · Alex Resident", text: "URGENT from Alex Resident: “water everywhere under the sink”" };
     if (event === "emergency_flagged" && audience === "resident") return { subject: "We flagged this as urgent", text: "We flagged this as urgent and alerted your property manager." };
   }

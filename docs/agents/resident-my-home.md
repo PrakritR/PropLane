@@ -47,3 +47,5 @@ empty string, and roommate identity still resolves from the structured id, never
 `checkInReveal` unlocks the codes at 10:00 local on the DAY BEFORE check-in / move-in (`checkInRevealAtMs`, DST-safe, the property's
 zone), replacing the old "24 hours before" lead, for the portal and the automated check-in message alike. Everything else about
 the Check-in section is unchanged: `houseInfo.internal` never leaves staff, an unsigned lease or an unconfirmed stay never reveals.
+
+The assistant reads a short-stay guest's guide through `get_my_stay_check_in` (`loadStayCheckIn`, the Check-in screen's own loader): a secret is `null` in the data until `checkInReveal` passes, and a stay carrying another login is never returned.

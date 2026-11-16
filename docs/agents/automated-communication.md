@@ -238,3 +238,9 @@ review draft with an Assistant notice ("Guest message held"), never sent. Nothin
 
 Not a reminder rule: their own engine and ledger (`src/lib/stay-messages/`, cron `/api/cron/stay-messages`), because they reach
 guests with no login on three channels. Settings and templates: Settings -> Automations. See `bookings.md` for the contract.
+
+The same Airbnb-style set also answers back: a resident's in-app question in their conversation is answered (or handed to the manager) by the PropLane Assistant, switchable per workspace as `message:assistant_reply:resident` ("Assistant answers house questions"); see `inbox-ai-drafts.md` § Server auto-reply. The check-in message now carries the house guide (`{house_guide}`: the rules and trash lines, never a secret) after the room, door codes and Wi-Fi.
+
+## Manager notice content (one formatter)
+
+Every manager, owner and staff notice about a person or a stay (action-event bus, Team chat line, booking reminders, lead alert, inbound-text forward, morning digest) is built from `src/lib/manager-notice-format.ts`: WHO is the guest or prospect, never the workspace owner who merely sends a system event; an unnamed channel guest reads "<Channel> guest" and a confirmation code rides beside the channel, never in place of a real name; WHERE is house and room; WHEN is a Pacific date range with nights; a closed or blocked room is never announced as a check-in or check-out; a notice that points at a record ends on that record's link (never "Open PropLane to review this reminder" alone); a bare menu answer ("1") is forwarded with the question it answered. The content is the same on the PropLane line and on a manager's own work number. The manager SMS agent answers "who checks in", "any new leads" and "tell me about the person who texted about <house>" from `list_stay_moves` and `list_recent_leads` (read tools, workspace- and house-scoped, phone as last four).

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { formatInboundForward, isMenuAnswer } from "@/lib/manager-notice-format";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import { readScopedSmsConsentState, recordScopedSmsConsent } from "@/lib/sms-consent";
@@ -103,6 +104,74 @@ export async function senderLabelForInbound(
 }
 
 /**
+ * The finished forward text for one inbound: who (a name when known, else "New texter ...4812"), which house and room
+ * they are asking about, the words, and, for a bare menu answer ("1"), the last question PropLane asked them. Every
+ * lookup is scoped to this manager's own rows and best effort: a failed read leaves that fact out, never the text.
+ */
+export async function inboundForwardText(
+  db: SupabaseClient,
+  args: { managerUserId: string; fromPhone: string; body: string; role?: "resident" | "prospect" },
+): Promise<string> {
+  const phone = normalizeE164(args.fromPhone) ?? String(args.fromPhone).trim();
+  let name: string | null = null;
+  let house: string | null = null;
+  let lastQuestion: string | null = null;
+  try {
+    const label = await senderLabelForInbound(db, { managerUserId: args.managerUserId, fromPhone: args.fromPhone });
+    if (!/^(Texter|a resident)/.test(label)) name = label;
+    if (!name) {
+      const { data } = await db
+        .from("manager_sms_contacts")
+        .select("display_name")
+        .eq("manager_user_id", args.managerUserId)
+        .eq("phone_e164", phone)
+        .limit(1);
+      const display = String((data ?? [])[0]?.display_name ?? "").trim();
+      if (display) name = display;
+    }
+  } catch {
+    /* a failed name read leaves "New texter ...4812" */
+  }
+  try {
+    const { data: lead } = await db
+      .from("sms_unassigned_leads")
+      .select("assigned_property_id, profile")
+      .eq("phone_key", phone.replace(/\D/g, "").slice(-10))
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const profile = ((lead as { profile?: { offers?: Array<{ label?: string; roomName?: string }> } } | null)?.profile ?? {});
+    const offer = profile.offers?.[0];
+    const propertyId = String((lead as { assigned_property_id?: unknown } | null)?.assigned_property_id ?? "").trim();
+    if (propertyId) {
+      const { data: prop } = await db.from("manager_property_records").select("row_data").eq("id", propertyId).maybeSingle();
+      const { propertyLabel } = await import("@/lib/one-number/router-lookups.server");
+      house = propertyLabel((prop as { row_data?: unknown } | null)?.row_data) || null;
+    } else if (offer?.label) {
+      house = [offer.label, offer.roomName].filter(Boolean).join(" · ");
+    }
+  } catch {
+    /* no house leaves the text without one */
+  }
+  if (isMenuAnswer(args.body)) {
+    try {
+      const { data } = await db
+        .from("manager_sms_messages")
+        .select("body")
+        .eq("manager_user_id", args.managerUserId)
+        .eq("resident_phone", phone)
+        .eq("direction", "outbound")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      lastQuestion = String((data ?? [])[0]?.body ?? "").trim() || null;
+    } catch {
+      /* the answer stands alone */
+    }
+  }
+  return formatInboundForward({ name, phone, role: args.role, house, body: args.body, lastQuestion });
+}
+
+/**
  * Leg 1: forward a resident's inbound text to the manager's own verified cell,
  * FROM the PropLane number, labelled with the sender. No-op (returns false) when
  * the manager has no verified cell or Twilio isn't configured — the message is
@@ -176,15 +245,17 @@ export async function forwardResidentInboundToManagerCell(
     if (!granted.ok) return false;
   }
 
-  const label = await senderLabelForInbound(db, {
+  const forwarded = await inboundForwardText(db, {
     managerUserId,
     fromPhone: args.fromPhone,
+    body: args.body,
+    role: args.counterpartyRole,
   });
   const replyHint =
     args.counterpartyRole === "resident"
       ? "Reply to this text to answer them."
       : "Reply in PropLane to answer them.";
-  const text = `${label}: ${args.body.trim() || "(no text)"}\n\n${replyHint}`;
+  const text = `${forwarded}\n\n${replyHint}`;
 
   const sent = await sendFromManagerWorkNumber({
     managerUserId,

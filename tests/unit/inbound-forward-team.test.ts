@@ -81,7 +81,7 @@ describe("forwardInboundToTeammates", () => {
     const first = enqueueOwnerSms.mock.calls.find(([i]) => i.recipientUserId === "with-house")![0];
     expect(first).toMatchObject({
       managerUserId: OWNER, selectedWorkLineId: "line-1", purpose: "team_inbound_forward",
-      dedupeKey: "fwd:SM1:with-house", body: "Aaron: The sink is leaking", propertyId: HOUSE,
+      dedupeKey: "fwd:SM1:with-house", body: "Aaron (...9999): The sink is leaking", propertyId: HOUSE,
     });
     expect(String(first.body)).not.toContain("2065559999"); // never the raw number
   });

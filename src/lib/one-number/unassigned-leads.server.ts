@@ -19,6 +19,7 @@ import {
   MAX_STRANGER_OFFERS,
   type OfferBubble,
   matchOffers,
+  matchRooms,
   NO_MATCH_TEXT,
   OFFER_DETAILS_HEADER,
   offerFromRow,
@@ -54,6 +55,7 @@ import { claimLeadAndLock, loadHome, ownerFirstName, recordPaidInterest, tagLock
 import { listingsNamedIn, matchListingsNamedIn, streetLine } from "@/lib/one-number/house-redirect";
 import { lineTierOf, type LineListing } from "@/lib/one-number/line-tier";
 import { paidWorkNumberFor } from "@/lib/one-number/self-serve-line.server";
+import { formatLeadNotice, type LeadFitRoom } from "@/lib/manager-notice-format";
 import { alertWorkspaceTeam } from "@/lib/one-number/team-alerts.server";
 import { logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
 import { upsertManagerSmsContact } from "@/lib/sms/manager-sms-contacts.server";
@@ -715,15 +717,6 @@ export type AssignResult =
   | { ok: true; workspaceId: string; ownerUserId: string; label: string }
   | { ok: false; error: "lead_not_open" | "house_not_found" | "workspace_not_found" | "unavailable" };
 
-function profileLine(profile: LeadProfile): string {
-  const bits: string[] = [];
-  if (profile.budgetMax) bits.push(`budget $${profile.budgetMax}`);
-  if (profile.moveInDate) bits.push(`move-in ${profile.moveInDate}`);
-  if (profile.leaseMonths !== undefined) bits.push(profile.leaseMonths === 0 ? "month to month" : `${profile.leaseMonths} mo`);
-  if (profile.area) bits.push(profile.area);
-  return bits.join(", ");
-}
-
 /**
  * Hand a lead to ONE workspace. The house is read from the database (never from the offer the lead was
  * shown), must be live, and decides the workspace and its owner. The claim is a conditional update on
@@ -845,13 +838,38 @@ export async function assignLeadToHouse(
   // The thread is tagged with the house so only the owner and the co-hosts who hold it see it (the lock itself is saved above).
   if (propertyId) await tagLockedHouse(db, { ownerUserId: prospect.ownerUserId, phoneE164, propertyId });
 
-  const summary = profileLine(lead.profile);
+  // The alert names the lead (phone last four, source), the house, what they asked for, which rooms HERE fit and
+  // are free, and one link to reply or book a tour. Best effort: a failed fit read leaves that sentence out.
+  let fitRooms: LeadFitRoom[] | undefined;
+  if (propertyId) {
+    try {
+      const listings = await getLineOfferListings(db);
+      const rows = matchRooms(listings.filter((p) => p.id === propertyId), lead.profile, pacificToday(now()), 50);
+      fitRooms = rows.map((row) => ({ room: row.roomName?.trim() || "Room", rent: row.rentNumeric !== null ? Math.round(row.rentNumeric) : null, availability: offerFromRow(row, 1).availability }));
+    } catch {
+      fitRooms = undefined;
+    }
+  }
+  const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
+  const leadText = formatLeadNotice({
+    name: null,
+    phone: phoneE164,
+    source: "PropLane line text",
+    house: label,
+    budgetMax: lead.profile.budgetMax ?? null,
+    moveInDate: lead.profile.moveInDate ?? null,
+    moveInAsap: lead.profile.moveInAsap,
+    leaseMonths: lead.profile.leaseMonths ?? null,
+    area: lead.profile.area ?? null,
+    fitRooms,
+    url: `${origin}/portal/communication/inbox/unopened`,
+  });
   await alertWorkspaceTeam(db, {
     workspaceId: prospect.workspaceId,
     ownerUserId: prospect.ownerUserId,
     kind: "new_lead",
     urgent: false,
-    text: `New lead for ${label}${summary ? `: ${summary}` : ""}`,
+    text: leadText,
     propertyId: propertyId || null,
     idempotencyKey: `lead-assigned:${lead.id}`,
   }).catch(() => undefined);

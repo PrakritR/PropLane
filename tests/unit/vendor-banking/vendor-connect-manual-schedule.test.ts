@@ -7,7 +7,7 @@ import { createAxisConnectAccount } from "@/lib/stripe-connect";
  * ("only when the vendor presses Withdraw") once VENDOR_BANKING_ENABLED is
  * on (default ON, captain 2026-09-28). Every other case — a manager account,
  * or a vendor account created with the flag explicitly off — keeps today's
- * automatic weekly Friday schedule, byte-for-byte.
+ * automatic weekly Monday schedule, byte-for-byte.
  */
 describe("createAxisConnectAccount — payout schedule default", () => {
   const PREV = process.env.VENDOR_BANKING_ENABLED;
@@ -34,12 +34,12 @@ describe("createAxisConnectAccount — payout schedule default", () => {
     return { stripe, calls };
   }
 
-  it("vendor account, flag explicitly OFF ('0'): weekly/Friday (unchanged)", async () => {
+  it("vendor account, flag explicitly OFF ('0'): weekly/Monday (unchanged)", async () => {
     const { stripe, calls } = captureStripe();
     await createAxisConnectAccount(stripe, { axisUserId: "u1", axisPortal: "vendor" });
     expect((calls[0]!.settings as { payouts: { schedule: unknown } }).payouts.schedule).toEqual({
       interval: "weekly",
-      weekly_anchor: "friday",
+      weekly_anchor: "monday",
     });
   });
 
@@ -61,23 +61,23 @@ describe("createAxisConnectAccount — payout schedule default", () => {
     });
   });
 
-  it("manager account, flag ON: still weekly/Friday — the flag only ever touches vendor accounts", async () => {
+  it("manager account, flag ON: still weekly/Monday — the flag only ever touches vendor accounts", async () => {
     process.env.VENDOR_BANKING_ENABLED = "1";
     const { stripe, calls } = captureStripe();
     await createAxisConnectAccount(stripe, { axisUserId: "u1", axisPortal: "portal" });
     expect((calls[0]!.settings as { payouts: { schedule: unknown } }).payouts.schedule).toEqual({
       interval: "weekly",
-      weekly_anchor: "friday",
+      weekly_anchor: "monday",
     });
   });
 
-  it("axisPortal omitted (defaults to manager), flag ON: still weekly/Friday", async () => {
+  it("axisPortal omitted (defaults to manager), flag ON: still weekly/Monday", async () => {
     process.env.VENDOR_BANKING_ENABLED = "1";
     const { stripe, calls } = captureStripe();
     await createAxisConnectAccount(stripe, { axisUserId: "u1" });
     expect((calls[0]!.settings as { payouts: { schedule: unknown } }).payouts.schedule).toEqual({
       interval: "weekly",
-      weekly_anchor: "friday",
+      weekly_anchor: "monday",
     });
   });
 

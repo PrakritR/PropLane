@@ -28,6 +28,7 @@ import { RESIDENT_INBOX_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
 import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
 import { traceAgentTurn } from "@/lib/observability/langfuse";
 import { residentAgentRegistry } from "@/lib/tools/resident-index";
+import type { ToolRegistry } from "@/lib/tools/registry";
 import { resolveResidentInboxAgentContext } from "@/lib/tools/resident-inbox-context";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 
@@ -88,6 +89,20 @@ export async function autoRespondToResidentInboxMessage(
     incomingText: string;
     history?: readonly InboxTurnMessage[];
     sessionId?: string;
+    /**
+     * A narrower surface than the resident's own Assistant thread (the auto-reply inside their conversation with
+     * the manager): its own prompt and trace name, a registry built from the resolved identity (phase and tier
+     * gating), a read-only tool shortlist, and no write proposals at all. Omitted = the Assistant thread, unchanged.
+     */
+    surface?: {
+      system: string;
+      promptId: string;
+      traceName: string;
+      registryFor: (ctx: ResidentAgentContext) => ToolRegistry<ResidentAgentContext>;
+      toolNames: readonly string[];
+      /** The authenticated resident the caller already knows; an email that resolves to anyone else is refused. */
+      expectedUserId?: string;
+    };
   },
 ): Promise<InboxAutoReply> {
   const incoming = input.incomingText.trim();
@@ -98,8 +113,13 @@ export async function autoRespondToResidentInboxMessage(
     ownerManagerUserId: input.managerUserId,
   });
   if (!identity.ok) return { ok: false, reason: identity.reason };
+  if (input.surface?.expectedUserId && identity.ctx.userId !== input.surface.expectedUserId) {
+    return { ok: false, reason: "identity_mismatch" };
+  }
 
   const messages = buildTurnMessages(input.history ?? [], incoming);
+  const surface = input.surface;
+  const system = surface?.system ?? RESIDENT_INBOX_SYSTEM_PROMPT;
 
   try {
     let traceId: string | null = null;
@@ -111,24 +131,26 @@ export async function autoRespondToResidentInboxMessage(
           role: "resident",
           managerIds: [input.managerUserId],
           channel: "inbox",
+          ...(surface ? { surface: "thread_auto_reply" } : {}),
         },
       },
       messages,
       (observer) =>
         runAgentTurn<ResidentAgentContext>({
           ctx: identity.ctx,
-          registry: residentAgentRegistry,
-          system: RESIDENT_INBOX_SYSTEM_PROMPT,
+          registry: surface ? surface.registryFor(identity.ctx) : residentAgentRegistry,
+          system,
           messages: messages as Parameters<typeof runAgentTurn>[0]["messages"],
           observer,
           model: runtimeTaskModel({}, { ...selectModel(messages as Parameters<typeof runAgentTurn>[0]["messages"]), provider: "anthropic", route: "anthropic" }),
           // Empty on purpose. Every write proposes.
           allowWriteTools: [],
+          ...(surface ? { readOnly: true, toolNames: surface.toolNames } : {}),
         }),
       {
-        name: "resident-inbox-agent-turn",
+        name: surface?.traceName ?? "resident-inbox-agent-turn",
         sessionId: input.sessionId,
-        promptMeta: resolvePromptMeta(PROMPT_IDS.residentInboxAgent, RESIDENT_INBOX_SYSTEM_PROMPT),
+        promptMeta: resolvePromptMeta(surface?.promptId ?? PROMPT_IDS.residentInboxAgent, system),
         onTraceId: (id) => {
           traceId = id;
         },

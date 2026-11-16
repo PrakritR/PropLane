@@ -1,5 +1,6 @@
 "use client";
 
+import { GuestTourTextLink } from "@/components/marketing/guest-tour-text-link";
 import { composePropertyTitle } from "@/lib/property-title";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
@@ -310,6 +311,7 @@ export function TourScheduleFlow({
     email: string;
     phone: string;
     inquiryId: string;
+    smsConsent?: boolean;
   } | null>(null);
   const contactAutofill = useProspectContactAutofill();
   // The server refused the request because the session is gone (401 `sign_in_required`): the client's
@@ -630,7 +632,9 @@ export function TourScheduleFlow({
             </Link>
           </div>
 
-          {!signedInUserId ? (
+          {!signedInUserId && submittedContact?.smsConsent && submittedContact.inquiryId ? (
+            <GuestTourTextLink inquiryId={submittedContact.inquiryId} createAccountHref={createAccountHref} signInHref={signInHref} />
+          ) : !signedInUserId ? (
             <ProspectAccountHandoff
               ps
               title="Create an account to see your tour in PropLane"
@@ -1026,6 +1030,7 @@ export function TourScheduleFlow({
                   email: email.trim(),
                   phone: formatTourContactPhoneDisplay(normalizedPhone),
                   inquiryId: requestedInquiryId,
+                  smsConsent,
                 });
                 onSuccess();
                 return;
@@ -1092,6 +1097,7 @@ export function TourScheduleFlow({
                 email: email.trim(),
                 phone: formatTourContactPhoneDisplay(normalizedPhone),
                 inquiryId: firstInquiryId,
+                smsConsent,
               });
               onSuccess();
             }}

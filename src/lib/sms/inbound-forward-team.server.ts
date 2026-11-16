@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveWorkspaceNoticeRecipients } from "@/lib/workspace-team-recipients.server";
 import { normalizeE164 } from "@/lib/phone-e164";
-import { samePhone, senderLabelForInbound } from "@/lib/sms/manager-relay.server";
+import { samePhone, inboundForwardText } from "@/lib/sms/manager-relay.server";
 import { resolveWorkspaceSendLine } from "@/lib/sms/manager-number-provisioning.server";
 import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
 import { TEAM_INBOUND_FORWARD_SMS_PURPOSE } from "@/lib/sms/team-notice-consent.server";
@@ -91,8 +91,7 @@ export async function forwardInboundToTeammates(
   ).filter((member) => !member.isOwner);
   if (recipients.length === 0) return [];
 
-  const label = await senderLabelForInbound(db, { managerUserId: ownerId, fromPhone: input.fromPhone });
-  const text = `${label}: ${input.body.trim() || "(no text)"}`.slice(0, 1500);
+  const text = (await inboundForwardText(db, { managerUserId: ownerId, fromPhone: input.fromPhone, body: input.body })).slice(0, 1500);
   let remaining = await teamRelayCapRemaining(db, { ownerManagerUserId: ownerId, numberId: line.numberId, now: input.now });
 
   const outcomes: TeamForwardOutcome[] = [];

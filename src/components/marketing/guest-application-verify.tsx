@@ -8,6 +8,7 @@
  * then the renter proves ONE thing:
  *   - a phone: a code texted by the existing phone sign-in door, which creates the phone-only resident account only after
  *     the code is right, or
+ *   - a phone, by a texted single-use link (`POST /api/public/guest-signup-link`): opening it on that phone is the proof, or
  *   - a mailbox: the existing emailed `token_hash` link (`/auth/confirm`), whose destination the server decides.
  * Either way they land in the resident portal's apply page, which claims the held draft (the session is the proof) and
  * submits it through the ordinary signed-in write. Nothing here creates an account or an application row.
@@ -22,7 +23,7 @@ const TOKEN_KEY = "axis:guest-application-draft-token:v1";
 const CLAIM_ATTEMPT_KEY = "axis:guest-application-claim-attempt:v1";
 
 type Method = "sms" | "email";
-type Stage = "choose" | "code" | "email-sent";
+type Stage = "choose" | "code" | "email-sent" | "link-sent";
 
 function storage(): Storage | null {
   try {
@@ -118,14 +119,14 @@ export function GuestApplicationVerify({ form, onBack }: { form: RentalWizardFor
   });
 
   /** Hold the draft first; it is what the verified resident claims. */
-  async function hold(): Promise<boolean> {
+  async function hold(): Promise<string | null> {
     const held = await post("/api/public/application-drafts", { propertyId, form });
     if (!held.ok || typeof held.data.token !== "string") {
       setError(typeof held.data.error === "string" ? held.data.error : "We could not save your application. Please try again.");
-      return false;
+      return null;
     }
     rememberToken(propertyId, held.data.token);
-    return true;
+    return held.data.token;
   }
 
   async function sendCode() {
@@ -142,6 +143,25 @@ export function GuestApplicationVerify({ form, onBack }: { form: RentalWizardFor
       setChallengeId(started.data.challengeId);
       setOtp("");
       setStage("code");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** A texted single-use link: opening it on this phone is the proof, and it creates (or signs into) the account. */
+  async function sendLink() {
+    if (!phoneE164) return;
+    setBusy(true);
+    setError("");
+    try {
+      const draftToken = await hold();
+      if (!draftToken) return;
+      const sent = await post("/api/public/guest-signup-link", { kind: "apply", draftToken });
+      if (!sent.ok) {
+        setError(typeof sent.data.error === "string" ? sent.data.error : "We could not text that number. Use a code or email instead.");
+        return;
+      }
+      setStage("link-sent");
     } finally {
       setBusy(false);
     }
@@ -194,6 +214,11 @@ export function GuestApplicationVerify({ form, onBack }: { form: RentalWizardFor
               {busy ? "Sending…" : "Text me a code"}
             </button>
           ) : null}
+          {phoneE164 ? (
+            <button type="button" className="ps-btn ps-btn-line ps-btn-block" disabled={busy} onClick={() => void sendLink()} data-attr="guest-apply-text-link">
+              {busy ? "Sending…" : "Text me a link"}
+            </button>
+          ) : null}
           <button type="button" className={phoneE164 ? "ps-btn ps-btn-line ps-btn-block" : "ps-btn ps-btn-blue ps-btn-block"} disabled={busy} onClick={() => void sendEmail()} data-attr="guest-apply-email-link">
             {busy ? "Sending…" : "Email me a link"}
           </button>
@@ -215,6 +240,9 @@ export function GuestApplicationVerify({ form, onBack }: { form: RentalWizardFor
       ) : null}
       {stage === "email-sent" ? (
         <p role="status" data-attr="guest-apply-email-sent">Check {email} for your link.</p>
+      ) : null}
+      {stage === "link-sent" ? (
+        <p role="status" data-attr="guest-apply-link-sent">Check your phone for your link.</p>
       ) : null}
       {error ? (
         <p className="ps-error" role="alert" data-attr="guest-apply-error">

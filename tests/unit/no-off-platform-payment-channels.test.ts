@@ -30,6 +30,8 @@ const ALLOWED_FILES = new Set([
   "src/lib/manager-assistant-email/assistant-email-address.ts",
   "src/lib/manager-assistant-email/workspace-mailbox-local-rule.mjs",
   "src/lib/agent/channel-reply-policy.ts",
+  // Detects a resident ASKING to pay off-platform so the assistant escalates instead of answering (never offers it).
+  "src/lib/resident-thread-auto-reply.ts",
 ]);
 
 const RETIRED = /zelle|venmo|gmail-payments|gmail_payments|paymentInboxToken|receiptAutoMark|paidViaGmail/i;

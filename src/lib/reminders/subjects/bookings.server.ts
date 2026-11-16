@@ -43,6 +43,8 @@ import { placeNameOrEmpty } from "@/lib/room-display-label";
 import { loadReminderSettingsResolver } from "@/lib/reminders/settings.server";
 import { withinHorizon } from "@/lib/reminders/subjects/records.server";
 import { zonedWallTimeMs } from "@/lib/tour-slot-math";
+import { formatStayReminderLine, isClosedBlockLabel } from "@/lib/manager-notice-format";
+import { bookingChannelName } from "@/lib/channel-calendar/booking-guest-label";
 import { hasSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 
 const KIND = "booking" as const;
@@ -109,6 +111,8 @@ export type Stay = {
   roomLabel?: string;
   /** Airbnb reservation code, when the feed carried one. */
   reservationCode?: string;
+  /** "Airbnb", "Booking.com", "PropLane" ...: the source, shown beside the code. */
+  channel?: string;
   /** The record-page key (`bookingEntryKey`) the reminder links to. */
   recordKey?: string;
   /**
@@ -228,6 +232,7 @@ export async function channelStays(db: SupabaseClient): Promise<Stay[]> {
         // The stored range ends on its LAST night; the guest leaves the day after.
         checkOutKey: end ? addDay(end) : null,
         guestName: bookingGuestLabel(String(range.summary ?? ""), provider, channelLabel),
+        channel: bookingChannelName(provider, channelLabel),
         propertyId: str(row, "property_id"),
         propertyLabel: placeLabel ?? str(row, "property_id") ?? "your listing",
         roomId: str(row, "room_id") ?? undefined,
@@ -311,6 +316,8 @@ export async function roomDateBlockStays(db: SupabaseClient): Promise<Stay[]> {
     if (!checkIn || !checkOutExclusive) continue;
     const residentName = str(rowData, "residentName");
     const reason = str(rowData, "reason") ?? "";
+    // A room a manager CLOSED (or a feed's "CLOSED - Not available" host block) is not a stay: nobody checks in or out.
+    if (rowData.blockKind === "closed" || isClosedBlockLabel(residentName) || (!residentName && isClosedBlockLabel(reason))) continue;
     const isChannelImport = reason.toLowerCase() === "airbnb" || reason.toLowerCase() === "booking";
     // A block with neither a name nor a channel-import reason is just closed
     // dates — nobody to remind anyone about.
@@ -326,6 +333,7 @@ export async function roomDateBlockStays(db: SupabaseClient): Promise<Stay[]> {
       // checkout field), so it needs no adjustment here.
       checkOutKey: checkOutExclusive,
       guestName: roomBlockSummary({ reason, residentName: residentName ?? undefined }),
+      channel: reason.toLowerCase() === "airbnb" ? "Airbnb" : reason.toLowerCase() === "booking" ? "Booking.com" : undefined,
       propertyId: str(row, "property_id"),
       propertyLabel: str(row, "property_id") ?? "your listing",
       roomId: str(rowData, "roomId") ?? undefined,
@@ -361,15 +369,20 @@ export async function loadPlaceNames(
 
 export function bookingReminderHeadline(
   kind: "check_in" | "check_out",
-  stay: Pick<Stay, "guestName" | "checkInKey" | "checkOutKey" | "reservationCode">,
+  stay: Pick<Stay, "guestName" | "checkInKey" | "checkOutKey" | "reservationCode" | "channel">,
   place: { property: string; room?: string },
 ): string {
-  const where = [place.property, place.room].filter(Boolean);
-  const dates = stayLabel(stay.checkInKey, stay.checkOutKey).replace(/^\w{3}, /, "").replace(/ – \w{3}, /, " – ");
-  const code = stay.reservationCode ? [stay.reservationCode] : [];
-  return kind === "check_in"
-    ? ["Check-in tomorrow", ...where, stay.guestName, ...code, dates].join(" · ")
-    : ["Check-out today", ...where, ...code.length ? code : [stay.guestName], stay.checkOutKey ? `room free from ${stayLabel(stay.checkOutKey, null).replace(/^\w{3}, /, "")}` : ""].filter(Boolean).join(" · ");
+  // The guest's NAME leads; a confirmation code only rides beside the channel, never in place of a name.
+  return formatStayReminderLine({
+    kind,
+    guestName: stay.guestName,
+    channel: stay.channel,
+    code: stay.reservationCode,
+    house: place.property,
+    room: place.room,
+    checkIn: stay.checkInKey,
+    checkOutExclusive: stay.checkOutKey,
+  });
 }
 
 export async function sweepBookingReminders(db: SupabaseClient, now: Date = new Date()): Promise<number> {

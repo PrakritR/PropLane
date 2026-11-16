@@ -28,6 +28,7 @@ import {
 import { setAutopayTool, startRentPaymentTool } from "./domains/resident/payments";
 import { rentReportingStatusTool } from "./domains/resident/rent-reporting";
 import { getMyStayTimesTool } from "./domains/resident/stay-times";
+import { getMyStayCheckInTool } from "./domains/resident/stay-check-in";
 import { getResidentLinksTool } from "./domains/portal-links";
 import { residentListOpenTourSlotsTool, residentRequestTourTool } from "./domains/tours";
 import { residentSmsListingTools } from "./domains/resident/sms-listings";
@@ -81,6 +82,8 @@ const ALL_RESIDENT_TOOLS: ResidentTool[] = [
   nudgeManagerOnWorkOrderTool,
   // The guest's own short stays: check-in / checkout times and the paid early / late add-ons (read-only).
   getMyStayTimesTool,
+  // The guest's own check-in guide (room, codes, Wi-Fi), codes only inside the reveal window.
+  getMyStayCheckInTool,
   // Documents shared with the resident
   listMySharedDocumentsTool,
   // Inbox / messaging
@@ -136,6 +139,7 @@ const APPLICATION_PHASE_TOOLS = new Set([
   "get_my_application_status",
   // A short-stay guest usually has no lease (the application phase), and their stay times are theirs to ask about.
   "get_my_stay_times",
+  "get_my_stay_check_in",
   "research_my_property_location",
   "list_open_tour_slots",
   "request_tour",

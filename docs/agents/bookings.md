@@ -586,3 +586,5 @@ is flagged, and no fallback to any shared code is ever used; a body carrying ano
 section is refused. One correction message when the room or dates change after the check-in went out. Templates, per-source
 switches and contact numbers are Settings -> Automations (`workspace_automation_settings.row_data.stayMessages`). The old
 `stay_arrival_guide` / `stay_checkout_reminder` / `move_in_arrival` sweeps are no longer run by `dispatch-reminders`.
+
+The check-in message's default template ends with `{house_guide}` (the rules and trash lines the resident's Check-in guide shows, bathroom rule excluded because it already has its own line); a saved custom template is untouched. Scheduled set per stay or lease: check-in (room, room code, front door, Wi-Fi, house guide) 10:00 local the day before, check-out 09:00 on the day (`tests/unit/stay-messages-airbnb-set.test.ts`).

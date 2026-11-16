@@ -71,7 +71,7 @@ describe("prod-shaped Airbnb sync", () => {
     expect(input.event).toBe("channel_booking_created");
     expect(input.payload.start).toBe("2026-10-13");
     const text = input.recipients[0]!.rendered.text;
-    expect(text).toContain("New Airbnb booking · 4709A 8th Ave · Room 9 · Oct 13 – Oct 16 (3 nights) · HMHW5SHXRB");
+    expect(text).toContain("New booking: Airbnb guest HMHW5SHXRB, 4709A 8th Ave · Room 9, Oct 13–16 (3 nights).");
     expect(text).toContain("/portal/bookings/airbnb%3Ap1%3Ar9%3A2026-10-13%3A2026-10-15%3AReserved/overview");
   });
 

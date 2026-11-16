@@ -2,8 +2,11 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { LinkCodeGate, LinkExpiredView, LinkMessageView, RentLinkCard } from "@/components/public/phone-bound-link-ui";
+import { GuestSignupContinue } from "@/components/public/guest-signup-continue";
 import { PersonalAccountForm } from "@/components/public/personal-account-form";
 import { ResidentOnboardingForm } from "@/components/public/resident-onboarding-form";
+import { openGuestSignupLink } from "@/lib/guest-signup-link/complete.server";
+import { isGuestSignupTarget } from "@/lib/guest-signup-link/model";
 import { resolveLinkDestination } from "@/lib/one-number/link-destinations.server";
 import {
   linkSessionCookieName,
@@ -48,6 +51,12 @@ export default async function PhoneBoundLinkPage({
     const jar = await cookies();
     const verified = await verifyLinkSession(db, link, jar.get(linkSessionCookieName(token))?.value);
     if (!verified) return <LinkCodeGate token={token} />;
+  }
+
+  // A texted guest sign-in link (apply / tour with no account): the page only offers the button; the POST spends the link.
+  if (link.purpose === "account" && isGuestSignupTarget(link.targetType)) {
+    const guest = await openGuestSignupLink(db, link);
+    return guest.ok ? <GuestSignupContinue token={token} kind={guest.kind} houseLabel={guest.houseLabel} maskedPhone={guest.maskedPhone} /> : <LinkExpiredView />;
   }
 
   const destination = await resolveLinkDestination(db, link);

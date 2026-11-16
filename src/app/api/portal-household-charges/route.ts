@@ -38,6 +38,7 @@ import { holdExpiresAtFor } from "@/lib/holding-hold";
 import { voidPaidCharge } from "@/lib/household-charge-void.server";
 import { persistHouseholdChargeRows } from "@/lib/household-charge-persist.server";
 import { resolvePropertyPayoutOwners } from "@/lib/payments/property-payout-owner.server";
+import { loadResidentChargeBinding, residentBoundChargeClause } from "@/lib/resident-charge-binding.server";
 
 export const runtime = "nodejs";
 
@@ -133,7 +134,7 @@ export async function GET(req: Request) {
     const buildQueries = (since: string | null, scopeOr: string | null) => {
       let charges = db
         .from("portal_household_charge_records")
-        .select("id, row_data, manager_user_id, updated_at")
+        .select("id, row_data, manager_user_id, resident_user_id, updated_at")
         .order("updated_at", { ascending: false })
         .limit(CHARGE_READ_LIMIT);
       let profiles = db
@@ -182,8 +183,12 @@ export async function GET(req: Request) {
       );
       scopeOr = branches.join(",");
     } else {
-      // Resident — match by user_id or email
-      scopeOr = `resident_user_id.eq.${user.id},resident_email.eq.${user.email}`;
+      // Resident — match by user_id or email, plus charges a manager keyed to the address on this resident's OWN
+      // bound application (offline receipts and manager-entered rows carry no user id and may name another address).
+      const boundClause = residentBoundChargeClause(await loadResidentChargeBinding(db, user.id));
+      scopeOr = [`resident_user_id.eq.${user.id}`, `resident_email.eq.${user.email}`, boundClause]
+        .filter((clause): clause is string => Boolean(clause))
+        .join(",");
     }
 
     let incremental = incrementalCutoff !== null;
@@ -202,7 +207,7 @@ export async function GET(req: Request) {
     if (chargeResult.error) return NextResponse.json({ error: chargeResult.error.message }, { status: 500 });
     if (profileResult.error) return NextResponse.json({ error: profileResult.error.message }, { status: 500 });
 
-    type ChargeRecordRow = { id: string; row_data: unknown; manager_user_id?: string | null; updated_at: string | null };
+    type ChargeRecordRow = { id: string; row_data: unknown; manager_user_id?: string | null; resident_user_id?: string | null; updated_at: string | null };
     let chargeRows = (chargeResult.data ?? []) as ChargeRecordRow[];
     // A query that came back AT its cap may be missing rows. The client treats a row's absence
     // from a full read as a server-side delete, so it must be told rather than left to infer
@@ -246,9 +251,12 @@ export async function GET(req: Request) {
       const charge = r.row_data as HouseholdCharge;
       // The stored column names the charge manager for every row. Browser
       // row_data must not choose whose owned listing/account policy is shown.
-      return r.manager_user_id
-        ? { ...charge, managerUserId: r.manager_user_id }
-        : charge;
+      const owned = r.manager_user_id ? { ...charge, managerUserId: r.manager_user_id } : charge;
+      // A resident's read only ever returns rows scoped to them. One with no resident id of its own reached them through
+      // their bound application, so the copy they receive names them: the browser keeps a row only for its own subject.
+      return user.role === "resident" && !r.resident_user_id && !owned.residentUserId
+        ? { ...owned, residentUserId: user.id }
+        : owned;
     });
     const advanced = localDevAchShortcutAllowed() && !(await isViewAsSessionOpen())
       ? advanceStaleProcessingHouseholdCharges(rawCharges)

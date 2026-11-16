@@ -271,6 +271,24 @@ function teamNoticeFor(input: {
     const value = input.payload?.[key];
     return typeof value === "string" && value.trim() ? value.trim() : null;
   };
+  // A booking names the GUEST, the house and room, the nights and the channel with its code, and links the record.
+  // The workspace owner is only the sender of a system-raised booking event, so they are never the subject.
+  if (input.domain === "channel_booking" && payloadText("guestLabel")) {
+    const channel = payloadText("channelLabel");
+    const code = payloadText("reservationCode");
+    return {
+      messageId: `action-event:${input.eventKey}:team`,
+      text: buildTeamNoticeLine({
+        domain: input.domain,
+        event: input.eventType,
+        subject: payloadText("guestLabel"),
+        place: [payloadText("propertyLabel"), payloadText("roomLabel")].filter(Boolean).join(" · "),
+        extra: [payloadText("stayLabel"), [channel, code && !payloadText("guestLabel")!.includes(code) ? code : ""].filter(Boolean).join(" ")],
+        url: payloadText("url"),
+        urgent: input.urgent,
+      }),
+    };
+  }
   return {
     messageId: `action-event:${input.eventKey}:team`,
     text: buildTeamNoticeLine({

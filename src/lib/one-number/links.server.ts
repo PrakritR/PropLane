@@ -124,6 +124,8 @@ export type MintPhoneBoundLinkInput = {
    * them all); the per-phone mint limit still applies.
    */
   supersede?: boolean;
+  /** A shorter life than the purpose's policy (a link that proves a phone on first open, like the guest sign-in link). Never longer. */
+  ttlMs?: number;
 };
 
 export class PhoneBoundLinkError extends Error {
@@ -175,7 +177,9 @@ export async function mintPhoneBoundLink(
 
   const now = input.now ?? new Date();
   const policy = PHONE_BOUND_LINK_POLICY[input.purpose];
-  const expires = phoneBoundLinkExpiry(input.purpose, now);
+  const policyExpires = phoneBoundLinkExpiry(input.purpose, now);
+  const shortExpires = input.ttlMs && input.ttlMs > 0 ? new Date(now.getTime() + input.ttlMs) : null;
+  const expires = shortExpires && (!policyExpires || shortExpires < policyExpires) ? shortExpires : policyExpires;
 
   // Replace, never stack: one live link per phone + purpose + target (unless the caller keeps earlier ones alive).
   if (input.supersede !== false) {

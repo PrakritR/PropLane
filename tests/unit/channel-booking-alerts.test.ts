@@ -94,8 +94,8 @@ describe("channel booking event copy", () => {
   });
   it("renders the created and cancelled lines", () => {
     const facts = { provider: "airbnb" as const, propertyLabel: "5259 Brooklyn Ave", roomLabel: "Room 3", start: "2026-10-12", end: "2026-10-14" };
-    expect(renderChannelBookingEvent("channel_booking_created", facts).text).toBe("New Airbnb booking · 5259 Brooklyn Ave · Room 3 · Oct 12 – Oct 15 (3 nights)");
-    expect(renderChannelBookingEvent("channel_booking_cancelled", facts).text).toBe("Airbnb booking cancelled · 5259 Brooklyn Ave · Room 3 · Oct 12 – Oct 15 (3 nights)");
+    expect(renderChannelBookingEvent("channel_booking_created", facts).text).toBe("New booking: Airbnb guest, 5259 Brooklyn Ave · Room 3, Oct 12–15 (3 nights).");
+    expect(renderChannelBookingEvent("channel_booking_cancelled", facts).text).toBe("Booking cancelled: Airbnb guest, 5259 Brooklyn Ave · Room 3, Oct 12–15 (3 nights).");
     expect(renderChannelBookingEvent("channel_booking_created", facts).smsText).toBe(renderChannelBookingEvent("channel_booking_created", facts).text);
   });
 });
@@ -237,7 +237,7 @@ describe("syncChannelCalendarConnection alerts", () => {
     await syncChannelCalendarConnection(db, "c1");
     expect(eventsOf().sort()).toEqual(["channel_booking_cancelled", "channel_booking_created"]);
     const created = emitActionEvent.mock.calls.map((c) => c[1] as { event: string; payload: Record<string, unknown>; recipients: Array<{ rendered: { text: string } }> }).find((c) => c.event === "channel_booking_created")!;
-    expect(created.recipients[0]!.rendered.text).toContain("New Airbnb booking · 5259 Brooklyn Ave · Room 3 · Oct 12 – Oct 15 (3 nights)");
+    expect(created.recipients[0]!.rendered.text).toContain("New booking: Airbnb guest, 5259 Brooklyn Ave · Room 3, Oct 12–15 (3 nights).");
     expect(created.payload).toMatchObject({ connectionId: "c1", start: "2026-10-12" });
   });
 

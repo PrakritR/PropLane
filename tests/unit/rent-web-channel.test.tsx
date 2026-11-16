@@ -126,13 +126,13 @@ describe("a /rent listing is the web channel, with Message and Text us", () => {
     expect(document.querySelector('a[href^="sms:"]')).toBeNull();
   });
 
-  it("sends a signed-out visitor's Tour and Book through resident sign-up into the portal", () => {
+  it("sends a signed-out visitor's Tour and Book to the public guest pages, with no resident account first", () => {
     render(<ListingDetailSections property={property} rich={rich} />);
-    for (const attr of ["listing-web-tour", "listing-web-apply"]) {
-      const href = document.querySelector(`[data-attr="${attr}"]`)!.getAttribute("href")!;
-      expect(href.startsWith("/auth/create-account?mode=create&role=resident&next=")).toBe(true);
-      expect(decodeURIComponent(href.split("next=")[1]!)).toMatch(/^\/resident\//);
-    }
+    const tour = document.querySelector('[data-attr="listing-web-tour"]')!.getAttribute("href")!;
+    const apply = document.querySelector('[data-attr="listing-web-apply"]')!.getAttribute("href")!;
+    expect(tour.startsWith("/rent/tours-contact?")).toBe(true);
+    expect(apply.startsWith("/rent/apply?")).toBe(true);
+    for (const href of [tour, apply]) expect(href).not.toContain("/auth/create-account");
   });
 
   it("keeps the source free of text links: tel: nowhere, sms: and the texting context only in the Message sheet's Text us", () => {

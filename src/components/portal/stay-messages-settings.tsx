@@ -35,6 +35,7 @@ const FIELD_LABEL: Record<(typeof STAY_MESSAGE_FIELDS)[number], string> = {
   wifi_network: "Wi-Fi network",
   wifi_password: "Wi-Fi password",
   bathroom_rule: "Bathroom rule",
+  house_guide: "House guide",
   checkout_time: "Check-out time",
   checkout_steps: "Check-out steps",
   contact_phone: "Contact phone",

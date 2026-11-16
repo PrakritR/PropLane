@@ -42,6 +42,9 @@ const HAPPENED_BY_EVENT: Record<string, string> = {
   invoice_disputed: "invoice disputed",
   paid: "paid",
   reminder_sent: "reminder sent",
+  booking_created: "created",
+  booking_cancelled: "cancelled",
+  channel_booking_clash: "double-booked",
 };
 
 /** Payment events read as their own headline, whole. */
@@ -111,6 +114,10 @@ export function buildTeamNoticeLine(input: {
   /** An amount already formatted for people ("$140"). */
   amount?: string | null;
   urgent?: boolean;
+  /** More plain facts after the place (dates and nights, channel and reservation code); each is one list item. */
+  extra?: ReadonlyArray<string | null | undefined>;
+  /** The exact record's link: a notice that points at a record ends on it. */
+  url?: string | null;
 }): string {
   // A stored property id ("mgr-listing-…") is never copy: the house reads "your house" when only its id is known.
   const noIds = (value: string) => scrubRawPropertyIds(value, NO_NAMES);
@@ -119,9 +126,11 @@ export function buildTeamNoticeLine(input: {
     input.amount?.trim() ?? "",
     // "5257 Brooklyn Ave · Room 2" is a label with a separator dot; in a sentence it is a list.
     noIds((input.place?.trim() ?? "").split("·").map((part) => part.trim()).join(", ")),
+    ...(input.extra ?? []).map((item) => noIds((item ?? "").trim())),
     noIds(input.who?.trim() ?? ""),
   ].filter(Boolean);
   const headline = headlineFor(input.domain, input.event);
   const sentence = details.length > 0 ? `${headline}: ${details.join(", ")}.` : `${headline}.`;
-  return input.urgent ? `Emergency. ${sentence}` : sentence;
+  const withLink = input.url?.trim() ? `${sentence} ${input.url.trim()}` : sentence;
+  return input.urgent ? `Emergency. ${withLink}` : withLink;
 }

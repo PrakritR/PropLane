@@ -70,6 +70,7 @@ async function loadFacts(ctx: AgentContext, now: Date, delegated: boolean): Prom
   ]);
   return {
     toursToday: tours.confirmed.length,
+    tours: tours.confirmed.map((t) => ({ who: t.who, time: t.time })),
     openServices,
     rent: rent.paidCount + rent.unpaidCount > 0 ? { paidCount: rent.paidCount, unpaidCount: rent.unpaidCount, unpaidCents: rent.unpaidCents } : null,
     newLeads: leads,

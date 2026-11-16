@@ -104,8 +104,9 @@ describe("manager preview phone bar with both stays", () => {
     render(<ListingDetailSections property={property} rich={rich} portalEmbedded managerPreviewChrome hidePortalSubnav />);
     expect(labels()).toEqual(["Book", "Tour"]);
     expect(bar().querySelector('[data-attr="listing-web-apply-short"]')).toBeNull();
-    // A guest's Apply makes a resident account first, then opens the application (captain, Oct 20).
-    expect(href('[data-attr="listing-web-apply"]')).toContain("/auth/create-account?mode=create&role=resident&next=");
+    // A guest's Apply opens the public application with no account first (captain, Nov 14).
+    expect(href('[data-attr="listing-web-apply"]')).toMatch(/^\/rent\/apply\?/);
+    expect(href('[data-attr="listing-web-apply"]')).not.toContain("/auth/create-account");
     expect(bar().querySelector('[data-attr="listing-web-apply"]')?.textContent).toBe("Book");
   });
 

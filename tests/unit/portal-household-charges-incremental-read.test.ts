@@ -19,6 +19,7 @@ const state = {
   profileRows: [] as Row[],
   chargeRowOverride: null as null | ((call: Call) => Row[]),
   tablesRead: [] as string[],
+  boundApplications: [] as Row[],
 };
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -101,6 +102,14 @@ vi.mock("@/lib/supabase/service", () => ({
       if (table === "profile_roles") {
         return { select: () => ({ eq: async () => ({ data: [{ role: state.role }] }) }) };
       }
+      if (table === "manager_application_records") {
+        const chain: Record<string, unknown> = {
+          select: () => chain,
+          eq: () => chain,
+          limit: async () => ({ data: state.boundApplications, error: null }),
+        };
+        return chain;
+      }
       if (table === "portal_recurring_rent_profile_records") {
         state.tablesRead.push(table);
         return readChain(table, () => state.profileRows);
@@ -135,6 +144,7 @@ beforeEach(() => {
   state.profileRows = [];
   state.chargeRowOverride = null;
   state.tablesRead = [];
+  state.boundApplications = [];
   fetchRowsForManagerWithLinked.mockReset();
   fetchRowsForManagerWithLinked.mockResolvedValue([]);
   getUser.mockReset();
@@ -189,6 +199,33 @@ describe("GET /api/portal-household-charges incremental read", () => {
     const filters = chargeCalls()[0]!.filters;
     expect(filters.some(([kind, , value]) => kind === "or" && String(value).includes("resident_email.eq.viewer@test.local"))).toBe(true);
     expect(gtes(chargeCalls()[0]!)).toHaveLength(1);
+  });
+
+  it("a resident also reads charges a manager keyed to their bound application, and the rows come back naming them", async () => {
+    const managerId = "22222222-2222-4222-8222-222222222222";
+    state.role = "resident";
+    state.boundApplications = [{ id: "app-fekadu", manager_user_id: managerId, resident_email: "fekadu@applied.test" }];
+    state.rows = [
+      // An offline (Zelle / bank transfer / Other) receipt the manager recorded: no resident id on the row.
+      { id: "hc_offline", manager_user_id: managerId, resident_user_id: null, updated_at: "2026-11-01T00:00:00Z", row_data: { id: "hc_offline", status: "paid", paidMethod: "Other" } },
+      { id: "hc_owned", manager_user_id: managerId, resident_user_id: VIEWER_ID, updated_at: "2026-11-01T00:00:00Z", row_data: { id: "hc_owned", status: "paid", residentUserId: VIEWER_ID } },
+    ];
+    const res = await GET(request());
+    const body = await res.json();
+    const clause = chargeCalls()[0]!.filters.map(([, , value]) => String(value)).join("|");
+    expect(clause).toContain(`resident_user_id.eq.${VIEWER_ID}`);
+    expect(clause).toContain("and(resident_user_id.is.null,or(row_data->>applicationId.in.(app-fekadu)");
+    expect(clause).toContain(`and(manager_user_id.eq.${managerId},resident_email.eq.fekadu@applied.test)`);
+    expect(body.charges.map((c: { id: string; residentUserId?: string }) => [c.id, c.residentUserId])).toEqual([
+      ["hc_offline", VIEWER_ID],
+      ["hc_owned", VIEWER_ID],
+    ]);
+  });
+
+  it("a manager's read never stamps a resident id on a row", async () => {
+    state.rows = [{ id: "hc_x", manager_user_id: VIEWER_ID, resident_user_id: null, updated_at: "2026-11-01T00:00:00Z", row_data: { id: "hc_x", status: "paid" } }];
+    const body = await (await GET(request())).json();
+    expect(body.charges[0].residentUserId).toBeUndefined();
   });
 
   it.each([

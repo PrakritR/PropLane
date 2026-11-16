@@ -106,7 +106,7 @@ describe("tour request any time", () => {
     expect(window.start).toMatch(/T(23|00):00:00\.000Z$/);
   });
 
-  it("shows a signed-out visitor the days and times at once, and asks for the account only at Your details", async () => {
+  it("shows a signed-out visitor the days and times at once, and asks for a name, phone and email, not an account, at Your details", async () => {
     session.state.userId = null;
     const posts = stubFetch({});
     await openDateStep();
@@ -117,19 +117,14 @@ describe("tour request any time", () => {
     fireEvent.click(await screen.findByRole("button", { name: "4:00 PM" }));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
-    // Your details = the account step. No contact form, no booking button, nothing written.
-    await waitFor(() => expect(document.querySelector('[data-attr="tour-account-step"]')).toBeTruthy());
-    const email = document.querySelector('[data-attr="tour-account-email"]') as HTMLAnchorElement;
-    expect(email).toBeTruthy();
-    const next = new URL(email.getAttribute("href")!, "http://x").searchParams.get("next")!;
-    const target = new URL(next, "http://x");
-    expect(target.pathname).toBe("/resident/tour/schedule");
-    expect(target.searchParams.get("propertyId")).toBe("prop-1");
-    expect(target.searchParams.get("slot")).toBe(`${requestedTourDates()[1]!}:32`);
-    expect(target.searchParams.get("room")).toBe("any");
-    expect(document.querySelector('[data-attr="tour-step-sign-in"]')).toBeTruthy();
-    expect(document.querySelector('[data-attr="tour-book-submit"]')).toBeNull();
-    expect(screen.queryByText(/No account is required/)).toBeNull();
+    // Your details = a guest form (captain, Nov 14): name, phone, email and the book button; no account wall, nothing written yet.
+    await waitFor(() => expect(document.querySelector('[data-attr="tour-book-submit"]')).toBeTruthy());
+    expect(document.querySelector('[data-attr="tour-account-step"]')).toBeNull();
+    expect(document.querySelector('[data-attr="tour-account-email"]')).toBeNull();
+    expect(document.querySelector('[data-attr="tour-step-sign-in"]')).toBeNull();
+    expect(document.getElementById("tour-name")).toBeTruthy();
+    expect(document.getElementById("tour-email")).toBeTruthy();
+    expect(document.getElementById("tour-phone")).toBeTruthy();
     expect(posts).toHaveLength(0);
   });
 

@@ -108,6 +108,36 @@ describe("autoRespondToResidentInboxMessage", () => {
     expect(opts.readOnly).toBeUndefined();
   });
 
+  it("the thread auto-reply surface is read-only on its own tool shortlist, with its own prompt and trace", async () => {
+    resolveCtx.mockResolvedValue(okCtx);
+    runAgentTurn.mockResolvedValue({ reply: "ok", model: "m", pendingAction: undefined });
+    const registryFor = vi.fn(() => ({ tools: {} }) as never);
+    await autoRespondToResidentInboxMessage(db, {
+      managerUserId: "m1",
+      residentEmail: "r@x.com",
+      incomingText: "wifi?",
+      surface: { system: "SURFACE", promptId: "p", traceName: "t", registryFor, toolNames: ["get_move_in_info"], expectedUserId: "u1" },
+    });
+    const opts = runAgentTurn.mock.calls[0]![0] as { allowWriteTools: string[]; readOnly?: boolean; toolNames?: string[]; system: string };
+    expect(opts.readOnly).toBe(true);
+    expect(opts.toolNames).toEqual(["get_move_in_info"]);
+    expect(opts.allowWriteTools).toEqual([]);
+    expect(opts.system).toBe("SURFACE");
+    expect(registryFor).toHaveBeenCalledWith(okCtx.ctx);
+  });
+
+  it("refuses when the email resolves to someone other than the authenticated resident", async () => {
+    resolveCtx.mockResolvedValue(okCtx);
+    const out = await autoRespondToResidentInboxMessage(db, {
+      managerUserId: "m1",
+      residentEmail: "r@x.com",
+      incomingText: "wifi?",
+      surface: { system: "S", promptId: "p", traceName: "t", registryFor: () => ({ tools: {} }) as never, toolNames: [], expectedUserId: "someone-else" },
+    });
+    expect(out).toEqual({ ok: false, reason: "identity_mismatch" });
+    expect(runAgentTurn).not.toHaveBeenCalled();
+  });
+
   it("passes a write proposal back for the caller to persist and confirm", async () => {
     resolveCtx.mockResolvedValue(okCtx);
     const pendingAction = { toolName: "schedule_message", input: {}, preview: { title: "x" }, destructive: false };

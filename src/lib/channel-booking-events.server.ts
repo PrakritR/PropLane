@@ -31,6 +31,7 @@ import { resolveManagerAssistantWorkspace } from "@/lib/communication/manager-as
 import { sendManagerNoticeEmail } from "@/lib/manager-notice-email.server";
 import { bookingRecordHref } from "@/lib/portal-detail-routes";
 import { bookingCreatedLine, nextDayKey } from "@/lib/one-number/ops-alert-lines";
+import { formatBookingNotice } from "@/lib/manager-notice-format";
 import { alertPhonesOf } from "@/lib/one-number/ops-alerts.server";
 
 export type ChannelBookingEvent = "channel_booking_created" | "channel_booking_cancelled";
@@ -72,14 +73,36 @@ export function channelBookingStay(start: string, lastNight: string): { label: s
 
 export function renderChannelBookingEvent(
   event: ChannelBookingEvent,
-  facts: { provider: ChannelCalendarProvider; channelLabel?: string | null; propertyLabel?: string; roomLabel?: string; start: string; end: string; reservationCode?: string },
+  facts: {
+    provider: ChannelCalendarProvider;
+    channelLabel?: string | null;
+    propertyLabel?: string;
+    roomLabel?: string;
+    start: string;
+    /** The stored range's LAST night. */
+    end: string;
+    reservationCode?: string;
+    /** The guest as `bookingEntryGuestLabel` names them (a real name, else "<Channel> guest <code>"). */
+    guestLabel?: string;
+    amount?: number | string | null;
+    url?: string | null;
+  },
 ): { subject: string; text: string; smsText: string } {
   const channel = channelCalendarProviderLabel(facts.provider, facts.channelLabel);
-  const lead = event === "channel_booking_created" ? `New ${channel} booking` : `${channel} booking cancelled`;
-  const place = [facts.propertyLabel?.trim(), facts.roomLabel?.trim()].filter(Boolean);
-  const code = facts.reservationCode?.trim();
-  const text = [lead, ...place, channelBookingStay(facts.start, facts.end).label, ...(code ? [code] : [])].join(" · ");
-  return { subject: lead, text, smsText: text };
+  const lastNight = facts.end && facts.end >= facts.start ? facts.end : facts.start;
+  const notice = formatBookingNotice({
+    created: event === "channel_booking_created",
+    guestName: facts.guestLabel,
+    channel,
+    code: facts.reservationCode,
+    house: facts.propertyLabel,
+    room: facts.roomLabel,
+    checkIn: facts.start,
+    checkOutExclusive: nextDayKey(lastNight),
+    amount: facts.amount,
+    url: facts.url,
+  });
+  return { subject: notice.subject, text: notice.sms, smsText: notice.sms };
 }
 
 /** The owner's email copy: house, room, guest, dates, source. The link is appended by `sendManagerNoticeEmail`. */
@@ -153,7 +176,6 @@ export async function emitChannelBookingEvent(
   const { data: manager } = await db.from("profiles").select("email, full_name").eq("id", input.managerUserId).maybeSingle();
   const senderEmail = String(manager?.email ?? "").trim().toLowerCase();
   if (!senderEmail) return;
-  const rendered = renderChannelBookingEvent(input.event, { ...input, start: input.range.start, end: input.range.end, reservationCode: input.range.reservationCode });
   const url = channelBookingRecordUrl(input);
   const stay = channelBookingStay(input.range.start, input.range.end);
   const eventId = `${input.connectionId}:${channelRangeKey(input.range)}:${input.range.start}:${input.range.end}:${input.event}`;
@@ -165,6 +187,15 @@ export async function emitChannelBookingEvent(
     source: input.provider,
     channelLabel: input.channelLabel,
     reservationCode: input.range.reservationCode,
+  });
+  // The text names the GUEST (never the workspace owner who is only the sender), the house, the room, the nights, the
+  // channel and its reservation code, and ends on the exact booking record's link.
+  const rendered = renderChannelBookingEvent(input.event, {
+    ...input,
+    start: input.range.start,
+    end: input.range.end,
+    reservationCode: input.range.reservationCode,
+    guestLabel,
   });
   let busError: unknown = null;
   try {
@@ -190,6 +221,13 @@ export async function emitChannelBookingEvent(
       bookingKey: channelStayBookingKey({ provider: input.provider, propertyId: input.propertyId, roomId: input.roomId, ...input.range }),
       // What the stay is called everywhere else; no contact data is in the feed.
       guestLabel,
+      // The Team chat line and the manager copies read these: house, room, channel, code, link.
+      propertyLabel: input.propertyLabel ?? "",
+      roomLabel: input.roomLabel ?? "",
+      channelLabel: channelCalendarProviderLabel(input.provider, input.channelLabel),
+      ...(input.range.reservationCode ? { reservationCode: input.range.reservationCode } : {}),
+      stayLabel: stay.label,
+      url,
     },
     templateContext: { propertyTitle: input.propertyLabel ?? "", roomLabel: input.roomLabel ?? "", stayLabel: stay.label, url },
     recipients: [{ audience: "manager", userId: input.managerUserId, rendered: { ...rendered, text: `${rendered.text}\n\n${url}` } }],
@@ -307,15 +345,23 @@ async function nativeBookingLabels(db: SupabaseClient, propertyId: string, roomI
 
 export function renderNativeBookingEvent(
   event: NativeBookingEvent,
-  facts: { propertyLabel?: string; roomLabel?: string; guestName?: string; checkIn: string; checkOut: string; openEnded?: boolean },
+  facts: { propertyLabel?: string; roomLabel?: string; guestName?: string; checkIn: string; checkOut: string; openEnded?: boolean; url?: string | null },
 ): { subject: string; text: string; smsText: string; stayLabel: string } {
   const stayLabel = facts.openEnded
     ? `${monthDay(facts.checkIn)} – open-ended`
     : channelBookingStay(facts.checkIn, lastNightBeforeCheckout(facts.checkOut)).label;
-  const lead = event === "booking_created" ? "New PropLane booking" : "PropLane booking cancelled";
-  const place = [facts.propertyLabel?.trim(), facts.roomLabel?.trim()].filter(Boolean);
-  const text = [lead, ...place, facts.guestName?.trim() || "", stayLabel].filter(Boolean).join(" · ");
-  return { subject: lead, text, smsText: text, stayLabel };
+  const notice = formatBookingNotice({
+    created: event === "booking_created",
+    guestName: facts.guestName,
+    channel: "PropLane",
+    house: facts.propertyLabel,
+    room: facts.roomLabel,
+    checkIn: facts.checkIn,
+    checkOutExclusive: facts.openEnded ? "" : facts.checkOut,
+    openEnded: facts.openEnded,
+    url: facts.url,
+  });
+  return { subject: notice.subject, text: notice.sms, smsText: notice.sms, stayLabel };
 }
 
 /**
@@ -347,9 +393,9 @@ export async function emitNativeBookingEvent(
   ]);
   const senderEmail = String(manager?.email ?? "").trim().toLowerCase();
   if (!senderEmail) return;
-  const rendered = renderNativeBookingEvent(input.event, { ...labels, guestName: input.guestName, checkIn: input.checkIn, checkOut: input.checkOut, openEnded: input.openEnded });
   const bookingKey = `block:${input.blockId}`;
   const url = bookingRecordUrl(resolveEmailLinkBaseUrl(), bookingKey);
+  const rendered = renderNativeBookingEvent(input.event, { ...labels, guestName: input.guestName, checkIn: input.checkIn, checkOut: input.checkOut, openEnded: input.openEnded });
   const eventId = `native:${input.blockId}:${input.event}`;
   let busError: unknown = null;
   try {
@@ -371,6 +417,11 @@ export async function emitNativeBookingEvent(
         start: input.checkIn,
         end: input.checkOut,
         guestLabel: input.guestName,
+        propertyLabel: labels.propertyLabel,
+        roomLabel: labels.roomLabel,
+        channelLabel: "PropLane",
+        stayLabel: rendered.stayLabel,
+        url,
       },
       templateContext: { propertyTitle: labels.propertyLabel, roomLabel: labels.roomLabel, stayLabel: rendered.stayLabel, url },
       recipients: [{ audience: "manager", userId: input.managerUserId, rendered: { subject: rendered.subject, text: `${rendered.text}\n\n${url}`, smsText: rendered.smsText } }],

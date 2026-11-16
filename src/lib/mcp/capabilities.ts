@@ -48,14 +48,14 @@ export const API_KEY_PRODUCT_AREAS: readonly ApiKeyProductArea[] = [
     id: "communication",
     label: "Communication",
     description: "Inbox threads, replies, scheduled messages, and automations.",
-    readTools: ["list_sms_conversations", "list_inbox_threads", "get_thread_messages", "list_scheduled_messages", "get_automation_settings"],
+    readTools: ["list_sms_conversations", "list_recent_leads", "list_inbox_threads", "get_thread_messages", "list_scheduled_messages", "get_automation_settings"],
     writeTools: ["reply_to_sms_conversation", "send_message", "reply_to_thread", "schedule_message", "cancel_scheduled_message", "update_thread", "update_automation_settings", "cancel_scheduled_reminder", "restore_scheduled_reminder", "reschedule_reminder"],
   },
   {
     id: "calendar",
     label: "Calendar & tours",
     description: "Availability, events, bookings, room blocks, and prospective tenant tours.",
-    readTools: ["list_calendar_events", "list_tour_inquiries", "list_open_tour_slots", "list_bookings", "check_room_availability", "list_room_blocks"],
+    readTools: ["list_calendar_events", "list_tour_inquiries", "list_open_tour_slots", "list_bookings", "list_stay_moves", "check_room_availability", "list_room_blocks"],
     writeTools: ["update_manager_availability", "create_calendar_event", "cancel_calendar_event", "accept_tour_inquiry", "confirm_tour_inquiry", "book_tour", "reschedule_tour", "cancel_tour", "block_room_dates", "remove_room_block"],
   },
   {

@@ -57,11 +57,14 @@ export async function reserveEmailAutoReplyCredit(
     workspaceId?: string | null;
     inboundEmailId: string;
     role: "resident" | "prospect";
+    /** The channel the answered message arrived on (default email); keys and labels the ledger row. */
+    channel?: "email" | "inapp";
   },
 ): Promise<EmailAutoReplyCredit> {
   const emailId = args.inboundEmailId.trim();
   if (!args.managerUserId.trim() || !emailId) return { allowed: false, reason: "missing_identity" };
-  const base = `ai_turn:email:${emailId}`;
+  const channel = args.channel ?? "email";
+  const base = `ai_turn:${channel}:${emailId}`;
   try {
     const reserve = async (key: string) =>
       reserveCommsCredit(db, {
@@ -69,7 +72,7 @@ export async function reserveEmailAutoReplyCredit(
         workspaceId: args.workspaceId ?? undefined,
         meter: "ai_agent_turn",
         idempotencyKey: key,
-        metadata: { channel: "email", role: args.role, inboundEmailId: emailId },
+        metadata: { channel, role: args.role, inboundEmailId: emailId },
       });
     let key = await commsTurnKey(db, args.managerUserId, base);
     let credit = await reserve(key);

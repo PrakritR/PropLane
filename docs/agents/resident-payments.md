@@ -619,6 +619,17 @@ suppressed the next server read for its TTL. The manager-side Upcoming group is 
 `tests/unit/tools/charges-upcoming-visibility.test.ts` (`list_my_charges`), and the
 browser regression `npm run test:payments-upcoming` (`tests/browser/payments-upcoming/`).
 
+## A manager-keyed charge reaches the resident through their bound application
+
+A charge (including an offline Zelle / bank transfer / Other receipt) a manager keyed to the address on the application
+lands with `resident_user_id = null`; the resident may sign in with another address. `GET /api/portal-household-charges`
+therefore widens a resident's read, through `src/lib/resident-charge-binding.server.ts`, to rows with NO resident id of their
+own that name an application whose `row_data.residentUserId` is the signed-in user, or that the same manager wrote for that
+application's address, and stamps the viewer's id on the copy it returns (the browser keeps a row only for its own subject).
+Ownership is the authenticated subject's application, never an address alone; a row pinned to another subject is never
+taken, and a failed binding read narrows to the direct match. Coverage: `tests/unit/resident-charge-binding.test.ts`,
+`tests/unit/portal-household-charges-incremental-read.test.ts`.
+
 ## Paid is reconciled against the ledger, and receipts are named from it
 
 Payments › **Paid** and Documents › **Rent receipts** answer the same question

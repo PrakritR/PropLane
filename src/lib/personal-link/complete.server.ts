@@ -84,7 +84,7 @@ export async function completePersonalAccount(
   }
 }
 
-async function claimLink(db: SupabaseClient, linkId: string, now: Date): Promise<boolean> {
+export async function claimLink(db: SupabaseClient, linkId: string, now: Date): Promise<boolean> {
   const { data, error } = await db
     .from("phone_bound_links")
     .update({ used_at: now.toISOString() })
@@ -96,7 +96,7 @@ async function claimLink(db: SupabaseClient, linkId: string, now: Date): Promise
   return !error && Array.isArray(data) && data.length > 0;
 }
 
-async function releaseLink(db: SupabaseClient, linkId: string): Promise<void> {
+export async function releaseLink(db: SupabaseClient, linkId: string): Promise<void> {
   await db.from("phone_bound_links").update({ used_at: null }).eq("id", linkId).then(() => undefined, () => undefined);
 }
 

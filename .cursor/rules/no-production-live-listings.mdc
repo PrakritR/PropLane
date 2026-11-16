@@ -90,3 +90,11 @@ Build note (Nov 12): the one-shot calls the SQL mover `move_managed_workspace_to
 (`supabase/migrations/20261112230000_managed_workspace_mover.sql`): dry run by default, a SHA-256 journaled backup, Vinod then Ambika
 each in one transaction, a read-back (houses' `property_data` byte-identical, payee and owner payable unchanged), a single-apply
 marker, and an undo valid for 2 hours. Production dry-run output: the captain approves the counts before any `--apply`.
+
+## Waiver — 2026-11-14 (captain, explicit, one shot)
+
+Captain: "update everywhere 4120 is code for room 7 in 5257 and 1234 is for room 8 … please update … proplane". Scope: ONE
+write of each room's `listingSubmission.rooms[].doorCode` on the three live houses from the captain's master house data
+(5257 Room 7 = 4120 and Room 8 = 1234 as he confirmed), matched by room name, nothing else edited. The prior values were
+backed up off-repo (`~/proplane-backups/prod-door-codes-before-20261114.json`) and the result read back (28/28 rooms).
+Front-door and gate codes already matched and were not written. Do not re-run.

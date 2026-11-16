@@ -40,6 +40,7 @@ export const STAY_MESSAGE_FIELDS = [
   "wifi_network",
   "wifi_password",
   "bathroom_rule",
+  "house_guide",
   "checkout_time",
   "checkout_steps",
   "contact_phone",
@@ -56,6 +57,7 @@ export const DEFAULT_CHECK_IN_TEMPLATE = [
   "Wi-Fi: {wifi_network}",
   "Wi-Fi password: {wifi_password}",
   "{bathroom_rule}",
+  "{house_guide}",
   "Questions? Text {contact_phone}.",
 ].join("\n");
 
@@ -139,6 +141,8 @@ export type StayMessageFacts = {
   wifiNetwork: string;
   wifiPassword: string;
   bathroomRule: string;
+  /** The house guide: the rules and trash lines the resident's own guide shows (never a secret). Optional: absent = none. */
+  houseGuide?: readonly string[];
   checkoutSteps: readonly string[];
   contactPhoneE164: string;
   /** Codes that must NEVER appear in this body: every other room's, and the staff-only Internal section. */
@@ -163,6 +167,7 @@ function fieldValues(facts: StayMessageFacts): Record<StayMessageField, string> 
     wifi_network: facts.wifiNetwork,
     wifi_password: facts.wifiPassword,
     bathroom_rule: facts.bathroomRule,
+    house_guide: (facts.houseGuide ?? []).join("\n"),
     checkout_time: facts.checkOutTime ? formatStayTime(normalizeStayTime(facts.checkOutTime) ?? facts.checkOutTime) : "",
     checkout_steps: facts.checkoutSteps.join("\n"),
     contact_phone: formatUsPhoneDisplay(facts.contactPhoneE164) || facts.contactPhoneE164,

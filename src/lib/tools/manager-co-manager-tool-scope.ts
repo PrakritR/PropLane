@@ -70,7 +70,7 @@ export const CO_MANAGER_SCOPED_TOOLS = new Set([
   // Bookings: the three reads need Calendar at notification or edit on the house; block_room_dates
   // and update_room_block need Calendar at edit (each tool re-checks both in preview AND handler).
   // A co-manager who can place a hold must be able to correct the one they just placed.
-  "list_bookings", "check_room_availability", "list_room_blocks", "block_room_dates", "update_room_block",
+  "list_bookings", "list_stay_moves", "list_recent_leads", "check_room_availability", "list_room_blocks", "block_room_dates", "update_room_block",
 ]);
 
 /**

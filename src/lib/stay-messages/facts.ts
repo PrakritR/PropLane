@@ -6,7 +6,7 @@
  * returned as a deny list, so the builder can refuse a body that somehow carries one.
  */
 import { createHash } from "node:crypto";
-import { getHouseInfoValue, HOUSE_INTERNAL_SECTION_ID, houseInfoWithoutInternal } from "@/lib/house-info";
+import { getHouseInfoValue, HOUSE_INTERNAL_SECTION_ID, houseInfoRenderSections, houseInfoWithoutInternal, type HouseInfoV1 } from "@/lib/house-info";
 import { wallInstantIso } from "@/lib/bookings/stay-times";
 import type { StayMessageFacts, StayMessageSettings } from "@/lib/stay-messages/templates";
 import type { StayCandidate, StayMessageKind, StayProperty } from "@/lib/stay-messages/types";
@@ -31,6 +31,20 @@ function dayWord(candidate: StayCandidate, now: Date, timeZone: string): string 
 function internalSecrets(property: StayProperty): string[] {
   const internal = property.houseInfo[HOUSE_INTERNAL_SECTION_ID] ?? {};
   return Object.values(internal).map((value) => String(value ?? "").trim()).filter(Boolean);
+}
+
+/** The house guide lines (rules + trash, as the resident's Check-in guide lists them), minus the bathroom rule the message already carries. */
+function houseGuideLines(info: HouseInfoV1): string[] {
+  const bathroom = getHouseInfoValue(info, "rules", "bathroom").trim();
+  const lines: string[] = [];
+  for (const section of houseInfoRenderSections(info)) {
+    if (section.id !== "rules" && section.id !== "trash") continue;
+    for (const row of section.rows) {
+      if (bathroom && row.value.trim() === bathroom) continue;
+      lines.push(`${row.label}: ${row.value}`);
+    }
+  }
+  return lines;
 }
 
 export function buildStayFacts(input: {
@@ -64,6 +78,7 @@ export function buildStayFacts(input: {
     wifiNetwork: getHouseInfoValue(info, "wifi", "network"),
     wifiPassword: getHouseInfoValue(info, "wifi", "password"),
     bathroomRule: getHouseInfoValue(info, "rules", "bathroom"),
+    houseGuide: houseGuideLines(info),
     checkoutSteps,
     contactPhoneE164: settings.contactPhone[candidate.source],
     forbiddenCodes: [...otherCodes, ...internalSecrets(property)],

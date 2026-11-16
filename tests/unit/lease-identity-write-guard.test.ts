@@ -41,6 +41,8 @@ const EXEMPT: Record<string, string> = {
   "src/lib/move-in-forms/server.ts": "writes move-in forms only",
   "src/lib/reminders/subjects/move-in-forms.server.ts": "writes move-in forms only",
   "src/lib/channel-calendar/stay-meta.server.ts": "writes schedule records only",
+  "src/lib/holding-deposit-expiry.server.ts":
+    "READS leases to see whether one was signed in the hold window, and writes household charge and schedule records only",
   "src/lib/rental-application/freeze-signed-terms.server.ts":
     "READS the lease to copy its signed money terms, and writes manager_application_records only",
 };

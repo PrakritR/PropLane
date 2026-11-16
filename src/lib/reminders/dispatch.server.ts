@@ -166,6 +166,15 @@ async function loadSenders(
   return out;
 }
 
+/** The SMS / lock-screen copy of a manager reminder: its headline (else subject) and the record link; ~2 segments. */
+export function managerReminderExternalText(input: { headline?: string; subject: string; url?: string }): string {
+  const lead = (input.headline?.trim() || input.subject.trim() || "Reminder").replace(/\s+/g, " ");
+  const url = input.url?.trim() ?? "";
+  const room = 300 - (url ? url.length + 1 : 0);
+  const fitted = lead.length > room ? `${lead.slice(0, Math.max(0, room - 3)).trimEnd()}...` : lead;
+  return url ? `${fitted}\n${url}` : fitted;
+}
+
 export async function dispatchReminderRow(
   db: SupabaseClient,
   workerId: string,
@@ -300,7 +309,12 @@ export async function dispatchReminderRow(
         propertyId: typeof row.payload.propertyId === "string" && row.payload.propertyId.trim() ? row.payload.propertyId.trim() : null,
         subject,
         text: body,
-        externalText: "Open PropLane to review this reminder.",
+        // The text says what the reminder is (the finished headline) and ends on the record's own link.
+        externalText: managerReminderExternalText({
+          headline: typeof row.payload.headline === "string" ? row.payload.headline : "",
+          subject,
+          url: typeof row.payload.url === "string" ? row.payload.url : "",
+        }),
         threadType: "agent_reminder",
         url: typeof row.payload.url === "string" ? row.payload.url : undefined,
         category,
