@@ -88,8 +88,9 @@ target that unavoidably reads as an identity (`submit_vendor_invoice`'s
 
 - Manager: `src/lib/tools/index.ts` (`agentRegistry`)
 - Resident: `src/lib/tools/resident-index.ts` — filtered per request by
-  application phase and the linked manager's subscription tier, so the
-  assistant's capabilities always equal the resident portal's.
+  application phase, channel (portal / SMS), and the linked manager's
+  subscription tier, so the assistant's capabilities always equal the resident
+  portal's.
 - Vendor: `src/lib/tools/vendor-index.ts`
 
 Every other registry is an SMS/inbound surface, one per role. `AGENTS.md`
@@ -440,6 +441,22 @@ Application-phase residents get
 `get_my_application_status` + `send_message_to_manager` + the two tour tools
 (touring is exactly what a pre-approval resident does); a free-tier manager
 hides services/inbox tools.
+
+Listing reads are appended by channel, not carried in the registry itself.
+On the **portal** channel only, `find_homes_on_proplane`
+(`src/lib/tools/domains/resident/public-homes.ts`) searches the same public
+`/rent` catalog a prospect on the PropLane line reads — every manager's live,
+public-projected listings — and returns each home's rooms with CHECKED
+availability, its lowest room rent, and absolute `listingUrl`, `tourUrl` and
+`applyUrl`, so a resident looking for a place gets real homes instead of "let
+me check". It survives the application-phase filter (someone still applying is
+exactly who is looking) and is identity-free: no prospect phone, no shared-line
+session, no service catalog, so it never tags a thread, notifies a manager or
+files a lead — `build_prospect_links` on the leasing line stays deliberately
+unreused. The gate is positive on `portal`, so an unset or future channel
+inherits nothing. Resident **SMS** instead gets the texted manager's own
+listing tools ([`docs/agents/sms-system.md`](agents/sms-system.md) § Work-order
+reference routing).
 
 Deliberately NOT tools: lease signing (legal ceremony — deep-link to
 `/resident/lease`), turning rent reporting on (typed consent — see

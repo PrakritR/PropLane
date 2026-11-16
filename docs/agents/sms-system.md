@@ -55,13 +55,9 @@ public listing succeeds. The room's furnishing and amenities come from that
 room's submitted listing details. These tools are read-only and do not expose
 other managers' listings or prospect write actions.
 
-The resident portal assistant (not SMS or email) instead has
-`find_homes_on_proplane` (`src/lib/tools/domains/resident/public-homes.ts`):
-the same public `/rent` catalog a prospect on the PropLane line searches, with
-checked availability and absolute listing, tour and apply links, in every phase,
-so a resident looking for a place gets real homes rather than "let me check".
-It is identity-free: no prospect phone, no session, no service catalog, so it
-never tags a thread, notifies a manager or files a lead.
+None of these reach the resident PORTAL assistant, which searches the public
+`/rent` catalog instead with `find_homes_on_proplane` —
+[`docs/ai-assistant.md`](../ai-assistant.md) § Resident owns that tool.
 
 The stable handle is per manager, so a co-manager or vendor can legitimately
 see two `WO-1042` records under different owners. Several visible matches return
