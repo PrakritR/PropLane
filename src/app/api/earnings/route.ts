@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { earningsCsv } from "@/lib/managed-finance/earnings";
-import { loadMyEarnings, loadMyEarningsRows } from "@/lib/managed-finance/earnings.server";
+import { hasAnyEarningsShare, loadMyEarnings, loadMyEarningsRows } from "@/lib/managed-finance/earnings.server";
 import { financeErrorResponse, requireEarningsPerson, stripeOrNull } from "@/lib/managed-finance/routes.server";
 
 export const runtime = "nodejs";
@@ -14,6 +14,11 @@ export async function GET(req: Request) {
   if (ctx instanceof NextResponse) return ctx;
   const url = new URL(req.url);
   try {
+    // `?probe=1`: only whether this person has an Earnings page at all (the tab's one question), so drawing Finances never
+    // pays for the whole view.
+    if (url.searchParams.get("probe") === "1") {
+      return NextResponse.json({ hasShare: await hasAnyEarningsShare(ctx.db, ctx.userId) }, { headers: { "cache-control": "private, no-store" } });
+    }
     if (url.searchParams.get("format") === "csv") {
       const raw = url.searchParams.get("month");
       const month = raw && /^\d{4}-(0[1-9]|1[0-2])$/.test(raw) ? raw : null;

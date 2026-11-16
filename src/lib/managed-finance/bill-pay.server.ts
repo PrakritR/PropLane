@@ -109,11 +109,33 @@ export async function loadBillsOutlook(db: SupabaseClient, input: { workspaceId:
   const awaiting = ((pending ?? []) as Row[]).reduce((s, r) => s + Number(r.amount_cents), 0);
   const { data: ws } = await db.from("portal_workspaces").select("owner_user_id").eq("id", input.workspaceId).maybeSingle();
   const manager = String((ws as Row | null)?.owner_user_id ?? "");
+  // `manager_expense_entries` has no workspace of its own, and on a PropLane-managed workspace the owner of the row
+  // (`owner_user_id`) is the service owner, who owns EVERY managed workspace plus their own self-serve portfolio. Scoping on
+  // the manager alone summed all of it into one house's outlook, so the entries are narrowed to this workspace's own houses.
+  // An entry with no house belongs to no workspace and is left out.
   let dueOutside = 0;
   if (manager) {
-    const horizon = new Date(now.getTime() + 30 * 86_400_000).toISOString().slice(0, 10);
-    const { data: due, error } = await db.from("manager_expense_entries").select("amount_cents").eq("manager_user_id", manager).eq("payment_status", "due").lte("due_date", horizon).limit(500);
-    if (!error) dueOutside = ((due ?? []) as Row[]).reduce((s, r) => s + Number(r.amount_cents), 0);
+    const { data: ownHomes, error: homesError } = await db
+      .from("manager_property_records")
+      .select("id")
+      .eq("manager_user_id", manager)
+      .eq("workspace_id", input.workspaceId)
+      .limit(500);
+    if (homesError) throw new LedgerError(500, "Could not read the houses in this workspace.");
+    const propertyIds = ((ownHomes ?? []) as Row[]).map((r) => String(r.id)).filter(Boolean);
+    if (propertyIds.length > 0) {
+      const horizon = new Date(now.getTime() + 30 * 86_400_000).toISOString().slice(0, 10);
+      const { data: due, error } = await db
+        .from("manager_expense_entries")
+        .select("amount_cents")
+        .eq("manager_user_id", manager)
+        .in("property_id", propertyIds)
+        .eq("payment_status", "due")
+        .lte("due_date", horizon)
+        .limit(500);
+      if (error) throw new LedgerError(500, "Could not read the bills due outside PropLane.");
+      dueOutside = ((due ?? []) as Row[]).reduce((s, r) => s + Number(r.amount_cents), 0);
+    }
   }
   return billsOutlook({ availableCents: availableToWithdraw(balance, policy.terms.reserveTargetCents), pendingCents: balance.pendingCents, awaitingApprovalCents: awaiting, dueOutsideCents: dueOutside });
 }

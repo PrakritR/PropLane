@@ -20,6 +20,8 @@ import { formatPacificDate } from "@/lib/pacific-time";
 import { invalidateSharedGets, sharedGet } from "@/lib/shared-get-cache";
 
 export const EARNINGS_URL = "/api/earnings";
+/** The cheap "is there an Earnings page for me?" read: a single existence check, not the whole view. */
+export const EARNINGS_PROBE_URL = "/api/earnings?probe=1";
 
 export const EARNINGS_VIEWS = [
   { id: "upcoming", label: "Upcoming" },
@@ -34,13 +36,17 @@ export function earningsHasShare(view: Pick<EarningsView, "workspaces"> | null |
   return Boolean(view && view.workspaces.length > 0);
 }
 
-/** Whether the signed-in account has an Earnings page: the tab is hidden for everyone with no share. */
+/**
+ * Whether the signed-in account has an Earnings page: the tab is hidden for everyone with no share. Every manager who opens
+ * Finances asks this, so it asks the probe — the full view reads the whole ledger history, a balance per workspace, twelve
+ * statements and a live Stripe account, which is far too much to pay for one boolean.
+ */
 export function useEarningsAllowed(): boolean {
   const [allowed, setAllowed] = useState(false);
   useEffect(() => {
     let live = true;
-    void sharedGet(EARNINGS_URL).then((res) => {
-      if (live) setAllowed(res.ok && earningsHasShare(res.data as EarningsView));
+    void sharedGet(EARNINGS_PROBE_URL).then((res) => {
+      if (live) setAllowed(res.ok && (res.data as { hasShare?: boolean } | null)?.hasShare === true);
     });
     return () => {
       live = false;

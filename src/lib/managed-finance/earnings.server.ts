@@ -95,6 +95,22 @@ export function monthRowFromStatement(month: string, s: Statement): EarningsMont
   };
 }
 
+/**
+ * Does this account hold any PropLane-held share at all? The Earnings TAB asks only this, so it must not pay for the whole
+ * view: one existence check on the party ledger instead of the full history, every balance, 12 statements and a live Stripe
+ * account read. The answer matches `workspaces.length > 0` in the view: an owner / team party line, or a vendor party line.
+ */
+export async function hasAnyEarningsShare(db: SupabaseClient, userId: string): Promise<boolean> {
+  const { data, error } = await db
+    .from("party_ledger_lines")
+    .select("journal_id")
+    .in("account", ["owner_payable", "vendor_payable"])
+    .in("party_id", [ownerParty(userId), vendorParty(userId)])
+    .limit(1);
+  if (error) return false;
+  return ((data ?? []) as unknown[]).length > 0;
+}
+
 export async function loadMyEarnings(db: SupabaseClient, stripe: Stripe | null, userId: string, now: Date = new Date()): Promise<EarningsView> {
   const ownerKey = ownerParty(userId);
   const vendorKey = vendorParty(userId);
@@ -207,7 +223,9 @@ export async function loadMyEarningsRows(db: SupabaseClient, userId: string, mon
   const last = monthWindow(nextMonthKey(keys[keys.length - 1]!)).fromIso;
   const ownerStatement = buildOwnerStatement(toStatementLines(ownerLines), first, last);
   const vendorStatement = buildVendorStatement(toStatementLines(vendorLines), first, last);
-  const workspaceByJournal = new Map(ownerLines.map((l) => [l.journalId, l.workspaceId]));
+  // Both line sets: a vendor row (a bill, a vendor-side split, a vendor withdrawal) carries its own workspace, and reading
+  // only the owner lines left every vendor row's Workspace column blank in the export.
+  const workspaceByJournal = new Map([...ownerLines, ...vendorLines].map((l) => [l.journalId, l.workspaceId]));
   const names = await workspaceNames(db, [...new Set([...workspaceByJournal.values()].filter((v): v is string => Boolean(v)))]);
   const rows = [...ownerStatement.rows, ...vendorStatement.rows].sort((a, b) => a.date.localeCompare(b.date));
   return rows.map((r) => {

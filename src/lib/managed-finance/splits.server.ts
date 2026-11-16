@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { isMissingSchemaError } from "@/lib/one-number/config.server";
-import { LedgerError, ownerParty, postJournal, vendorParty } from "@/lib/managed-finance/ledger.server";
+import { LedgerError, ownerParty, postJournal, readLedgerPages, vendorParty } from "@/lib/managed-finance/ledger.server";
 import { resolveManagedPayee } from "@/lib/managed-finance/payee.server";
 import {
   computeSplit,
@@ -60,6 +60,28 @@ export async function loadSplitRules(db: SupabaseClient, workspaceId: string): P
   return ((data ?? []) as Row[]).map(toRule);
 }
 
+/**
+ * The same read for MANY workspaces in one round trip: the admin Payouts page lists every managed workspace, and one query per
+ * workspace was one sequential round trip per active fee policy.
+ */
+export async function loadSplitRulesForWorkspaces(db: SupabaseClient, workspaceIds: readonly string[]): Promise<Map<string, SplitRule[]>> {
+  const out = new Map<string, SplitRule[]>();
+  for (const id of workspaceIds) out.set(id, []);
+  const ids = [...new Set(workspaceIds)].filter(Boolean);
+  if (ids.length === 0) return out;
+  const scanned = await readLedgerPages<Row>((from, to) =>
+    db.from("managed_split_rules").select("*").in("workspace_id", ids).order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, to),
+  );
+  if (scanned === "missing_schema") return out;
+  for (const raw of scanned) {
+    const rule = toRule(raw);
+    const bucket = out.get(rule.workspaceId);
+    if (bucket) bucket.push(rule);
+    else out.set(rule.workspaceId, [rule]);
+  }
+  return out;
+}
+
 /** Rules in force right now. */
 export function activeRulesNow(rules: readonly SplitRule[], now: Date = new Date()): SplitRule[] {
   const t = now.getTime();
@@ -77,17 +99,20 @@ type AllocationRow = {
  * allocation is split. Throws on a failed read or write so the Stripe webhook is redelivered (a managed capture never half-settles).
  */
 export async function applySplitsForPaymentIntent(db: SupabaseClient, input: { workspaceId: string; paymentIntentId: string }): Promise<{ journals: number; paidOutCents: number }> {
-  const { data, error } = await db
-    .from("managed_rent_allocations")
-    .select("id, workspace_id, charge_id, charge_kind, liability_class, property_id, owner_user_id, owner_cents, available_on, paid_at, stripe_payment_intent_id")
-    .eq("workspace_id", input.workspaceId)
-    .eq("stripe_payment_intent_id", input.paymentIntentId)
-    .limit(100);
-  if (error) {
-    if (isMissingSchemaError(error)) return { journals: 0, paidOutCents: 0 };
-    throw new LedgerError(500, "Could not read the payment allocation to split it.");
-  }
-  const allocations = ((data ?? []) as AllocationRow[]).filter((a) => a.liability_class === "income" && Number(a.owner_cents) > 0 && a.owner_user_id);
+  // Every component of the capture, PAGED in a stable order: a bare `.limit(100)` returned an arbitrary 100 of them once a
+  // capture crossed that many, and a redelivery need not have picked up the rest — a payee's share was silently skipped
+  // with no error anywhere.
+  const scanned = await readLedgerPages<AllocationRow>((from, to) =>
+    db
+      .from("managed_rent_allocations")
+      .select("id, workspace_id, charge_id, charge_kind, liability_class, property_id, owner_user_id, owner_cents, available_on, paid_at, stripe_payment_intent_id")
+      .eq("workspace_id", input.workspaceId)
+      .eq("stripe_payment_intent_id", input.paymentIntentId)
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
+  if (scanned === "missing_schema") return { journals: 0, paidOutCents: 0 };
+  const allocations = scanned.filter((a) => a.liability_class === "income" && Number(a.owner_cents) > 0 && a.owner_user_id);
   if (allocations.length === 0) return { journals: 0, paidOutCents: 0 };
   const rules = await loadSplitRules(db, input.workspaceId);
   if (rules.length === 0) return { journals: 0, paidOutCents: 0 };
@@ -160,12 +185,13 @@ export async function reverseSplitsForRefund(db: SupabaseClient, input: { alloca
   }
   const alloc = allocData as AllocationRow | null;
   if (!alloc?.owner_user_id) return { reversedCents: 0 };
-  const { data: splitData, error: splitError } = await db.from("managed_split_allocations").select("*").eq("allocation_id", input.allocationId).limit(100);
-  if (splitError) {
-    if (isMissingSchemaError(splitError)) return { reversedCents: 0 };
-    throw new LedgerError(500, "Could not read the payout splits of a refunded payment.");
-  }
-  const splits = ((splitData ?? []) as Row[]);
+  // Paged for the same reason as the allocation read: a partial list here would under-reverse, leaving a payee holding a
+  // share of money the resident got back.
+  const scannedSplits = await readLedgerPages<Row>((from, to) =>
+    db.from("managed_split_allocations").select("*").eq("allocation_id", input.allocationId).order("id", { ascending: true }).range(from, to),
+  );
+  if (scannedSplits === "missing_schema") return { reversedCents: 0 };
+  const splits = scannedSplits;
   if (splits.length === 0) return { reversedCents: 0 };
   const ownerCents = Number(alloc.owner_cents);
   const refunded = Number(alloc.refunded_owner_cents ?? 0);

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import {
@@ -13,6 +14,7 @@ import {
 import { rateLimit } from "@/lib/rate-limit";
 import { publishServiceToBoard } from "@/lib/service-work-board.server";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
+import { workOrderGeneralArea } from "@/lib/work-order-vendor-privacy";
 
 /**
  * PropLane Jobs: a manager posts a priced job ("show 4709A Room 3 Saturday 2pm, $40"). This is the ONE writer of a posting,
@@ -83,14 +85,40 @@ export type CreateGigResult =
   | { ok: true; created: boolean; gigId: string; workOrderId: string; code: string; areaLabel: string | null }
   | { ok: false; status: number; error: string };
 
+/**
+ * The service id is the primary key of `portal_work_order_records` and the unique `gig_posts.work_order_id`, while the
+ * idempotency lookup is scoped to one manager: a collision with ANOTHER manager's gig would wedge this one forever. A
+ * sha256 slice (as `draftIdFor` uses) keeps that out of reach; a 32-bit hash did not.
+ */
 function hash(text: string): string {
-  let h = 5381;
-  for (let i = 0; i < text.length; i += 1) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
-  return Math.abs(h).toString(36);
+  return createHash("sha256").update(text).digest("hex").slice(0, 24);
 }
 
 export function gigServiceTitle(kind: GigKind, roomLabel?: string | null): string {
   return `${GIG_KIND_LABEL[kind]}${roomLabel ? ` - ${roomLabel}` : ""}`;
+}
+
+/**
+ * A saved posting whose board publish never landed: `publishRef` is the one marker of a published service, and
+ * `acceptGigOffer` refuses a gig without it. Re-attempting it is safe — `publishServiceToBoard` keeps an existing ref and
+ * refuses a service that was hired out or closed since. `published: true` means this call is the one that opened it, so the
+ * caller fans out the offers it never sent.
+ */
+async function resumeUnpublishedGig(
+  db: Db,
+  input: { managerUserId: string; workOrderId: string; offeredCents: number; category: DemoManagerWorkOrderRow["category"] },
+): Promise<{ ok: true; published: boolean } | { ok: false; status: number; error: string }> {
+  const { data, error } = await db.from("portal_work_order_records").select("row_data").eq("id", input.workOrderId).maybeSingle();
+  if (error) return { ok: false, status: 500, error: "Could not read the job." };
+  const row = ((data as { row_data?: unknown } | null)?.row_data ?? {}) as DemoManagerWorkOrderRow;
+  if (typeof row.publishRef === "string" && row.publishRef.trim()) return { ok: true, published: false };
+  const published = await publishServiceToBoard(db as never, { userId: input.managerUserId, role: "manager", admin: false }, {
+    workOrderId: input.workOrderId,
+    budgetCents: input.offeredCents,
+    category: input.category,
+  });
+  if (!published.ok) return { ok: false, status: published.status, error: published.error };
+  return { ok: true, published: true };
 }
 
 export async function createGigPost(db: Db, input: CreateGigInput, deps: { now?: () => Date } = {}): Promise<CreateGigResult> {
@@ -107,7 +135,12 @@ export async function createGigPost(db: Db, input: CreateGigInput, deps: { now?:
   const day = now.toISOString().slice(0, 10);
   const key = input.dedupeKey ?? `${input.managerUserId}|${home.id}|${input.roomLabel ?? ""}|${input.kind}|${input.offeredCents}|${input.whenText ?? ""}|${day}`;
   const workOrderId = `wo_gig_${hash(key)}`;
-  // A repeat of the same posting the same day returns the earlier one (a retried confirm, a double tap).
+  const title = gigServiceTitle(input.kind, input.roomLabel);
+  const category = GIG_KIND_BOARD_CATEGORY[input.kind];
+  const nowIso = now.toISOString();
+  // A repeat of the same posting the same day returns the earlier one (a retried confirm, a double tap). A posting whose
+  // publish never landed has no `publishRef`, and without one no vendor can take it: the retry finishes that step rather
+  // than reporting a job that is saved but permanently inert.
   const { data: prior } = await db
     .from("gig_posts")
     .select("id, work_order_id, code, area_label")
@@ -116,12 +149,11 @@ export async function createGigPost(db: Db, input: CreateGigInput, deps: { now?:
     .maybeSingle();
   if (prior) {
     const p = prior as { id: string; work_order_id: string; code: string; area_label: string | null };
-    return { ok: true, created: false, gigId: p.id, workOrderId: p.work_order_id, code: p.code, areaLabel: p.area_label };
+    const resumed = await resumeUnpublishedGig(db, { managerUserId: input.managerUserId, workOrderId: p.work_order_id, offeredCents: input.offeredCents, category });
+    if (!resumed.ok) return resumed;
+    return { ok: true, created: resumed.published, gigId: p.id, workOrderId: p.work_order_id, code: p.code, areaLabel: p.area_label };
   }
 
-  const title = gigServiceTitle(input.kind, input.roomLabel);
-  const category = GIG_KIND_BOARD_CATEGORY[input.kind];
-  const nowIso = now.toISOString();
   const row: DemoManagerWorkOrderRow = {
     id: workOrderId,
     propertyName: home.label,
@@ -150,6 +182,10 @@ export async function createGigPost(db: Db, input: CreateGigInput, deps: { now?:
   });
   if (insertError) return { ok: false, status: 500, error: "Could not save the job." };
 
+  // The general area a vendor is shown (a neighborhood or city, never the street or the unit), derived from the row that was
+  // just written so the stored label and what the fan-out texts are the same words.
+  const areaLabel = workOrderGeneralArea(row);
+
   // The short code a vendor answers with. A collision (rare) draws again; the unique index is the arbiter.
   let gig: { id: string; code: string } | null = null;
   for (let attempt = 0; attempt < 6 && !gig; attempt += 1) {
@@ -164,6 +200,7 @@ export async function createGigPost(db: Db, input: CreateGigInput, deps: { now?:
         offered_cents: input.offeredCents,
         window_text: input.whenText?.trim().slice(0, 80) || null,
         zip: home.zip,
+        area_label: areaLabel,
         code,
         source: input.source,
         updated_at: nowIso,
@@ -187,5 +224,5 @@ export async function createGigPost(db: Db, input: CreateGigInput, deps: { now?:
     // Saved but not public: the manager still has the service and can post it from Services.
     return { ok: false, status: published.status, error: published.error };
   }
-  return { ok: true, created: true, gigId: gig.id, workOrderId, code: gig.code, areaLabel: null };
+  return { ok: true, created: true, gigId: gig.id, workOrderId, code: gig.code, areaLabel };
 }

@@ -308,7 +308,7 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
   // texts are that walkthrough's until it ends. One primary-key read per manager text; only a phone with a live walkthrough
   // whose account owns that verified phone is ever handled.
   if (!person) {
-    const firstHome = await handleFirstHomeText(db, { phoneE164: input.fromPhone, body: input.body, messageSid: input.messageSid }).catch(() => ({ handled: false as const }));
+    const firstHome = await handleFirstHomeText(db, { phoneE164: input.fromPhone, body: input.body, messageSid: input.messageSid, hasMedia: input.mediaCount > 0 }).catch(() => ({ handled: false as const }));
     if (firstHome.handled) return { kind: "handled", twiml: firstHome.reply };
   }
   // A manager can run the sandbox DEMO from their own phone. While it lasts their texts are the demo's,

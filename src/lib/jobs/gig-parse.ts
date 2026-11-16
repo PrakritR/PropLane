@@ -186,8 +186,21 @@ export function parseGigReply(body: string): GigReply | null {
   return { action: /^(no|n|nope|pass|decline)$/.test(word) ? "decline" : "accept", code };
 }
 
-export function newGigCode(random: () => number = Math.random): string {
+/**
+ * The code a vendor texts to take a job is a credential-shaped handle (`acceptGigOffer` takes it alone), so it is drawn from
+ * the platform CSPRNG, never `Math.random`. Rejection sampling keeps every character of the 31-letter alphabet equally likely.
+ */
+export function newGigCode(): string {
+  const limit = 256 - (256 % GIG_CODE_ALPHABET.length);
+  const bytes = new Uint8Array(8);
   let out = "";
-  for (let i = 0; i < 4; i += 1) out += GIG_CODE_ALPHABET[Math.floor(random() * GIG_CODE_ALPHABET.length)];
+  while (out.length < 4) {
+    crypto.getRandomValues(bytes);
+    for (const byte of bytes) {
+      if (byte >= limit) continue;
+      out += GIG_CODE_ALPHABET[byte % GIG_CODE_ALPHABET.length];
+      if (out.length === 4) break;
+    }
+  }
   return out;
 }

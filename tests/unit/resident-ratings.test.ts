@@ -48,6 +48,16 @@ import { stampTeamRolePermissions } from "@/lib/co-manager-team-roles";
 
 type Row = Record<string, unknown>;
 
+/** PostgREST's `column->>key`: a filter on one key of a jsonb column, always compared as text. */
+function readColumn(row: Row, column: string): unknown {
+  const [base, key] = column.split("->>");
+  if (!key) return row[column];
+  const src = row[base!.trim()];
+  if (!src || typeof src !== "object") return undefined;
+  const value = (src as Row)[key.trim()];
+  return value == null ? undefined : typeof value === "string" ? value : String(value);
+}
+
 function fakeDb(seed: Record<string, Row[]>) {
   const tables: Record<string, Row[]> = {};
   for (const [name, rows] of Object.entries(seed)) tables[name] = rows.map((row) => ({ ...row }));
@@ -79,11 +89,11 @@ function fakeDb(seed: Record<string, Row[]>) {
       return this;
     }
     eq(column: string, value: unknown) {
-      this.filters.push((row) => row[column] === value);
+      this.filters.push((row) => readColumn(row, column) === value);
       return this;
     }
     in(column: string, values: unknown[]) {
-      this.filters.push((row) => values.includes(row[column]));
+      this.filters.push((row) => values.includes(readColumn(row, column)));
       return this;
     }
     order() {

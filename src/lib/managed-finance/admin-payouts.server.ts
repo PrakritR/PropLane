@@ -5,7 +5,7 @@ import { isMissingSchemaError } from "@/lib/one-number/config.server";
 import { LedgerError, readLedgerPages } from "@/lib/managed-finance/ledger.server";
 import { describeManagedFee } from "@/lib/owner-management/fee-math";
 import { mapPolicyRow, POLICY_COLUMNS } from "@/lib/owner-management/policies.server";
-import { loadSplitRules, activeRulesNow } from "@/lib/managed-finance/splits.server";
+import { loadSplitRulesForWorkspaces, activeRulesNow } from "@/lib/managed-finance/splits.server";
 import type { SplitRule } from "@/lib/managed-finance/splits";
 
 /**
@@ -84,11 +84,40 @@ export function foldPartyBalances(
   return { parties, feeRevenueCents: fee };
 }
 
-export async function loadAdminPayouts(db: SupabaseClient, now: Date = new Date()): Promise<AdminPayoutsView> {
+/** A date no `available_on` can reach: the rollup already decided matured vs pending, and the fold reads that from the date. */
+const NEVER_MATURES = "9999-12-31T00:00:00.000Z";
+
+export type BalanceRollupRow = { account: string; party_id: string | null; workspace_id: string | null; matured_cents: number | string; pending_cents: number | string };
+
+/**
+ * Every PropLane-held balance, grouped in the DATABASE (`party_ledger_balance_rollup`). The fold below then collapses a
+ * party's workspaces and separates the fee revenue, over one row per (account, party, workspace) instead of one row per
+ * ledger line: scanning the whole table for this page was a request that grows without bound and, past the page budget,
+ * answered with short balances. A missing function falls back to the paged scan so a database behind this migration still
+ * reports a balance.
+ */
+export async function readBalanceRollupLines(
+  db: SupabaseClient,
+): Promise<Array<{ account: string; party_id: string | null; workspace_id: string | null; amount_cents: number; available_on: string | null }>> {
+  const { data, error } = await db.rpc("party_ledger_balance_rollup");
+  if (!error) {
+    return ((data ?? []) as BalanceRollupRow[]).flatMap((r) => [
+      { account: r.account, party_id: r.party_id, workspace_id: r.workspace_id, amount_cents: Number(r.matured_cents), available_on: null },
+      { account: r.account, party_id: r.party_id, workspace_id: r.workspace_id, amount_cents: Number(r.pending_cents), available_on: NEVER_MATURES },
+    ]);
+  }
+  const code = String((error as { code?: string | null }).code ?? "");
+  const functionMissing = code === "PGRST202" || code === "42883";
+  if (!functionMissing && !isMissingSchemaError(error)) throw new LedgerError(500, "Could not read the PropLane-held balances.");
   const scanned = await readLedgerPages<{ account: string; party_id: string | null; workspace_id: string | null; amount_cents: number | string; available_on: string | null }>((from, to) =>
     db.from("party_ledger_lines").select("account, party_id, workspace_id, amount_cents, available_on").in("account", ["owner_payable", "vendor_payable", "proplane_fee_revenue"]).order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, to),
   );
-  const lines = scanned === "missing_schema" ? [] : scanned;
+  if (scanned === "missing_schema") return [];
+  return scanned.map((r) => ({ ...r, amount_cents: Number(r.amount_cents) }));
+}
+
+export async function loadAdminPayouts(db: SupabaseClient, now: Date = new Date()): Promise<AdminPayoutsView> {
+  const lines = await readBalanceRollupLines(db);
   const { parties: folded, feeRevenueCents } = foldPartyBalances(lines, now.getTime());
 
   const userIds = new Set<string>();
@@ -127,11 +156,8 @@ export async function loadAdminPayouts(db: SupabaseClient, now: Date = new Date(
     if (a.workspace_id) workspaceIds.add(str(a.workspace_id));
   }
 
-  const rulesByWorkspace = new Map<string, SplitRule[]>();
-  for (const p of policies) {
-    rulesByWorkspace.set(p.workspaceId, await loadSplitRules(db, p.workspaceId));
-    for (const r of rulesByWorkspace.get(p.workspaceId)!) userIds.add(r.payeeUserId);
-  }
+  const rulesByWorkspace = await loadSplitRulesForWorkspaces(db, policies.map((p) => p.workspaceId));
+  for (const rules of rulesByWorkspace.values()) for (const r of rules) userIds.add(r.payeeUserId);
   const { data: thresholdRows } = await db.from("managed_payout_settings").select("workspace_id, bill_approval_threshold_cents").limit(1000);
   const thresholds = new Map(((thresholdRows ?? []) as Row[]).map((r) => [str(r.workspace_id), Number(r.bill_approval_threshold_cents)]));
 

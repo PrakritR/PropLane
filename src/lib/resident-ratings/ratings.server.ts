@@ -161,19 +161,22 @@ export async function residencyHasExecutedLease(db: Db, subject: RatingSubject):
  */
 export async function residencyHasConfirmedStay(db: Db, subject: RatingSubject): Promise<boolean> {
   if (!subject.residentUserId) return false;
+  // The guest and the status are matched in SQL, not by scanning the house's blocks: a long-lived short-stay house passes any
+  // page size, after which this person's own stay fell outside the page and a legitimate rating was refused. Only `checkIn`
+  // is still compared here, because a stored value may carry a time and a text comparison would drop today's arrival.
   const { data, error } = await db
     .from("portal_schedule_records")
     .select("id, row_data")
     .eq("property_id", subject.propertyId)
     .eq("record_type", "room_date_block")
+    .eq("row_data->>residentUserId", subject.residentUserId)
+    .eq("row_data->>bookingStatus", "confirmed")
     .limit(1000);
   if (error) return false;
   const today = new Date().toISOString().slice(0, 10);
   for (const stored of data ?? []) {
     const rd = stored.row_data as Record<string, unknown> | null;
     if (!rd || typeof rd !== "object") continue;
-    if (str(rd.residentUserId) !== subject.residentUserId) continue;
-    if (str(rd.bookingStatus) !== "confirmed") continue;
     const checkIn = str(rd.checkIn).slice(0, 10);
     if (checkIn && checkIn <= today) return true;
   }
