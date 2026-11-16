@@ -50,7 +50,7 @@ export async function recordDeliveryIssue(db: SupabaseClient, input: DeliveryIss
     await notifyManagerFromAgent(db, {
       landlordId: owner,
       subject: input.direction === "inbound" ? "A text did not reach the inbox" : "A reply was not delivered",
-      text: reason,
+      text: cleanReason(str(input.fallbackReason)) || reason,
       threadType: "attention",
       category: "messages",
       notify: { push: true, sms: false },
@@ -115,15 +115,17 @@ async function readParkedText(db: SupabaseClient, envelopeId: string): Promise<(
  */
 async function parkedTextWorkspace(db: SupabaseClient, text: ParkedText & { to: string }): Promise<string | null> {
   const { normalizeConsentPhone, profilePhoneVariants } = await import("@/lib/sms-consent");
-  const { data: lines } = await db
+  const { data: lines, error: linesError } = await db
     .from("manager_sms_numbers")
     .select("workspace_id, provision_state")
     .eq("phone_number", text.to)
+    .eq("provision_state", "active")
     .is("released_at", null)
-    .limit(2);
-  const live = (lines ?? []).filter((l) => str(l.provision_state) === "active" && str(l.workspace_id));
-  if (live.length === 1) {
-    const workspaceId = str(live[0]!.workspace_id);
+    .limit(100);
+  if (linesError) return null;
+  const live = new Set((lines ?? []).map((l) => str(l.workspace_id)).filter(Boolean));
+  if (live.size === 1) {
+    const workspaceId = [...live][0]!;
     const { data: convo } = await db
       .from("sms_projection_conversations")
       .select("id")
@@ -134,7 +136,9 @@ async function parkedTextWorkspace(db: SupabaseClient, text: ParkedText & { to: 
       .limit(1);
     return (convo ?? []).length ? workspaceId : null;
   }
-  if (live.length > 1) return null;
+  if (live.size > 1) return null;
+  const { isConfiguredSharedNumber } = await import("@/lib/one-number/shared-line-number.server");
+  if (!(await isConfiguredSharedNumber(db, text.to))) return null;
   const phoneKey = normalizeConsentPhone(text.from);
   if (!phoneKey) return null;
   const { loadSharedLineSession } = await import("@/lib/one-number/session.server");
@@ -191,12 +195,20 @@ export async function reportEnvelopeIssue(db: SupabaseClient, envelopeId: string
   const eventId = `envelope:${str(envelopeId)}:${str(reason)}`;
   const base = ENVELOPE_REASON_TEXT[reason] ?? "A text could not be fully handled and needs a person to check it.";
   let text: (ParkedText & { to: string }) | null = null;
+  const quotedOf = (t: ParkedText) => `A text was not answered automatically. From ···${t.from.slice(-4)}: ${quoteOf(t.body)}`;
   try {
     // Only an inbound that may not have been handled is a text a person must see; a reply-side reason keeps its line.
     if (reason === "uncertain_effect" || reason === "retry_exhausted") text = await readParkedText(db, str(envelopeId));
     const surfaced = text ? await surfaceParkedText(db, text) : null;
     if (text && surfaced) {
-      await recordDeliveryIssue(db, { threadId: surfaced.threadId, workspaceId: surfaced.workspaceId, direction: "inbound", reason: PARKED_INBOUND_REASON, eventId });
+      await recordDeliveryIssue(db, {
+        threadId: surfaced.threadId,
+        workspaceId: surfaced.workspaceId,
+        direction: "inbound",
+        reason: PARKED_INBOUND_REASON,
+        fallbackReason: quotedOf(text),
+        eventId,
+      });
       const { notifyManagerFromAgent } = await import("@/lib/agent-notify.server");
       await notifyManagerFromAgent(db, {
         landlordId: surfaced.ownerUserId,
@@ -213,6 +225,6 @@ export async function reportEnvelopeIssue(db: SupabaseClient, envelopeId: string
   } catch {
     console.error("parked text not surfaced");
   }
-  const quoted = text ? `A text was not answered automatically. From ···${text.from.slice(-4)}: ${quoteOf(text.body)}` : base;
+  const quoted = text ? quotedOf(text) : base;
   await recordDeliveryIssue(db, { threadId: null, workspaceId: null, direction: "inbound", reason: quoted, eventId });
 }

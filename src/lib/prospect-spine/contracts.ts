@@ -49,6 +49,11 @@ export type DeliveryIssueInput = {
   workspaceId: string | null;
   direction: "inbound" | "outbound";
   reason: string;                      // human sentence, no ids, no phone numbers
+  /**
+   * The sentence the platform Attention item carries when no thread could be stamped (an unreadable thread, a failed
+   * merge). Defaults to `reason`, which is the right line inside a thread but can be contextless on its own.
+   */
+  fallbackReason?: string;
   messageId?: string | null;
   eventId: string;
 };

@@ -171,7 +171,9 @@ export const residentAgentRegistry: ToolRegistry<ResidentAgentContext> = buildRe
 export function buildResidentRegistry(ctx: ResidentAgentContext): ToolRegistry<ResidentAgentContext> {
   // Listing reads by channel: resident SMS reads the texted manager's own listings; the portal assistant searches the
   // public PropLane catalog (the /rent pages) so a resident looking for a place gets real homes and links.
-  const listingTools = ctx.channel === "sms" ? residentSmsListingTools : ctx.channel === "email" ? [] : [findHomesOnPropLaneTool];
+  // Gated positively on `portal`: `channel` is optional, so an unset or future channel (email, voice, the inbox
+  // auto-reply context) must NOT inherit the public-catalog read.
+  const listingTools = ctx.channel === "sms" ? residentSmsListingTools : ctx.channel === "portal" ? [findHomesOnPropLaneTool] : [];
   const tools = [...ALL_RESIDENT_TOOLS, ...listingTools].filter((tool) => {
     if (ctx.phase === "application" && !APPLICATION_PHASE_TOOLS.has(tool.name)) return false;
     if (ctx.channel === "sms" && PORTAL_ONLY_TOOLS.has(tool.name)) return false;

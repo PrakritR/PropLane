@@ -11,8 +11,9 @@
 import { z } from "zod";
 import type { AgentContext, LeasingSmsAgentScope } from "../../context";
 import type { ResidentAgentContext } from "../../resident-context";
+import { buildManagerApplyUrl, buildManagerTourUrl } from "@/lib/manager-property-links";
 import { defineTool } from "../../registry";
-import { listLiveListingsTool, publicOrigin } from "../leasing-sms";
+import { CHECKED_AVAILABILITY_HOME_LIMIT, listLiveListingsTool, publicOrigin } from "../leasing-sms";
 
 export const FIND_PUBLIC_HOMES_TOOL_NAME = "find_homes_on_proplane";
 
@@ -21,7 +22,7 @@ export function publicCatalogContext(ctx: ResidentAgentContext): AgentContext {
   const scope = {
     sessionId: `resident-portal:${ctx.userId}`,
     prospectPhoneE164: "",
-    channel: "sms",
+    channel: "portal",
     workNumber: null,
     crossCatalog: true,
     serviceCatalog: false,
@@ -58,13 +59,13 @@ export const findHomesOnPropLaneTool = defineTool<z.infer<typeof inputSchema>, R
       listings: Array<Record<string, unknown> & { propertyId: string }>;
     } & Record<string, unknown>;
     const origin = publicOrigin();
-    return {
-      ...result,
-      listings: result.listings.slice(0, 12).map((home) => ({
-        ...home,
-        tourUrl: `${origin}/rent/tours-contact?propertyId=${encodeURIComponent(home.propertyId)}`,
-        applyUrl: `${origin}/rent/apply?propertyId=${encodeURIComponent(home.propertyId)}`,
-      })),
-    };
+    // Only the homes the list read CHECKED availability for: an unchecked home's note points at tools this surface
+    // does not have (they are SMS-only), so it is never handed to the model here.
+    const listings = result.listings.slice(0, CHECKED_AVAILABILITY_HOME_LIMIT).map((home) => ({
+      ...home,
+      tourUrl: buildManagerTourUrl(origin, home.propertyId),
+      applyUrl: buildManagerApplyUrl(origin, { propertyId: home.propertyId }),
+    }));
+    return { ...result, count: listings.length, listings };
   },
 });

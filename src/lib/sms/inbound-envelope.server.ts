@@ -69,12 +69,16 @@ export async function recoverInboundEnvelopes(db: SupabaseClient, options: { pro
  const runtime = smsEnvelopeRuntime(); const account = process.env.TWILIO_ACCOUNT_SID?.trim();
  if (!account) throw new Error("SMS account unavailable");
  const now = new Date().toISOString();
+ const batch = Math.min(Math.max(options.batch ?? 10, 1), 25);
  const reconciled = await db.rpc("sms_ingress_reconcile", { p_runtime: runtime, p_account: account });
  if (reconciled.error) throw new Error("Ingress reconciliation unavailable");
- // Lease expiry alone is ambiguous: only explicit safe/control checkpoints replay.
- const stale = await db.from("sms_ingress_envelopes").select("id,checkpoint_stage,attempts,lease_token").eq("runtime", runtime).eq("account_sid", account).eq("status", "executing").lt("lease_until", now);
+ // Lease expiry alone is ambiguous: only explicit safe/control checkpoints replay. Bounded per run (each parked row
+ // also surfaces itself into a thread), so a backlog never eats the whole budget: the rest keeps its expired lease and
+ // is found again on the next run.
+ const stale = await db.from("sms_ingress_envelopes").select("id,checkpoint_stage,attempts,lease_token").eq("runtime", runtime).eq("account_sid", account).eq("status", "executing").lt("lease_until", now).order("received_at").limit(batch);
  if (stale.error) throw new Error("Ingress recovery unavailable");
  for (const row of stale.data ?? []) {
+  if (options.deadline && Date.now() >= options.deadline) break;
   const retry = (row.checkpoint_stage === "safe" || row.checkpoint_stage === "control") && row.attempts < 3;
   const reason = row.checkpoint_stage === "delegated" ? "delegated_receipt" : retry ? "lease_retry" : "uncertain_effect";
   const update = await db.from("sms_ingress_envelopes").update({ status: retry ? "accepted" : "needs_review", reason, lease_token: null, lease_until: null, next_attempt_at: new Date(Date.now() + Math.min(60_000, 1000 * 2 ** row.attempts)).toISOString(), updated_at: now }).eq("id", row.id).eq("status", "executing").eq("lease_token", row.lease_token).lt("lease_until", now).select("id");
@@ -86,7 +90,7 @@ export async function recoverInboundEnvelopes(db: SupabaseClient, options: { pro
   const update = await db.from("sms_ingress_envelopes").update({ status: "expired", updated_at: now }).eq("runtime", runtime).eq("account_sid", account).eq("status", status).lt(field, now);
   if (update.error) throw new Error("Ingress recovery unavailable");
  }
- const rows = await db.from("sms_ingress_envelopes").select("id").eq("runtime", runtime).eq("account_sid", account).in("status", ["accepted", "prepared"]).gt("expires_at", now).order("received_at").limit(Math.min(Math.max(options.batch ?? 10, 1), 25));
+ const rows = await db.from("sms_ingress_envelopes").select("id").eq("runtime", runtime).eq("account_sid", account).in("status", ["accepted", "prepared"]).gt("expires_at", now).order("received_at").limit(batch);
  if (rows.error) throw new Error("Ingress recovery unavailable");
  let processed = 0;
  for (const row of rows.data ?? []) { if (options.deadline && Date.now() >= options.deadline) break; await processInboundEnvelope(db, row.id, options); processed++; }

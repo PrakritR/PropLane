@@ -86,8 +86,12 @@ export type LeasingSmsAgentScope = {
    * a field called `prospectPhoneE164` would silently poison both.
    */
   prospectEmail?: string | null;
-  /** How the prospect reached us. This is explicit so voice/email cannot inherit SMS authority. */
-  channel: "sms" | "voice" | "email";
+  /**
+   * How the prospect reached us. This is explicit so voice/email cannot inherit SMS authority. `portal` is the
+   * identity-free in-app catalog read (the resident portal assistant's `find_homes_on_proplane`): there is no prospect,
+   * no thread and no line, so every send/tag/billing path that requires a text conversation must refuse it.
+   */
+  channel: "sms" | "voice" | "email" | "portal";
   workNumber: string | null;
   /**
    * True on the shared Claw line (`+12053690702`), where a single number fronts

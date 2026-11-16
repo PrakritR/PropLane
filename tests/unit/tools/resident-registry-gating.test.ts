@@ -9,6 +9,7 @@ function gatingCtx(phase: "application" | "approved", managerTier: ManagerSubscr
     userId: "resident_a",
     email: "resa@axis.test",
     managerIds: ["manager_1"],
+    channel: "portal",
     phase,
     managerTier,
     landlordId: "resident_a",

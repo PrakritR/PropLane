@@ -407,7 +407,7 @@ export function __resetSmsOccupancyCache(): void {
 }
 
 /** Homes whose rooms get the CHECKED availability read in one list call; the rest say "not checked" and point at get_listing_details. */
-const CHECKED_AVAILABILITY_HOME_LIMIT = 10;
+export const CHECKED_AVAILABILITY_HOME_LIMIT = 10;
 
 type CheckedRoomAvailability = {
   currentAvailability: string | null;

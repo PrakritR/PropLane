@@ -142,16 +142,17 @@ export async function tagProspectThreadFromAgent(
     /**
      * A voice call and a text from the same prospect share one thread — the
      * conversation is keyed on the phone, not the channel — so voice tags the
-     * same thread SMS does. Only email has no phone-keyed thread to tag.
+     * same thread SMS does. Email and the identity-free `portal` catalog read
+     * have no phone-keyed thread to tag.
      */
-    channel?: "sms" | "voice" | "email" | null;
+    channel?: "sms" | "voice" | "email" | "portal" | null;
     propertyId: string;
     propertyOwnerUserId: string | null | undefined;
     source: Extract<ConversationHouseSource, "leasing" | "tour" | "application">;
   },
 ): Promise<void> {
   const phone = String(args.prospectPhoneE164 ?? "").trim();
-  if (!phone || args.channel === "email") return;
+  if (!phone || args.channel === "email" || args.channel === "portal") return;
   const owner = String(args.propertyOwnerUserId ?? "").trim();
   if (owner && owner !== args.landlordId) return;
   const { buildConversationKey } = await import("@/lib/sms-conversation-identity");

@@ -2,11 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
+/** The configured shared PropLane line. Any other destination (a vendor's or a resident's own number) is not it. */
+const SHARED_LINE = "+12066781909";
+
 const session = vi.fn();
 const recordInbound = vi.fn();
 const notify = vi.fn();
 const merge = vi.fn();
 vi.mock("@/lib/one-number/session.server", () => ({ loadSharedLineSession: (...a: unknown[]) => session(...a) }));
+vi.mock("@/lib/one-number/shared-line-number.server", () => ({
+  isConfiguredSharedNumber: async (_db: unknown, phone: string) => phone === SHARED_LINE,
+}));
 vi.mock("@/lib/prospect-spine/record.server", () => ({ recordInbound: (...a: unknown[]) => recordInbound(...a) }));
 vi.mock("@/lib/prospect-spine/context.server", () => ({ resolveInboundContext: async () => ({ propertyId: null, source: "sms" }) }));
 vi.mock("@/lib/agent-notify.server", () => ({ notifyManagerFromAgent: (...a: unknown[]) => notify(...a) }));
@@ -35,7 +41,7 @@ function fakeDb(rows: Rows) {
 
 const envelope = {
   wire_from: "+15103098345",
-  wire_to: "+12066781909",
+  wire_to: SHARED_LINE,
   message_sid: "SM13a6f1a86e1065a7b61e902de1bb2a95",
   received_at: "2026-11-16T16:45:35.858Z",
   params: { Body: "Is room 8 open?" },
@@ -95,6 +101,34 @@ describe("a parked inbound text is never invisible", () => {
     expect(recordInbound).toHaveBeenCalledTimes(1);
     expect(recordInbound.mock.calls[0]![1]).toMatchObject({ workspaceId: "ws-own" });
     expect(session).not.toHaveBeenCalled();
+  });
+
+  it("a number that is neither a workspace's own nor the shared line is never resolved from the sender's session", async () => {
+    // The same webhook receives a vendor's / a resident's own PropLane Number, and the session is keyed on the phone
+    // alone: without this gate a text to one of those numbers would land in a manager workspace's prospect thread.
+    session.mockResolvedValue({ currentWorkspaceId: "ws-1", activeRole: "prospect", pendingCandidates: null });
+    const db = fakeDb({
+      sms_ingress_envelopes: [{ ...envelope, wire_to: "+12065559999" }],
+      manager_sms_numbers: [],
+      portal_workspaces: [{ owner_user_id: "owner-1" }],
+    });
+    await reportEnvelopeIssue(db, "env-4", "uncertain_effect");
+    expect(recordInbound).not.toHaveBeenCalled();
+    expect(session).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0]![1]).toMatchObject({ landlordId: "service-owner", subject: "A text did not reach the inbox" });
+  });
+
+  it("a thread write that fails still quotes the text to staff instead of a bare \"Not answered yet\"", async () => {
+    session.mockResolvedValue({ currentWorkspaceId: "ws-1", activeRole: "prospect", pendingCandidates: null });
+    recordInbound.mockResolvedValue({ ok: true, threadId: "thread-1", messageId: "m1", contextId: "c", created: false, duplicate: false, label: "" });
+    merge.mockResolvedValue(false);
+    const db = fakeDb({ sms_ingress_envelopes: [envelope], manager_sms_numbers: [], portal_workspaces: [{ owner_user_id: "owner-1" }] });
+    await reportEnvelopeIssue(db, "env-5", "uncertain_effect");
+    const staff = notify.mock.calls.find((c) => c[1].landlordId === "service-owner");
+    expect(staff, "the degraded path must still raise the Attention item").toBeTruthy();
+    expect(staff![1].text).toContain('"Is room 8 open?"');
+    expect(staff![1].text).not.toBe(PARKED_INBOUND_REASON);
   });
 
   it("a reply-side reason keeps its own line and writes nothing into a thread", async () => {
