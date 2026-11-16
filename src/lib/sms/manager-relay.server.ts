@@ -133,22 +133,38 @@ export async function inboundForwardText(
     /* a failed name read leaves "New texter ...4812" */
   }
   try {
-    const { data: lead } = await db
-      .from("sms_unassigned_leads")
-      .select("assigned_property_id, profile")
-      .eq("phone_key", phone.replace(/\D/g, "").slice(-10))
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const profile = ((lead as { profile?: { offers?: Array<{ label?: string; roomName?: string }> } } | null)?.profile ?? {});
-    const offer = profile.offers?.[0];
-    const propertyId = String((lead as { assigned_property_id?: unknown } | null)?.assigned_property_id ?? "").trim();
-    if (propertyId) {
-      const { data: prop } = await db.from("manager_property_records").select("row_data").eq("id", propertyId).maybeSingle();
-      const { propertyLabel } = await import("@/lib/one-number/router-lookups.server");
-      house = propertyLabel((prop as { row_data?: unknown } | null)?.row_data) || null;
-    } else if (offer?.label) {
-      house = [offer.label, offer.roomName].filter(Boolean).join(" · ");
+    // `sms_unassigned_leads` is the SHARED PropLane-line pool: it spans every workspace, so a bare
+    // phone_key match would name another workspace's house in this manager's forward. The lead is read
+    // only when it is assigned to a workspace this manager owns, and the property it names is re-read
+    // under their own `manager_user_id` before it becomes a label. No workspaces -> no house.
+    const { data: workspaces } = await db.from("portal_workspaces").select("id").eq("owner_user_id", args.managerUserId);
+    const ownWorkspaceIds = ((workspaces ?? []) as Array<{ id?: unknown }>)
+      .map((row) => String(row.id ?? "").trim())
+      .filter(Boolean);
+    if (ownWorkspaceIds.length > 0) {
+      const { data: lead } = await db
+        .from("sms_unassigned_leads")
+        .select("assigned_property_id, profile")
+        .eq("phone_key", phone.replace(/\D/g, "").slice(-10))
+        .in("assigned_workspace_id", ownWorkspaceIds)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const profile = ((lead as { profile?: { offers?: Array<{ label?: string; roomName?: string }> } } | null)?.profile ?? {});
+      const offer = profile.offers?.[0];
+      const propertyId = String((lead as { assigned_property_id?: unknown } | null)?.assigned_property_id ?? "").trim();
+      if (propertyId) {
+        const { data: prop } = await db
+          .from("manager_property_records")
+          .select("row_data")
+          .eq("id", propertyId)
+          .eq("manager_user_id", args.managerUserId)
+          .maybeSingle();
+        const { propertyLabel } = await import("@/lib/one-number/router-lookups.server");
+        house = propertyLabel((prop as { row_data?: unknown } | null)?.row_data) || null;
+      } else if (offer?.label) {
+        house = [offer.label, offer.roomName].filter(Boolean).join(" · ");
+      }
     }
   } catch {
     /* no house leaves the text without one */

@@ -28,6 +28,12 @@ begin
   raise notice 'rent_cycle_unique_guard: % existing duplicate rent cycle(s) left untouched (not indexed).', dup_count;
 end $$;
 
+-- `create unique index` takes a SHARE lock: reads keep working, writes to the charges table wait for the
+-- build. The partial predicate keeps that build small, and the bounded `lock_timeout` means the DDL can never
+-- queue behind a long transaction and hold every charge write behind it - it fails and is retried instead.
+-- (CONCURRENTLY is not an option: `supabase db push` runs each migration inside a transaction.)
+set local lock_timeout = '5s';
+
 create unique index if not exists portal_household_charge_rent_cycle_unique
   on public.portal_household_charge_records (
     manager_user_id,

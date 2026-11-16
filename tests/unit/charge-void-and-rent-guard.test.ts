@@ -83,7 +83,7 @@ beforeEach(() => {
 });
 
 describe("void a paid charge", () => {
-  it("flips the status, keeps the row, audits it and reverses the books to zero", async () => {
+  it("flips the status, keeps the row, audits it and reverses the charge without touching the cash receipt", async () => {
     const charge = paidRent();
     await seedPaid(charge);
     expect(tables.ledger_entries.filter((e) => e.entry_type === "payment")).toHaveLength(1);
@@ -100,11 +100,16 @@ describe("void a paid charge", () => {
     expect(stored).toMatchObject({ status: "void", voidReason: "Entered twice", voidedBy: OWNER, voidedAt: "2026-11-14T10:00:00.000Z", balanceLabel: "$0.00" });
     expect(tables.audit_log).toHaveLength(1);
     expect(tables.audit_log[0]).toMatchObject({ action: "charge_voided", actor_user_id: OWNER });
-    // Subledger lines for the charge are gone, so every total read from them excludes it.
-    expect(tables.ledger_entries.filter((e) => e.source_charge_id === charge.id)).toHaveLength(0);
-    // Original journals stay; the reversals are balanced and net every account to zero.
-    expect(tables.gl_journal_entries.filter((e) => e.is_reversal === true)).toHaveLength(2);
-    for (const account of ["operating_cash", "accounts_receivable"]) expect(accountNet(account)).toBe(0);
+    // The charge line is gone, so every total read from the subledger excludes it. The PAYMENT line stays:
+    // a void refunds nothing, so money that really moved is still on the books.
+    expect(tables.ledger_entries.filter((e) => e.source_charge_id === charge.id && e.entry_type === "charge")).toHaveLength(0);
+    expect(tables.ledger_entries.filter((e) => e.source_charge_id === charge.id && e.entry_type === "payment")).toHaveLength(1);
+    // One reversal, the charge's. Cash still holds the receipt; the income is gone and the kept amount
+    // sits as the payer's credit balance in receivables.
+    expect(tables.gl_journal_entries.filter((e) => e.is_reversal === true)).toHaveLength(1);
+    expect(accountNet("operating_cash")).toBe(100_000);
+    expect(accountNet("accounts_receivable")).toBe(-100_000);
+    expect(accountNet("rent_income")).toBe(0);
     const debits = tables.gl_journal_lines.reduce((s, l) => s + Number(l.debit_cents), 0);
     const credits = tables.gl_journal_lines.reduce((s, l) => s + Number(l.credit_cents), 0);
     expect(debits).toBe(credits);
@@ -116,7 +121,8 @@ describe("void a paid charge", () => {
     await voidPaidCharge(makeDb(), { chargeId: charge.id, actorUserId: OWNER, reason: "Entered twice" });
     const again = await voidPaidCharge(makeDb(), { chargeId: charge.id, actorUserId: OWNER, reason: "Entered twice" });
     expect(again.ok && again.alreadyVoid).toBe(true);
-    expect(tables.gl_journal_entries.filter((e) => e.is_reversal === true)).toHaveLength(2);
+    expect(tables.gl_journal_entries.filter((e) => e.is_reversal === true)).toHaveLength(1);
+    expect(accountNet("operating_cash")).toBe(100_000);
     expect(tables.audit_log).toHaveLength(1);
   });
 

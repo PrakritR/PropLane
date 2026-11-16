@@ -7,7 +7,9 @@
  * `/api/cron/manual-payout-policy` job converts existing connected accounts.
  * Set `MANUAL_PAYOUT_POLICY_ENABLED=1` only when the captain rolls it out.
  * Off keeps today's behavior: vendors on manual (vendor banking), managers on
- * weekly Friday deposits.
+ * the automatic default a payout-ready account lands on
+ * (`DEFAULT_AUTOMATIC_PAYOUT_SCHEDULE` in `payout-schedule-default.server.ts`,
+ * today weekly on Mondays) unless they chose a schedule themselves.
  */
 export function manualPayoutPolicyEnabled(): boolean {
   const raw = process.env.MANUAL_PAYOUT_POLICY_ENABLED?.trim().toLowerCase();

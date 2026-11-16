@@ -369,10 +369,15 @@ export async function syncLedgerPaymentEntry(
 }
 
 /**
- * Void a PAID charge in the books: post a balanced reversing journal for its charge and its payment (the original
- * journals stay), then drop the charge and payment lines from `ledger_entries` so every total read from it excludes
- * the charge. `refund` lines (money that really went back) are left alone. Idempotent end to end, so a retry after a
- * partial failure completes the rest. No money moves: a real card payment is refunded through the refund flow.
+ * Void a PAID charge in the books: post a balanced reversing journal for the CHARGE (the original journal stays),
+ * then drop the charge line from `ledger_entries` so every total read from it excludes the charge.
+ *
+ * The cash receipt is NOT reversed. A void refunds nothing (`voidPaidCharge` never moves money), so undoing the
+ * payment journal would credit `operating_cash` for funds still sitting in the bank and leave the GL out of step
+ * with the real balance. Money that actually moved stays on the books - the same rule
+ * {@link deleteLedgerEntriesForCharge} follows for a deleted charge - and the payment journal's receivable leg is
+ * what carries the kept amount as the payer's credit balance until it is applied or refunded. `refund` lines are
+ * left alone. Idempotent end to end, so a retry after a partial failure completes the rest.
  */
 export async function voidLedgerEntriesForCharge(
   db: SupabaseClient,
@@ -382,15 +387,13 @@ export async function voidLedgerEntriesForCharge(
   if (!isUuid(charge.managerUserId)) return;
   const entryDate = parseIsoDate(voidedAtIso) ?? new Date().toISOString().slice(0, 10);
   const memo = `Void — ${charge.title}`;
-  // Payment first, then charge: the cash leg is undone before the receivable/income leg.
-  await reverseGlJournalForSource(db, { managerUserId: charge.managerUserId!, sourceType: "payment", sourceId: charge.id, entryDate, memo });
   await reverseGlJournalForSource(db, { managerUserId: charge.managerUserId!, sourceType: "charge", sourceId: charge.id, entryDate, memo });
   const { error } = await db
     .from("ledger_entries")
     .delete()
     .eq("source_charge_id", charge.id)
     .eq("manager_user_id", charge.managerUserId!)
-    .in("entry_type", ["charge", "payment"]);
+    .eq("entry_type", "charge");
   throwIfLedgerError(error);
 }
 

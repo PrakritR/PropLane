@@ -106,6 +106,7 @@ vi.mock("@/lib/supabase/service", () => ({
         const chain: Record<string, unknown> = {
           select: () => chain,
           eq: () => chain,
+          in: () => chain,
           limit: async () => ({ data: state.boundApplications, error: null }),
         };
         return chain;

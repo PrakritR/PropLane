@@ -47,10 +47,12 @@ export async function persistHouseholdChargeRows(
   db: SupabaseClient,
   mappedRows: HouseholdChargeWriteRow[],
   ctx: HouseholdChargeWriteContext,
-): Promise<{ persistedRows: HouseholdChargeWriteRow[]; confirmedIds: string[]; chargeWriteError: string | null }> {
+): Promise<{ persistedRows: HouseholdChargeWriteRow[]; confirmedIds: string[]; conflictIds: string[]; chargeWriteError: string | null }> {
   const { actor, now, chargeIds, previousStatusById, existingOwnerById, existingUpdatedAtById, existingRecordById, existingLedgerFingerprintById } = ctx;
   const persistedRows: HouseholdChargeWriteRow[] = [];
   const confirmedIds: string[] = [];
+  /** Rows a database uniqueness guard refused (e.g. a second live rent charge for one billing month). */
+  const conflictIds: string[] = [];
   let chargeWriteError: string | null = null;
   for (const row of mappedRows) {
     // A paid hold fee carries its deadline: paid time + 7 days, stamped once.
@@ -75,13 +77,16 @@ export async function persistHouseholdChargeRows(
         .eq("status", expectedStatus)
         .eq("updated_at", expectedUpdatedAt)
         .select("id");
+      // A uniqueness guard (the rent-cycle index) refuses THIS row only: skip it exactly as the insert
+      // branch does and keep mirroring the rest of the batch, then report it to the caller.
+      if (error?.code === "23505") { conflictIds.push(row.id); continue; }
       if (error) { chargeWriteError = error.message; break; }
       if ((data ?? []).length > 0) { persistedRows.push(row); confirmedIds.push(row.id); }
     } else {
       // Insert-only: a concurrent provider/manager writer may have created
       // this id after our read. Never turn that row into an upsert target.
       const { data, error } = await db.from("portal_household_charge_records").insert(row).select("id");
-      if (error?.code === "23505") continue;
+      if (error?.code === "23505") { conflictIds.push(row.id); continue; }
       if (error) { chargeWriteError = error.message; break; }
       if ((data ?? []).length > 0) { persistedRows.push(row); confirmedIds.push(row.id); }
     }
@@ -136,5 +141,5 @@ export async function persistHouseholdChargeRows(
       }).catch(() => undefined);
     }
   }
-  return { persistedRows, confirmedIds, chargeWriteError };
+  return { persistedRows, confirmedIds, conflictIds, chargeWriteError };
 }

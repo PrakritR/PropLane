@@ -1,5 +1,5 @@
 import { listingPresetFeeAppliesToLeaseType } from "@/lib/listing-fee-scope";
-import { listingPresetFeeAmount, resolveListingFees } from "@/lib/listing-fees";
+import { listingPresetFeeAmount, removedStandardListingFeeRowSet, resolveListingFees } from "@/lib/listing-fees";
 import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
 import { resolveAllowedLeaseTerms, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { CUSTOM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
@@ -35,6 +35,12 @@ export function shouldBillCustomLeaseSurcharge(
 
 export function customLeaseSurchargeAmount(sub: ManagerListingSubmissionV1 | null | undefined): number {
   if (!sub) return 0;
+  // A row the manager REMOVED bills nothing, blank amount or not: a removal is their decision exactly as a
+  // typed amount is, and the default below must never outrank it. (The per-term checkbox is deliberately not
+  // consulted here - it is derived from the amount being filled, so it reads "off" for precisely the
+  // not-priced-yet row this default exists for; the lease length is gated per term by
+  // `shouldBillCustomLeaseSurcharge` and, for the default, by the Custom-term check below.)
+  if (removedStandardListingFeeRowSet(sub).has("customLeaseSurcharge")) return 0;
   // Blank means "not priced yet" and defaults to $100/month; an amount the manager typed
   // (including 0) is theirs.
   const row = resolveListingFees(sub).find((fee) => fee.presetId === "custom_lease_surcharge");
