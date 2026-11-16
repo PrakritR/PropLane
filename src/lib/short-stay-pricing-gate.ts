@@ -6,7 +6,7 @@ import { parseRoomChoiceValue } from "@/lib/rental-application/room-choice-value
 import { resolveStayPricing } from "@/lib/room-pricing";
 import { shortTermStayCanBePriced, shortTermStayNightCount } from "@/lib/short-term-stay-pricing";
 
-export const SHORT_STAY_PRICING_INCOMPLETE_MESSAGE = "Set a nightly rate that covers the full stay, or choose whole weeks for a weekly-only rate, before approving or sending the lease.";
+export const SHORT_STAY_PRICING_INCOMPLETE_MESSAGE = "Set a nightly rate that covers the full stay, or a weekly rate for a stay of a week or more, before approving or sending the lease.";
 
 /**
  * What the loader found, so the manager is told something they can act on. `null` is the property's rates missing

@@ -585,8 +585,8 @@ export type ManagerBundleRow = {
   /** Nightly rate for short-term stays on this bundle (stay total = rate × nights). */
   shortTermNightlyRent?: string;
   /**
-   * Weekly rate for a grouped short stay. A stay of a week or more bills whole weeks at
-   * this rate plus the leftover nights at the nightly one (PRP-463).
+   * Weekly rate for a grouped short stay. A stay of 7-27 nights is priced on the weekly
+   * tier, prorated per night (weekly x nights / 7) — see `shortTermStayTotalAmount`.
    */
   shortTermWeeklyRent?: number;
   /** Whether the bundle price is open to an offer. */

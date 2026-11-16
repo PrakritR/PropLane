@@ -886,8 +886,8 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
     const listingDaily = shortTermNightlyRate(sub?.shortTermDailyCost) || undefined;
     const roomRate = roomShortTerm ?? roomDaily;
     const dailyRate = roomRate ?? listingDaily;
-    // The room's weekly rate rides along so a stay of a week or more is billed in whole
-    // weeks plus the leftover nights (PRP-463) — the rate the manager actually quoted.
+    // The room's weekly rate rides along so a stay of a week or more is billed on the weekly
+    // tier, prorated per night — the rate the manager actually quoted.
     // Read straight off the field, NOT through `roomWeeklyRentPrice`: that one answers
     // "is this room priced BY the week" and needs `rentBasis`, which the wizard no longer
     // sets. On a short stay a weekly rate that was typed in is a weekly rate that applies.
