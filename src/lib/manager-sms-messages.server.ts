@@ -2,7 +2,7 @@ import "server-only";
 import type { AdminSmsOwnerScope } from "@/lib/sms/sms-projection-inbox.server";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ADMIN_SMS_UNASSIGNED_FILTER } from "@/lib/admin-sms-filter";
+import { ADMIN_SMS_MANAGED_FILTER, ADMIN_SMS_UNASSIGNED_FILTER } from "@/lib/admin-sms-filter";
 import { viewerAndLinkedOwnerIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import { isAutomatedSmsOutbound } from "@/lib/manager-sms-messages";
 import type {
@@ -1412,7 +1412,7 @@ export async function fetchVendorSmsConversation(
  * specific conversation on the shared line (the whole point of explicit
  * conversation identity) and reply/compose into it.
  */
-export { ADMIN_SMS_UNASSIGNED_FILTER };
+export { ADMIN_SMS_MANAGED_FILTER, ADMIN_SMS_UNASSIGNED_FILTER };
 
 export type AdminSmsOptions = {
   /** A PropLane Service workspace id, or {@link ADMIN_SMS_UNASSIGNED_FILTER}; the route validates it before it gets here. */
@@ -1585,7 +1585,11 @@ export function placeAdminSmsConversations(
     : !wanted
     ? all.filter((resident) => !String(resident.workspaceId ?? "").trim())
     : all.filter((resident) =>
-        wanted === ADMIN_SMS_UNASSIGNED_FILTER ? !resident.workspaceId : resident.workspaceId === wanted,
+        wanted === ADMIN_SMS_UNASSIGNED_FILTER
+          ? !resident.workspaceId
+          : wanted === ADMIN_SMS_MANAGED_FILTER
+            ? Boolean(resident.workspaceId)
+            : resident.workspaceId === wanted,
       );
   residents.sort((a, b) => {
     const aLast = a.messages[a.messages.length - 1]?.createdAt ?? "";

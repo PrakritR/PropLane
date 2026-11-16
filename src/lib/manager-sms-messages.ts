@@ -85,7 +85,7 @@ export function smsBubbleSenderLabel(
 }
 
 /** What an AI or automated outbound text is signed as: the line's agent, never the workspace owner who owns the number. */
-export const SMS_AGENT_AUTHOR_LABEL = "PropLane";
+export const SMS_AGENT_AUTHOR_LABEL = "PropLane Assistant";
 
 /** The only outbox purpose a person's own typed reply carries; every other purpose is a system send. */
 const HUMAN_SMS_PURPOSES: ReadonlySet<string> = new Set(["manager_conversation"]);

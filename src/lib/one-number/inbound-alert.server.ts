@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createHash } from "node:crypto";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { askPropLaneUrl, communicationListPath, communicationThreadHref, communicationThreadUrl } from "@/lib/communication/deep-links";
 import { buildInboundAlertText, inboundQuote, type InboundSenderKind } from "@/lib/one-number/inbound-alert";
 import { propertyLabel } from "@/lib/one-number/router-lookups.server";
 import { normalizeE164 } from "@/lib/phone-e164";
@@ -132,6 +133,23 @@ async function recognizeSender(db: SupabaseClient, input: { workspaceId: string 
   return empty;
 }
 
+/** `lead:<id>` of the newest open lead for this phone: admin Communication's key for that thread. Null when none. */
+async function openLeadKeyFor(db: SupabaseClient, phone: string): Promise<string | null> {
+  try {
+    const { data } = await db
+      .from("sms_unassigned_leads")
+      .select("id")
+      .eq("phone_key", phoneKeyOf(phone))
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const id = str((data as Row | null)?.id);
+    return id ? `lead:${id}` : null;
+  } catch {
+    return null;
+  }
+}
+
 /** True when this phone is one of PropLane's own people (an admin or a seat holder): their text is not a lead. */
 function isOneOf(phone: string, phones: readonly string[]): boolean {
   const p = normalizeE164(phone);
@@ -139,7 +157,7 @@ function isOneOf(phone: string, phones: readonly string[]): boolean {
 }
 
 /** Push to every account that should hear it, once per (message, account). Best effort. */
-async function pushStaff(db: SupabaseClient, input: { userIds: readonly string[]; title: string; body: string; key: string }): Promise<number> {
+async function pushStaff(db: SupabaseClient, input: { userIds: readonly string[]; title: string; body: string; key: string; url?: string }): Promise<number> {
   let pushed = 0;
   const { rateLimit } = await import("@/lib/rate-limit");
   const { sendPushToUser } = await import("@/lib/push-notifications.server");
@@ -148,7 +166,7 @@ async function pushStaff(db: SupabaseClient, input: { userIds: readonly string[]
       // One push per (message, person), durable across instances. An unreadable store sends anyway: a double beats a silence.
       const claim = await rateLimit(`inbound-push:${createHash("sha256").update(`${input.key}:${userId}`).digest("hex").slice(0, 32)}`, 1, 10 * 60_000);
       if (!claim.unavailable && !claim.ok) continue;
-      const r = await sendPushToUser(userId, { title: input.title, body: input.body, url: "/portal/communication/inbox/unopened" });
+      const r = await sendPushToUser(userId, { title: input.title, body: input.body, url: input.url || "/portal/communication/inbox/unopened" });
       if (r.sent > 0) pushed += 1;
     } catch {
       /* push is best effort; the text and email are the durable alert */
@@ -197,14 +215,8 @@ export async function alertOpsOfInboundText(db: SupabaseClient, input: InboundAl
       : ({ kind: "prospect", name: nameOnly || null, propertyId: null } as Sender);
     const propertyId = str(input.propertyId) || sender.propertyId;
     const house = str(input.houseLabel) || (await houseLabel(db, propertyId));
-    // Short on purpose (a text): the portal sends a signed-out person through sign-in and back to the inbox.
-    const link = `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/portal/communication/inbox/unopened`;
+    const origin = resolveEmailLinkBaseUrl();
     const phoneForText = from ?? "";
-    const baseText = {
-      kind: sender.kind, name: sender.name, phone: phoneForText, house, body: input.body, link,
-      channelLabel: input.channelLabel ?? null,
-    };
-    const smsText = buildInboundAlertText(baseText);
     const key = `inbound-alert:${sid}`;
     const pushTitle = `New ${input.channelLabel?.toLowerCase() || "text"}${house ? ` - ${house}` : ""}`;
     const pushBody = `${sender.name || (from ? `***${from.slice(-4)}` : "New contact")}: ${inboundQuote(input.body) || "(no text)"}`.slice(0, 140);
@@ -220,6 +232,12 @@ export async function alertOpsOfInboundText(db: SupabaseClient, input: InboundAl
       if (from && isOneOf(from, targets.phones.map((p) => p.phone))) return "skipped";
       const workspaceId = input.workspaceId;
       const threadId = str(input.threadId) || (from ? await locateThreadId(db, { ownerUserId: targets.ownerUserId, workspaceId, phoneE164: from }) : null);
+      // The EXACT conversation, in the workspace that holds it (the door selects that workspace for a seated staffer).
+      const link = communicationThreadUrl(origin, { role: "manager", threadKey: threadId, workspaceId });
+      const pushUrl = communicationThreadHref({ role: "manager", threadKey: threadId, workspaceId });
+      const askLink = threadId ? askPropLaneUrl(origin, { role: "manager", threadKey: threadId, workspaceId }) : null;
+      const baseText = { kind: sender.kind, name: sender.name, phone: phoneForText, house, body: input.body, link, channelLabel: input.channelLabel ?? null };
+      const smsText = buildInboundAlertText(baseText);
       let texted = 0;
       const refusals: string[] = [];
       // One text per staff phone, each carrying THAT phone's own reply handle. Inbound alerts are transactional: a
@@ -250,7 +268,7 @@ export async function alertOpsOfInboundText(db: SupabaseClient, input: InboundAl
         propertyId,
         smsText,
         emailSubject: `New ${input.channelLabel?.toLowerCase() || "text"}`,
-        emailText: smsText.replace(/\n.*$/, ""),
+        emailText: `${smsText.replace(/\n.*$/, "")}${askLink ? `\n\nAsk PropLane about this conversation: ${askLink}` : ""}`,
         url: link,
         idempotencyKey: key,
         excludePhones: targets.phones.map((p) => p.phone),
@@ -265,6 +283,7 @@ export async function alertOpsOfInboundText(db: SupabaseClient, input: InboundAl
         title: pushTitle,
         body: pushBody,
         key,
+        url: pushUrl,
       });
       return texted + (out?.emailed ?? 0) + pushed > 0 ? "sent" : "skipped";
     }
@@ -274,6 +293,10 @@ export async function alertOpsOfInboundText(db: SupabaseClient, input: InboundAl
     // text still tells the platform's own operators rather than "skipped" in silence.
     const phones = await loadPlatformOpsPhones(db);
     if (phones.length === 0 || (from && isOneOf(from, phones))) return "skipped";
+    // The PropLane line's own inbox is admin Communication: an open lead opens as its thread, else the list.
+    const leadKey = from ? await openLeadKeyFor(db, from) : null;
+    const link = leadKey ? communicationThreadUrl(origin, { role: "admin", threadKey: leadKey }) : `${origin.replace(/\/$/, "")}${communicationListPath("admin")}`;
+    const smsText = buildInboundAlertText({ kind: sender.kind, name: sender.name, phone: phoneForText, house, body: input.body, link, channelLabel: input.channelLabel ?? null });
     let sent = 0;
     const refusals: string[] = [];
     for (const phone of phones) {
@@ -292,7 +315,7 @@ export async function alertOpsOfInboundText(db: SupabaseClient, input: InboundAl
     }
     if (refusals.length > 0) await reportServiceSendFailure(db, refusals, "new-message");
     const opsUsers = await userIdsForPhones(db, phones);
-    const pushed = await pushStaff(db, { userIds: opsUsers, title: pushTitle, body: pushBody, key });
+    const pushed = await pushStaff(db, { userIds: opsUsers, title: pushTitle, body: pushBody, key, url: link.startsWith(origin) ? link.slice(origin.length) : communicationListPath("admin") });
     return sent + pushed > 0 ? "sent" : "skipped";
   } catch {
     console.error("inbound alert failed");

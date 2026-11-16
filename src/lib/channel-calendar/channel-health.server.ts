@@ -5,7 +5,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MockProperty } from "@/data/types";
 
 import { listManagerChannelCalendarBookings } from "@/lib/channel-calendar/bookings.server";
-import { buildAttentionItems, feedStateFor, type ChannelHealth, type ChannelHealthHouse, type FeedState, type HealthConnection, type HealthStay, type UnassignedApproval } from "@/lib/channel-calendar/channel-health";
+import { buildAttentionItems, buildSyncRows, feedStateFor, type ChannelHealth, type ChannelHealthHouse, type FeedState, type HealthConnection, type HealthStay, type UnassignedApproval } from "@/lib/channel-calendar/channel-health";
+import { loadChannelStayTombstoneRecords } from "@/lib/channel-calendar/stay-tombstones.server";
 import { listingRentedWhole } from "@/lib/channel-calendar/export-occupancy";
 import { listingSubmissionFromProperty } from "@/lib/channel-calendar/connections.server";
 import { buildVacancyPost, type VacancyRoom } from "@/lib/channel-calendar/vacancy-post";
@@ -223,6 +224,7 @@ export async function loadChannelHealth(
       lastSyncedAt: room.lastSyncedAt,
       lastError: room.lastError,
       exportLastFetchedAt: room.exportLastFetchedAt ?? null,
+      hasImportUrl: room.hasImportUrl,
       ranges: room.ranges,
     })),
   );
@@ -264,5 +266,9 @@ export async function loadChannelHealth(
       };
     }),
   );
-  return { houses, items: buildAttentionItems({ connections, stays, now, today, unassigned }) };
+  // The removed-stay rows are one read of the houses already named; a failed read leaves the held-back line out
+  // rather than failing the card.
+  const removed = await loadChannelStayTombstoneRecords(db, properties.map((property) => property.propertyId)).catch(() => []);
+  const sync = buildSyncRows({ connections, removed, now, today });
+  return { houses, items: buildAttentionItems({ connections, stays, now, today, unassigned, sync }), sync };
 }

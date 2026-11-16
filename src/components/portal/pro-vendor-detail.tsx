@@ -13,7 +13,10 @@ import { ManagerOutgoingInvoicesPanel } from "@/components/portal/manager-outgoi
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
-import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { ManagerAddOutgoingPaymentModal } from "@/components/portal/pro-add-outgoing-payment-modal";
+import { PAYMENT_METHOD_LABELS } from "@/lib/finance/payment-fields";
+import { payoutSummary } from "@/lib/vendor-payout";
 import { VendorReviewDialog, type VendorReviewDialogRow } from "@/components/portal/vendor-review-dialog";
 import { ManagerCreateWorkOrderModal } from "@/components/portal/pro-create-work-order-modal";
 import { PortalDialog } from "@/components/portal/portal-dialog";
@@ -69,7 +72,7 @@ import {
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 import { workOrderDetailHref, vendorDetailHref, type WorkOrderBucketId } from "@/lib/portal-detail-routes";
 import { cn } from "@/lib/utils";
-import { Plus, ChevronDown, ChevronUp, X, CalendarDays, Star } from "lucide-react";
+import { Plus, ChevronDown, ChevronUp, X, CalendarDays, Star, Banknote } from "lucide-react";
 import { VendorReviewStarDisplay } from "@/components/portal/vendor-review-stars";
 import { canEditVendorReview, isVendorReviewableService, type VendorReviewAggregate } from "@/lib/vendor-reviews";
 
@@ -506,6 +509,7 @@ export function ManagerVendorDetail({
 }) {
   const tab = tabProp ?? "overview";
   const [requestService, setRequestService] = useState(false);
+  const [recordPayment, setRecordPayment] = useState(false);
   const [reviewJob, setReviewJob] = useState<VendorReviewDialogRow | null>(null);
   const [reviewAdd, setReviewAdd] = useState(false);
   const [reviewRevision, setReviewRevision] = useState(0);
@@ -712,6 +716,14 @@ export function ManagerVendorDetail({
         {fact("Language", draft.preferredLanguage === "es" ? "Español" : "English")}
         {fact("Portal account", row.vendorUserId ? "Signed up" : row.invitedAt ? `Invite sent ${formatPacificDateTime(row.invitedAt)}` : "Not invited")}
       </section>
+      <section className="min-w-0 rounded-xl border border-border bg-card p-4" data-attr="vendor-profile-payment">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">Payment</h2>
+          <PortalIconAction icon={Banknote} label="Record payment" data-attr="vendor-record-payment" onClick={() => setRecordPayment(true)} />
+        </div>
+        {fact("Per-visit rate", row.visitRateCents ? jobMoney(row.visitRateCents) : "")}
+        {fact("Payout", payoutSummary(row, PAYMENT_METHOD_LABELS))}
+      </section>
       <section className="min-w-0 rounded-xl border border-border bg-card p-4 sm:col-span-2" data-attr="vendor-profile-about">
         <h2 className="text-sm font-semibold">About</h2>
         <p className="mt-3 break-words text-sm text-foreground">{draft.notes.trim() || "—"}</p>
@@ -857,6 +869,7 @@ export function ManagerVendorDetail({
       {tab === "invoices" ? (
         <ManagerOutgoingInvoicesPanel vendorId={row.id} vendorUserId={row.vendorUserId ?? undefined} vendorName={row.name} basePath={basePath} />
       ) : null}
+      <ManagerAddOutgoingPaymentModal open={recordPayment} onClose={() => setRecordPayment(false)} managerUserId={managerUserId} initialVendorId={row.id} basePath={basePath} onSubmitted={() => { setRecordPayment(false); void refreshSummary(true); }} />
       <ManagerCreateWorkOrderModal open={requestService} onClose={() => setRequestService(false)} onSubmitted={() => { setRequestService(false); void refreshSummary(true); }} managerUserId={managerUserId} defaultVendor={{ id: row.id, name: row.name, vendorUserId: row.vendorUserId ?? null }} />
       <VendorReviewDialog open={Boolean(reviewJob) || reviewAdd} row={reviewJob} services={reviewAdd ? reviewableJobs.map(job => ({ id: job.id, title: job.title })) : undefined} vendorName={row.name} vendorUserId={row.vendorUserId ?? null} onClose={() => { setReviewJob(null); setReviewAdd(false); }} onSaved={() => setReviewRevision(value => value + 1)} />
 

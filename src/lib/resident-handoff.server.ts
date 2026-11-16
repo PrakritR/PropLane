@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { communicationThreadHref } from "@/lib/communication/deep-links";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { RESIDENT_HANDOFF_NOTICE_TYPE, RESIDENT_HANDOFF_SUBJECT } from "@/lib/resident-handoff";
 
@@ -17,7 +18,7 @@ import { RESIDENT_HANDOFF_NOTICE_TYPE, RESIDENT_HANDOFF_SUBJECT } from "@/lib/re
  */
 export async function recordResidentHandoff(
   db: SupabaseClient,
-  input: { managerUserIds: string[]; residentUserId: string; residentName: string; subject: string; messageHash: string; dayBucket: string },
+  input: { managerUserIds: string[]; residentUserId: string; residentName: string; subject: string; messageHash: string; dayBucket: string; threadId?: string | null },
 ): Promise<boolean> {
   let notified = false;
   for (const managerId of [...new Set(input.managerUserIds.map((id) => id.trim()).filter(Boolean))]) {
@@ -29,7 +30,7 @@ export async function recordResidentHandoff(
         text: `${name} asked for you in the PropLane assistant: "${input.subject.trim().slice(0, 120)}". Their message is in your inbox.`,
         externalText: RESIDENT_HANDOFF_SUBJECT,
         threadType: RESIDENT_HANDOFF_NOTICE_TYPE,
-        url: "/portal/communication/active",
+        url: communicationThreadHref({ role: "manager", threadKey: input.threadId }),
         category: "messages",
         notify: { push: true, sms: false },
         idempotencyKey: `resident-handoff:${createHash("sha256").update(`${input.residentUserId}:${managerId}:${input.messageHash}:${input.dayBucket}`).digest("hex").slice(0, 32)}`,

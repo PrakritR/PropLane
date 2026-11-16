@@ -102,11 +102,12 @@ describe("a paused shared-line thread", () => {
     expect(m.leasing).toHaveBeenCalledTimes(1);
   });
 
-  it("outside the shared line the pause table is never read: the pipeline behaves exactly as before", async () => {
-    m.loadPause.mockResolvedValue({ role: "resident", reason: "human_keyword" });
+  it("a pause is honored in EVERY mode: a work number of its own is silenced by Pause assistant / Take over just as the shared line is", async () => {
+    m.loadPause.mockResolvedValue({ role: "resident", reason: "manager_takeover" });
     await runClaimedInbound(fakeDb(PAYLOAD), claim());
-    expect(m.loadPause).not.toHaveBeenCalled();
-    expect(m.leasing).toHaveBeenCalledTimes(1);
+    expect(m.loadPause).toHaveBeenCalledTimes(1);
+    expect(m.leasing).not.toHaveBeenCalled();
+    expect(m.project).toHaveBeenCalledTimes(1);
   });
 
   it("a recovery rerun keeps the flag from the stored receipt, not the in-memory claim", async () => {

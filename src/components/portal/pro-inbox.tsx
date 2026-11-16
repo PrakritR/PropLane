@@ -1,5 +1,7 @@
 "use client";
 
+import { reviewKeyForThread } from "@/lib/assistant-review/model";
+import { AssistantReviewProvider, AssistantThreadControls } from "@/components/portal/assistant-review-controls";
 import { assistantEmailUrl } from "@/lib/manager-assistant-email/assistant-email-url";
 import { inboxAttachmentSendBlockReason } from "@/lib/inbox-attachment-send-gate";
 import { sharedGet } from "@/lib/shared-get-cache";
@@ -2648,6 +2650,7 @@ export const ManagerInbox = forwardRef<
           <HouseSmsGroupAction propertyId={parseHouseThreadId(activeThread.id)!.propertyId} />
         ) : null}
         {threadContactEditButton}
+        {!activeIsAssistantThread && !activeIsTeamThread ? <AssistantThreadControls composerSelector='[data-attr="inbox-reply"]' /> : null}
         {!activeIsAssistantThread ? (
         <button
           type="button"
@@ -2732,6 +2735,10 @@ export const ManagerInbox = forwardRef<
     ) : null;
 
   const threadPane = activeThread ? (
+    <AssistantReviewProvider
+      threadKey={activeIsAssistantThread || activeIsTeamThread || activeThread.folder === "trash" ? null : reviewKeyForThread(activeThread)}
+      scope={{ kind: "manager" }}
+    >
     <InboxDeliveryActionsContext.Provider value={deliveryActions}>
     <InboxThreadView
       title={activeThreadTitle}
@@ -2870,6 +2877,7 @@ export const ManagerInbox = forwardRef<
       }
     />
     </InboxDeliveryActionsContext.Provider>
+    </AssistantReviewProvider>
   ) : emptyThreadFallback && suppressListPane ? (
     emptyThreadFallback
   ) : expandedId ? (

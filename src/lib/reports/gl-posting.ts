@@ -645,16 +645,6 @@ type LedgerMirrorRow = {
   description: string | null;
 };
 
-type ExpenseMirrorRow = {
-  id: string;
-  manager_user_id: string;
-  property_id: string | null;
-  category_code: string;
-  amount_cents: number;
-  expense_date: string;
-  memo: string | null;
-  vendor_id: string | null;
-};
 
 /**
  * Historical repair — sweep existing ledger/expense rows into GL. Never called
@@ -714,40 +704,183 @@ export async function backfillGlFromSources(
     posted++;
   }
 
-  let expenseQuery = db
-    .from("manager_expense_entries")
-    .select("id, manager_user_id, property_id, category_code, amount_cents, expense_date, memo, vendor_id")
-    .order("expense_date", { ascending: true })
-    .limit(4000);
-  if (managerUserId) expenseQuery = expenseQuery.eq("manager_user_id", managerUserId);
-
-  const { data: expenseRows, error: expenseError } = await expenseQuery;
-  if (expenseError) throw new Error(expenseError.message);
-
-  for (const row of (expenseRows as ExpenseMirrorRow[] | null) ?? []) {
-    if (row.amount_cents <= 0) {
-      skipped++;
-      continue;
-    }
-    const exists = await journalEntryExists(db, row.manager_user_id, "expense", row.id);
-    if (exists) {
-      skipped++;
-      continue;
-    }
-    await postGlExpenseEntry(db, {
-      managerUserId: row.manager_user_id,
-      expenseId: row.id,
-      categoryCode: row.category_code,
-      amountCents: Number(row.amount_cents),
-      entryDate: row.expense_date,
-      propertyId: row.property_id,
-      vendorId: row.vendor_id,
-      memo: row.memo,
-    });
-    posted++;
-  }
+  // Manual expenses and manual income (no source charge, so the ledger sweep above skips it) go through one repair.
+  const manual = await repairManualEntryGl(db, { managerUserId });
+  posted += manual.posted;
+  skipped += manual.skipped;
 
   return { posted, skipped };
+}
+
+/**
+ * Remove the (non-reversal) journal of a source whose own row is being edited or hard-deleted. Only for
+ * mirrors of editable bookkeeping rows (a manual expense or manual income entry): the source row is
+ * replaced or gone, so its journal follows it. Lines go with the entry (cascade). Money that actually
+ * moved (charges, payments, refunds) is never removed this way: it is reversed with `reverseGlJournalForSource`.
+ */
+export async function deleteGlJournalForSource(
+  db: SupabaseClient,
+  input: { managerUserId: string; sourceType: GlSourceType; sourceId: string },
+): Promise<boolean> {
+  const id = await journalEntryExists(db, input.managerUserId, input.sourceType, input.sourceId);
+  if (!id) return false;
+  const { error } = await db.from("gl_journal_entries").delete().eq("id", id).eq("manager_user_id", input.managerUserId);
+  if (error) throw new Error(`GL journal delete failed: ${error.message}`);
+  return true;
+}
+
+/** The slice of a `manager_expense_entries` row the GL needs. */
+export type ExpenseGlRow = {
+  id: string;
+  manager_user_id: string;
+  property_id: string | null;
+  category_code: string;
+  amount_cents: number | string;
+  expense_date: string;
+  memo: string | null;
+  vendor_id: string | null;
+  payment_status?: string | null;
+  due_date?: string | null;
+  paid_date?: string | null;
+};
+
+/** Source id of the accrual / settlement journals of a bill-style expense: one id space with real bills never collides. */
+function expenseBillId(expenseId: string): string {
+  return `exp:${expenseId}`;
+}
+
+/**
+ * Post the journal(s) one expense row implies, idempotently (each journal is keyed by the row id):
+ *  - no due date: a cash expense, DR expense / CR operating cash (`postGlExpenseEntry`);
+ *  - a due date: the bill is an accrual, DR expense / CR accounts payable on the bill date, and once the row is
+ *    Paid the settlement, DR accounts payable / CR operating cash, on the paid date.
+ * A Due row therefore already counts on the P&L (accrual) while cash stays untouched until it is paid.
+ */
+export async function postExpenseRowGl(db: SupabaseClient, row: ExpenseGlRow): Promise<void> {
+  const amountCents = Math.round(Number(row.amount_cents));
+  if (!(amountCents > 0)) return;
+  const base = {
+    managerUserId: row.manager_user_id,
+    amountCents,
+    categoryCode: row.category_code,
+    propertyId: row.property_id,
+    vendorId: row.vendor_id,
+    memo: row.memo,
+  };
+  if (!row.due_date) {
+    await postGlExpenseEntry(db, { ...base, expenseId: row.id, entryDate: row.expense_date });
+    return;
+  }
+  await postGlBillApproved(db, { ...base, billId: expenseBillId(row.id), entryDate: row.expense_date });
+  if (row.payment_status !== "due") {
+    await postGlBillPaid(db, { ...base, billId: expenseBillId(row.id), entryDate: row.paid_date || row.expense_date });
+  }
+}
+
+/** Remove every journal an expense row owns (cash, accrual, settlement). The row is edited or gone; the books follow it. */
+export async function deleteExpenseRowGl(db: SupabaseClient, managerUserId: string, expenseId: string): Promise<void> {
+  await deleteGlJournalForSource(db, { managerUserId, sourceType: "expense", sourceId: expenseId });
+  await deleteGlJournalForSource(db, { managerUserId, sourceType: "bill", sourceId: `bill-approve:${expenseBillId(expenseId)}` });
+  await deleteGlJournalForSource(db, { managerUserId, sourceType: "bill", sourceId: `bill-pay:${expenseBillId(expenseId)}` });
+}
+
+/** Re-derive an edited expense row's journals: drop the old ones and post what the row now says. */
+export async function rebuildExpenseRowGl(db: SupabaseClient, row: ExpenseGlRow): Promise<void> {
+  await deleteExpenseRowGl(db, row.manager_user_id, row.id);
+  await postExpenseRowGl(db, row);
+}
+
+export type ManualEntryGlRepair = { posted: number; skipped: number; failed: number; dryRun: boolean; wouldPost: number };
+
+const MANUAL_REPAIR_PAGE = 500;
+
+/**
+ * Idempotent repair for manual bookkeeping entries that never reached the General Ledger (the write-through
+ * was missing before this path existed). Every manual expense (`manager_expense_entries`) and manual income
+ * (`ledger_entries` payment with no charge, no Stripe source and no journal link) without a journal gets
+ * exactly one balanced journal, keyed by its own id, so a re-run posts nothing. Pages exhaustively, never
+ * truncates. Never called from a report route (no read-time backfill): run by script or the admin route.
+ */
+export async function repairManualEntryGl(
+  db: SupabaseClient,
+  options: { managerUserId?: string; dryRun?: boolean } = {},
+): Promise<ManualEntryGlRepair> {
+  const result: ManualEntryGlRepair = { posted: 0, skipped: 0, failed: 0, dryRun: Boolean(options.dryRun), wouldPost: 0 };
+
+  for (let offset = 0; ; offset += MANUAL_REPAIR_PAGE) {
+    let q = db
+      .from("manager_expense_entries")
+      .select("id, manager_user_id, property_id, category_code, amount_cents, expense_date, memo, vendor_id, payment_status, due_date, paid_date")
+      // Manual entries only: a paid bill's expense row is settled through its bill journals, a work-order or
+      // Stripe-sourced one is posted by its own writer, and posting any of them here would double-book.
+      .is("source_work_order_id", null)
+      .is("source_stripe_payment_id", null)
+      .order("id", { ascending: true })
+      .range(offset, offset + MANUAL_REPAIR_PAGE - 1);
+    if (options.managerUserId) q = q.eq("manager_user_id", options.managerUserId);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as ExpenseGlRow[];
+    const { data: billLinked, error: billLinkedError } = page.length
+      ? await db.from("manager_bills").select("paid_expense_entry_id").in("paid_expense_entry_id", page.map((r) => r.id))
+      : { data: [], error: null };
+    if (billLinkedError) throw new Error(billLinkedError.message);
+    const settledByBill = new Set((billLinked ?? []).map((r) => String((r as { paid_expense_entry_id: string }).paid_expense_entry_id)));
+    for (const row of page) {
+      if (settledByBill.has(row.id)) { result.skipped++; continue; }
+      if (!row.manager_user_id || !(Number(row.amount_cents) > 0) || !row.expense_date) { result.skipped++; continue; }
+      const accrual = Boolean(row.due_date);
+      const missing = accrual
+        ? !(await journalEntryExists(db, row.manager_user_id, "bill", `bill-approve:${expenseBillId(row.id)}`)) ||
+          (row.payment_status !== "due" && !(await journalEntryExists(db, row.manager_user_id, "bill", `bill-pay:${expenseBillId(row.id)}`)))
+        : !(await journalEntryExists(db, row.manager_user_id, "expense", row.id));
+      if (!missing) { result.skipped++; continue; }
+      if (options.dryRun) { result.wouldPost++; continue; }
+      try {
+        await postExpenseRowGl(db, row);
+        result.posted++;
+      } catch { result.failed++; }
+    }
+    if (page.length < MANUAL_REPAIR_PAGE) break;
+  }
+
+  for (let offset = 0; ; offset += MANUAL_REPAIR_PAGE) {
+    let q = db
+      .from("ledger_entries")
+      .select("id, manager_user_id, property_id, category_code, amount_cents, posted_date, description")
+      .eq("entry_type", "payment")
+      .is("source_charge_id", null)
+      .is("gl_journal_entry_id", null)
+      .is("stripe_charge_id", null)
+      .is("stripe_checkout_session_id", null)
+      .order("id", { ascending: true })
+      .range(offset, offset + MANUAL_REPAIR_PAGE - 1);
+    if (options.managerUserId) q = q.eq("manager_user_id", options.managerUserId);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as Array<{ id: string; manager_user_id: string | null; property_id: string | null; category_code: string; amount_cents: number; posted_date: string | null; description: string | null }>;
+    for (const row of page) {
+      if (!row.manager_user_id || !(Number(row.amount_cents) > 0) || !row.posted_date || !row.category_code) { result.skipped++; continue; }
+      const existing = await journalEntryExists(db, row.manager_user_id, "manual", row.id);
+      if (existing) {
+        // The journal exists but the ledger row never learned its id: link it so this row drops out of the next sweep.
+        if (!options.dryRun) await db.from("ledger_entries").update({ gl_journal_entry_id: existing }).eq("id", row.id);
+        result.skipped++;
+        continue;
+      }
+      if (options.dryRun) { result.wouldPost++; continue; }
+      try {
+        await postGlManualIncomeEntry(db, {
+          managerUserId: row.manager_user_id, sourceChargeId: row.id, categoryCode: row.category_code,
+          amountCents: Number(row.amount_cents), entryDate: row.posted_date, propertyId: row.property_id,
+          description: row.description, linkLedgerEntryId: row.id,
+        });
+        result.posted++;
+      } catch { result.failed++; }
+    }
+    if (page.length < MANUAL_REPAIR_PAGE) break;
+  }
+  return result;
 }
 
 /**

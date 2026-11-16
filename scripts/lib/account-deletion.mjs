@@ -334,6 +334,8 @@ export const DELETE_ORDER = [
   "resident_move_in_forms",
   "resident_housemate_sharing",
   "manager_expense_entries",
+  "manager_recurring_payables",
+  "assistant_thread_reviews",
   // A vendor's own logged expenses (Outgoing payments).
   "vendor_expense_entries",
   // Saved payees after the expenses that reference one, and before the vendor directory

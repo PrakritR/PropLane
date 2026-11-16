@@ -1,5 +1,5 @@
 {
-  "sha256": "6e743d68bd6a8b4b8b06d8270e65e4fef2bdf47c4036a55cb1f93d871a4b571b",
+  "sha256": "e553d2d32e5c2a6107c762ec46a781cca0cae2bfccfb6f7a080783e24513da0a",
   "selection": "SQL migrations containing account_recovery_, resident_move_in_forms, CREATE/DROP/ALTER TABLE and admin_team_atomic_revoke; plus purge manifest and recovery policy",
   "missing_dev_catalog": [
     "applicant_preapply_checks",
@@ -12,10 +12,9 @@
     "scheduled_inbox_channel_deliveries"
   ],
   "reviewed_change": {
-    "date": "2026-11-14",
-    "reason": "Seattle batch (captain, Nov 14): 20261114100000 adds guest_application_drafts (a guest application held until a phone or mailbox is proven: SHA-256 of the token only, 24 h expiry, body wiped on claim; service-role only, RLS on, no client grants) and it is classified in ACCOUNT_PURGE_RETAINED in the purge manifest, so it takes no recovery hooks and is absent from the historical dev catalog snapshot, which is unchanged. 20261113100000 adds only a partial unique index on portal_household_charge_records (one live rent charge per tenant + property + month): no new table, no column, grant or policy change. Earlier 2026-11-13 additions (managed-workspace ownership release, channel_payout_records workspace key) stand.",
-    "selected_source_paths": 349,
-    "previous_sha256": "9fe26b2e2167428b651dc4660ddb58b013cf5e6592e9521f976f47b55c35fa6c",
-    "migration_sha256": "51d1fe6bd307903f2e379bca8228be0590b9dc4b6fa3349fc01419646b26d975"
+    "date": "2026-11-15",
+    "reason": "Nov 15 round: 20261115100000 adds web_chat_sessions (a Quick chat visitor; service-role only, RLS on, classified in ACCOUNT_PURGE_RETAINED) and widens two check constraints; 20261115110000 finance phase A adds manager_recurring_payables (owner-scoped, purged and moved with the workspace) plus additive expense/vendor columns; 20261115120000 adds assistant_thread_reviews (workspace-scoped flag/correct/pause rows, purged, cascades with the workspace, moved by the managed mover). The mover classification (20261112230000, not yet applied beyond dev) gains both tables. None of these tables is in the historical dev hook catalog, which is unchanged.",
+    "selected_source_paths": 352,
+    "previous_sha256": "6e743d68bd6a8b4b8b06d8270e65e4fef2bdf47c4036a55cb1f93d871a4b571b"
   }
 }

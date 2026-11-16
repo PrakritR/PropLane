@@ -81,7 +81,9 @@ describe("forwardInboundToTeammates", () => {
     const first = enqueueOwnerSms.mock.calls.find(([i]) => i.recipientUserId === "with-house")![0];
     expect(first).toMatchObject({
       managerUserId: OWNER, selectedWorkLineId: "line-1", purpose: "team_inbound_forward",
-      dedupeKey: "fwd:SM1:with-house", body: "Aaron (...9999): The sink is leaking", propertyId: HOUSE,
+      dedupeKey: "fwd:SM1:with-house", propertyId: HOUSE,
+      // The text ends on the link to THIS conversation (tap it, read the history, reply there).
+      body: expect.stringMatching(/^Aaron \(\.\.\.9999\): The sink is leaking\nhttps:\/\/\S+\/portal\/communication\/active\/\S+$/),
     });
     expect(String(first.body)).not.toContain("2065559999"); // never the raw number
   });

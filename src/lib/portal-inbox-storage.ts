@@ -1217,12 +1217,30 @@ function earliestAppendedAt(thread: PersistedInboxThread): string | null {
   return best?.at ?? null;
 }
 
+/**
+ * What an Assistant notice turn says when its stored body is blank. A notice written before the writer
+ * guaranteed a body (a subject-only row, a template that rendered empty) still opens with its own words:
+ * the turn's subject, else the thread's subject or preview. Never invents text; a non-Assistant row
+ * keeps its blank body.
+ */
+function assistantNoticeFallbackBody(thread: PersistedInboxThread, turnSubject?: string | null): string {
+  const candidates = [turnSubject, thread.subject, thread.preview];
+  for (const candidate of candidates) {
+    const text = typeof candidate === "string" ? candidate.trim() : "";
+    if (text && text !== "PropLane Assistant") return text;
+  }
+  return "";
+}
+
 export function inboxThreadMessages(thread: PersistedInboxThread): InboxThreadMessage[] {
   const rootId = `${thread.id}-root`;
+  const assistantRow = isPropLaneAssistantInboxThreadRow(thread);
   const root: InboxThreadMessage = normalizeThreadMessage({
     id: rootId,
     from: thread.rootFrom || thread.from,
-    body: thread.body,
+    body: thread.body?.trim() || !assistantRow || (thread.messages ?? []).some((m) => String(m?.body ?? "").trim())
+      ? thread.body
+      : assistantNoticeFallbackBody(thread),
     at: thread.rootAt || earliestAppendedAt(thread) || thread.time,
     // An explicit direction on the row wins either way. `false` matters as much
     // as `true`: a merged person-thread lives under the Sent copy's id, and
@@ -1248,7 +1266,12 @@ export function inboxThreadMessages(thread: PersistedInboxThread): InboxThreadMe
   // retain the first occurrence only; otherwise React receives duplicate keys
   // and renders an unreliable timeline.
   const seenIds = new Set([rootId]);
-  const extras = (thread.messages ?? []).map(normalizeThreadMessage).filter((message) => {
+  const extras = (thread.messages ?? []).map((raw) => {
+    const message = normalizeThreadMessage(raw);
+    if (!assistantRow || message.body.trim()) return message;
+    const fallback = assistantNoticeFallbackBody(thread, (raw as { noticeSubject?: string }).noticeSubject);
+    return fallback ? { ...message, body: fallback } : message;
+  }).filter((message) => {
     if (!message.id || seenIds.has(message.id)) return false;
     if (
       isPropLaneAssistantInboxThreadRow(thread) &&

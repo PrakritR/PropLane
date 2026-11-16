@@ -36,6 +36,14 @@ export type ManagerVendorRow = {
   licenseNumber?: string;
   /** Absent = available; only an explicit false takes the vendor out of dispatch. */
   dispatchAvailable?: boolean;
+  /** How they are paid, as a generic label (`vendor-payout.ts`). Record-keeping only: PropLane sends nothing in Phase A. */
+  payoutMethod?: "p2p_transfer" | "ach" | "card" | "check" | "cash" | "other";
+  /** At most the last four digits of the account they are paid into; never a full account number. */
+  payoutLast4?: string;
+  /** Server-set masked Stripe Connect reference for a vendor who onboarded through the Connect flow. Read-only. */
+  payoutConnectAccountRef?: string;
+  /** What one visit costs, in cents. "Record payment" prefills from it. */
+  visitRateCents?: number;
   /** Uploaded compliance files (insurance cert, W-9 PDF, license). */
   vendorDocuments?: VendorDocumentRecord[];
   /** When true, vendor accepts bank transfer via Stripe Connect (link bank in Payments). */

@@ -9,6 +9,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 import { normalizeVendorDispatchFields } from "@/lib/vendor-dispatch/vendor-roles";
+import { maskConnectAccountRef, normalizeVendorPayoutFields } from "@/lib/vendor-payout";
 import { resolveActiveWorkspaceRowScope, type WorkspaceRowScope } from "@/lib/workspaces/row-scope.server";
 
 export const runtime = "nodejs";
@@ -40,6 +41,8 @@ function normalizeRow(row: ManagerVendorRow, managerUserId: string): ManagerVend
     propertyIds: Array.isArray(row.propertyIds) ? row.propertyIds : undefined,
     // Dispatch roles/area/rate/license/availability: unknown values are stripped, never stored.
     ...normalizeVendorDispatchFields(row as unknown as Record<string, unknown>),
+    // Payout label, last four and per-visit rate. A bank number never lands here; the Connect reference is server-set.
+    ...normalizeVendorPayoutFields(row as unknown as Record<string, unknown>),
     updatedAt: new Date().toISOString(),
   };
 }
@@ -225,6 +228,19 @@ export async function GET(req: Request) {
       seen.add(row.id);
       return true;
     });
+    // A vendor who onboarded through the Connect flow shows a MASKED account reference beside their payout label.
+    // Read only for the manager's own rows, from the profile the vendor's login owns; never stored on the roster row.
+    const connectUserIds = [...new Set(ownRows.map((row) => row.vendorUserId?.trim()).filter((id): id is string => Boolean(id)))];
+    if (connectUserIds.length > 0) {
+      const { data: connectProfiles } = await db.from("profiles").select("id, stripe_connect_account_id").in("id", connectUserIds);
+      const refByUser = new Map((connectProfiles ?? []).map((p) => [String(p.id), maskConnectAccountRef(p.stripe_connect_account_id as string | null)]));
+      const ownIds = new Set(ownRows.map((row) => row.id));
+      for (const row of rows) {
+        if (!ownIds.has(row.id) || !row.vendorUserId) continue;
+        const ref = refByUser.get(row.vendorUserId);
+        if (ref) row.payoutConnectAccountRef = ref;
+      }
+    }
     return NextResponse.json({ rows });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load vendors.";

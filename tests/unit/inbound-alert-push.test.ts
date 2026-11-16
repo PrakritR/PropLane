@@ -63,6 +63,34 @@ describe("every inbound alerts, with push and a reply handle", () => {
     expect(sendFromService).not.toHaveBeenCalled();
   });
 
+  it("every staff text and push carries the link to THIS conversation, in the workspace that holds it (never the bare list)", async () => {
+    expect(await alertOpsOfInboundText(seed(), base)).toBe("sent");
+    const texts = sendFromService.mock.calls.map((c) => (c[1] as { text: string }).text);
+    // (A real workspace id is a uuid and rides the `/open/thread?w=` door; this fixture's id is not, so the direct path.)
+    const link = "/portal/communication/active/thread-1";
+    for (const text of texts) {
+      expect(text).toMatch(new RegExp(`https://\\S+${link}$`));
+      expect(text).not.toContain("inbox/unopened");
+    }
+    // The push tap target is an in-app path to the same conversation.
+    const pushUrls = push.mock.calls.map((c) => (c[1] as { url: string }).url);
+    expect(pushUrls.length).toBeGreaterThan(0);
+    for (const url of pushUrls) expect(url).toBe(link);
+  });
+
+  it("a stranger on the PropLane line (no workspace yet) tells the admin phones and links the admin Communication thread, not a workspace's", async () => {
+    const db = seed({
+      profiles: [{ id: "adm", email: "a@proplane.ai", phone: CAPTAIN, phone_verified_at: "2026-11-01T00:00:00Z", full_name: "Admin" }],
+      profile_roles: [{ user_id: "adm", role: "admin" }],
+      sms_unassigned_leads: [{ id: "lead-77", phone_key: "2065550188", status: "open", created_at: "2026-11-15T10:00:00Z", profile: {} }],
+    });
+    expect(await alertOpsOfInboundText(db, { ...base, workspaceId: null, managerId: null })).toBe("sent");
+    const texts = sendFromService.mock.calls.map((c) => (c[1] as { text: string }).text);
+    expect(texts.length).toBeGreaterThan(0);
+    for (const text of texts) expect(text).toMatch(/https:\/\/\S+\/admin\/communication\/active\/lead%3Alead-77$/);
+    expect(push.mock.calls.map((c) => (c[1] as { url: string }).url)).toEqual(["/admin/communication/active/lead%3Alead-77"]);
+  });
+
   it("the sender's own text is not news to them", async () => {
     expect(await alertOpsOfInboundText(seed(), { ...base, fromPhone: CAPTAIN })).toBe("skipped");
   });

@@ -187,9 +187,9 @@ describe("the Workspace filter", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Workspace")).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: /^Workspace/ }));
-    // The menu is portaled out of the dialog: Unassigned first, then each service workspace by name.
+    // The menu is portaled out of the dialog: Unassigned, All managed, then each service workspace by name.
     const options = within(await screen.findByRole("listbox")).getAllByRole("option").map((o) => o.textContent);
-    expect(options.map((o) => o?.replace("✓", ""))).toEqual(["All workspaces", "Unassigned", "1. Ambika"]);
+    expect(options.map((o) => o?.replace("✓", ""))).toEqual(["All workspaces", "Unassigned", "All managed", "1. Ambika"]);
     fireEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: "1. Ambika" }));
     fireEvent.click(dialog.querySelector('[data-attr="portal-filter-save"]')!);
 

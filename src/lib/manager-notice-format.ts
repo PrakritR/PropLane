@@ -146,6 +146,43 @@ export function formatBookingNotice(facts: BookingNoticeFacts): { subject: strin
   return { subject, sms: facts.url ? `${sentence}\n${facts.url}` : sentence, lines };
 }
 
+// ---- channel sync failures ------------------------------------------------------------------
+
+export type SyncFailureFacts = {
+  channel?: string | null;
+  house?: string | null;
+  room?: string | null;
+  /** Whole hours since PropLane last read the channel (0 or unknown reads "has never been read"). */
+  hoursSince?: number | null;
+  /** The channel's own error ("Booking.com calendar returned 404."), when there is one. */
+  error?: string | null;
+  url?: string | null;
+};
+
+/**
+ * "Booking.com · 4709A 8th Ave · Room 8 has not synced in 7 hours (Booking.com calendar returned 404). New bookings
+ * on it may be missing from PropLane." `sms` is one plain sentence with the link on its own line.
+ */
+export function formatSyncFailureNotice(facts: SyncFailureFacts): { subject: string; sms: string; lines: string[] } {
+  const channel = (facts.channel ?? "").trim() || "A channel calendar";
+  const place = noticePlace(facts.house, facts.room);
+  const hours = Number.isFinite(facts.hoursSince) && (facts.hoursSince ?? 0) > 0 ? Math.floor(facts.hoursSince!) : 0;
+  const since = hours >= 48 ? `${Math.floor(hours / 24)} days` : `${hours} ${hours === 1 ? "hour" : "hours"}`;
+  const error = (facts.error ?? "").replace(/\s+/g, " ").trim().slice(0, 160);
+  const what = [channel, place].filter(Boolean).join(" \u00b7 ");
+  const state = hours > 0 ? `has not synced in ${since}` : "has not synced yet";
+  const sentence = `${what} ${state}${error ? ` (${error})` : ""}. New bookings on it may be missing from PropLane.`;
+  const lines = [
+    "A channel calendar is not syncing.",
+    `Channel: ${channel}`,
+    ...(facts.house?.trim() ? [`House: ${facts.house.trim()}`] : []),
+    ...(facts.room?.trim() ? [`Room: ${facts.room.trim()}`] : []),
+    ...(hours > 0 ? [`Last synced: ${since} ago`] : ["Last synced: never"]),
+    ...(error ? [`Error: ${error}`] : []),
+  ];
+  return { subject: `${channel} calendar is not syncing`, sms: facts.url ? `${sentence}\n${facts.url}` : sentence, lines };
+}
+
 // ---- stay reminders -------------------------------------------------------------------------
 
 export type StayReminderFacts = {

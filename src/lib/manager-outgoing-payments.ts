@@ -28,6 +28,12 @@ export type ManagerExpenseSnapshot = {
   vendorId?: string | null;
   /** The saved payee an expense recorded through "Add payment" was made to. */
   payeeId?: string | null;
+  /** Paid (default) or Due (a bill that has moved no money yet; `dueDate` says when). */
+  paymentStatus?: "paid" | "due";
+  dueDate?: string | null;
+  payeeLabel?: string | null;
+  paymentMethod?: string | null;
+  receiptDocumentId?: string | null;
   sourceWorkOrderId?: string | null;
 };
 
@@ -350,7 +356,12 @@ export function buildManagerOutgoingPaymentRows(input: {
     const payee =
       payeeDetails?.name ||
       (expense.vendorId && vendorNameById.get(expense.vendorId)) ||
+      expense.payeeLabel?.trim() ||
       (expense.categoryCode === "service_fees" ? "PropLane" : "—");
+    // A Due entry is a bill still to pay: pending, or overdue once its due date has passed.
+    const isDue = expense.paymentStatus === "due";
+    const dueIso = (expense.dueDate ?? expense.expenseDate).slice(0, 10);
+    const dueBucket: ManagerPaymentBucket = dueIso < new Date().toISOString().slice(0, 10) ? "overdue" : "pending";
     const sourceWorkOrder = expense.sourceWorkOrderId
       ? workOrderById.get(expense.sourceWorkOrderId)
       : undefined;
@@ -366,10 +377,12 @@ export function buildManagerOutgoingPaymentRows(input: {
       ...(payeeDetails ? { payeeTypeLabel: payeeDetails.typeLabel, payeeReferenceLabel: payeeDetails.referenceLabel } : {}),
       chargeTitle: expense.memo?.trim() || expense.categoryLabel,
       amountLabel: formatMoney(expense.amountCents),
-      dueDate: dueDateLabelFromIso(expense.expenseDate),
-      dueDateSortMs: dueDateMsFromIso(expense.expenseDate),
-      bucket: "paid",
-      statusLabel: paidChannel ? `Paid · ${managerVendorPayMethodLabel(paidChannel)}` : "Paid",
+      dueDate: dueDateLabelFromIso(isDue ? dueIso : expense.expenseDate),
+      dueDateSortMs: dueDateMsFromIso(isDue ? dueIso : expense.expenseDate),
+      bucket: isDue ? dueBucket : "paid",
+      statusLabel: isDue
+        ? dueBucket === "overdue" ? "Overdue" : "Due"
+        : paidChannel ? `Paid · ${managerVendorPayMethodLabel(paidChannel)}` : "Paid",
       expenseEntryId: expense.id,
       workOrderId: expense.sourceWorkOrderId ?? undefined,
       fromExpense: true,

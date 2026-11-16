@@ -9,6 +9,16 @@ vi.mock("@/lib/reports/auth", () => ({
   assertFinancialsTier: vi.fn(async () => ({ ok: true })),
 }));
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
+// The manual-entry writers also post a General Ledger journal and run the duplicate-payment check; the fake
+// store models neither, so they are stubbed here and covered for real in finance-manual-entry-gl.test.ts and
+// finance-duplicate-payment.test.ts.
+vi.mock("@/lib/reports/gl-posting", () => ({
+  postGlManualIncomeEntry: vi.fn(async () => "journal-1"),
+  postExpenseRowGl: vi.fn(async () => undefined),
+  rebuildExpenseRowGl: vi.fn(async () => undefined),
+  deleteExpenseRowGl: vi.fn(async () => undefined),
+}));
+vi.mock("@/lib/finance/expense-duplicates.server", () => ({ findDuplicateExpenses: vi.fn(async () => []) }));
 vi.mock("@/lib/manager-access-server", () => ({
   getManagerPurchaseSku: vi.fn(async () => ({
     tier: "pro",

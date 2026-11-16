@@ -70,6 +70,8 @@ as $$
     ('manager_comms_workspace_wallets', 'move', 'manager_user_id'),
     ('manager_documents', 'move', 'manager_user_id'),
     ('manager_expense_entries', 'move', 'manager_user_id'),
+    ('manager_recurring_payables', 'move', 'manager_user_id'),
+    ('assistant_thread_reviews', 'move', 'owner_user_id'),
     ('manager_expense_reversals', 'move', 'manager_user_id'),
     ('manager_house_public_links', 'move', 'manager_user_id'),
     ('manager_invite_links', 'move', 'owner_user_id'),

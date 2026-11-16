@@ -28,6 +28,7 @@ const SOURCE_LABELS: Record<ProspectSource, string | null> = {
   airbnb: "Airbnb",
   booking_com: "Booking.com",
   padsplit: "PadSplit",
+  web_chat: "Web chat",
   other: null,
 };
 

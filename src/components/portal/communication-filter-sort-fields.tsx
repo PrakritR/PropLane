@@ -1,5 +1,6 @@
 "use client";
 
+import { AssistantReviewFilterSection } from "@/components/portal/assistant-review-list";
 import { CommunicationStatusFilter } from "@/components/portal/communication-status-filter";
 
 import {
@@ -71,6 +72,7 @@ export function CommunicationFilterSortFields({
   workspaceOptions,
   workspaceValue = "",
   onWorkspaceChange,
+  showAssistantReview = false,
 }: {
   propertyOptions: { value: string; label: string }[];
   roleOptions: { value: CommunicationFilterRole; label: string }[];
@@ -93,6 +95,8 @@ export function CommunicationFilterSortFields({
   workspaceOptions?: { value: string; label: string }[];
   workspaceValue?: string;
   onWorkspaceChange?: (next: string) => void;
+  /** Manager Communication: the "Assistant review" list (flagged replies, paused conversations). */
+  showAssistantReview?: boolean;
 }) {
   const [draftFilters, setDraftFilters] = usePortalFilterDraft(
     filters,
@@ -173,6 +177,8 @@ export function CommunicationFilterSortFields({
         placeholder="All records"
         dataAttr="communication-filter-about"
       />}
+
+      {showAssistantReview ? <AssistantReviewFilterSection /> : null}
 
       <FilterCollapsibleSection
         sectionId="sort"

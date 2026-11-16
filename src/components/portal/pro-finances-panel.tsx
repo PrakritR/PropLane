@@ -106,9 +106,22 @@ import { clearWizardDraft, readWizardDraft, writeWizardDraft } from "@/lib/wizar
 import { centsToUsd, dollarsToCents } from "@/lib/reports/money";
 import {
   MANAGER_VENDORS_EVENT,
-  readActiveManagerVendorRows,
+  readOwnActiveManagerVendorRows,
   syncManagerVendorsFromServer,
 } from "@/lib/manager-vendors-storage";
+import {
+  PAYMENT_METHODS,
+  PAYMENT_METHOD_LABELS,
+  RECURRENCE_FREQUENCIES,
+  RECURRENCE_LABELS,
+  advanceRecurrenceDate,
+  type PaymentMethod,
+  type PaymentStatus,
+  type RecurrenceFrequency,
+} from "@/lib/finance/payment-fields";
+import { describeDuplicate, type DuplicateMatch } from "@/lib/finance/duplicate-payment";
+import { visitRatePrefill } from "@/lib/vendor-payout";
+import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/documents/manager-documents";
 
 const HIDDEN_FINANCE_COLS = new Set([
   "scheduleERef",
@@ -119,6 +132,15 @@ const HIDDEN_FINANCE_COLS = new Set([
   "vendorId",
   "propertyId",
   "amountCents",
+  "paymentStatus",
+  "dueDate",
+  "paidDate",
+  "paymentMethod",
+  "payeeLabel",
+  "billingPeriodStart",
+  "billingPeriodEnd",
+  "receiptDocumentId",
+  "recurringPayableId",
 ]);
 
 function emptyRowFilters(): FinanceRowFilterState {
@@ -447,6 +469,8 @@ function defaultFilters(): ReportFilterState {
 }
 
 const EXPENSE_DRAFT_KEY = "add-expense";
+/** What · Where · Payment · Review. */
+const PAYMENT_STEP_INDEX = 2;
 const INCOME_DRAFT_KEY = "add-income";
 
 type ExpenseDraft = {
@@ -460,6 +484,24 @@ type ExpenseDraft = {
   taxDeductible: boolean;
   // Once the manager touches the tax field, category changes stop re-suggesting it.
   taxTouched: boolean;
+  /** Paid (default) or Due. A Due entry carries a due date and counts on the P&L before it moves cash. */
+  paymentStatus: PaymentStatus;
+  dueDate: string;
+  paidDate: string;
+  /** A generic payment-method label ("Bank app / P2P transfer", Card, Check, Cash, ACH), or "". */
+  paymentMethod: "" | PaymentMethod;
+  /** Who it went to when they are not a saved vendor ("Seattle Public Utilities"). */
+  payeeLabel: string;
+  billingPeriodStart: string;
+  billingPeriodEnd: string;
+  /** The entry repeats: a recurring payable generates the next Due entry. */
+  recurring: boolean;
+  recurringFrequency: RecurrenceFrequency;
+  recurringEndDate: string;
+  /** A receipt already on the entry (edit); a NEW file rides separately, never in the draft. */
+  receiptDocumentId: string;
+  /** Required to save a payment the duplicate check flagged. Stored in the audit log. */
+  duplicateOverrideReason: string;
 };
 
 function blankExpenseDraft(propertyId = ""): ExpenseDraft {
@@ -472,6 +514,18 @@ function blankExpenseDraft(propertyId = ""): ExpenseDraft {
     propertyId,
     taxDeductible: isCategoryDeductible("maintenance"),
     taxTouched: false,
+    paymentStatus: "paid",
+    dueDate: "",
+    paidDate: pacificCalendarDateYmd(),
+    paymentMethod: "",
+    payeeLabel: "",
+    billingPeriodStart: "",
+    billingPeriodEnd: "",
+    recurring: false,
+    recurringFrequency: "monthly",
+    recurringEndDate: "",
+    receiptDocumentId: "",
+    duplicateOverrideReason: "",
   };
 }
 
@@ -608,6 +662,10 @@ export function ManagerFinancesPanel({
   const ownerDistributionsRef = useRef<ManagerOwnerDistributionsPanelHandle>(null);
   const [canAddBankStatement, setCanAddBankStatement] = useState(false);
   const [expenseDraft, setExpenseDraft] = useState<ExpenseDraft>(blankExpenseDraft);
+  /** The receipt picked in the form. A File never rides in the saved draft; it uploads after the entry is saved. */
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  /** The duplicate-payment answer the server gave: shown as a hard warning that needs a reason to override. */
+  const [duplicateWarning, setDuplicateWarning] = useState<{ message: string; matches: DuplicateMatch[] } | null>(null);
   const [expenseToDelete, setExpenseToDelete] = useState<ReportRow | null>(null);
   const [incomeDraft, setIncomeDraft] = useState<IncomeDraft>({
     categoryCode: "other_income",
@@ -677,9 +735,10 @@ export function ManagerFinancesPanel({
     return buildManagerPropertyFilterOptions(userId ?? null);
   }, [userId, propertyTick]);
 
+  // The manager's own vendors, read fresh when the expense form opens (below): a vendor who exists must be pickable.
   const activeVendors = useMemo(() => {
     void vendorTick;
-    return readActiveManagerVendorRows();
+    return readOwnActiveManagerVendorRows(userId);
   }, [userId, vendorTick]);
 
   useEffect(() => {
@@ -802,25 +861,114 @@ export function ManagerFinancesPanel({
       setExpenseModal(false);
       return;
     }
+    const due = expenseDraft.paymentStatus === "due";
+    if (due && !expenseDraft.dueDate) {
+      setFinanceStepError("A Due entry needs a due date.");
+      setExpenseStepIdx(PAYMENT_STEP_INDEX);
+      return;
+    }
+    // A flagged duplicate stays blocked until the manager gives a reason (the server re-checks, this only saves a trip).
+    if (duplicateWarning && expenseDraft.duplicateOverrideReason.trim().length < 5) {
+      setFinanceStepError("Give a reason to record this payment anyway.");
+      setExpenseStepIdx(PAYMENT_STEP_INDEX);
+      return;
+    }
     const editingId = expenseDraft.id?.trim();
+    const propertyId = expenseDraft.propertyId || filters.propertyId || undefined;
+    const common = {
+      categoryCode: expenseDraft.categoryCode,
+      amountCents,
+      memo: expenseDraft.memo,
+      vendorId: expenseDraft.vendorId || undefined,
+      propertyId,
+      paymentMethod: expenseDraft.paymentMethod || undefined,
+      payeeLabel: expenseDraft.payeeLabel.trim() || undefined,
+    };
+
+    // A recurring Due entry is a schedule: the payable generates the entry (and every later one).
+    if (!editingId && expenseDraft.recurring && due) {
+      const res = await fetch("/api/recurring-payables", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: expenseDraft.memo.trim() || EXPENSE_CATEGORIES.find((c) => c.code === expenseDraft.categoryCode)?.name || "Recurring payment",
+          ...common,
+          frequency: expenseDraft.recurringFrequency,
+          nextDate: expenseDraft.dueDate,
+          endDate: expenseDraft.recurringEndDate || null,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast((data as { error?: string }).error ?? "Failed to save the recurring payment.");
+        return;
+      }
+      showToast("Recurring payment saved.");
+      clearWizardDraft(EXPENSE_DRAFT_KEY);
+      setExpenseModal(false);
+      setFilters((current) => ({ ...current, ...expandDateFilterToInclude(current, expenseDraft.dueDate) }));
+      void loadTable();
+      return;
+    }
+
     const res = await fetch("/api/expenses", {
       method: editingId ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...(editingId ? { id: editingId } : {}),
-        categoryCode: expenseDraft.categoryCode,
-        amountCents,
+        ...common,
         expenseDate: expenseDraft.expenseDate,
-        memo: expenseDraft.memo,
-        vendorId: expenseDraft.vendorId || undefined,
-        propertyId: expenseDraft.propertyId || filters.propertyId || undefined,
         taxDeductible: expenseDraft.taxDeductible,
+        paymentStatus: expenseDraft.paymentStatus,
+        dueDate: due ? expenseDraft.dueDate : undefined,
+        paidDate: due ? undefined : expenseDraft.paidDate || expenseDraft.expenseDate,
+        billingPeriodStart: expenseDraft.billingPeriodStart || undefined,
+        billingPeriodEnd: expenseDraft.billingPeriodEnd || undefined,
+        duplicateOverrideReason: duplicateWarning ? expenseDraft.duplicateOverrideReason.trim() : undefined,
       }),
     });
-    const data = await res.json();
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      code?: string;
+      duplicates?: DuplicateMatch[];
+      expense?: { id?: string };
+    };
+    if (res.status === 409 && data.code === "duplicate_payment") {
+      // A hard stop: nothing was saved. The warning names the earlier payment; saving again needs a reason.
+      setDuplicateWarning({ message: data.error ?? "This looks like a duplicate payment.", matches: data.duplicates ?? [] });
+      setFinanceStepError(null);
+      setExpenseStepIdx(PAYMENT_STEP_INDEX);
+      return;
+    }
     if (!res.ok) {
       showToast(data.error ?? "Failed to save expense.");
       return;
+    }
+    const savedId = editingId || String(data.expense?.id ?? "");
+    if (receiptFile && savedId) {
+      const form = new FormData();
+      form.append("file", receiptFile);
+      const upload = await fetch(`/api/expenses/${encodeURIComponent(savedId)}/receipt`, { method: "POST", body: form });
+      if (!upload.ok) {
+        const uploadError = (await upload.json().catch(() => ({}))) as { error?: string };
+        showToast(`Saved, but the receipt did not upload: ${uploadError.error ?? "try again from Edit."}`);
+      }
+    }
+    // A Paid entry that repeats starts its schedule at the NEXT occurrence.
+    if (!editingId && expenseDraft.recurring && !due) {
+      const next = advanceRecurrenceDate(expenseDraft.expenseDate, expenseDraft.recurringFrequency);
+      const schedule = await fetch("/api/recurring-payables", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: expenseDraft.memo.trim() || EXPENSE_CATEGORIES.find((c) => c.code === expenseDraft.categoryCode)?.name || "Recurring payment",
+          ...common,
+          frequency: expenseDraft.recurringFrequency,
+          nextDate: next,
+          endDate: expenseDraft.recurringEndDate || null,
+        }),
+      });
+      if (!schedule.ok) showToast("Saved, but the recurring schedule did not start.");
     }
     showToast(editingId ? "Expense updated." : "Expense saved.");
     if (!editingId) clearWizardDraft(EXPENSE_DRAFT_KEY);
@@ -1040,9 +1188,13 @@ export function ManagerFinancesPanel({
 
   function openAddExpense() {
     const kept = readWizardDraft<{ draft: ExpenseDraft; step: number }>(EXPENSE_DRAFT_KEY);
-    setExpenseDraft(kept?.draft ?? blankExpenseDraft(filters.propertyId));
+    // A draft kept before the payment fields existed gets their defaults, never undefined.
+    setExpenseDraft(kept?.draft ? { ...blankExpenseDraft(filters.propertyId), ...kept.draft, duplicateOverrideReason: "" } : blankExpenseDraft(filters.propertyId));
     setExpenseStepIdx(kept?.step ?? 0);
     setFinanceStepError(null);
+    setReceiptFile(null);
+    setDuplicateWarning(null);
+    void syncManagerVendorsFromServer({ force: true });
     setExpenseModal(true);
   }
 
@@ -1058,9 +1210,24 @@ export function ManagerFinancesPanel({
       propertyId: String(row.propertyId ?? ""),
       taxDeductible: row.taxDeductible !== false,
       taxTouched: true,
+      paymentStatus: row.paymentStatus === "due" ? "due" : "paid",
+      dueDate: String(row.dueDate ?? "").slice(0, 10),
+      paidDate: String(row.paidDate ?? "").slice(0, 10) || String(row.date ?? "").slice(0, 10) || pacificCalendarDateYmd(),
+      paymentMethod: PAYMENT_METHODS.includes(row.paymentMethod as PaymentMethod) ? (row.paymentMethod as PaymentMethod) : "",
+      payeeLabel: String(row.payeeLabel ?? ""),
+      billingPeriodStart: String(row.billingPeriodStart ?? "").slice(0, 10),
+      billingPeriodEnd: String(row.billingPeriodEnd ?? "").slice(0, 10),
+      recurring: false,
+      recurringFrequency: "monthly",
+      recurringEndDate: "",
+      receiptDocumentId: String(row.receiptDocumentId ?? ""),
+      duplicateOverrideReason: "",
     });
     setExpenseStepIdx(0);
     setFinanceStepError(null);
+    setReceiptFile(null);
+    setDuplicateWarning(null);
+    void syncManagerVendorsFromServer({ force: true });
     setExpenseModal(true);
   }
 
@@ -1281,6 +1448,7 @@ export function ManagerFinancesPanel({
             return [
               { id: "what", label: "What", incomplete: !amountOk },
               { id: "where", label: "Where" },
+              { id: "payment", label: "Payment", incomplete: expenseDraft.paymentStatus === "due" && !expenseDraft.dueDate },
               { id: "review", label: "Review" },
             ];
           })()}
@@ -1374,12 +1542,128 @@ export function ManagerFinancesPanel({
               <WizardSelect
                 label="Vendor"
                 value={expenseDraft.vendorId}
-                onChange={(next) => setExpenseDraft({ ...expenseDraft, vendorId: next })}
-                options={[{ value: "", label: "None" }, ...activeVendors.map((v) => ({ value: v.id, label: v.trade ? `${v.name} · ${v.trade}` : v.name }))]}
+                onChange={(next) =>
+                  setExpenseDraft((d) => {
+                    // "Record payment": a vendor with a per-visit rate fills an empty amount from it.
+                    const rate = visitRatePrefill(activeVendors.find((v) => v.id === next));
+                    return { ...d, vendorId: next, amount: !d.amount.trim() && rate ? rate : d.amount };
+                  })
+                }
+                options={[
+                  { value: "", label: "None" },
+                  ...activeVendors.map((v) => ({
+                    value: v.id,
+                    label: [v.name, v.trade, v.visitRateCents ? `${centsToUsd(v.visitRateCents)} / visit` : ""].filter(Boolean).join(" · "),
+                  })),
+                ]}
               />
+              {!expenseDraft.vendorId ? (
+                <WizardField label="Paid to">
+                  <Input value={expenseDraft.payeeLabel} onChange={(e) => setExpenseDraft({ ...expenseDraft, payeeLabel: e.target.value })} placeholder="Seattle Public Utilities" />
+                </WizardField>
+              ) : null}
             </StepColumn>
           ) : null}
-          {expenseStepIdx === 2 ? (
+          {expenseStepIdx === PAYMENT_STEP_INDEX ? (
+            <StepColumn>
+              <StepHeading title="Payment" />
+              {duplicateWarning ? (
+                <div role="alert" className="space-y-2 rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900" data-attr="finances-expense-duplicate-warning">
+                  <p className="font-bold">Possible duplicate payment</p>
+                  <p>{duplicateWarning.message}</p>
+                  <ul className="list-disc pl-5">
+                    {duplicateWarning.matches.slice(0, 3).map((match) => (
+                      <li key={match.id}>{describeDuplicate(match)}</li>
+                    ))}
+                  </ul>
+                  <WizardField label="Reason to record it anyway" required>
+                    <Input
+                      value={expenseDraft.duplicateOverrideReason}
+                      onChange={(e) => setExpenseDraft({ ...expenseDraft, duplicateOverrideReason: e.target.value })}
+                      data-attr="finances-expense-duplicate-reason"
+                    />
+                  </WizardField>
+                </div>
+              ) : null}
+              <WizardSelect
+                label="Status"
+                value={expenseDraft.paymentStatus}
+                onChange={(next) => setExpenseDraft({ ...expenseDraft, paymentStatus: next === "due" ? "due" : "paid" })}
+                options={[
+                  { value: "paid", label: "Paid" },
+                  { value: "due", label: "Due" },
+                ]}
+              />
+              {expenseDraft.paymentStatus === "due" ? (
+                <WizardField label="Due date" required>
+                  <Input type="date" value={expenseDraft.dueDate} onChange={(e) => setExpenseDraft({ ...expenseDraft, dueDate: e.target.value })} />
+                </WizardField>
+              ) : (
+                <WizardField label="Paid on">
+                  <Input type="date" value={expenseDraft.paidDate} onChange={(e) => setExpenseDraft({ ...expenseDraft, paidDate: e.target.value })} />
+                </WizardField>
+              )}
+              <WizardSelect
+                label="Payment method"
+                value={expenseDraft.paymentMethod}
+                placeholder="Not set"
+                onChange={(next) => setExpenseDraft({ ...expenseDraft, paymentMethod: next as "" | PaymentMethod })}
+                options={[{ value: "", label: "Not set" }, ...PAYMENT_METHODS.map((m) => ({ value: m, label: PAYMENT_METHOD_LABELS[m] }))]}
+              />
+              <WizardField label="Billing period start">
+                <Input type="date" value={expenseDraft.billingPeriodStart} onChange={(e) => setExpenseDraft({ ...expenseDraft, billingPeriodStart: e.target.value })} />
+              </WizardField>
+              <WizardField label="Billing period end">
+                <Input type="date" value={expenseDraft.billingPeriodEnd} onChange={(e) => setExpenseDraft({ ...expenseDraft, billingPeriodEnd: e.target.value })} />
+              </WizardField>
+              <WizardField label="Receipt">
+                <input
+                  type="file"
+                  accept={DOCUMENT_UPLOAD_ACCEPT}
+                  onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+                  className="block w-full text-sm file:mr-3 file:rounded-lg file:border file:border-border file:bg-card file:px-3 file:py-1.5 file:text-sm"
+                  data-attr="finances-expense-receipt"
+                />
+                {expenseDraft.receiptDocumentId && !receiptFile && expenseDraft.id ? (
+                  <button
+                    type="button"
+                    className="mt-1 text-sm font-semibold text-primary underline"
+                    onClick={async () => {
+                      const res = await fetch(`/api/expenses/${encodeURIComponent(expenseDraft.id!)}/receipt`);
+                      const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+                      if (res.ok && body.url) window.open(body.url, "_blank", "noopener");
+                      else showToast(body.error ?? "Could not open the receipt.");
+                    }}
+                  >
+                    View receipt
+                  </button>
+                ) : null}
+              </WizardField>
+              {!expenseDraft.id ? (
+                <>
+                  <WizardSelect
+                    label="Repeats"
+                    value={expenseDraft.recurring ? expenseDraft.recurringFrequency : ""}
+                    placeholder="Does not repeat"
+                    onChange={(next) =>
+                      setExpenseDraft({
+                        ...expenseDraft,
+                        recurring: Boolean(next),
+                        recurringFrequency: (next || expenseDraft.recurringFrequency) as RecurrenceFrequency,
+                      })
+                    }
+                    options={[{ value: "", label: "Does not repeat" }, ...RECURRENCE_FREQUENCIES.map((f) => ({ value: f, label: RECURRENCE_LABELS[f] }))]}
+                  />
+                  {expenseDraft.recurring ? (
+                    <WizardField label="Ends on">
+                      <Input type="date" value={expenseDraft.recurringEndDate} onChange={(e) => setExpenseDraft({ ...expenseDraft, recurringEndDate: e.target.value })} />
+                    </WizardField>
+                  ) : null}
+                </>
+              ) : null}
+            </StepColumn>
+          ) : null}
+          {expenseStepIdx === 3 ? (
             <StepColumn>
               <StepHeading title="Review" />
               <PreviewPanel
@@ -1388,7 +1672,11 @@ export function ManagerFinancesPanel({
                 facts={[
                   { label: "Amount", value: expenseDraft.amount.trim() ? `$${expenseDraft.amount}` : "—" },
                   { label: "Property", value: propertyOptions.find((p) => p.id === expenseDraft.propertyId)?.label ?? "Portfolio" },
-                  { label: "Vendor", value: activeVendors.find((v) => v.id === expenseDraft.vendorId)?.name ?? "None" },
+                  { label: "Vendor", value: activeVendors.find((v) => v.id === expenseDraft.vendorId)?.name ?? (expenseDraft.payeeLabel.trim() || "None") },
+                  { label: "Status", value: expenseDraft.paymentStatus === "due" ? `Due ${expenseDraft.dueDate || "—"}` : "Paid" },
+                  { label: "Method", value: expenseDraft.paymentMethod ? PAYMENT_METHOD_LABELS[expenseDraft.paymentMethod] : "Not set" },
+                  { label: "Receipt", value: receiptFile?.name ?? (expenseDraft.receiptDocumentId ? "On file" : "None") },
+                  ...(expenseDraft.recurring ? [{ label: "Repeats", value: RECURRENCE_LABELS[expenseDraft.recurringFrequency] }] : []),
                 ]}
               />
             </StepColumn>

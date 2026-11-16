@@ -56,7 +56,7 @@ function handleThreadId(ownerUserId: string, contactHandle: string): string {
 }
 
 /** Add or bump one `sms_phone_contacts` row: the phone's claims (name, email) fill gaps only; `verified_at` only from a proof. */
-async function upsertPhoneContact(
+export async function upsertPhoneContact(
   db: SupabaseClient,
   input: { phoneE164: string; displayName?: string | null; email?: string | null; verified: boolean; source: string },
 ): Promise<void> {

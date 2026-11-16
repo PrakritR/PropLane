@@ -353,6 +353,7 @@ export function ManagerCommunication({
       hideRole
       showFrom
       showScheduled={isPhone}
+      showAssistantReview
     />
   );
 

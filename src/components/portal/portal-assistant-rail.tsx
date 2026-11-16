@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { AssistantDockPanel } from "@/components/portal/assistant-dock-panel";
 import { ASSISTANT_DOCK_INPUT_ID } from "@/components/portal/assistant-dock-input-id";
 import { useIsSmallPortalViewport } from "@/hooks/use-is-native-app";
+import { useAskPropLaneLink } from "@/lib/axis-assistant/ask-link-store";
 import {
   collapseAssistantDock,
   focusAskPropLane,
@@ -43,6 +44,8 @@ export function PortalAssistantRail({
   initialCollapsed?: boolean;
 }) {
   const isSmall = useIsSmallPortalViewport();
+  // A notice's "Ask PropLane" link (`?ask=thread:<id>`) opens the assistant about that record.
+  useAskPropLaneLink();
   const collapsed = useAssistantDockCollapsed(initialCollapsed);
 
   useEffect(() => {

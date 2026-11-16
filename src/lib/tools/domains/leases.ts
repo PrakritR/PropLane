@@ -38,7 +38,7 @@ import { stripIdentityFromLeaseRow } from "@/lib/lease-application-identity";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Server-side read of the landlord's lease pipeline, scoped by manager_user_id. */
-async function loadManagerLeases(ctx: AgentContext): Promise<LeasePipelineRow[]> {
+export async function loadManagerLeases(ctx: AgentContext): Promise<LeasePipelineRow[]> {
   return loadAllManagerRows(
     ctx,
     "portal_lease_pipeline_records",

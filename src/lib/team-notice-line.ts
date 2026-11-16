@@ -45,6 +45,7 @@ const HAPPENED_BY_EVENT: Record<string, string> = {
   booking_created: "created",
   booking_cancelled: "cancelled",
   channel_booking_clash: "double-booked",
+  channel_sync_failed: "calendar not syncing",
 };
 
 /** Payment events read as their own headline, whole. */

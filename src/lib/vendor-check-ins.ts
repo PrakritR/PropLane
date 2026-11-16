@@ -19,7 +19,9 @@ export type VendorCheckInCadence =
   | "weekly"
   | "biweekly"
   | "monthly"
-  | { everyDays: number };
+  | { everyDays: number }
+  /** Fixed days of the month (1-31), e.g. the 1st and 14th. A day past the month's end fires on its last day. */
+  | { monthDays: number[] };
 
 export type VendorCheckInOnNoOrSilent = "log" | "inbox" | "task";
 
@@ -35,6 +37,8 @@ export type VendorCheckInLogEntry = {
   taskId?: string;
   /** Set once the rule has been evaluated for this send, so it never fires twice. */
   ruleRanAt?: string;
+  /** Why the send never went out ("no_phone", a consent refusal): the occurrence is closed, not retried every tick. */
+  failure?: string;
 };
 
 export type VendorCheckIn = {
@@ -66,19 +70,29 @@ export const VENDOR_CHECK_IN_CADENCE_OPTIONS: readonly { id: string; label: stri
   { id: "monthly", label: "Every month", cadence: "monthly" },
   { id: "every3days", label: "Every 3 days", cadence: { everyDays: 3 } },
   { id: "every10days", label: "Every 10 days", cadence: { everyDays: 10 } },
+  { id: "monthdays-1-14", label: "1st and 14th of the month", cadence: { monthDays: [1, 14] } },
 ];
 
 export const WEEKDAY_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
 
 export function cadenceId(cadence: VendorCheckInCadence): string {
   if (typeof cadence === "string") return cadence;
+  if ("monthDays" in cadence) return `monthdays-${cadence.monthDays.join("-")}`;
   return `every${cadence.everyDays}days`;
+}
+
+function ordinal(n: number): string {
+  const v = n % 100;
+  const suffix = v >= 11 && v <= 13 ? "th" : n % 10 === 1 ? "st" : n % 10 === 2 ? "nd" : n % 10 === 3 ? "rd" : "th";
+  return `${n}${suffix}`;
 }
 
 export function cadenceLabel(cadence: VendorCheckInCadence): string {
   const known = VENDOR_CHECK_IN_CADENCE_OPTIONS.find((o) => cadenceId(o.cadence) === cadenceId(cadence));
   if (known) return known.label;
-  return typeof cadence === "string" ? cadence : `Every ${cadence.everyDays} days`;
+  if (typeof cadence === "string") return cadence;
+  if ("monthDays" in cadence) return `${cadence.monthDays.map(ordinal).join(" and ")} of the month`;
+  return `Every ${cadence.everyDays} days`;
 }
 
 export function normalizeVendorCheckIn(raw: unknown): VendorCheckIn | null {
@@ -90,8 +104,14 @@ export function normalizeVendorCheckIn(raw: unknown): VendorCheckIn | null {
   let cadence: VendorCheckInCadence = "biweekly";
   if (r.cadence === "weekly" || r.cadence === "biweekly" || r.cadence === "monthly") cadence = r.cadence;
   else if (r.cadence && typeof r.cadence === "object") {
-    const n = Math.round(Number((r.cadence as Record<string, unknown>).everyDays));
-    if (Number.isFinite(n) && n >= 1 && n <= 365) cadence = { everyDays: n };
+    const rawDays = (r.cadence as Record<string, unknown>).monthDays;
+    if (Array.isArray(rawDays)) {
+      const days = [...new Set(rawDays.map((d) => Math.round(Number(d))).filter((d) => Number.isInteger(d) && d >= 1 && d <= 31))].sort((a, b) => a - b).slice(0, 4);
+      if (days.length > 0) cadence = { monthDays: days };
+    } else {
+      const n = Math.round(Number((r.cadence as Record<string, unknown>).everyDays));
+      if (Number.isFinite(n) && n >= 1 && n <= 365) cadence = { everyDays: n };
+    }
   }
   const weekday = Number.isInteger(r.weekday) && Number(r.weekday) >= 0 && Number(r.weekday) <= 6 ? Number(r.weekday) : 1;
   const hour = Number.isInteger(r.hour) && Number(r.hour) >= 0 && Number(r.hour) <= 23 ? Number(r.hour) : 9;
@@ -124,6 +144,7 @@ export function normalizeVendorCheckIn(raw: unknown): VendorCheckIn | null {
             reply,
             taskId: typeof row.taskId === "string" ? row.taskId : undefined,
             ruleRanAt: typeof row.ruleRanAt === "string" ? row.ruleRanAt : undefined,
+            failure: typeof row.failure === "string" ? row.failure : undefined,
           };
         })
         .filter((e): e is VendorCheckInLogEntry => e !== null)
@@ -176,7 +197,7 @@ function weekdayOfYmd(ymd: string): number {
  * Every Pacific calendar date this check-in fires on, from `fromYmd` (inclusive)
  * for `horizonDays` days. Weekly / biweekly land on the chosen weekday; biweekly
  * counts fortnights from the anchor's week; monthly is the first chosen weekday
- * of each month; everyDays counts from the anchor.
+ * of each month; everyDays counts from the anchor; monthDays fires on fixed days of the month (the 1st and 14th).
  */
 export function checkInSendDates(checkIn: VendorCheckIn, fromYmd: string, horizonDays: number): string[] {
   const out: string[] = [];
@@ -200,6 +221,11 @@ export function checkInSendDates(checkIn: VendorCheckIn, fromYmd: string, horizo
       if (wd !== checkIn.weekday) continue;
       const { d } = ymdParts(ymd);
       if (d <= 7) out.push(ymd);
+    } else if ("monthDays" in c) {
+      const { y, m, d } = ymdParts(ymd);
+      const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      // A 31st in a 30-day month (or a 14th that is fine) fires on the month's last day instead of being skipped.
+      if (c.monthDays.some((day) => Math.min(day, lastDay) === d)) out.push(ymd);
     } else {
       if (days < anchorDays) continue;
       if ((days - anchorDays) % c.everyDays === 0) out.push(ymd);
@@ -302,4 +328,43 @@ export function appendCheckInSend(checkIn: VendorCheckIn, entry: VendorCheckInLo
 
 export function makeVendorCheckInId(): string {
   return `ci_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Hours after the fire time a check-in may still go out (a cron that missed a tick catches up, a day-old one never fires). */
+export const CHECK_IN_SEND_GRACE_HOURS = 12;
+
+/** Fill `{vendor}` and `{property}` in a check-in question. A part the caller does not know is left out, never invented. */
+export function renderCheckInQuestion(question: string, vars: { vendor?: string | null; property?: string | null }): string {
+  const text = question
+    .replace(/\{vendor\}/gi, (vars.vendor ?? "").trim())
+    .replace(/\{property\}/gi, (vars.property ?? "").trim())
+    .replace(/\s+([,.!?])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return text;
+}
+
+export type CheckInReplyIntent = "escalate" | "routine";
+
+const ESCALATE_PATTERNS: RegExp[] = [
+  // Pay: money, rate, invoice, "paid" / "owe" in either language.
+  /\$\s?\d/, /\b(pay|paid|payment|pagar|pago|pagaron|invoice|factura|owe|owed|rate|raise|tarifa|price|precio|cost|cobro)\b/i,
+  // Schedule changes: cancel, reschedule, move, different day, cannot come.
+  /\b(reschedul\w*|cancel\w*|postpone\w*|change the (day|date|time)|different (day|time)|can'?t (make|come|do)|cannot (make|come)|won'?t (make|be able)|no (puedo|voy)|cambiar|cancelar|reprogram\w*)\b/i,
+];
+
+/**
+ * Does a reply to a check-in need the OWNER? Pay and schedule-change messages do: a reply that talks money, an
+ * invoice, a cancellation or a different day is escalated and never answered by the Assistant. Everything else is
+ * routine (a day and time, "yes", "on my way"). Deterministic on purpose, both languages; a false escalation costs
+ * the owner one read, a missed one costs a cleaner who was not paid or told.
+ */
+export function classifyCheckInReplyIntent(text: string): CheckInReplyIntent {
+  const t = text.replace(/\s+/g, " ").trim();
+  return ESCALATE_PATTERNS.some((re) => re.test(t)) ? "escalate" : "routine";
+}
+
+/** A bare opt-out word. The transport honors STOP; the check-in handler never treats it as an answer. */
+export function isOptOutText(text: string): boolean {
+  return /^\s*(stop|stopall|unsubscribe|cancel|end|quit|alto)\s*[.!]?\s*$/i.test(text);
 }

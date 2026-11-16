@@ -85,27 +85,57 @@ export function importedRangeUid(range: Pick<ChannelCalendarImportedRange, "sour
   return (range.sourceUid || range.id || "").trim();
 }
 
-/** Drops every tombstoned reservation; `kept` is what a sync is allowed to store. */
+/**
+ * Drops every tombstoned reservation; `kept` is what a sync is allowed to store.
+ *
+ * A removed RESERVATION is identified by its UID, but a UID is only a promise that the feed names the same booking:
+ * when the feed lists that UID with DIFFERENT dates than the ones the manager removed (the guest changed the stay, or
+ * the channel reused the UID for a rebooking), it is new information and is stored again. Pass `removedDates`
+ * (tombstone key -> the removed range's dates) to enable that; a tombstone with no recorded dates, and every host
+ * block (whose key already carries its dates), prunes exactly as before.
+ */
 export function pruneTombstonedRanges(
   ranges: readonly ChannelCalendarImportedRange[],
   connection: { propertyId: string; roomId: string; provider: string },
   tombstoneKeys: ReadonlySet<string>,
+  removedDates: ReadonlyMap<string, { start: string; end: string }> | undefined = REMOVED_DATES.get(tombstoneKeys),
 ): { kept: ChannelCalendarImportedRange[]; dropped: ChannelCalendarImportedRange[] } {
   const kept: ChannelCalendarImportedRange[] = [];
   const dropped: ChannelCalendarImportedRange[] = [];
   for (const range of ranges) {
     const uid = importedRangeUid(range);
-    const hit = uid && tombstoneKeys.has(
-      channelStayTombstoneKey({
-        ...connection,
-        sourceUid: uid,
-        start: range.start,
-        end: range.end,
-        hostBlock: range.hostBlock,
-        summary: range.summary,
-      }),
-    );
+    const key = uid
+      ? channelStayTombstoneKey({
+          ...connection,
+          sourceUid: uid,
+          start: range.start,
+          end: range.end,
+          hostBlock: range.hostBlock,
+          summary: range.summary,
+        })
+      : "";
+    let hit = Boolean(key) && tombstoneKeys.has(key);
+    if (hit && removedDates && !isHostBlockRange(range)) {
+      const removed = removedDates.get(key);
+      if (removed && removed.start && (removed.start !== range.start || (removed.end || removed.start) !== (range.end || range.start))) hit = false;
+    }
     (hit ? dropped : kept).push(range);
   }
   return { kept, dropped };
+}
+
+const REMOVED_DATES = new WeakMap<ReadonlySet<string>, ReadonlyMap<string, { start: string; end: string }>>();
+
+/** A plain key set that also remembers (out of band) the dates each tombstone removed. */
+export function tombstoneKeySetOf(tombstones: readonly ChannelStayTombstone[]): Set<string> {
+  const keys = new Set(tombstones.map(channelStayTombstoneKeyOf));
+  REMOVED_DATES.set(keys, removedDatesByKey(tombstones));
+  return keys;
+}
+
+/** Tombstone key -> the dates that were removed, for {@link pruneTombstonedRanges}. */
+export function removedDatesByKey(
+  tombstones: readonly ChannelStayTombstone[],
+): Map<string, { start: string; end: string }> {
+  return new Map(tombstones.map((t) => [channelStayTombstoneKeyOf(t), { start: t.range.start, end: t.range.end || t.range.start }]));
 }

@@ -22,6 +22,7 @@ import {
   handleVendorDispatchReply,
   hasLiveVendorDispatchAnswer,
 } from "@/lib/vendor-dispatch/inbound.server";
+import { handleVendorCheckInReply } from "@/lib/vendor-check-ins.server";
 import { handlePropLaneLineVendorInbound } from "@/lib/sms/vendor-line-inbound.server";
 import { handlePropLaneLineSignupInbound } from "@/lib/sms/signup-line-inbound.server";
 import { handleRoleQuestionInbound, type RoleQuestionInboundResult } from "@/lib/sms/role-question-line-inbound.server";
@@ -76,6 +77,8 @@ import { resolveInboundOriginal } from "@/lib/sms/resolve-inbound-original.serve
 import { samePostgresInstant } from "@/lib/sms/postgres-instant.mjs";
 import { isTwilioMessageSid } from "@/lib/sms/message-sid";
 import { loadThreadPause } from "@/lib/one-number/session.server";
+import { isAssistantPaused } from "@/lib/assistant-review/store.server";
+import { smsReviewThreadKey } from "@/lib/assistant-review/model";
 import { loadSharedLineConfigStrict, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import { answerPropLaneLineText } from "@/lib/one-number/line-inbound.server";
 import { isHousingSearchText } from "@/lib/one-number/line-intent";
@@ -1578,10 +1581,45 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     return twimlOk();
   }
 
+  // A vendor answering a check-in question ("when are you coming next?") is handled by code before any vendor agent:
+  // the reply lands on the check-in and in the vendor's thread, a routine answer is acknowledged, and a pay or
+  // schedule-change message goes to the owner. `handled: false` (no open check-in for this phone) changes nothing.
+  const checkInReply = await handleVendorCheckInReply(db, {
+    ownerUserId: managerId,
+    workspaceId: workspaceId ?? null,
+    phoneE164: normalizeE164(fromPhone) ?? fromPhone,
+    body,
+    messageSid,
+  }).catch((error: unknown) => {
+    console.error("vendor check-in reply failed", error instanceof Error ? error.message : "unknown");
+    return { handled: false as const };
+  });
+  if (checkInReply.handled) {
+    mark("checkin:vendor-reply");
+    await projectClassifiedInbound(db, {
+      managerUserId: managerId,
+      role: "vendor",
+      counterpartyUserId: checkInReply.vendorUserId ?? null,
+      fromPhone,
+      toPhone,
+      messageSid,
+      body,
+      occurredAt,
+      workspaceId: workspaceId ?? null,
+    }).catch((error) => console.error("vendor check-in inbound projection failed", error instanceof Error ? error.message : "unknown"));
+    if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) throw new Error("Vendor inbound completion unavailable.");
+    return twimlOk();
+  }
+
   // One-number shared line: a HUMAN pause silences the AI for this person in THIS workspace only. The
   // text is still recorded and projected so the team reads it in the inbox; a manager takes it from there.
-  if (saved?.sharedLine || input.sharedLine) {
-    const pause = workspaceId ? await loadThreadPause(db, normalizeConsentPhone(fromPhone), workspaceId) : null;
+  // A pause is the person's, in every mode (a work number of its own or the shared line): "Pause assistant" / "Take over" on
+  // a conversation and a typed HUMAN both silence the assistant for this phone in THIS workspace only.
+  {
+    let pause = workspaceId ? await loadThreadPause(db, normalizeConsentPhone(fromPhone), workspaceId) : null;
+    if (!pause && workspaceId && (await isAssistantPaused(db, { workspaceId, threadKeys: [smsReviewThreadKey(fromPhone)], includeLineState: false }))) {
+      pause = { role: "prospect", reason: "manager_takeover" };
+    }
     if (pause) {
       mark("route:paused");
       await projectClassifiedInbound(db, {

@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createHash } from "node:crypto";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { askHrefForThreadHref } from "@/lib/communication/deep-links";
 import { resolveWorkspaceWorkEmail } from "@/lib/manager-assistant-email/manager-assistant-email.server";
 import { sendPortalConversationEmails } from "@/lib/portal-email-send.server";
 
@@ -88,10 +89,15 @@ export async function sendManagerNoticeEmail(
     const fromAddress = address ? (/["<>\r\n]/.test(display) ? address : `${display} <${address}>`) : null;
 
     const link = `${resolveEmailLinkBaseUrl()}${input.url?.startsWith("/") ? input.url : "/portal/communication/inbox/unopened"}`;
-    const text = `${input.text}\n\nOpen in PropLane: ${link}`;
+    // A conversation link also offers "Ask PropLane about this": the assistant opens already about that thread.
+    const askPath = askHrefForThreadHref(input.url);
+    const askLink = askPath ? `${resolveEmailLinkBaseUrl()}${askPath}` : null;
+    const text = `${input.text}\n\nOpen in PropLane: ${link}${askLink ? `\nAsk PropLane about this: ${askLink}` : ""}`;
     const html =
       `<p style="white-space:pre-wrap;font-family:sans-serif;font-size:15px;line-height:1.6;color:#1e293b">${escapeHtml(input.text)}</p>` +
-      `<p style="font-family:sans-serif;font-size:14px"><a href="${escapeHtml(link)}">Open in PropLane</a></p>`;
+      `<p style="font-family:sans-serif;font-size:14px"><a href="${escapeHtml(link)}">Open in PropLane</a>` +
+      (askLink ? ` &middot; <a href="${escapeHtml(askLink)}">Ask PropLane about this</a>` : "") +
+      `</p>`;
     const results = await sendPortalConversationEmails({
       senderUserId: input.ownerUserId,
       toEmails: [to],

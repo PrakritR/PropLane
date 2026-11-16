@@ -2,6 +2,8 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveWorkspaceNoticeRecipients } from "@/lib/workspace-team-recipients.server";
+import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { communicationThreadUrl } from "@/lib/communication/deep-links";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { samePhone, inboundForwardText } from "@/lib/sms/manager-relay.server";
 import { resolveWorkspaceSendLine } from "@/lib/sms/manager-number-provisioning.server";
@@ -91,7 +93,17 @@ export async function forwardInboundToTeammates(
   ).filter((member) => !member.isOwner);
   if (recipients.length === 0) return [];
 
-  const text = (await inboundForwardText(db, { managerUserId: ownerId, fromPhone: input.fromPhone, body: input.body })).slice(0, 1500);
+  const forwarded = (await inboundForwardText(db, { managerUserId: ownerId, fromPhone: input.fromPhone, body: input.body })).slice(0, 1400);
+  // The teammate's text ends on the link to THIS conversation: tap it, read the history with the assistant, reply there.
+  const fromE164 = normalizeE164(input.fromPhone);
+  const threadId =
+    input.workspaceId && fromE164
+      ? await import("@/lib/prospect-spine/locate.server")
+          .then((m) => m.locateThreadId(db, { ownerUserId: ownerId, workspaceId: input.workspaceId as string, phoneE164: fromE164 }))
+          .catch(() => null)
+      : null;
+  const link = threadId ? communicationThreadUrl(resolveEmailLinkBaseUrl(), { role: "manager", threadKey: threadId, workspaceId: null }) : "";
+  const text = link ? `${forwarded}\n${link}` : forwarded;
   let remaining = await teamRelayCapRemaining(db, { ownerManagerUserId: ownerId, numberId: line.numberId, now: input.now });
 
   const outcomes: TeamForwardOutcome[] = [];

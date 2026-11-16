@@ -10,6 +10,7 @@ import {
   channelStayTombstoneKey,
   channelStayTombstoneKeyOf,
   importedRangeUid,
+  tombstoneKeySetOf,
   type ChannelStayTombstone,
   type StoredChannelStayTombstone,
 } from "@/lib/channel-calendar/stay-tombstones";
@@ -89,7 +90,7 @@ export async function loadChannelStayTombstoneKeys(
   db: SupabaseClient,
   propertyIds: readonly string[],
 ): Promise<Set<string>> {
-  return new Set((await loadChannelStayTombstoneRecords(db, propertyIds)).map(channelStayTombstoneKeyOf));
+  return tombstoneKeySetOf(await loadChannelStayTombstoneRecords(db, propertyIds));
 }
 
 /** Delete tombstone rows by record id. Throws on failure, so a sync never half-clears silently. */

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
-import { backfillGlFromSources } from "@/lib/reports/gl-posting";
+import { backfillGlFromSources, repairManualEntryGl } from "@/lib/reports/gl-posting";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -22,10 +22,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    const body = (await req.json().catch(() => ({}))) as { managerUserId?: string };
+    const body = (await req.json().catch(() => ({}))) as { managerUserId?: string; manualOnly?: boolean; dryRun?: boolean };
     const managerUserId = body.managerUserId?.trim() || undefined;
 
     const db = createSupabaseServiceRoleClient();
+    // `manualOnly` / `dryRun`: the manual-entry repair alone (idempotent), optionally reporting what it would post.
+    if (body.manualOnly || body.dryRun) {
+      return NextResponse.json({ ok: true, ...(await repairManualEntryGl(db, { managerUserId, dryRun: body.dryRun === true })) });
+    }
     const result = await backfillGlFromSources(db, managerUserId);
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {

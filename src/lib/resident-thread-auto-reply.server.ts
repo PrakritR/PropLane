@@ -25,6 +25,8 @@ import { PROMPT_IDS } from "@/lib/agent/prompt-metadata";
 import { partyFacingAnswerHold } from "@/lib/automation-send-mode.server";
 import { automatedMessageKey, type AutomatedMessageSettings } from "@/lib/automated-messages-settings";
 import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
+import { isAssistantPaused } from "@/lib/assistant-review/store.server";
+import { communicationThreadHref } from "@/lib/communication/deep-links";
 import { loadThreadConversation } from "@/lib/communication/conversation-key.server";
 import { MANAGER_AGENT_NOTICE_FROM_NAME } from "@/lib/communication-assistant-inbox-list";
 import {
@@ -70,6 +72,8 @@ export type ResidentThreadAutoReplyOutcome =
 export type ResidentThreadAutoReplyDeps = {
   loadSettings(managerUserId: string, workspaceId: string | null): Promise<AutomatedMessageSettings>;
   workspaceOf(threadId: string | null): Promise<string | null>;
+  /** "Pause assistant" / "Take over" on this conversation: the assistant stays out of it. */
+  paused(args: { threadId: string | null; workspaceId: string | null }): Promise<boolean>;
   hold(managerUserId: string): Promise<{ hold: boolean }>;
   reserve(args: { managerUserId: string; workspaceId: string | null; key: string }): Promise<{ allowed: true; key: string } | { allowed: false; reason: string }>;
   finish(args: { managerUserId: string; key: string; replyProduced: boolean }): Promise<void>;
@@ -105,6 +109,12 @@ export async function runResidentThreadAutoReply(
     if (!assistantReplyEnabled(await deps.loadSettings(input.managerUserId, workspaceId))) return { outcome: "off" };
   } catch {
     return { outcome: "failed", reason: "settings_unreadable" };
+  }
+  // A manager who paused the assistant here (or took the conversation over) reads and answers it themselves. Unreadable = paused.
+  try {
+    if (await deps.paused({ threadId: input.threadId, workspaceId })) return { outcome: "skipped", reason: "assistant_paused" };
+  } catch {
+    return { outcome: "skipped", reason: "assistant_paused" };
   }
 
   let held = true;
@@ -152,6 +162,12 @@ export function residentThreadAutoReplyDeps(db: SupabaseClient): ResidentThreadA
   return {
     loadSettings: (managerUserId, workspaceId) => loadAutomatedMessageSettings(db, managerUserId, { workspaceId }),
     workspaceOf: async (threadId) => (threadId ? (await loadThreadConversation(db, threadId)).workspaceId : null),
+    paused: async ({ threadId, workspaceId }) => {
+      if (!threadId || !workspaceId) return false;
+      // Every name the conversation goes by: its id and its stored conversation key.
+      const { conversationKey } = await loadThreadConversation(db, threadId);
+      return isAssistantPaused(db, { workspaceId, threadKeys: [threadId, conversationKey] });
+    },
     hold: (managerUserId) => partyFacingAnswerHold(db, managerUserId),
     reserve: async ({ managerUserId, workspaceId, key }) =>
       reserveEmailAutoReplyCredit(db, { managerUserId, workspaceId, inboundEmailId: key, role: "resident", channel: "inapp" }),
@@ -180,7 +196,8 @@ export function residentThreadAutoReplyDeps(db: SupabaseClient): ResidentThreadA
         text: `${name} wrote about ${what}. The assistant did not answer it. Their message is in your inbox.`,
         externalText: RESIDENT_HANDOFF_SUBJECT,
         threadType: RESIDENT_HANDOFF_NOTICE_TYPE,
-        url: "/portal/communication/active",
+        // The exact conversation, in the workspace that holds it.
+        url: communicationThreadHref({ role: "manager", threadKey: input.threadId, workspaceId }),
         category: "messages",
         notify: { push: true, sms: false },
         workspaceId,

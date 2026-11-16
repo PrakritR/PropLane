@@ -27,6 +27,7 @@ import { ManagerUnifiedInbox } from "@/components/portal/pro-unified-inbox";
 import { useCommunicationListSegment } from "@/hooks/use-communication-list-segment";
 import { useCommunicationThreadId } from "@/hooks/use-communication-thread-id";
 import { refreshAdminScheduled } from "@/lib/admin-inbox-source";
+import { ADMIN_SMS_MANAGED_FILTER } from "@/lib/admin-sms-filter";
 import { ADMIN_SMS_UNASSIGNED_FILTER, useAdminSmsWorkspaces } from "@/lib/admin-sms-workspaces";
 import {
   EMPTY_COMMUNICATION_THREAD_FILTERS,
@@ -63,6 +64,7 @@ export function AdminCommunication({
   const workspaceOptions = useMemo(
     () => [
       { value: ADMIN_SMS_UNASSIGNED_FILTER, label: "Unassigned" },
+      { value: ADMIN_SMS_MANAGED_FILTER, label: "All managed" },
       ...serviceWorkspaces.map((workspace) => ({ value: workspace.id, label: workspace.name })),
     ],
     [serviceWorkspaces],

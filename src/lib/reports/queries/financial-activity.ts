@@ -22,7 +22,9 @@ export async function queryFinancialActivity(db: SupabaseClient, managerUserId: 
   receipts = applyReportPropertyScope(receipts, filters);
   let expenses = db.from("manager_expense_entries")
     .select("id, expense_date, memo, amount_cents, category_code, property_id, vendor_id, source_work_order_id, source_vendor_invoice_id")
-    .eq("manager_user_id", managerUserId).gte("expense_date", from).lte("expense_date", to);
+    .eq("manager_user_id", managerUserId).gte("expense_date", from).lte("expense_date", to)
+    // A cash view: a bill that is still Due has moved no money yet (the P&L, an accrual view, counts it).
+    .neq("payment_status", "due");
   expenses = applyReportPropertyScope(expenses, filters);
   receipts = receipts.order("id", { ascending: true });
   expenses = expenses.order("id", { ascending: true });

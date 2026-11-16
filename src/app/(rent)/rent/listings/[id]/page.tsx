@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { PublicListingPageClient } from "@/components/marketing/public-listing-page-client";
 import { ListingSourceCapture } from "@/components/marketing/listing-source-capture";
+import { WebChatLauncher } from "@/components/marketing/web-chat-launcher";
 import { getCrawlPublicListings } from "@/lib/seo/public-catalog.server";
 import { getListingSlugIndex } from "@/lib/seo/listing-slugs.server";
 import { jsonLdString, listingJsonLd } from "@/lib/seo/json-ld";
@@ -46,6 +47,7 @@ export default async function PublicListingPage({ params }: { params: Promise<{ 
       {jsonLd ? <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd }} /> : null}
       <ListingSourceCapture />
       <PublicListingPageClient listingId={id} />
+      <WebChatLauncher propertyId={id} />
     </>
   );
 }

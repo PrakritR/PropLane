@@ -52,6 +52,7 @@ import {
   type PayMethod,
 } from "@/lib/manager-payees";
 import { fetchPayeeBook, savePayee, updatePayeeDetails } from "@/lib/manager-payees-client";
+import { visitRatePrefill } from "@/lib/vendor-payout";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { isCategoryDeductible, SYSTEM_CHART_ACCOUNTS } from "@/lib/reports/categories";
 
@@ -328,6 +329,13 @@ export function ManagerAddOutgoingPaymentModal({
     if (!open || categoryTouched) return;
     setCategoryCode(suggestedCategory);
   }, [open, categoryTouched, suggestedCategory]);
+
+  // "Record payment" for a vendor with a per-visit rate: an empty amount fills from it (never over what was typed).
+  const vendorRatePrefill = visitRatePrefill(vendors.find((row) => row.id === vendor?.rosterId));
+  useEffect(() => {
+    if (!open || payKind !== "vendor" || !vendorRatePrefill) return;
+    setAmount((current) => (current.trim() ? current : vendorRatePrefill));
+  }, [open, payKind, vendorRatePrefill]);
 
   function parsedAmountCents() {
     return Math.round(Number.parseFloat(amount.replace(/[^0-9.]/g, "")) * 100);

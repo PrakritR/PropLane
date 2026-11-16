@@ -37,6 +37,11 @@ beforeEach(() => {
 });
 
 describe("GET /api/admin/sms-conversations", () => {
+  it("'managed' is the All managed scope: every managed workspace's threads, read as a view (no lookup of a workspace id)", async () => {
+    expect((await get("?workspaceId=managed")).status).toBe(200);
+    expect(calls.fetch).toEqual([{ workspaceId: "managed", includeLeads: true }]);
+  });
+
   it("401 signed out and 403 for a non-admin, before any read", async () => {
     signedIn = null;
     expect((await get()).status).toBe(401);

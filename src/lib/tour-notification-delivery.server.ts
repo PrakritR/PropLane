@@ -2,6 +2,7 @@
  * Server-side tour notification delivery (Resend email + Axis inbox records).
  */
 
+import { communicationThreadUrl } from "@/lib/communication/deep-links";
 import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
 import { issueTourSignupCapability } from "@/lib/auth/tour-signup-capability.server";
 import { noticeChannelFor, withResidentPortalLink } from "@/lib/notice-channel";
@@ -591,7 +592,7 @@ export async function notifyManagerTourRequest(
     const existing = resolveExistingApplicantConversation(conversations.residents, { managerUserId, applicantPhone: guestPhone, workNumber: conversations.workNumber });
     if (existing.kind === "matched") smsConversationKey = existing.conversation.conversationKey;
   } catch { smsConversationKey = undefined; }
-  await appendManagerPropertyLeadInboxMessage(db, managerUserId, {
+  const tourThread = await appendManagerPropertyLeadInboxMessage(db, managerUserId, {
     propertyId,
     propertyTitle: ctx.propertyTitle || "Property",
     prospectName: ctx.guestName || "Guest",
@@ -624,7 +625,9 @@ export async function notifyManagerTourRequest(
 
   // Teammates are told where the one thread is: the email carries the Communication link, and the workspace Team chat gets one
   // plain line (idempotent per request). Neither is a copy of the lead.
-  const emailText = `${text}\n\nReply to ${ctx.guestName || "the guest"} in Communication: ${origin.replace(/\/$/, "")}/portal/communication/active`;
+  // The link opens THIS guest's conversation (the list only when the thread id is unknown).
+  const tourThreadId = (tourThread as { threadId?: string } | undefined | void)?.threadId ?? null;
+  const emailText = `${text}\n\nReply to ${ctx.guestName || "the guest"} in Communication: ${communicationThreadUrl(origin, { role: "manager", threadKey: tourThreadId })}`;
   const coManagerIds = recipients.map((recipient) => recipient.userId).filter((id) => id !== managerUserId);
   if (coManagerIds.length > 0) {
     try {

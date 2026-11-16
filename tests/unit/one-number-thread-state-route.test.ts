@@ -63,15 +63,15 @@ beforeEach(() => {
 });
 
 describe("thread-state route", () => {
-  it("is 401 signed out, 400 for a bad id, and absent (404) on per-workspace numbers", async () => {
+  it("is 401 signed out and 400 for a bad id; a pause applies on a work number of its own too (per-workspace)", async () => {
     use(base());
     state.user = null;
     expect((await get()).status).toBe(401);
     state.user = { id: "owner-a" };
     expect((await get("nope")).status).toBe(400);
     use(base({}, "per_workspace"));
-    expect((await get()).status).toBe(404);
-    expect((await post({ conversationId: CONV, action: "pause" })).status).toBe(404);
+    expect((await get()).status).toBe(200);
+    expect((await post({ conversationId: CONV, action: "pause" })).status).toBe(200);
   });
 
   it("pause then resume, scoped to the manager's workspace and the conversation's phone", async () => {

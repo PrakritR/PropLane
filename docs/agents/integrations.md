@@ -290,6 +290,8 @@ Reopen or Open on Airbnb. Nothing is drawn while
 there is nothing to say. The card is read-only except Reopen, which is the manager's own Unblock/end-date save through
 `saveRoomDateBlock`. Feed-health and closure rules: [`bookings.md`](bookings.md) § Channels: true availability.
 
+**Sync health is a row per room x platform, read-only, from the reads the card already makes** (`buildSyncRows`, `channel-health.ts`): last sync time, the last import error (never the export feed's), reservations stored in the window (a week back, 90 days ahead) and removed stays still on the channel; a sync older than 2 hours, an error, or a held-back removal also joins the attention list. No extra polling. A connection unsynced for 6 hours tells its manager once per day (`notifyFailingChannelSyncs`, `channel_sync_failed`, event id = connection + Pacific day, text from `formatSyncFailureNotice`), run at the end of the sync cron. Coverage: `channel-sync-health.test.ts`.
+
 ## Posting
 
 - **Show Listed with PropLane** — the one home of the workspace attribution

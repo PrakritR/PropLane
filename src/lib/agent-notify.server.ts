@@ -98,6 +98,10 @@ export async function notifyManagerFromAgent(
     return { delivered: true, suppressed: false };
   }
   const nowIso = new Date().toISOString();
+  // A notice always carries words: a template or caller that rendered an empty text falls back to the subject (never
+  // an empty bubble the manager cannot open), and a notice with neither is not written at all.
+  const noticeText = args.text.trim() ? args.text : args.subject.trim();
+  if (!noticeText) return { delivered: false, suppressed: true };
   const ownerId = args.senderOwnerId?.trim() || args.landlordId;
   const isTeammate = ownerId !== args.landlordId;
   /**
@@ -147,7 +151,7 @@ export async function notifyManagerFromAgent(
   let inboxDelivered = false;
   let inboxAlreadySent = false;
   if (channels.inbox) {
-    const preview = args.text.slice(0, 100).replace(/\n/g, " ");
+    const preview = noticeText.slice(0, 100).replace(/\n/g, " ");
     // Read-modify-write on a row the SMS mirror also appends to: guard the write
     // on the `updated_at` we read and retry, or a turn mirrored in between is
     // silently overwritten. Two notices for the same person inside one read
@@ -184,13 +188,14 @@ export async function notifyManagerFromAgent(
         email: "",
         subject: args.subject,
         preview,
-        body: args.text,
+        body: noticeText,
+        time: formatPacificDateTime(new Date(nowIso)),
         unread: true,
         scope: MANAGER_INBOX_SCOPE,
         threadType: "agent_notice",
         messages: [
           ...priorMessages,
-          { id: messageId, from: "PropLane Assistant", body: args.text, at: nowIso, outbound: false,
+          { id: messageId, from: "PropLane Assistant", body: noticeText, at: nowIso, outbound: false, noticeSubject: args.subject,
             ...(args.threadType ? { noticeType: args.threadType } : {}),
             ...(args.rollKey?.trim() ? { rollKey: args.rollKey.trim() } : {}) },
         ],

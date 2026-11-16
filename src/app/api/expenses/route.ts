@@ -7,7 +7,7 @@ import {
   SYSTEM_CHART_ACCOUNTS,
 } from "@/lib/reports/categories";
 import { findOwnedPayee } from "@/lib/manager-payees.server";
-import { recordManualExpense, updateManualExpense } from "@/lib/reports/manual-entries.server";
+import { deleteManualExpenseGl, recordManualExpense, updateManualExpense, type ManualExpenseInput } from "@/lib/reports/manual-entries.server";
 import {
   applyWorkspaceRowScope,
   resolveActiveWorkspaceRowScope,
@@ -54,6 +54,15 @@ export async function GET() {
         memo: e.memo,
         vendorId: e.vendor_id,
         payeeId: e.payee_id ?? null,
+        payeeLabel: e.payee_label ?? null,
+        paymentStatus: e.payment_status === "due" ? "due" : "paid",
+        dueDate: e.due_date ?? null,
+        paidDate: e.paid_date ?? null,
+        paymentMethod: e.payment_method ?? null,
+        billingPeriodStart: e.billing_period_start ?? null,
+        billingPeriodEnd: e.billing_period_end ?? null,
+        receiptDocumentId: e.receipt_document_id ?? null,
+        recurringPayableId: e.recurring_payable_id ?? null,
         sourceWorkOrderId: e.source_work_order_id ? String(e.source_work_order_id) : undefined,
         taxDeductible: resolveExpenseTaxDeductible(e.category_code, e.tax_deductible),
       })),
@@ -71,16 +80,7 @@ export async function POST(req: Request) {
     const gate = await assertManagerFinancialsAccess(auth);
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
-    const body = (await req.json()) as {
-      propertyId?: string;
-      categoryCode?: string;
-      amountCents?: number;
-      expenseDate?: string;
-      memo?: string;
-      vendorId?: string;
-      payeeId?: string;
-      taxDeductible?: boolean;
-    };
+    const body = (await req.json()) as ManualExpenseInput & { propertyId?: string; payeeId?: string };
 
     // A payee id is a claim, not authorization: it must be a live payee of THIS manager. A foreign,
     // archived or missing id is the same 404, so no other manager's payee list can be probed.
@@ -96,15 +96,22 @@ export async function POST(req: Request) {
     // An account-level expense (no house, e.g. a portfolio software fee) has
     // no workspace to land in — it is scoped on read by the default-workspace
     // rule instead.
+    const scope = await resolveActiveWorkspaceRowScope(auth.db, auth.userId);
     if (body.propertyId) {
-      const scope = await resolveActiveWorkspaceRowScope(auth.db, auth.userId);
       if (scope.propertyIds !== null && !scope.propertyIds.includes(body.propertyId)) {
         return NextResponse.json({ error: "This property is outside your active workspace." }, { status: 400 });
       }
     }
 
-    const result = await recordManualExpense(auth.db, auth.userId, { ...body, payeeId: payeeId || undefined });
-    if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+    // A recurring payable id is a claim too: it must be this manager's own schedule.
+    const recurringId = typeof body.recurringPayableId === "string" ? body.recurringPayableId.trim() : "";
+    if (recurringId) {
+      const { data: owned } = await auth.db.from("manager_recurring_payables").select("id").eq("id", recurringId).eq("manager_user_id", auth.userId).maybeSingle();
+      if (!owned) return NextResponse.json({ error: "Recurring payable not found." }, { status: 404 });
+    }
+
+    const result = await recordManualExpense(auth.db, auth.userId, { ...body, payeeId: payeeId || undefined, recurringPayableId: recurringId || undefined }, { scope });
+    if (!result.ok) return NextResponse.json({ error: result.error, code: result.code, duplicates: result.duplicates }, { status: result.status });
     return NextResponse.json({ expense: result.entry });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to create expense.";
@@ -119,12 +126,8 @@ export async function PATCH(req: Request) {
     const gate = await assertManagerFinancialsAccess(auth);
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
-    const body = (await req.json()) as {
+    const body = (await req.json()) as Omit<ManualExpenseInput, "memo" | "vendorId" | "propertyId"> & {
       id?: string;
-      taxDeductible?: boolean;
-      categoryCode?: string;
-      amountCents?: number;
-      expenseDate?: string;
       memo?: string | null;
       vendorId?: string | null;
       propertyId?: string | null;
@@ -137,6 +140,7 @@ export async function PATCH(req: Request) {
     // "not found" shape as a missing id: the workspace boundary never leaks
     // which expenses exist elsewhere.
     const scope = await resolveActiveWorkspaceRowScope(auth.db, auth.userId);
+    // A payee or recurring link is not editable through a patch: those are fixed when the entry is made.
     if (scope.propertyIds !== null) {
       const { data: existing, error: existingError } = await auth.db
         .from("manager_expense_entries")
@@ -153,8 +157,10 @@ export async function PATCH(req: Request) {
       }
     }
 
-    const result = await updateManualExpense(auth.db, auth.userId, { ...body, id });
-    if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+    const { payeeId: _payeeId, recurringPayableId: _recurring, ...editable } = body;
+    void _payeeId; void _recurring;
+    const result = await updateManualExpense(auth.db, auth.userId, { ...editable, id }, { scope });
+    if (!result.ok) return NextResponse.json({ error: result.error, code: result.code, duplicates: result.duplicates }, { status: result.status });
     return NextResponse.json({ expense: result.entry });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to update expense.";
@@ -178,12 +184,21 @@ export async function DELETE(req: Request) {
     // row it does not match is left untouched rather than removed.
     const scope = await resolveActiveWorkspaceRowScope(auth.db, auth.userId);
     const { data, error } = await applyWorkspaceRowScope(
-      auth.db.from("manager_expense_entries").delete().eq("id", id).eq("manager_user_id", auth.userId).select("id"),
+      auth.db
+        .from("manager_expense_entries")
+        .delete()
+        .eq("id", id)
+        .eq("manager_user_id", auth.userId)
+        .select("id, source_work_order_id, source_stripe_payment_id"),
       scope,
     );
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!data || data.length === 0) return NextResponse.json({ error: "Expense not found." }, { status: 404 });
+    // The row is gone; its journals go with it, so the General Ledger never keeps a ghost of a deleted entry.
+    await deleteManualExpenseGl(auth.db, auth.userId, data[0] as { id: string; source_work_order_id?: unknown; source_stripe_payment_id?: unknown }).catch((e: unknown) =>
+      console.error("expense GL delete failed", e instanceof Error ? e.message : "unknown"),
+    );
     return NextResponse.json({ ok: true });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to delete expense.";

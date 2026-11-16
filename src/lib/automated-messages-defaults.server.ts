@@ -19,6 +19,7 @@ import {
 } from "@/lib/domain-action-events.server";
 import { renderVendorTaskAssigned, renderWorkOrderEvent, type WorkOrderEventType } from "@/lib/work-order-events.server";
 import { renderChannelBookingEvent, renderChannelClashEvent, renderNativeBookingEvent, type ChannelBookingEvent, type NativeBookingEvent } from "@/lib/channel-booking-events.server";
+import { formatSyncFailureNotice } from "@/lib/manager-notice-format";
 import { renderTourManagerEvent, renderTourTeamEvent, type TourManagerEvent } from "@/lib/tour-events.server";
 import { renderInspectionEvent } from "@/lib/inspection-events.server";
 
@@ -100,6 +101,10 @@ function renderDefault(domain: string, event: string, audience: AutomatedMessage
   }
   if (domain === "channel_booking" && audience === "manager" && (event === "booking_created" || event === "booking_cancelled")) {
     return renderNativeBookingEvent(event as NativeBookingEvent, { propertyLabel: "5259 Brooklyn Ave", roomLabel: "Room 3", guestName: "Alex Guest", checkIn: "2026-10-12", checkOut: "2026-10-15" });
+  }
+  if (domain === "channel_booking" && audience === "manager" && event === "channel_sync_failed") {
+    const notice = formatSyncFailureNotice({ channel: "Booking.com", house: "5259 Brooklyn Ave", room: "Room 8", hoursSince: 7, error: "Booking.com calendar returned 404." });
+    return { subject: notice.subject, text: notice.sms };
   }
   if (domain === "channel_booking" && audience === "manager" && event === "channel_booking_clash") {
     return renderChannelClashEvent(

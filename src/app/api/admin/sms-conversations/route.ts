@@ -4,6 +4,7 @@ import {
   resolveAdminForwardPhone,
   resolveManagerUserIdForPhone,
 } from "@/lib/claw-resident-messaging.server";
+import { ADMIN_SMS_MANAGED_FILTER } from "@/lib/admin-sms-filter";
 import {
   ADMIN_SMS_UNASSIGNED_FILTER,
   fetchAdminSmsConversations,
@@ -48,14 +49,15 @@ export async function GET(req: Request) {
     const requested = new URL(req.url).searchParams.get("workspaceId")?.trim() ?? "";
     let workspaceId: string | null = null;
     if (requested) {
-      if (requested !== ADMIN_SMS_UNASSIGNED_FILTER) {
+      if (requested !== ADMIN_SMS_UNASSIGNED_FILTER && requested !== ADMIN_SMS_MANAGED_FILTER) {
         if (!UUID.test(requested)) return NextResponse.json({ error: "Invalid workspace." }, { status: 400 });
         const scope = await loadServiceInboxScope(auth.db);
         if (!scope.workspaceIds.includes(requested.toLowerCase()) && !scope.workspaceIds.includes(requested)) {
           return NextResponse.json({ error: "Workspace not found." }, { status: 404 });
         }
       }
-      workspaceId = requested === ADMIN_SMS_UNASSIGNED_FILTER ? requested : requested.toLowerCase();
+      workspaceId =
+        requested === ADMIN_SMS_UNASSIGNED_FILTER || requested === ADMIN_SMS_MANAGED_FILTER ? requested : requested.toLowerCase();
     }
     const payload = await fetchAdminSmsConversations(auth.db, { workspaceId, includeLeads: true });
     return NextResponse.json(payload, { headers: { "Cache-Control": "private, no-store" } });

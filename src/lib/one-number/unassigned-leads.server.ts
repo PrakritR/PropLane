@@ -1,5 +1,6 @@
 import "server-only";
 
+import { communicationThreadUrl } from "@/lib/communication/deep-links";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MockProperty } from "@/data/types";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
@@ -851,6 +852,10 @@ export async function assignLeadToHouse(
     }
   }
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
+  // The link opens THIS lead's conversation in the workspace that now holds it (the list when the thread cannot be located).
+  const leadThreadId = await import("@/lib/prospect-spine/locate.server")
+    .then((m) => m.locateThreadId(db, { ownerUserId: prospect.ownerUserId, workspaceId: prospect.workspaceId, phoneE164 }))
+    .catch(() => null);
   const leadText = formatLeadNotice({
     name: null,
     phone: phoneE164,
@@ -862,7 +867,7 @@ export async function assignLeadToHouse(
     leaseMonths: lead.profile.leaseMonths ?? null,
     area: lead.profile.area ?? null,
     fitRooms,
-    url: `${origin}/portal/communication/inbox/unopened`,
+    url: communicationThreadUrl(origin, { role: "manager", threadKey: leadThreadId, workspaceId: prospect.workspaceId }),
   });
   await alertWorkspaceTeam(db, {
     workspaceId: prospect.workspaceId,

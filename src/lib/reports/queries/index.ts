@@ -404,6 +404,17 @@ export async function queryExpenses(
       property: display.propertyLabel(e.property_id),
       propertyId: e.property_id ?? "",
       workOrderId: e.source_work_order_id ?? "",
+      // Paid / Due, how it was paid and its receipt (Finance Phase A). A Due row reads "Due Dec 1".
+      paymentStatus: e.payment_status === "due" ? "due" : "paid",
+      status: e.payment_status === "due" ? `Due ${String(e.due_date ?? "").slice(0, 10)}`.trim() : "Paid",
+      dueDate: e.due_date ?? "",
+      paidDate: e.paid_date ?? "",
+      paymentMethod: e.payment_method ?? "",
+      payeeLabel: e.payee_label ?? "",
+      billingPeriodStart: e.billing_period_start ?? "",
+      billingPeriodEnd: e.billing_period_end ?? "",
+      receiptDocumentId: e.receipt_document_id ?? "",
+      recurringPayableId: e.recurring_payable_id ?? "",
     };
   });
 
@@ -419,13 +430,14 @@ export async function queryExpenses(
       { key: "category", label: "Category" },
       { key: "scheduleERef", label: "Sch. E Line" },
       { key: "taxStatus", label: "Tax status" },
+      { key: "status", label: "Status" },
       { key: "amount", label: "Amount", align: "right", format: "money" },
       { key: "vendor", label: "Vendor" },
       { key: "memo", label: "Description" },
       { key: "property", label: "Property" },
     ],
     rows,
-    totals: { date: "Total expenses", category: "", scheduleERef: "", taxStatus: "", amount: centsToUsd(totalCents), vendor: "", memo: "", property: "" },
+    totals: { date: "Total expenses", category: "", scheduleERef: "", taxStatus: "", status: "", amount: centsToUsd(totalCents), vendor: "", memo: "", property: "" },
     meta: {
       from,
       to,

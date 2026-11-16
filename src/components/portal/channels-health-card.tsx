@@ -1,16 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, ExternalLink, House } from "lucide-react";
+import { AlertTriangle, ExternalLink, House, RefreshCw } from "lucide-react";
 
 import { IntegrationRow } from "@/components/portal/integration-row";
 import { CopyIconAction, PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalSettingsGroup } from "@/components/portal/portal-settings-ui";
 import { Button } from "@/components/ui/button";
 import { PORTAL_READ_TIMEOUT_MS, fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
-import { healthChannelName, reopenClosureEdit, type ChannelAttentionItem, type ChannelHealth, type ChannelHealthChannel, type FeedState } from "@/lib/channel-calendar/channel-health";
+import { healthChannelName, reopenClosureEdit, type ChannelAttentionItem, type ChannelHealth, type ChannelSyncRow, type ChannelHealthChannel, type FeedState } from "@/lib/channel-calendar/channel-health";
 import type { ChannelCalendarProvider } from "@/lib/channel-calendar/types";
 import { fetchRoomDateBlocks, saveRoomDateBlock } from "@/lib/channel-calendar/room-date-blocks";
+import { formatCheckedAt } from "@/lib/channel-calendar/channel-links";
 import { pacificTodayKey } from "@/lib/public-room-live-label";
 
 /** Where a channel's own calendar is edited (the "Open on Airbnb" action). Account pages, never a listing the feed named. */
@@ -34,6 +35,15 @@ function houseFact(house: ChannelHealth["houses"][number]): string {
     ? `${house.vacancy.filter((room) => room.status.kind === "now" || room.status.kind === "soon").length} open`
     : "Availability unavailable";
   return [open, ...house.channels.map(channelFact)].join(" · ");
+}
+
+/** "Synced 5:42 PM · 3 stays", or the failure; one plain fact per room x platform. */
+export function syncRowFact(row: ChannelSyncRow, now: Date = new Date()): string {
+  const stays = `${row.staysInWindow} ${row.staysInWindow === 1 ? "stay" : "stays"}`;
+  const held = row.hiddenRemoved > 0 ? ` \u00b7 ${row.hiddenRemoved} removed` : "";
+  if (row.state === "error") return `Failed${row.lastSyncedAt ? ` since ${formatCheckedAt(row.lastSyncedAt, now)}` : ""} \u00b7 ${row.lastError}${held}`;
+  if (row.state === "never") return `Not synced yet${held}`;
+  return `Synced ${formatCheckedAt(row.lastSyncedAt, now)} \u00b7 ${stays}${held}`;
 }
 
 function OpenOnChannel({ provider }: { provider: ChannelCalendarProvider }) {
@@ -61,7 +71,7 @@ export function ChannelsHealthCard({
 
   const load = useCallback(async () => {
     if (!key) {
-      setHealth({ houses: [], items: [] });
+      setHealth({ houses: [], items: [], sync: [] });
       return;
     }
     try {
@@ -74,7 +84,7 @@ export function ChannelsHealthCard({
       const body = (await res.json()) as Partial<ChannelHealth> | null;
       // A payload that is not a health read draws nothing rather than taking the Integrations page down with it.
       if (!body || !Array.isArray(body.houses) || !Array.isArray(body.items)) throw new Error("health");
-      setHealth({ houses: body.houses, items: body.items });
+      setHealth({ houses: body.houses, items: body.items, sync: Array.isArray(body.sync) ? body.sync : [] });
     } catch {
       showToast("Could not load channel health.");
     }
@@ -143,6 +153,23 @@ export function ChannelsHealthCard({
           />
         ))}
       </PortalSettingsGroup>
+      {(health.sync ?? []).length > 0 ? (
+        <PortalSettingsGroup>
+          {[...(health.sync ?? [])]
+            .sort((a, b) => Number(b.state !== "ok" || b.hiddenRemoved > 0) - Number(a.state !== "ok" || a.hiddenRemoved > 0))
+            .map((row) => (
+              <IntegrationRow
+                stackOnPhone
+                key={row.connectionId}
+                icon={row.state === "ok" && row.hiddenRemoved === 0 ? RefreshCw : AlertTriangle}
+                tone={row.state === "ok" && row.hiddenRemoved === 0 ? "text-foreground" : "text-amber-600"}
+                name={`${row.houseLabel ? `${row.houseLabel} \u00b7 ` : ""}${row.roomLabel} \u00b7 ${healthChannelName(row.provider, row.label)}`}
+                fact={syncRowFact(row)}
+                factDataAttr={`settings-channels-sync-${row.connectionId}`}
+              />
+            ))}
+        </PortalSettingsGroup>
+      ) : null}
       {health.items.length > 0 ? (
         <PortalSettingsGroup>
           {health.items.map((item) => (

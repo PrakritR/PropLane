@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isMissingSchemaError, loadSharedLineConfig } from "@/lib/one-number/config.server";
+import { isMissingSchemaError } from "@/lib/one-number/config.server";
 import type { SharedLineRole } from "@/lib/one-number/contracts";
 import { loadThreadPause, pauseThreadAi, resumeThreadAi } from "@/lib/one-number/session.server";
 import { resolveCommunicationGrant } from "@/lib/one-number/communication-grant.server";
@@ -39,8 +39,7 @@ async function resolveThread(conversationId: string, level: "read" | "edit"): Pr
   const { data: { user } } = await auth.auth.getUser();
   if (!user) return { ok: false, status: 401, error: "Unauthorized." };
   const db = createSupabaseServiceRoleClient();
-  // Per-workspace numbers (today's default) have no shared-line pause: the control is simply absent.
-  if ((await loadSharedLineConfig(db)).mode === "per_workspace") return { ok: false, status: 404, error: "Not available." };
+  // A pause applies in every mode: the inbound pipeline honors it for a work number of its own as much as for the shared line.
   // Role first: resolving the workspace provisions one for an account that has none.
   let manager = false;
   try {
@@ -126,6 +125,14 @@ export async function POST(req: Request) {
     action === "pause"
       ? await pauseThreadAi(db, { phoneKey: thread.phoneKey, workspaceId: thread.workspaceId, role: thread.role, reason: "manager_takeover" })
       : await resumeThreadAi(db, { phoneKey: thread.phoneKey, workspaceId: thread.workspaceId, resumedBy: thread.userId! });
+  if (ok && action === "resume") {
+    // The same conversation's review row (Pause assistant from the review controls) closes with it.
+    await db
+      .from("assistant_thread_reviews")
+      .update({ resolved_at: new Date().toISOString(), resolved_by_user_id: thread.userId! })
+      .eq("workspace_id", thread.workspaceId).eq("thread_key", `sms:${thread.phoneKey}`).eq("kind", "pause").is("resolved_at", null)
+      .then(() => undefined, () => undefined);
+  }
   if (!ok) return NextResponse.json({ error: "Could not update this conversation." }, { status: 503 });
   return NextResponse.json({ paused: action === "pause" });
 }

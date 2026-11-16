@@ -1,0 +1,55 @@
+/* Quick chat (public site only). Tokens come from `.ps` (public-site.css); nothing here restates a colour. */
+.ps-wc-launch {
+  position: fixed;
+  right: var(--ps-gut);
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 18px;
+  border: 1px solid var(--ps-ink);
+  border-radius: 3px;
+  background: var(--ps-blue);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ps-wc-launch:hover { background: var(--ps-blue-d); }
+@media (min-width: 900px) {
+  .ps-wc-launch { bottom: 24px; }
+}
+.ps-wc-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+  display: flex;
+  flex-direction: column;
+  background: var(--ps-white);
+  padding: 12px var(--ps-gut) calc(12px + env(safe-area-inset-bottom));
+}
+@media (min-width: 640px) {
+  .ps-wc-panel {
+    inset: auto 24px 24px auto;
+    width: 400px;
+    height: min(600px, calc(100vh - 48px));
+    border: 1px solid var(--ps-ink);
+    padding: 14px;
+  }
+}
+.ps-wc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--ps-rule); }
+.ps-wc-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 12px 0; }
+.ps-wc-quick { display: grid; gap: 8px; }
+.ps-wc-quick .ps-btn { width: 100%; }
+.ps-wc-turn { margin: 0; max-width: 85%; padding: 9px 12px; border: 1px solid var(--ps-rule); border-radius: 3px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; }
+.ps-wc-visitor { align-self: flex-end; background: var(--ps-blue-t); border-color: var(--ps-blue-t); }
+.ps-wc-assistant, .ps-wc-team { align-self: flex-start; background: var(--ps-white); }
+.ps-wc-pending { opacity: 0.6; }
+.ps-wc-link { color: var(--ps-blue); text-decoration: underline; }
+.ps-wc-phone { display: grid; gap: 10px; padding: 10px 0; border-top: 1px solid var(--ps-rule); }
+.ps-wc-continue { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; padding: 6px 0; }
+.ps-wc-compose { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; padding-top: 10px; border-top: 1px solid var(--ps-rule); }
+.ps-wc-compose textarea.ps-input { min-height: 46px; max-height: 120px; padding-block: 10px; resize: none; }
+.ps-wc-hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }

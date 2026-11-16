@@ -14,7 +14,8 @@ import {
 } from "react";
 import { Archive, ChevronLeft, MessageCircle, Pencil, Phone, RotateCcw, Search, Trash2 } from "lucide-react";
 import { ThreadKnowledgeCard } from "@/components/portal/thread-knowledge-card";
-import { AssistantPauseControl, assistantPauseConversationId } from "@/components/portal/assistant-pause-control";
+import { AssistantReplyReview, AssistantReviewProvider, AssistantThreadControls } from "@/components/portal/assistant-review-controls";
+import { smsReviewThreadKey } from "@/lib/assistant-review/model";
 import { refreshedPageCursor } from "@/lib/sms-paged-head";
 import { Select } from "@/components/ui/input";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
@@ -1390,7 +1391,7 @@ export const ManagerSmsPanel = forwardRef<
             </p>
           </div>
         </div>
-        <AssistantPauseControl conversationId={assistantPauseConversationId(active.resident)} />
+        {active.resident.counterpartyRole === "manager" || active.resident.counterpartyRole === "admin" ? null : <AssistantThreadControls />}
         {canEditContact ? (
           <button
             type="button"
@@ -1509,6 +1510,8 @@ export const ManagerSmsPanel = forwardRef<
                   ) : null}
                   <Bubble
                     authorName={smsConversationDisplayName(active.resident)}
+                    askedText={[...threadMessages.slice(0, index)].reverse().find((m) => m.direction === "inbound")?.body ?? ""}
+                    reviewAudience={active.resident.counterpartyRole === "resident" ? "residents" : "all"}
                     message={msg}
                     pending={msg.id.startsWith("pending-")}
                     cluster={
@@ -1598,7 +1601,14 @@ export const ManagerSmsPanel = forwardRef<
     </div>
   );
 
+  const reviewKey = active && active.resident.counterpartyRole !== "manager" && active.resident.counterpartyRole !== "admin" ? smsReviewThreadKey(active.resident.phone) : null;
+  const reviewScope = isAdminEndpoint
+    ? active?.resident.workspaceId
+      ? ({ kind: "admin", workspaceId: active.resident.workspaceId } as const)
+      : null
+    : ({ kind: "manager" } as const);
   return (
+    <AssistantReviewProvider threadKey={reviewScope ? reviewKey : null} scope={reviewScope ?? { kind: "manager" }} role={active?.resident.counterpartyRole ?? null}>
     <div className="space-y-0">
       {allowInlineCompose && smsUiEnabled ? (
         <ManagerSmsComposeModal
@@ -1635,6 +1645,7 @@ export const ManagerSmsPanel = forwardRef<
         />
       )}
     </div>
+    </AssistantReviewProvider>
   );
 });
 
@@ -1673,12 +1684,17 @@ function Bubble({
   pending = false,
   cluster = "single",
   authorName,
+  askedText = "",
+  reviewAudience = "residents",
 }: {
   message: ManagerSmsMessageRow;
   pending?: boolean;
   cluster?: "single" | "first" | "middle" | "last";
   /** The conversation's counterparty, named on each of their runs. */
   authorName: string;
+  /** What the person asked just before this turn (an assistant turn's correction answers it). */
+  askedText?: string;
+  reviewAudience?: "all" | "residents";
 }) {
   if (isLookingForTurnSid(message.messageSid)) {
     return (
@@ -1730,6 +1746,7 @@ function Bubble({
           ) : null}
           <SmsMediaImages media={message.media} />
         </div>
+        {agent && !pending ? <AssistantReplyReview messageRef={message.id} agentText={message.body} askedText={askedText} audience={reviewAudience} /> : null}
         {pending ? (
           <span className="block text-[11.5px] italic text-muted/80">Sending…</span>
         ) : (

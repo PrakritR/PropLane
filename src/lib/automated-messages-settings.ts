@@ -133,6 +133,7 @@ export const AUTOMATED_MESSAGE_CATALOG: AutomatedMessageCatalogEntry[] = [
   { domain: "channel_booking", event: "channel_booking_created", area: "tours", label: "New channel booking", audiences: ["manager"], placeholders: ["propertyTitle", "roomLabel", "stayLabel", "url"] },
   { domain: "channel_booking", event: "channel_booking_cancelled", area: "tours", label: "Channel booking cancelled", audiences: ["manager"], placeholders: ["propertyTitle", "roomLabel", "stayLabel", "url"] },
   { domain: "channel_booking", event: "channel_booking_clash", area: "tours", label: "Double booking found", audiences: ["manager"], placeholders: ["propertyTitle", "roomLabel", "stayLabel", "url"] },
+  { domain: "channel_booking", event: "channel_sync_failed", area: "tours", label: "Channel calendar not syncing", audiences: ["manager"], placeholders: ["propertyTitle", "roomLabel", "url"] },
   // Bookings made in PropLane itself (the owner also gets an email for each, whatever this switch or their alert destination says).
   { domain: "channel_booking", event: "booking_created", area: "tours", label: "New PropLane booking", audiences: ["manager"], placeholders: ["propertyTitle", "roomLabel", "stayLabel", "url"] },
   { domain: "channel_booking", event: "booking_cancelled", area: "tours", label: "PropLane booking cancelled", audiences: ["manager"], placeholders: ["propertyTitle", "roomLabel", "stayLabel", "url"] },

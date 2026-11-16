@@ -34,7 +34,7 @@ export const API_KEY_PRODUCT_AREAS: readonly ApiKeyProductArea[] = [
     id: "leasing",
     label: "Leasing & applications",
     description: "Applications, leases, signatures, and screening.",
-    readTools: ["list_applications", "get_application_details", "list_leases", "list_lease_sections", "list_property_lease_template_sections"],
+    readTools: ["list_applications", "get_application_details", "list_leases", "list_expiring_leases", "list_lease_sections", "list_property_lease_template_sections"],
     writeTools: ["update_application_bucket", "order_background_check", "create_lease_draft", "update_lease_draft", "update_lease_packet", "propose_lease_section_edit", "propose_property_lease_template_section_edit", "amend_lease", "void_lease", "send_lease_for_signature"],
   },
   {
@@ -48,28 +48,28 @@ export const API_KEY_PRODUCT_AREAS: readonly ApiKeyProductArea[] = [
     id: "communication",
     label: "Communication",
     description: "Inbox threads, replies, scheduled messages, and automations.",
-    readTools: ["list_sms_conversations", "list_recent_leads", "list_inbox_threads", "get_thread_messages", "list_scheduled_messages", "get_automation_settings"],
+    readTools: ["list_sms_conversations", "list_recent_leads", "list_threads_awaiting_reply", "list_inbox_threads", "get_thread_messages", "list_scheduled_messages", "get_automation_settings"],
     writeTools: ["reply_to_sms_conversation", "send_message", "reply_to_thread", "schedule_message", "cancel_scheduled_message", "update_thread", "update_automation_settings", "cancel_scheduled_reminder", "restore_scheduled_reminder", "reschedule_reminder"],
   },
   {
     id: "calendar",
     label: "Calendar & tours",
     description: "Availability, events, bookings, room blocks, and prospective tenant tours.",
-    readTools: ["list_calendar_events", "list_tour_inquiries", "list_open_tour_slots", "list_bookings", "list_stay_moves", "check_room_availability", "list_room_blocks"],
+    readTools: ["list_calendar_events", "list_tour_inquiries", "list_open_tour_slots", "list_bookings", "list_stay_moves", "check_room_availability", "list_room_blocks", "list_toured_not_applied"],
     writeTools: ["update_manager_availability", "create_calendar_event", "cancel_calendar_event", "accept_tour_inquiry", "confirm_tour_inquiry", "book_tour", "reschedule_tour", "cancel_tour", "block_room_dates", "remove_room_block"],
   },
   {
     id: "maintenance",
     label: "Maintenance & vendors",
     description: "Service requests, work orders, bids, and vendor contacts.",
-    readTools: ["list_service_requests", "list_work_orders", "suggest_vendors_for_work_order", "list_work_order_bids", "list_vendors"],
+    readTools: ["list_service_requests", "list_work_orders", "suggest_vendors_for_work_order", "list_work_order_bids", "list_vendors", "summarize_open_services"],
     writeTools: ["decide_service_request", "create_work_order", "assign_vendor", "offer_to_vendors", "schedule_vendor_visit", "accept_bid", "complete_work_order", "approve_and_pay_work_order", "send_work_order_reminder", "add_vendor", "update_vendor", "invite_vendor"],
   },
   {
     id: "financials",
     label: "Financials",
     description: "Reports, income, expenses, bills, budgets, and distributions.",
-    readTools: ["run_financial_report", "preview_utility_allocation", "review_inspection_deposit", "suggest_bank_statement_matches"],
+    readTools: ["run_financial_report", "get_house_profit_loss", "preview_utility_allocation", "review_inspection_deposit", "suggest_bank_statement_matches"],
     writeTools: ["allocate_utility_bill", "dispose_inspection_deposit", "record_expense", "record_income", "create_manager_bill", "approve_manager_bill", "record_bill_payment", "create_manager_budget", "update_manager_budget", "dispose_security_deposit", "create_owner_distribution", "approve_owner_distribution", "reconcile_bank_statement_line"],
   },
   {
@@ -113,6 +113,8 @@ export const EXTERNAL_EXCLUDED_TOOL_NAMES = new Set([
   "set_up_payouts",
   "list_vacant_rooms",
   "mark_room_rented",
+  // One resident across applications, leases and charges in one answer: the balance would bypass a key's Payments area.
+  "get_resident_snapshot",
 ]);
 
 export const API_KEY_TOOL_NAMES = new Set(

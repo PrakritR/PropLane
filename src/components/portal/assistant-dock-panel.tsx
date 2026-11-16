@@ -1,5 +1,6 @@
 "use client";
 
+import { setAskLinkHint, useAskLinkHint } from "@/lib/axis-assistant/ask-link-store";
 import { useEffect, useRef, useState } from "react";
 
 import { AssistantChatComposer } from "@/components/portal/assistant-chat-composer";
@@ -111,7 +112,8 @@ export function AssistantDockPanel({
   const firstName = managerName?.trim().split(/\s+/)[0] || null;
   const visibleMessages = visibleConversationMessages(messages);
   const hasConversation = visibleMessages.length > 0 || Boolean(pendingAction);
-  const hint = contextHint?.trim() || null;
+  const askLinkHint = useAskLinkHint();
+  const hint = contextHint?.trim() || askLinkHint || null;
   const isVendorAssistant = endpoint === VENDOR_ASSISTANT_ENDPOINT;
   const isResidentAssistant = endpoint === RESIDENT_ASSISTANT_ENDPOINT;
   const isAdminAssistant = endpoint === ADMIN_ASSISTANT_ENDPOINT;
@@ -138,6 +140,8 @@ export function AssistantDockPanel({
 
   async function sendWithContext(prompt?: string) {
     await send(prompt, { contextHint: hint });
+    // A link's record context is for the first question about it, not every later one.
+    if (askLinkHint) setAskLinkHint(null);
   }
 
   return (

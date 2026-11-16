@@ -50,7 +50,7 @@ type ThreadRow = {
  * Communication for the UI (`conversation-visibility.server.ts`) decides here
  * too, so the assistant cannot read a thread its user could not open.
  */
-async function loadOwnThreadRows(ctx: AgentContext): Promise<ThreadRow[]> {
+export async function loadOwnThreadRows(ctx: AgentContext): Promise<ThreadRow[]> {
   const all: ThreadRow[] = [];
   for (const ownerId of await smsInboxOwnerIds(ctx, "read")) {
     for (let from = 0; ; from += PAGE_SIZE) {

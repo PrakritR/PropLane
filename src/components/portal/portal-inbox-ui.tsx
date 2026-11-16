@@ -1,4 +1,6 @@
 "use client";
+import { AssistantReplyReview } from "@/components/portal/assistant-review-controls";
+import { isAssistantReplyTurn, lastInboundBefore } from "@/lib/assistant-review/turns";
 import { INBOX_ATTACHMENT_FAILED_MESSAGE, inboxAttachmentSendBlockReason } from "@/lib/inbox-attachment-send-gate";
 import Link from "next/link";
 import { inboxActivitySummary } from "@/lib/inbox-activity-summary";
@@ -1697,7 +1699,7 @@ export function InboxBubble({
   if (message.eventKind && message.eventCard) {
     return <InboxEventCard kind={message.eventKind} card={message.eventCard} viewer={eventViewer} recordRef={message.eventRecordRef} />;
   }
-  if (message.direction === "system" || message.automated) {
+  if (message.direction === "system" || (message.automated && !isAssistantReplyTurn(message))) {
     const event = inboxActivitySummary(message.eventTitle || message.subject, message.body);
     const at = /^\d{4}-\d\d-\d\dT/.test(message.at) && !Number.isNaN(Date.parse(message.at))
       ? formatInboxListNarrowTime(message.at)
@@ -1897,6 +1899,15 @@ export function InboxMessageTimeline({
               emailNameAsPerson={emailNameAsPerson}
               eventViewer={eventViewer}
             />
+            {isAssistantReplyTurn(item.message) ? (
+              <div className="pl-10">
+                <AssistantReplyReview
+                  messageRef={item.message.id}
+                  agentText={item.message.body}
+                  askedText={lastInboundBefore(messages, item.message.id)}
+                />
+              </div>
+            ) : null}
           </div>
         ),
       )}

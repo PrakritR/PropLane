@@ -63,6 +63,9 @@ POST back to the SAME chat endpoint  { confirmActionId } | { denyActionId }
   · audit_log row written BEFORE the side effect (dedupe_key idempotency)
 ```
 
+The questions a property manager asks, and the tool that answers each (with the surfaces and grants), are catalogued in
+[`docs/agents/manager-agent-questions.md`](agents/manager-agent-questions.md); `tests/unit/tools/manager-question-catalog.test.ts` pins a subset.
+
 ### The three contexts (security choke points)
 
 | Portal | Resolver | Scope rule every tool must apply |

@@ -16,6 +16,7 @@ import {
   type VendorIssueSearchHit,
 } from "@/lib/vendor-issue-search";
 import { Button } from "@/components/ui/button";
+import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS, type PaymentMethod } from "@/lib/finance/payment-fields";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
@@ -91,6 +92,12 @@ export type ManagerVendorFormDraft = {
   /** Dollars as typed; saved as cents. */
   dispatchRate: string;
   dispatchPayModel: "" | VendorPayModel;
+  /** Dollars as typed; saved as cents. What one visit costs ("Record payment" prefills from it). */
+  visitRate: string;
+  /** A generic payment-method label, or "" (record-keeping only; PropLane sends nothing). */
+  payoutMethod: "" | PaymentMethod;
+  /** Four digits at most, never a full account number. */
+  payoutLast4: string;
   insuranceExpiresAt: string;
   licenseNumber: string;
   dispatchAvailable: boolean;
@@ -114,6 +121,9 @@ export const EMPTY_MANAGER_VENDOR_FORM_DRAFT: ManagerVendorFormDraft = {
   serviceArea: "",
   dispatchRate: "",
   dispatchPayModel: "",
+  visitRate: "",
+  payoutMethod: "",
+  payoutLast4: "",
   insuranceExpiresAt: "",
   licenseNumber: "",
   dispatchAvailable: true,
@@ -139,6 +149,9 @@ function draftFromVendor(row: ManagerVendorRow): ManagerVendorFormDraft {
     serviceArea: row.serviceArea ?? "",
     dispatchRate: centsToDollarsInput(row.dispatchRateCents),
     dispatchPayModel: row.dispatchPayModel ?? "",
+    visitRate: centsToDollarsInput(row.visitRateCents),
+    payoutMethod: row.payoutMethod ?? "",
+    payoutLast4: row.payoutLast4 ?? "",
     insuranceExpiresAt: row.insuranceExpiresAt ?? "",
     licenseNumber: row.licenseNumber ?? "",
     dispatchAvailable: row.dispatchAvailable !== false,
@@ -627,6 +640,9 @@ export function ManagerVendorFormModal({
       serviceArea: draft.serviceArea.trim() || undefined,
       dispatchRateCents: dollarsInputToCents(draft.dispatchRate) ?? undefined,
       dispatchPayModel: draft.dispatchPayModel || undefined,
+      visitRateCents: dollarsInputToCents(draft.visitRate) ?? undefined,
+      payoutMethod: draft.payoutMethod || undefined,
+      payoutLast4: /^\d{4}$/.test(draft.payoutLast4) ? draft.payoutLast4 : undefined,
       insuranceExpiresAt: draft.insuranceExpiresAt || undefined,
       licenseNumber: draft.licenseNumber.trim() || undefined,
       dispatchAvailable: draft.dispatchAvailable ? undefined : false,
@@ -1229,6 +1245,49 @@ export function ManagerVendorFormModal({
                     options={VENDOR_PAY_MODELS.map((model) => ({ value: model.id, label: model.label }))}
                   />
                 </div>
+              </div>
+              <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
+                <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                  <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="vendor-visit-rate">Per-visit rate</label>
+                  <Input
+                    id="vendor-visit-rate"
+                    inputMode="decimal"
+                    value={draft.visitRate}
+                    onChange={(e) => patch({ visitRate: e.target.value.replace(/[^0-9.]/g, "") })}
+                    placeholder="$"
+                    data-attr="vendor-visit-rate"
+                  />
+                </div>
+                <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                  <FieldSingleSelect
+                    label="Payout method"
+                    dataAttr="vendor-payout-method"
+                    value={draft.payoutMethod}
+                    placeholder="Not set"
+                    onChange={(next) => patch({ payoutMethod: next as "" | PaymentMethod })}
+                    options={PAYMENT_METHODS.map((method) => ({ value: method, label: PAYMENT_METHOD_LABELS[method] }))}
+                  />
+                </div>
+              </div>
+              <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
+                <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                  <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="vendor-payout-last4">Account last 4</label>
+                  <Input
+                    id="vendor-payout-last4"
+                    inputMode="numeric"
+                    value={draft.payoutLast4}
+                    onChange={(e) => patch({ payoutLast4: e.target.value.replace(/\D/g, "").slice(0, 4) })}
+                    maxLength={4}
+                    placeholder="0000"
+                    data-attr="vendor-payout-last4"
+                  />
+                </div>
+                {vendor?.payoutConnectAccountRef ? (
+                  <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                    <span className={MODAL_FIELD_LABEL_CLASS}>Stripe account</span>
+                    <p className="flex min-h-11 items-center text-[13.5px] tabular-nums">{vendor.payoutConnectAccountRef}</p>
+                  </div>
+                ) : null}
               </div>
               <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
                 <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>

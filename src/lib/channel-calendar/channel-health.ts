@@ -14,6 +14,7 @@ import { isImportedChannelBlock } from "@/lib/channel-calendar/property-bookings
 import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import type { VacancyRoom } from "@/lib/channel-calendar/vacancy-post";
 import type { ChannelCalendarProvider } from "@/lib/channel-calendar/types";
+import { tombstoneBelongsToConnection, type ChannelStayTombstone } from "@/lib/channel-calendar/stay-tombstones";
 import { coveringIntervals, nextDayKey, previousDayKey, uncovered } from "@/lib/room-occupancy-rule";
 
 /** Decision D2: a channel that has not fetched the export for this long is stale. Airbnb polls every few hours. */
@@ -23,6 +24,20 @@ export const FEED_STALE_AFTER_MS = FEED_STALE_AFTER_HOURS * 60 * 60_000;
 export const ECHO_GRACE_MS = 30 * 60_000;
 /** A closure longer than this many nights is a standing closure, not a stay. */
 export const LONG_CLOSURE_NIGHTS = 60;
+/**
+ * Import sync health (the other direction: PropLane reading the channel). The cron runs every 15 minutes, so a
+ * connection unsynced for {@link SYNC_STALE_AFTER_HOURS} has missed several runs; one unsynced for
+ * {@link SYNC_NOTICE_AFTER_HOURS} is reported to the manager (`channel-sync-notice.server.ts`).
+ */
+export const SYNC_STALE_AFTER_HOURS = 2;
+export const SYNC_STALE_AFTER_MS = SYNC_STALE_AFTER_HOURS * 60 * 60_000;
+export const SYNC_NOTICE_AFTER_HOURS = 6;
+export const SYNC_NOTICE_AFTER_MS = SYNC_NOTICE_AFTER_HOURS * 60 * 60_000;
+/** "Stays imported in the window": a week back through this many days ahead. */
+export const SYNC_WINDOW_BACK_DAYS = 7;
+export const SYNC_WINDOW_AHEAD_DAYS = 90;
+/** A removed reservation the feed still lists is worth a line while it is current or ended this recently. */
+export const REMOVED_STAY_SURFACE_DAYS = 3;
 /** Prefix `export/[token]/route.ts` puts on `last_error` when the export failed (the import sync writes its own errors there). */
 export const EXPORT_FEED_ERROR_PREFIX = "Export feed failed";
 
@@ -52,6 +67,8 @@ export type HealthConnection = {
   lastSyncedAt: string | null;
   lastError: string | null;
   exportLastFetchedAt: string | null;
+  /** A pasted import link; a connection with none is export-only and never syncs. Absent reads as linked. */
+  hasImportUrl?: boolean;
   /** The imported ranges, last night INCLUSIVE (`ChannelCalendarImportedRange`). */
   ranges: ReadonlyArray<{ start: string; end: string; hostBlock?: boolean; summary?: string | null }>;
 };
@@ -76,7 +93,7 @@ export type HealthStay = {
 
 export type ChannelAttentionItem = {
   id: string;
-  kind: "stale_feed" | "feed_error" | "missing_echo" | "manager_closure" | "channel_closure" | "unassigned_approval";
+  kind: "stale_feed" | "feed_error" | "sync_error" | "sync_stale" | "removed_stay_hidden" | "missing_echo" | "manager_closure" | "channel_closure" | "unassigned_approval";
   propertyId: string;
   roomId: string;
   /** One plain sentence. No subtext. */
@@ -106,7 +123,26 @@ export type ChannelHealthHouse = {
   channels: ChannelHealthChannel[];
 };
 
-export type ChannelHealth = { houses: ChannelHealthHouse[]; items: ChannelAttentionItem[] };
+/** One room x platform: when PropLane last read that channel, what it said, and what it holds. */
+export type ChannelSyncRow = {
+  connectionId: string;
+  propertyId: string;
+  roomId: string;
+  houseLabel: string;
+  roomLabel: string;
+  provider: ChannelCalendarProvider;
+  label: string | null;
+  lastSyncedAt: string | null;
+  /** The last sync's failure, or null. The export feed's own error is not an import failure and is left out. */
+  lastError: string | null;
+  /** Reservations (not host blocks) stored in the window. */
+  staysInWindow: number;
+  /** Removed stays the channel still lists, which PropLane is holding back on purpose. */
+  hiddenRemoved: number;
+  state: "ok" | "never" | "stale" | "error";
+};
+
+export type ChannelHealth = { houses: ChannelHealthHouse[]; items: ChannelAttentionItem[]; sync?: ChannelSyncRow[] };
 
 function ms(iso: string | null | undefined): number {
   const value = iso ? Date.parse(iso) : NaN;
@@ -276,6 +312,88 @@ function unassignedApprovalItems(approvals: readonly UnassignedApproval[]): Chan
   });
 }
 
+function addDays(day: string, days: number): string {
+  return new Date(Date.parse(`${day}T12:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** The removed RESERVATIONS of a connection that are current or recently ended: the channel still lists them. */
+function hiddenRemovedFor(connection: HealthConnection, removed: readonly ChannelStayTombstone[], today: string): ChannelStayTombstone[] {
+  const since = addDays(today, -REMOVED_STAY_SURFACE_DAYS);
+  return removed.filter(
+    (t) =>
+      !isHostBlockRange(t.range) &&
+      tombstoneBelongsToConnection(t, { id: connection.id, property_id: connection.propertyId, room_id: connection.roomId, provider: connection.provider }) &&
+      (t.range.end || t.range.start) >= since,
+  );
+}
+
+/**
+ * One row per linked room x platform. Pure; reads only what the Channels read already holds (the connection row, its
+ * stored ranges and the removed-stay tombstones), so it costs no extra poll. `never` = linked and never read yet.
+ */
+export function buildSyncRows(input: {
+  connections: readonly HealthConnection[];
+  removed?: readonly ChannelStayTombstone[];
+  now: Date;
+  today: string;
+  thresholdMs?: number;
+}): ChannelSyncRow[] {
+  const from = addDays(input.today, -SYNC_WINDOW_BACK_DAYS);
+  const to = addDays(input.today, SYNC_WINDOW_AHEAD_DAYS);
+  const rows: ChannelSyncRow[] = [];
+  for (const connection of input.connections) {
+    if (connection.hasImportUrl === false) continue;
+    const importError = connection.lastError && !connection.lastError.startsWith(EXPORT_FEED_ERROR_PREFIX) ? connection.lastError : null;
+    const synced = ms(connection.lastSyncedAt);
+    const age = Number.isFinite(synced) ? input.now.getTime() - synced : NaN;
+    const stays = connection.ranges.filter((range) => !isHostBlockRange(range) && (range.end || range.start) >= from && range.start <= to).length;
+    const state: ChannelSyncRow["state"] = importError
+      ? "error"
+      : !Number.isFinite(synced)
+        ? "never"
+        : age > (input.thresholdMs ?? SYNC_STALE_AFTER_MS)
+          ? "stale"
+          : "ok";
+    rows.push({
+      connectionId: connection.id,
+      propertyId: connection.propertyId,
+      roomId: connection.roomId,
+      houseLabel: connection.houseLabel ?? "",
+      roomLabel: connection.roomLabel,
+      provider: connection.provider,
+      label: connection.label,
+      lastSyncedAt: connection.lastSyncedAt,
+      lastError: importError,
+      staysInWindow: stays,
+      hiddenRemoved: hiddenRemovedFor(connection, input.removed ?? [], input.today).length,
+      state,
+    });
+  }
+  return rows;
+}
+
+function syncItems(rows: readonly ChannelSyncRow[], now: Date): ChannelAttentionItem[] {
+  const items: ChannelAttentionItem[] = [];
+  for (const row of rows) {
+    const place = `${housePrefix(row.houseLabel)}${channelName(row.provider, row.label)} \u00b7 ${row.roomLabel}`;
+    if (row.state === "error") {
+      items.push({ id: `sync_error:${row.connectionId}`, kind: "sync_error", propertyId: row.propertyId, roomId: row.roomId, text: `${place} could not be read: ${row.lastError}` });
+    } else if (row.state === "stale") {
+      items.push({ id: `sync_stale:${row.connectionId}`, kind: "sync_stale", propertyId: row.propertyId, roomId: row.roomId, text: `${place} was last read ${hoursText(now.getTime() - ms(row.lastSyncedAt))} ago` });
+    }
+    if (row.hiddenRemoved > 0) {
+      items.push({
+        id: `removed_stay_hidden:${row.connectionId}`,
+        kind: "removed_stay_hidden",
+        propertyId: row.propertyId,
+        roomId: row.roomId,
+        text: `${place}: ${row.hiddenRemoved} removed ${row.hiddenRemoved === 1 ? "stay is" : "stays are"} still on the channel and held back (restore from Removed stays)`,
+      });
+    }
+  }
+  return items;
+}
+
 /** Every finding, stalest feed first, then echoes, then closures. */
 export function buildAttentionItems(input: {
   connections: readonly HealthConnection[];
@@ -285,8 +403,11 @@ export function buildAttentionItems(input: {
   today: string;
   thresholdMs?: number;
   unassigned?: readonly UnassignedApproval[];
+  /** Import sync rows (`buildSyncRows`); their failures and held-back removals join the list. */
+  sync?: readonly ChannelSyncRow[];
 }): ChannelAttentionItem[] {
   return [
+    ...syncItems(input.sync ?? [], input.now),
     ...feedItems(input.connections, input.now, input.thresholdMs ?? FEED_STALE_AFTER_MS),
     ...echoItems(input.connections, input.stays, input.today),
     ...managerClosureItems(input.stays, input.today),

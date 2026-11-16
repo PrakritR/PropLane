@@ -22,6 +22,7 @@ export const IN_APP_PATH_PREFIXES = [
   "/partner/",
   "/billing/",
   "/vendor/",
+  "/open/", // Notice deep links (`/open/thread`): select the workspace, then land on the exact conversation.
 ] as const;
 
 /**

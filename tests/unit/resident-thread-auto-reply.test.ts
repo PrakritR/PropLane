@@ -34,6 +34,7 @@ function deps(overrides: Partial<import("@/lib/resident-thread-auto-reply.server
   const base = {
     loadSettings: vi.fn(async () => ({})),
     workspaceOf: vi.fn(async () => "ws-1"),
+    paused: vi.fn(async () => false),
     hold: vi.fn(async () => ({ hold: false })),
     reserve: vi.fn(async () => ({ allowed: true as const, key: "k1" })),
     finish: vi.fn(async () => undefined),
@@ -274,6 +275,26 @@ describe("runResidentThreadAutoReply", () => {
       expect(await server.runResidentThreadAutoReply({ ...input, text: "can I get a late checkout" }, e)).toEqual({ outcome: "held", escalated: true });
       expect(e.notifyManager).toHaveBeenCalledTimes(1);
       expect(e.deliver).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Pause assistant / Take over on this conversation", () => {
+    it.each([
+      ["paused", async () => true],
+      ["unreadable (fails closed: the assistant stays quiet)", async () => { throw new Error("read failed"); }],
+    ])("%s: no answer, no model turn, no credit, no escalation card, no ack", async (_name, paused) => {
+      const d = deps({ paused });
+      expect(await server.runResidentThreadAutoReply({ ...input, text: "wifi password?" }, d)).toEqual({ outcome: "skipped", reason: "assistant_paused" });
+      expect(await server.runResidentThreadAutoReply({ ...input, text: "can I get a late checkout" }, d)).toEqual({ outcome: "skipped", reason: "assistant_paused" });
+      for (const fn of [d.respond, d.reserve, d.deliver, d.notifyManager]) expect(fn).not.toHaveBeenCalled();
+    });
+
+    it("asks about THIS thread in THIS workspace; an unpaused thread is answered as usual with no SMS leg at all (in-app only)", async () => {
+      const d = deps();
+      const out = await server.runResidentThreadAutoReply({ ...input, text: "is there parking?" }, d);
+      expect(d.paused).toHaveBeenCalledWith({ threadId: input.threadId, workspaceId: "ws-1" });
+      expect(out).toMatchObject({ outcome: "replied", kind: "answer" });
+      expect(d.deliver).toHaveBeenCalledTimes(1);
     });
   });
 

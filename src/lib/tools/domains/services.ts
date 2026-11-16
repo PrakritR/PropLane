@@ -5,7 +5,7 @@ import type { ServiceRequest } from "@/lib/service-requests-storage";
 import { loadAllManagerRows } from "./load-manager-rows";
 
 /** Server-side read of the landlord's service requests, scoped by manager_user_id. */
-async function loadManagerServiceRequests(ctx: AgentContext): Promise<ServiceRequest[]> {
+export async function loadManagerServiceRequests(ctx: AgentContext): Promise<ServiceRequest[]> {
   return loadAllManagerRows(
     ctx,
     "portal_service_request_records",

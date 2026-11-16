@@ -47,12 +47,12 @@ import {
   channelStayTombstoneKeyOf,
   importedRangeUid,
   pruneTombstonedRanges,
+  removedDatesByKey,
   tombstoneBelongsToConnection,
 } from "@/lib/channel-calendar/stay-tombstones";
 import {
   clearChannelStayTombstonesForRoom,
   deleteChannelStayTombstoneRecords,
-  loadChannelStayTombstoneKeys,
   loadChannelStayTombstoneRecords,
 } from "@/lib/channel-calendar/stay-tombstones.server";
 import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
@@ -825,6 +825,7 @@ export async function syncChannelCalendarConnection(
     const parsed = icalEventsToImportedRanges(parseIcsCalendar(icsText));
     const identity = { propertyId: connection.property_id, roomId: connection.room_id, provider: connection.provider };
     let tombstoneKeys: Set<string>;
+    let removedDates: Map<string, { start: string; end: string }>;
     {
       const stored = await loadChannelStayTombstoneRecords(db, [connection.property_id]);
       const mine = stored.filter((t) => tombstoneBelongsToConnection(t, connection));
@@ -856,9 +857,11 @@ export async function syncChannelCalendarConnection(
         }
       }
       await deleteChannelStayTombstoneRecords(db, [...clearable]);
-      tombstoneKeys = new Set(stored.filter((t) => !clearable.has(t.id)).map(channelStayTombstoneKeyOf));
+      const live = stored.filter((t) => !clearable.has(t.id));
+      tombstoneKeys = new Set(live.map(channelStayTombstoneKeyOf));
+      removedDates = removedDatesByKey(live);
     }
-    const firstPass = pruneTombstonedRanges(parsed, identity, tombstoneKeys);
+    const firstPass = pruneTombstonedRanges(parsed, identity, tombstoneKeys, removedDates);
     const imported = firstPass.kept;
     if (firstPass.dropped.length > 0) {
       // Diagnostics only (last_error means failure): a sync that stores fewer ranges than the feed
@@ -896,11 +899,12 @@ export async function syncChannelCalendarConnection(
     // A Remove that landed while this sync was reading the feed wrote its
     // tombstone after the keys above were read; re-check once so the stay it
     // removed cannot slip back in through the save we just made.
-    const latestKeys = await loadChannelStayTombstoneKeys(db, [connection.property_id]);
+    const latestRecords = await loadChannelStayTombstoneRecords(db, [connection.property_id]);
     const recheck = pruneTombstonedRanges(
       imported,
       { propertyId: connection.property_id, roomId: connection.room_id, provider: connection.provider },
-      latestKeys,
+      new Set(latestRecords.map(channelStayTombstoneKeyOf)),
+      removedDatesByKey(latestRecords),
     );
     if (recheck.dropped.length > 0) {
       await persistConnectionImportedRanges(db, parseConnectionRow(saved as Record<string, unknown>), recheck.kept);

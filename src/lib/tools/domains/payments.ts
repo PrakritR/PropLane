@@ -22,7 +22,7 @@ import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.serve
 import { currentSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 
 /** Server-side read of the landlord's charges, scoped by manager_user_id. */
-async function loadManagerCharges(ctx: AgentContext): Promise<HouseholdCharge[]> {
+export async function loadManagerCharges(ctx: AgentContext): Promise<HouseholdCharge[]> {
   return loadAllManagerRows(
     ctx,
     "portal_household_charge_records",

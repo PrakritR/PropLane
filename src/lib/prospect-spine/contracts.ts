@@ -2,7 +2,7 @@
 export type ProspectSource =
   | "sms" | "listing_message" | "in_app" | "application" | "tour" | "voice"
   | "spareroom" | "roomies" | "facebook" | "zillow" | "craigslist" | "roomster"
-  | "airbnb" | "booking_com" | "padsplit" | "other";
+  | "airbnb" | "booking_com" | "padsplit" | "web_chat" | "other";
 export const PLATFORM_SOURCES = ["spareroom","roomies","facebook","zillow","craigslist","roomster","airbnb","booking_com","padsplit"] as const;
 export type PlatformSource = (typeof PLATFORM_SOURCES)[number];
 export type ProspectContextInput = {
@@ -15,7 +15,7 @@ export type ProspectContextInput = {
 /** Who wrote. Exactly one of phoneE164 / contactHandle is the identity; a name or email is never one. */
 export type ProspectIdentity =
   | { kind: "phone"; phoneE164: string; verified: boolean; displayName?: string | null; email?: string | null }
-  | { kind: "handle"; contactHandle: string; site: PlatformSource; displayName?: string | null; replyAddress?: string | null };
+  | { kind: "handle"; contactHandle: string; site: PlatformSource | "web_chat"; displayName?: string | null; replyAddress?: string | null };
 export type SpineMedia = { storagePath: string; contentType: string; byteSize: number | null };
 export type RecordInboundInput = {
   workspaceId: string;

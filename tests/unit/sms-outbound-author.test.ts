@@ -29,18 +29,18 @@ describe("isAutomatedSmsOutbound", () => {
 });
 
 describe("the label an outbound text wears", () => {
-  it("automated: PropLane, even when a person's name is attached; human: their own name; the viewer's own: You", () => {
+  it("automated: PropLane Assistant, even when a person's name is attached; human: their own name; the viewer's own: You", () => {
     expect(smsOutboundAuthorLabel({ automated: true, sentBy: { userId: OWNER, name: "Ambika Mago" } })).toBe(SMS_AGENT_AUTHOR_LABEL);
-    expect(smsOutboundAuthorLabel({ source: "automated" })).toBe("PropLane");
+    expect(smsOutboundAuthorLabel({ source: "automated" })).toBe(SMS_AGENT_AUTHOR_LABEL);
     expect(smsOutboundAuthorLabel({ sentBy: { userId: STAFF, name: "Dev Patel" } })).toBe("Dev Patel");
     expect(smsOutboundAuthorLabel({})).toBe("You");
-    expect(smsBubbleSenderLabel({ direction: "outbound", automated: true, sentBy: { userId: OWNER, name: "Ambika Mago" } }, "Lead")).toBe("PropLane");
+    expect(smsBubbleSenderLabel({ direction: "outbound", automated: true, sentBy: { userId: OWNER, name: "Ambika Mago" } }, "Lead")).toBe(SMS_AGENT_AUTHOR_LABEL);
     expect(smsBubbleSenderLabel({ direction: "inbound" }, "Maria")).toBe("Maria");
   });
 });
 
 describe("admin Communication", () => {
-  it("labels the agent's reply PropLane (not the owner) and a staff reply with the staff member's name", async () => {
+  it("labels the agent's reply PropLane Assistant (not the owner) and a staff reply with the staff member's name", async () => {
     const outbound = (id: string, sid: string, body: string) => ({
       id, manager_user_id: SO, resident_user_id: null, resident_phone: "+12065550101", body, from_phone: "+12066781909", to_phone: "+12065550101",
       message_sid: sid, source: "work_number", created_at: id === "o1" ? "2026-11-12T10:00:00Z" : "2026-11-12T10:05:00Z", direction: "outbound",
@@ -61,7 +61,7 @@ describe("admin Communication", () => {
     const messages = payload.residents.flatMap((r) => r.messages);
     const agent = messages.find((m) => m.messageSid === "SMagent")!;
     const staff = messages.find((m) => m.messageSid === "SMstaff")!;
-    expect(smsOutboundAuthorLabel(agent)).toBe("PropLane");
+    expect(smsOutboundAuthorLabel(agent)).toBe(SMS_AGENT_AUTHOR_LABEL);
     expect(JSON.stringify(agent)).not.toContain("Ambika Mago");
     expect(smsOutboundAuthorLabel(staff)).toBe("Dev Patel");
     // Display only: the stored rows are untouched.

@@ -129,6 +129,7 @@ import { listCoManagersTool } from "./domains/team";
 import { listSpreadsheetsTool, readSpreadsheetTool, syncSpreadsheetTool } from "./domains/spreadsheets";
 import { listDocumentsTool } from "./domains/documents";
 import { managerFinancialsWriteTools } from "./domains/financials-write";
+import { managerQuestionTools } from "./domains/manager-questions";
 import { managerServicesWriteTools } from "./domains/services-write";
 import { managerDispatchTools } from "./domains/vendor-dispatch";
 import { managerVendorMessageTools } from "./domains/vendor-message";
@@ -312,6 +313,9 @@ export const agentRegistry = buildRegistry([
   // makes it safe to expose — the model can propose, only the landlord can
   // execute.
   ...managerFinancialsWriteTools,
+  // Manager question catalog gaps (docs/agents/manager-agent-questions.md): lease expirations, unanswered threads,
+  // toured-not-applied, open services summary, one-resident snapshot, per-house profit and loss. All reads.
+  ...managerQuestionTools,
 ].map((tool) => scopeManagerTool(tool as Parameters<typeof scopeManagerTool>[0])));
 
 /**
