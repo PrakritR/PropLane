@@ -8,8 +8,13 @@ import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { RecordActionMenu, RECORD_ACTION_DESTRUCTIVE_SETTLE_MS } from "@/components/ui/record-action-menu";
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  // Unmounting the menu/dialog leaves Radix's focus scope holding a 0ms timer that builds a `CustomEvent` and
+  // dispatches it on the container. Let it fire while this file's jsdom is still the current realm: if it instead
+  // fires after vitest tears the environment down, `CustomEvent` is Node's own class and jsdom rejects it
+  // ("parameter 1 is not of type 'Event'") as an uncaught exception that fails the whole run.
+  await new Promise((resolve) => setTimeout(resolve, 0));
   vi.unstubAllGlobals();
 });
 
