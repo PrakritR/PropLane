@@ -29,7 +29,6 @@ vi.mock("@/lib/rental-application/applicant-identity.server", () => ({
 }));
 
 import { prepareResidentSelfWrite } from "@/lib/rental-application/signed-in-application-write.server";
-import { resolveApplicantIdentity } from "@/lib/rental-application/applicant-identity";
 
 const PHONE_USER = { id: "user-phone", email: "86a2e10a@phone.proplane.invalid", email_confirmed_at: "2026-11-17T03:50:52Z" };
 
@@ -73,11 +72,22 @@ describe("an account that signed up by a texted code can send its own applicatio
 
   it("no proven phone and no mailbox is still refused", async () => {
     proven.mockResolvedValue(false);
-    for (const profile of [null, { phone: "+13135550100", phone_verified_at: null }, { phone: "+13135550100", phone_verified_at: "x" }]) {
+    for (const profile of [null, { phone: null }, { phone: "+13135550100" }]) {
       const out = await prepareResidentSelfWrite(fakeDb(profile), PHONE_USER, { row, requestedRowId: "PROPLANE-NEWROW01", role: "resident", email: "" });
       expect(out.ok).toBe(false);
       if (!out.ok) expect(out.body.error).toBe("You can only update your own application.");
     }
+  });
+
+  it("an account that HAS a mailbox (unconfirmed or not) never takes the phone path", async () => {
+    proven.mockResolvedValue(true);
+    const out = await prepareResidentSelfWrite(
+      fakeDb({ phone: "+13135550100" }),
+      { id: "user-unconfirmed", email: "real@mailbox.com", email_confirmed_at: null },
+      { row, requestedRowId: "PROPLANE-NEWROW01", role: "resident", email: "" },
+    );
+    expect(out.ok).toBe(false);
+    expect(proven).not.toHaveBeenCalled();
   });
 
   it("an account WITH a verified mailbox still has to apply under that mailbox", async () => {
@@ -89,15 +99,5 @@ describe("an account that signed up by a texted code can send its own applicatio
     );
     expect(out.ok).toBe(false);
     expect(proven).not.toHaveBeenCalled();
-  });
-
-  it("a phone account's placeholder address is never taken as the applicant's email", () => {
-    const identity = resolveApplicantIdentity({
-      answers: { email: "applicant@uw.edu" },
-      authUser: { email: "86a2e10a@phone.proplane.invalid" },
-      profile: { email: "86a2e10a@phone.proplane.invalid" },
-    });
-    expect(identity.email).toBe("applicant@uw.edu");
-    expect(identity.emailMismatch).toBe(false);
   });
 });

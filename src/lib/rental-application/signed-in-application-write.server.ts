@@ -379,17 +379,22 @@ export async function revokeMaterializedApplicationConsentAfterWrite(
   if (!result.ok) throw new Error(result.error);
 }
 
+/** The placeholder login a phone sign-up gets (`phone-auth.server.ts`): the account has no mailbox at all. */
+function isPhoneOnlyLogin(authEmail: string | null | undefined): boolean {
+  return (authEmail ?? "").trim().toLowerCase().endsWith("@phone.proplane.invalid");
+}
+
 /**
- * A phone-only account (signed up by a texted code, no mailbox): its profile phone is verified and held by
- * exactly this account (`phoneProvenFor`). Any unreadable read is NOT proven.
+ * The account's own phone is verified and held by exactly this account — `phoneProvenFor` is the one
+ * definition; this only supplies the account's number. Any unreadable read is NOT proven.
  */
 async function accountPhoneProven(db: Db, userId: string): Promise<boolean> {
   try {
-    const { data, error } = await db.from("profiles").select("phone, phone_verified_at").eq("id", userId).maybeSingle();
-    const profile = (data ?? null) as { phone?: unknown; phone_verified_at?: unknown } | null;
-    if (error || !profile || typeof profile.phone !== "string" || !profile.phone_verified_at) return false;
+    const { data, error } = await db.from("profiles").select("phone").eq("id", userId).maybeSingle();
+    const phone = (data as { phone?: unknown } | null)?.phone;
+    if (error || typeof phone !== "string" || !phone.trim()) return false;
     const { phoneProvenFor } = await import("@/lib/prospect-spine/link.server");
-    return await phoneProvenFor(db as never, userId, profile.phone);
+    return await phoneProvenFor(db as never, userId, phone);
   } catch {
     return false;
   }
@@ -439,8 +444,12 @@ export async function prepareResidentSelfWrite(
   // A NEW application is the writer's own when the session's verified mailbox is the row's email, or (captain,
   // Nov 14: a proven phone is proof) when the account signed up by a texted code and has no mailbox at all.
   // Either way the row is bound to this Auth subject below, so the typed email is contact info, never a grant.
-  const ownsNewRow = Boolean(email) ? rowEmail === email : await accountPhoneProven(db, user.id);
-  if (existing ? existing.residentUserId !== user.id : !ownsNewRow) {
+  const ownsRow = existing
+    ? existing.residentUserId === user.id
+    : email
+      ? rowEmail === email
+      : isPhoneOnlyLogin(user.email) && (await accountPhoneProven(db, user.id));
+  if (!ownsRow) {
     return refuse(403, { error: "You can only update your own application." });
   }
   if (existing && existing.bucket !== "pending") {

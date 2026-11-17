@@ -185,8 +185,8 @@ email; email is added later (Settings), and `phone_required` is not touched. No 
 `create-account-phone-first.test.tsx`, `phone-verify-next.test.ts`.
 
 Such a phone-only account applies like any other: with no mailbox, its proven phone (`phoneProvenFor`) is what makes a NEW application its own in
-`prepareResidentSelfWrite`, the row is bound to its Auth subject, the typed email is contact info only, and the placeholder address never becomes
-the applicant's email (`resolveApplicantIdentity`). Test: `phone-account-application-submit.test.ts`.
+`prepareResidentSelfWrite`, only for a placeholder `@phone.proplane.invalid` login (an account with any real mailbox still applies under it), and
+the row is bound to its Auth subject; the typed email is contact info only. Test: `phone-account-application-submit.test.ts`.
 
 A prospect who texts the PropLane line to tour or apply and has no account is offered the by-text sign-up (`start_prospect_signup`, `startTourSignup` in
 `one-number/signup/flow.server.ts`): the same W26 conversation as a resident sign-up that remembers the one live home, skips "which home do you live
