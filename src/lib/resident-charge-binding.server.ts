@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { verifiedSessionEmail } from "@/lib/auth/verified-session-email";
+
 /**
  * Which charge rows are a resident's even though the row carries neither their Auth id nor their sign-in address.
  *
@@ -60,49 +62,79 @@ async function dropSharedAddressPairs(
 }
 
 /**
- * Does this Auth subject sign in with a real, confirmed mailbox? A phone sign-up account (captain, Nov 14) owns its
- * application by a proven PHONE, and the address on that application is whatever it typed - so for it the address
- * shape is no proof at all, not even for a read: typing someone else's email must never show their charges. Only the
- * application-id shape (written server-side) binds such an account. An unreadable account reads as "no".
+ * Does this Auth subject sign in with a real, confirmed mailbox RIGHT NOW? A phone sign-up account (captain, Nov 14)
+ * owns its application by a proven PHONE, and the address on that application is whatever it typed - so for it the
+ * address shape is no proof at all, not even for a read: typing someone else's email must never show their charges.
+ * Only the application-id shape (written server-side) binds such an account.
+ *
+ * `verifiedSessionEmail` is the one answer to that question, so an account that LATER proves a real mailbox
+ * (`verifyEmailProof` replaces the `@phone.proplane.invalid` placeholder with a confirmed address) gets the address
+ * shape back. The creation-time `app_metadata.phone_only` stamp is never cleared, so it records account history, not
+ * current proof, and is not consulted here. An unreadable account reads as "no".
  */
 async function subjectHasProvenMailbox(db: SupabaseClient, userId: string): Promise<boolean> {
   try {
     const { data, error } = await db.auth.admin.getUserById(userId);
     const user = data?.user;
-    const email = user?.email?.trim().toLowerCase() ?? "";
-    if (error || !user?.email_confirmed_at || !email.includes("@")) return false;
-    return !email.endsWith("@phone.proplane.invalid") && user.app_metadata?.phone_only !== true;
+    if (error || !user) return false;
+    return Boolean(verifiedSessionEmail(user));
   } catch {
     return false;
   }
 }
 
-export async function loadResidentChargeBinding(db: SupabaseClient, userId: string): Promise<ResidentChargeBinding> {
-  const empty: ResidentChargeBinding = { applicationIds: [], managerEmails: [] };
-  if (!userId) return empty;
+type BoundApplicationRow = { id?: unknown; manager_user_id?: unknown; resident_email?: unknown };
+
+/** The subject's own applications (the server-written `row_data.residentUserId` binding). `null` when the read fails. */
+async function readBoundApplications(db: SupabaseClient, userId: string): Promise<BoundApplicationRow[] | null> {
   try {
     const { data, error } = await db
       .from("manager_application_records")
       .select("id, manager_user_id, resident_email")
       .eq("row_data->>residentUserId", userId)
       .limit(MAX_APPLICATIONS);
-    if (error) return empty;
-    const applicationIds = new Set<string>();
-    const pairs = new Map<string, { managerUserId: string; email: string }>();
-    for (const row of (data ?? []) as Array<{ id?: unknown; manager_user_id?: unknown; resident_email?: unknown }>) {
-      const id = String(row.id ?? "").trim();
-      if (SAFE_ID.test(id)) applicationIds.add(id);
-      const managerUserId = String(row.manager_user_id ?? "").trim();
-      const email = String(row.resident_email ?? "").trim().toLowerCase();
-      if (SAFE_UUID.test(managerUserId) && SAFE_EMAIL.test(email)) pairs.set(`${managerUserId}|${email}`, { managerUserId, email });
-    }
-    if (pairs.size > 0 && !(await subjectHasProvenMailbox(db, userId))) pairs.clear();
-    if (pairs.size > 0) await dropSharedAddressPairs(db, userId, pairs);
-    return { applicationIds: [...applicationIds], managerEmails: [...pairs.values()] };
+    if (error) return null;
+    return (data ?? []) as BoundApplicationRow[];
   } catch {
-    // A failed read narrows to the direct match; it never widens.
-    return empty;
+    return null;
   }
+}
+
+function boundApplicationIds(rows: BoundApplicationRow[]): string[] {
+  const ids = new Set<string>();
+  for (const row of rows) {
+    const id = String(row.id ?? "").trim();
+    if (SAFE_ID.test(id)) ids.add(id);
+  }
+  return [...ids];
+}
+
+export async function loadResidentChargeBinding(db: SupabaseClient, userId: string): Promise<ResidentChargeBinding> {
+  const empty: ResidentChargeBinding = { applicationIds: [], managerEmails: [] };
+  if (!userId) return empty;
+  // A failed read narrows to the direct match; it never widens.
+  const rows = await readBoundApplications(db, userId);
+  if (!rows) return empty;
+  const pairs = new Map<string, { managerUserId: string; email: string }>();
+  for (const row of rows) {
+    const managerUserId = String(row.manager_user_id ?? "").trim();
+    const email = String(row.resident_email ?? "").trim().toLowerCase();
+    if (SAFE_UUID.test(managerUserId) && SAFE_EMAIL.test(email)) pairs.set(`${managerUserId}|${email}`, { managerUserId, email });
+  }
+  if (pairs.size > 0 && !(await subjectHasProvenMailbox(db, userId))) pairs.clear();
+  if (pairs.size > 0) await dropSharedAddressPairs(db, userId, pairs);
+  return { applicationIds: boundApplicationIds(rows), managerEmails: [...pairs.values()] };
+}
+
+/**
+ * The grant the ACTION paths need (`chargeRowActionableByResident`): the application ids alone. The address shape is
+ * never an action grant, so this skips the two reads that only serve it - the mailbox check and the shared-address
+ * drop - and leaves `managerEmails` empty. One application read per checkout or charge message, never three.
+ */
+export async function loadResidentChargeActionBinding(db: SupabaseClient, userId: string): Promise<ResidentChargeBinding> {
+  if (!userId) return { applicationIds: [], managerEmails: [] };
+  const rows = await readBoundApplications(db, userId);
+  return { applicationIds: rows ? boundApplicationIds(rows) : [], managerEmails: [] };
 }
 
 /** The extra PostgREST `or()` branch for a resident's bound charges, or null when nothing is bound. */

@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 const deliverPortalInboxMessage = vi.hoisted(() => vi.fn());
-const loadResidentChargeBinding = vi.hoisted(() => vi.fn());
+const loadResidentChargeActionBinding = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/portal-inbox-delivery", () => ({ deliverPortalInboxMessage }));
 vi.mock("@/lib/resident-charge-binding.server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/resident-charge-binding.server")>()),
-  loadResidentChargeBinding,
+  loadResidentChargeActionBinding,
 }));
 
 import {
@@ -103,7 +103,7 @@ describe("sendResidentChargeMessage", () => {
 
   it("lets a phone sign-up resident message about a charge their own application raised", async () => {
     deliverPortalInboxMessage.mockReset().mockResolvedValue({ ok: true });
-    loadResidentChargeBinding.mockReset().mockResolvedValue({ applicationIds: ["PROPLANE-ABC"], managerEmails: [] });
+    loadResidentChargeActionBinding.mockReset().mockResolvedValue({ applicationIds: ["PROPLANE-ABC"], managerEmails: [] });
     const { sendResidentChargeMessage } = await import("@/lib/resident-charge-message.server");
     const result = await sendResidentChargeMessage(chargeDb({ applicationId: "PROPLANE-ABC" }) as never, {
       userId: "phone-user",
@@ -118,7 +118,7 @@ describe("sendResidentChargeMessage", () => {
 
   it("still refuses a charge the binding reaches only by its address", async () => {
     deliverPortalInboxMessage.mockReset().mockResolvedValue({ ok: true });
-    loadResidentChargeBinding.mockReset().mockResolvedValue({
+    loadResidentChargeActionBinding.mockReset().mockResolvedValue({
       applicationIds: [],
       managerEmails: [{ managerUserId: "mgr-1", email: "resident@test.proplane.local" }],
     });

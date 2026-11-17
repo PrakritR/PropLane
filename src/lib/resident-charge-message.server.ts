@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
-import { chargeRowActionableByResident, loadResidentChargeBinding } from "@/lib/resident-charge-binding.server";
+import { chargeRowActionableByResident, loadResidentChargeActionBinding } from "@/lib/resident-charge-binding.server";
 import { chargeOwnedByUser } from "@/lib/stripe-household-charge-checkout.server";
 import type { HouseholdCharge, ResidentChargeMessage } from "@/lib/household-charges";
 import {
@@ -86,7 +86,7 @@ export async function sendResidentChargeMessage(
         residentUserId: (row.resident_user_id as string | null) ?? charge.residentUserId ?? null,
         applicationId: String((charge as { applicationId?: unknown }).applicationId ?? ""),
       },
-      await loadResidentChargeBinding(db, input.userId),
+      await loadResidentChargeActionBinding(db, input.userId),
     );
     if (!actionable) {
       return { ok: false, status: 403, error: "You can only message about your own charges." };

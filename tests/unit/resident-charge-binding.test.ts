@@ -4,7 +4,11 @@
  * Ownership is the authenticated subject's bound application, never an address alone.
  */
 import { describe, expect, it } from "vitest";
-import { loadResidentChargeBinding, residentBoundChargeClause } from "@/lib/resident-charge-binding.server";
+import {
+  loadResidentChargeActionBinding,
+  loadResidentChargeBinding,
+  residentBoundChargeClause,
+} from "@/lib/resident-charge-binding.server";
 
 type Row = Record<string, unknown>;
 const USER = "11111111-1111-4111-8111-111111111111";
@@ -19,6 +23,7 @@ const MAILBOX_USER: AuthUser = { email: "fekadu.b@example.com", email_confirmed_
 
 function dbWith(rows: Row[] | Error, sharedRows?: Row[] | Error, authUser: AuthUser = MAILBOX_USER) {
   const calls: Array<[string, unknown]> = [];
+  const counts = { reads: 0, authReads: 0 };
   let reads = 0;
   const chain: Record<string, unknown> = {
     select: () => chain,
@@ -30,13 +35,17 @@ function dbWith(rows: Row[] | Error, sharedRows?: Row[] | Error, authUser: AuthU
     limit: async () => {
       const answer = reads === 0 ? rows : (sharedRows ?? []);
       reads += 1;
+      counts.reads = reads;
       return answer instanceof Error ? { data: null, error: { message: answer.message } } : { data: answer, error: null };
     },
   };
-  const auth = { admin: { getUserById: async () => authUser instanceof Error
-    ? { data: { user: null }, error: { message: authUser.message } }
-    : { data: { user: authUser }, error: null } } };
-  return { db: { from: () => chain, auth } as never, calls };
+  const auth = { admin: { getUserById: async () => {
+    counts.authReads += 1;
+    return authUser instanceof Error
+      ? { data: { user: null }, error: { message: authUser.message } }
+      : { data: { user: authUser }, error: null };
+  } } };
+  return { db: { from: () => chain, auth } as never, calls, counts };
 }
 
 describe("loadResidentChargeBinding", () => {
@@ -104,7 +113,6 @@ describe("a phone sign-up account's typed address", () => {
   it("never binds by address: only the application id the server wrote", async () => {
     for (const user of [
       { email: "4b1c@phone.proplane.invalid", email_confirmed_at: "2026-11-16T00:00:00Z" },
-      { email: "real@example.com", email_confirmed_at: "2026-11-16T00:00:00Z", app_metadata: { phone_only: true } },
       { email: "real@example.com", email_confirmed_at: null },
       new Error("auth down"),
     ] as AuthUser[]) {
@@ -116,5 +124,34 @@ describe("a phone sign-up account's typed address", () => {
     expect((await loadResidentChargeBinding(dbWith(rows).db, USER)).managerEmails).toEqual([
       { managerUserId: MANAGER, email: "someone.else@example.com" },
     ]);
+  });
+
+  it("keeps the address shape once that account proves a real mailbox", async () => {
+    // `app_metadata.phone_only` is stamped at creation and never cleared, so it is account history. The proof is the
+    // mailbox the account signs in with today, which `verifyEmailProof` replaced the placeholder with.
+    const proven: AuthUser = {
+      email: "real@example.com",
+      email_confirmed_at: "2026-11-16T00:00:00Z",
+      app_metadata: { phone_only: true },
+    };
+    expect((await loadResidentChargeBinding(dbWith(rows, [], proven).db, USER)).managerEmails).toEqual([
+      { managerUserId: MANAGER, email: "someone.else@example.com" },
+    ]);
+  });
+});
+
+describe("loadResidentChargeActionBinding", () => {
+  const rows = [{ id: "app-phone", manager_user_id: MANAGER, resident_email: "someone.else@example.com" }];
+
+  it("is the application ids alone, on ONE read: no mailbox check, no shared-address drop", async () => {
+    const { db, calls, counts } = dbWith(rows);
+    expect(await loadResidentChargeActionBinding(db, USER)).toEqual({ applicationIds: ["app-phone"], managerEmails: [] });
+    expect(calls).toEqual([["row_data->>residentUserId", USER]]);
+    expect(counts).toEqual({ reads: 1, authReads: 0 });
+  });
+
+  it("narrows to nothing when the read fails or there is no subject", async () => {
+    expect(await loadResidentChargeActionBinding(dbWith(new Error("boom")).db, USER)).toEqual({ applicationIds: [], managerEmails: [] });
+    expect(await loadResidentChargeActionBinding(dbWith(rows).db, "")).toEqual({ applicationIds: [], managerEmails: [] });
   });
 });

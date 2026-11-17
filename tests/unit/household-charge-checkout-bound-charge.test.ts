@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getStripe = vi.hoisted(() => vi.fn());
-const loadResidentChargeBinding = vi.hoisted(() => vi.fn());
+const loadResidentChargeActionBinding = vi.hoisted(() => vi.fn());
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/stripe", () => ({ getStripe }));
 vi.mock("@/lib/resident-charge-binding.server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/resident-charge-binding.server")>()),
-  loadResidentChargeBinding,
+  loadResidentChargeActionBinding,
 }));
 
 import { loadHouseholdChargesForCheckout } from "@/lib/stripe-household-charge-checkout.server";
@@ -40,19 +40,19 @@ function fakeDb(charge: { residentUserId?: string | null; residentEmail: string;
 describe("checkout follows the resident's bound application", () => {
   beforeEach(() => {
     getStripe.mockReset();
-    loadResidentChargeBinding.mockReset();
+    loadResidentChargeActionBinding.mockReset();
   });
 
   it("lets a phone sign-up resident pay an approval charge keyed to their own application", async () => {
-    loadResidentChargeBinding.mockResolvedValue({ applicationIds: ["PROPLANE-ABC"], managerEmails: [] });
+    loadResidentChargeActionBinding.mockResolvedValue({ applicationIds: ["PROPLANE-ABC"], managerEmails: [] });
     await expect(loadHouseholdChargesForCheckout(fakeDb({ residentEmail: "ava@example.com", applicationId: "PROPLANE-ABC" }) as never, {
       ...phoneResident, chargeIds: ["charge-1"],
     })).rejects.toThrow("PAST_OWNERSHIP");
-    expect(loadResidentChargeBinding).toHaveBeenCalledWith(expect.anything(), "resident-1");
+    expect(loadResidentChargeActionBinding).toHaveBeenCalledWith(expect.anything(), "resident-1");
   });
 
   it("still refuses a charge pinned to another resident, or one no bound application names", async () => {
-    loadResidentChargeBinding.mockResolvedValue({ applicationIds: ["PROPLANE-ABC"], managerEmails: [{ managerUserId: "manager-1", email: "ava@example.com" }] });
+    loadResidentChargeActionBinding.mockResolvedValue({ applicationIds: ["PROPLANE-ABC"], managerEmails: [{ managerUserId: "manager-1", email: "ava@example.com" }] });
     const pinned = await loadHouseholdChargesForCheckout(fakeDb({ residentUserId: "resident-2", residentEmail: "ava@example.com", applicationId: "PROPLANE-ABC" }) as never, {
       ...phoneResident, chargeIds: ["charge-1"],
     });
@@ -70,7 +70,7 @@ describe("checkout follows the resident's bound application", () => {
    * see a victim who has no application of their own. Paying never rests on it.
    */
   it("refuses a manager-entered charge the binding reaches only by its address", async () => {
-    loadResidentChargeBinding.mockResolvedValue({ applicationIds: [], managerEmails: [{ managerUserId: "manager-1", email: "ava@example.com" }] });
+    loadResidentChargeActionBinding.mockResolvedValue({ applicationIds: [], managerEmails: [{ managerUserId: "manager-1", email: "ava@example.com" }] });
     const addressOnly = await loadHouseholdChargesForCheckout(fakeDb({ residentEmail: "ava@example.com" }) as never, {
       ...phoneResident, chargeIds: ["charge-1"],
     });

@@ -34,7 +34,7 @@ import { managedCartProblem } from "@/lib/managed-finance/resolve.server";
 import { serviceSetupPendingProblem } from "@/lib/managed-finance/unpolicied-service.server";
 import { assertResidentCheckoutAttemptTerms, assertResidentCheckoutSession,
   type ResidentCheckoutAttempt } from "@/lib/resident-checkout-claim.server";
-import { chargeRowActionableByResident, loadResidentChargeBinding, type ResidentChargeBinding } from "@/lib/resident-charge-binding.server";
+import { chargeRowActionableByResident, loadResidentChargeActionBinding, type ResidentChargeBinding } from "@/lib/resident-charge-binding.server";
 
 /**
  * The Stripe Checkout core for paying pending household charges, extracted from
@@ -179,7 +179,7 @@ export async function loadHouseholdChargesForCheckout(
     if (!chargeOwnedByUser(charge, input.userId, userEmail)) {
       // A charge with no resident id of its own that names an application bound to this Auth subject is theirs
       // to pay: the row their own application raised, whatever address the manager keyed it to.
-      binding ??= await loadResidentChargeBinding(db, input.userId);
+      binding ??= await loadResidentChargeActionBinding(db, input.userId);
       const bound = chargeRowActionableByResident({
         residentUserId: (row.resident_user_id as string | null) ?? charge.residentUserId ?? null,
         applicationId: String((charge as { applicationId?: unknown }).applicationId ?? ""),
