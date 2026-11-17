@@ -52,7 +52,8 @@ describe("resident_workspace_bindings writers", () => {
     expect(writer.slice(call, call + 200)).toContain("residentUserId: user.id");
     // The writer's ownership check runs on the authenticated email before anything is stored.
     const prepare = writer.slice(writer.indexOf("export async function prepareResidentSelfWrite"));
-    expect(prepare).toContain("rowEmail !== email");
+    expect(prepare).toContain("rowEmail === email");
+    expect(prepare).toContain("accountPhoneProven(db, user.id)");
     expect(prepare).toContain("You can only update your own application.");
 
     // `residentSelfWrite` is set in exactly one place in the route: the branch that runs only for the

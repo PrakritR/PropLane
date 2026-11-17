@@ -379,6 +379,22 @@ export async function revokeMaterializedApplicationConsentAfterWrite(
   if (!result.ok) throw new Error(result.error);
 }
 
+/**
+ * A phone-only account (signed up by a texted code, no mailbox): its profile phone is verified and held by
+ * exactly this account (`phoneProvenFor`). Any unreadable read is NOT proven.
+ */
+async function accountPhoneProven(db: Db, userId: string): Promise<boolean> {
+  try {
+    const { data, error } = await db.from("profiles").select("phone, phone_verified_at").eq("id", userId).maybeSingle();
+    const profile = (data ?? null) as { phone?: unknown; phone_verified_at?: unknown } | null;
+    if (error || !profile || typeof profile.phone !== "string" || !profile.phone_verified_at) return false;
+    const { phoneProvenFor } = await import("@/lib/prospect-spine/link.server");
+    return await phoneProvenFor(db as never, userId, profile.phone);
+  } catch {
+    return false;
+  }
+}
+
 export type PreparedResidentSelfWrite =
   | { ok: true; row: DemoApplicantRow; authorizedWriteRecord: StoredApplicationRecord | null }
   | ApplicationWriteRefusal;
@@ -420,7 +436,11 @@ export async function prepareResidentSelfWrite(
     .limit(1);
   if (loadError) return refuse(500, { error: loadError.message });
   const existing = records?.[0]?.row_data as DemoApplicantRow | undefined;
-  if (existing ? existing.residentUserId !== user.id : (!email || rowEmail !== email)) {
+  // A NEW application is the writer's own when the session's verified mailbox is the row's email, or (captain,
+  // Nov 14: a proven phone is proof) when the account signed up by a texted code and has no mailbox at all.
+  // Either way the row is bound to this Auth subject below, so the typed email is contact info, never a grant.
+  const ownsNewRow = Boolean(email) ? rowEmail === email : await accountPhoneProven(db, user.id);
+  if (existing ? existing.residentUserId !== user.id : !ownsNewRow) {
     return refuse(403, { error: "You can only update your own application." });
   }
   if (existing && existing.bucket !== "pending") {

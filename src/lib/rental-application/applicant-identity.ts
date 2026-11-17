@@ -72,7 +72,10 @@ export function resolveApplicantIdentity(input: {
   profile?: ApplicantProfileIdentity | null;
 }): ApplicantIdentity {
   const answerEmail = clean(input.answers?.email).toLowerCase();
-  const accountEmail = (clean(input.authUser?.email) || clean(input.profile?.email)).toLowerCase();
+  // A phone-only account's address (`…@phone.proplane.invalid`) is a placeholder, never a mailbox.
+  const accountEmail = [clean(input.authUser?.email), clean(input.profile?.email)]
+    .map((value) => value.toLowerCase())
+    .find((value) => value && !value.endsWith("@phone.proplane.invalid")) ?? "";
   const email = accountEmail || answerEmail;
   const emailSource: ApplicantIdentity["emailSource"] = accountEmail ? "account" : answerEmail ? "answer" : "none";
   const emailMismatch = Boolean(accountEmail && answerEmail && accountEmail !== answerEmail);

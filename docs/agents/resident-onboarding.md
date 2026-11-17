@@ -184,6 +184,10 @@ number that already has an account signs that account in, as any sign-in does. T
 email; email is added later (Settings), and `phone_required` is not touched. No new server route and no new provisioning path. Tests:
 `create-account-phone-first.test.tsx`, `phone-verify-next.test.ts`.
 
+Such a phone-only account applies like any other: with no mailbox, its proven phone (`phoneProvenFor`) is what makes a NEW application its own in
+`prepareResidentSelfWrite`, the row is bound to its Auth subject, the typed email is contact info only, and the placeholder address never becomes
+the applicant's email (`resolveApplicantIdentity`). Test: `phone-account-application-submit.test.ts`.
+
 A prospect who texts the PropLane line to tour or apply and has no account is offered the by-text sign-up (`start_prospect_signup`, `startTourSignup` in
 `one-number/signup/flow.server.ts`): the same W26 conversation as a resident sign-up that remembers the one live home, skips "which home do you live
 in", and on the code echo texts the one-tap sign-in link (`mintPhoneSignInLink`) plus that home's `/resident/tour/schedule?propertyId=` page. The link
