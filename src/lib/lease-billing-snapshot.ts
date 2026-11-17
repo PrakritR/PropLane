@@ -15,7 +15,7 @@ import {
 } from "@/lib/household-charges";
 import { collectLinkedPropertyIdsForModule } from "@/lib/manager-portfolio-access";
 import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
-import { chargePaidAmount } from "@/lib/charge-paid";
+import { chargePaidAmount, isChargePaid } from "@/lib/charge-paid";
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { resolvePlacementValuesForRow } from "@/lib/rental-application/placement-values";
 import { computeLeasePaymentAtSigning } from "@/lib/rental-application/listing-fees-display";
@@ -114,10 +114,13 @@ function chargeAmount(c: HouseholdCharge): number {
 // cancelled charge was waived and a refunded one was returned. Both contribute zero to the
 // remaining collection, and neither may be dropped from the snapshot — a missing row falls
 // back to the FULL contractual amount and re-quotes an obligation the manager voided.
+// Anything `isChargePaid` counts as collected is settled too (a row stamped with a payment time,
+// which `isUnpaidHouseholdCharge` already stops treating as owed), so one charge can never be
+// reported as received AND still due.
 const SETTLED_CHARGE_STATUSES = new Set<HouseholdCharge["status"]>(["paid", "cancelled", "refunded", "void"]);
 
 function chargeIsSettled(c: HouseholdCharge): boolean {
-  return SETTLED_CHARGE_STATUSES.has(c.status);
+  return SETTLED_CHARGE_STATUSES.has(c.status) || isChargePaid(c);
 }
 
 // Voided money: waived or returned, so it never becomes a disclosure, a credit, or a receipt.

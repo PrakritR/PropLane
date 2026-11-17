@@ -18,12 +18,26 @@ export type RoomAvailability =
   /** Closed with no end date: no date is invented. */
   | { kind: "unavailable" };
 
-export type RoomAvailabilityRoom = { availability?: string | null; occupancyCapacity?: unknown };
+export type RoomAvailabilityRoom = {
+  availability?: string | null;
+  occupancyCapacity?: unknown;
+  /**
+   * The room's own opening date (the submission's `moveInAvailableDate`): a FLOOR only, never a
+   * verdict. Every reader of this room — the status line and the modal timeline — honours it.
+   */
+  moveInAvailableDate?: string | null;
+};
 
 /** The static label the occupancy fold itself writes ("Unavailable until …", "Unavailable (occupied)"): spans replace it. */
 const OCCUPANCY_DERIVED_LABEL = /^\s*(?:unavailable\s*(?:until\b|\()|leased until\b)/i;
 
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The room's opening-date floor as a day key, or "" when there is none to apply. */
+function roomFloorDate(room: RoomAvailabilityRoom, options?: { floorDate?: string | null }): string {
+  const raw = (options?.floorDate ?? room.moveInAvailableDate ?? "").trim();
+  return DAY_KEY.test(raw) ? raw : "";
+}
 
 function localDayKey(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -39,8 +53,9 @@ function localDayKey(date: Date): string {
  * copy that closes the room ("Leased", "Waitlist") is respected; the fold's own "Unavailable until …" is replaced by
  * the spans it came from.
  *
- * `options.floorDate` is the room's own opening date (the submission's `moveInAvailableDate`): a FLOOR only,
- * never a verdict. Copy that closes the room still closes it, and the later of the two dates wins.
+ * The room's own opening date is a FLOOR only, never a verdict: copy that closes the room still closes
+ * it, and the later of the two dates wins. It is read from `room.moveInAvailableDate`, or from
+ * `options.floorDate` for a caller that holds the date apart from the room.
  */
 export function roomAvailability(
   room: RoomAvailabilityRoom,
@@ -60,8 +75,8 @@ export function roomAvailability(
       if (dated > floor) floor = dated;
     }
   }
-  const floorDate = options?.floorDate?.trim() ?? "";
-  if (DAY_KEY.test(floorDate) && floorDate > floor) floor = floorDate;
+  const floorDate = roomFloorDate(room, options);
+  if (floorDate && floorDate > floor) floor = floorDate;
   // Occupancy only frees up the day after a span ends, so those are the only dates worth testing.
   const candidates = [floor];
   for (const span of spans) {
@@ -169,7 +184,13 @@ export const PUBLIC_SOON_WINDOW_DAYS = 60;
 export type PublicRoomStatus = {
   /** `now` vacant, `soon` free on a date inside the window (or a dated opening), `leased` held past the window, `closed` no end date. */
   kind: "now" | "soon" | "leased" | "closed";
-  /** The public wording. The one string every reader (browse card, listing page, feeds, share card, assistant) prints. */
+  /**
+   * The public wording every STORED and SYNDICATED reader prints (the catalog label
+   * `applyLiveRoomAvailability` stamps, the browse card, the feeds, JSON-LD, the assistant): it stays in
+   * the saved vocabulary, because the stamped label is parsed back by `classifyRoomOpening`. A live
+   * listing surface says the same thing in the "open now" wording — {@link openNowStatusText}, the one
+   * place that wording lives.
+   */
   text: string;
   /** First free day for `soon`; the last held day for `leased`. */
   date?: string;
@@ -190,6 +211,17 @@ export function freeingRoomStatus(freeDay: string, today: string): PublicRoomSta
   }
   const lastHeld = previousDayKey(freeDay);
   return { kind: "leased", text: `Leased until ${formatLeasedThrough(lastHeld)}`, date: lastHeld };
+}
+
+/**
+ * The live listing surfaces' wording for a status (room row, mobile row, room modal): "Open now" today,
+ * "Opens <date>" for a dated opening, otherwise the status's own text. The ONE place this wording lives,
+ * so two live surfaces can never word the same status differently.
+ */
+export function openNowStatusText(status: PublicRoomStatus, today: string): string {
+  if (status.kind === "now") return "Open now";
+  if (status.kind === "soon" && status.date) return `Opens ${formatOpeningDate(status.date, today)}`;
+  return status.text;
 }
 
 /**

@@ -1,5 +1,5 @@
 import type { ListingRoomRow } from "@/data/listing-rich-content";
-import { formatOpeningDate, publicStatusFromAvailability, roomAvailability, type RoomAvailability } from "@/lib/room-availability";
+import { openNowStatusText, publicStatusFromAvailability, roomAvailability, type RoomAvailability } from "@/lib/room-availability";
 import { roomAvailabilityTone, type RoomAvailabilityTone } from "@/lib/room-availability-style";
 import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/room-choice-value";
 import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
@@ -23,17 +23,24 @@ export function findPublicRoomOccupancyExact(
 /**
  * The occupancy row for one room: exact `<propertyId>::<roomId>` first, then any row ending in `::<roomId>`.
  * The suffix fallback is for ONE house's rows, whose keys may carry a different property id than the page asks
- * under. Rows covering several houses must go through {@link findPublicRoomOccupancyExact}.
+ * under — so it is taken only when every row belongs to the same house. Rows covering several houses (a
+ * catalog-wide snapshot, a multi-house share) resolve exactly or not at all, because two houses can each own
+ * a "room-1" and the fallback would publish one house's spans as the other's.
  */
 export function findPublicRoomOccupancy(
   rows: readonly PublicRoomOccupancy[],
   propertyId: string,
   roomId: string,
 ): PublicRoomOccupancy | undefined {
-  return (
-    findPublicRoomOccupancyExact(rows, propertyId, roomId) ??
-    rows.find((entry) => entry.roomChoice.endsWith(`${LISTING_ROOM_CHOICE_SEP}${roomId}`))
-  );
+  const exact = findPublicRoomOccupancyExact(rows, propertyId, roomId);
+  if (exact) return exact;
+  let house: string | null = null;
+  for (const entry of rows) {
+    const owner = entry.roomChoice.split(LISTING_ROOM_CHOICE_SEP)[0] ?? "";
+    if (house === null) house = owner;
+    else if (house !== owner) return undefined;
+  }
+  return rows.find((entry) => entry.roomChoice.endsWith(`${LISTING_ROOM_CHOICE_SEP}${roomId}`));
 }
 
 type AvailabilityRoom = Pick<ListingRoomRow, "id" | "availability" | "occupancyCapacity"> & {
@@ -43,8 +50,8 @@ type AvailabilityRoom = Pick<ListingRoomRow, "id" | "availability" | "occupancyC
 
 /**
  * One room's availability from the property's published occupancy rows (no row = no spans).
- * The room's own `moveInAvailableDate` rides along as a FLOOR (`roomAvailability`'s `floorDate`):
- * saved copy that closes the room still closes it, and the later of the two dates wins.
+ * The room's own `moveInAvailableDate` rides along as a FLOOR: saved copy that closes the room still
+ * closes it, and the later of the two dates wins.
  */
 export function resolveRoomAvailability(
   room: AvailabilityRoom,
@@ -53,7 +60,7 @@ export function resolveRoomAvailability(
   propertyId: string,
 ): RoomAvailability {
   const spans = findPublicRoomOccupancy(occupancyRows, propertyId, room.id)?.spans ?? [];
-  return roomAvailability(room, spans, today, { floorDate: room.moveInAvailableDate ?? null });
+  return roomAvailability(room, spans, today);
 }
 
 /**
@@ -117,7 +124,7 @@ export function roomAvailabilityDisplay(
   const spans = findPublicRoomOccupancy(occupancy.rows, propertyId, room.id)?.spans ?? [];
   const status = publicStatusFromAvailability(resolveRoomAvailability(room, occupancy.rows, today, propertyId), spans, room.occupancyCapacity, today);
   return {
-    text: status.kind === "now" ? "Open now" : status.kind === "soon" && status.date ? `Opens ${formatOpeningDate(status.date, today)}` : status.text,
+    text: openNowStatusText(status, today),
     tone: status.kind === "now" ? "available" : status.kind === "soon" ? "future" : "unavailable",
   };
 }
