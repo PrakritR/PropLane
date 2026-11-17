@@ -296,6 +296,20 @@ hold source; historical direct destinations need separate owner/transfer
 evidence. This inventory is a rollout gate, not a runtime scan or permission
 to expire or transfer production money.
 
+**Who the fee routes accept as the applicant is one decision,
+`applicationPayerSessionMatches`**
+(`src/lib/rental-application/application-payer-session.ts`), shared by
+`/api/stripe/application-fee-checkout` and `/api/public/application-fee-waiver`:
+either the session's mailbox IS the saved row's applicant email, or the row is
+bound to this Auth subject (`row_data.residentUserId`, written server-side by
+`prepareResidentSelfWrite` from the session, never from the body). The second
+proof is what lets a phone sign-up resident pay or waive at all — its login is
+the placeholder `@phone.proplane.invalid` mailbox
+([`resident-onboarding.md`](resident-onboarding.md) § Phone-first resident
+account), so the email rule alone refused the fee on every application it
+submitted. Neither proof replaces the resident-role check, which still runs.
+Coverage: `tests/unit/application-payer-session.test.ts`.
+
 **A manager-owned waiver code (`src/lib/application-fee-waiver.ts`,
 `/api/public/application-fee-waiver`) can waive the application fee entirely**
 — a redeemed code skips Stripe altogether (no $0 charge, no session).
@@ -345,8 +359,15 @@ The waiver is decided **server-side**:
 (`application-policy.server.ts`) is the authority, and
 `POST /api/public/application-fee-preview` resolves the resident from the
 SESSION, never from the browser — the client-side `application-policy.ts` copy
-reads the local catalog and is a display path only. The preview client caches on
-the VIEWER's id as well as the listing (`repeat-applicant` is per-person, so a
+reads the local catalog and is a display path only. The body's `residentEmail`
+is honored only for a signed-in caller who OWNS that address — it is their own
+session mailbox, or an application of theirs at this manager
+(`row_data.residentUserId`) carries it, the same ownership the fee routes pay
+on. A phone sign-up applicant reaches its waiver that way; any other caller
+gets no repeat-applicant answer at all, because the answer discloses that the
+address has applied to this manager before. Every failed read answers "not
+owned". The preview client caches on the VIEWER's id as well as the listing
+(`repeat-applicant` is per-person, so a
 signed-out answer replayed after sign-in would charge a genuine repeat applicant
 a fee they are owed a waiver on). Coverage:
 `tests/unit/application-fee-preview-route.test.ts`,
@@ -653,8 +674,23 @@ therefore widens a resident's read, through `src/lib/resident-charge-binding.ser
 own that name an application whose `row_data.residentUserId` is the signed-in user, or that the same manager wrote for that
 application's address, and stamps the viewer's id on the copy it returns (the browser keeps a row only for its own subject).
 Ownership is the authenticated subject's application, never an address alone; a row pinned to another subject is never
-taken, and a failed binding read narrows to the direct match. Coverage: `tests/unit/resident-charge-binding.test.ts`,
-`tests/unit/portal-household-charges-incremental-read.test.ts`.
+taken, and a failed binding read narrows to the direct match.
+
+The two shapes do NOT grant the same thing:
+
+- **The application-id shape is the only grant to ACT on such a row.** `chargeRowActionableByResident` over
+  `loadResidentChargeActionBinding` — the bound-application read alone, no mailbox check and no shared-address drop,
+  one read per request — lets the subject pay the row (`loadHouseholdChargesForCheckout`) and message their manager
+  about it (`sendResidentChargeMessage`). A phone sign-up resident therefore pays the charges their own approved
+  application raised, whatever address the manager keyed them to.
+- **The address shape is read-only, and only while the account holds a proven mailbox** (`verifiedSessionEmail` over
+  the Auth user, re-read per binding; the creation-time `phone_only` stamp records account history, never current
+  proof, so an account that later confirms a real mailbox regains the shape). An application's address is typed by
+  the applicant and a phone sign-up account owns its row by a proven phone, so its typed address binds no charges at
+  all — not even for a read. An unreadable account, like any failed read, answers "no".
+
+Coverage: `tests/unit/resident-charge-binding.test.ts`, `tests/unit/portal-household-charges-incremental-read.test.ts`,
+`tests/unit/household-charge-checkout-bound-charge.test.ts`, `tests/unit/resident-charge-message.test.ts`.
 
 ## Paid is reconciled against the ledger, and receipts are named from it
 

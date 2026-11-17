@@ -188,7 +188,11 @@ Such a phone-only account applies like any other: with no mailbox, its proven ph
 `prepareResidentSelfWrite`, only for a placeholder `@phone.proplane.invalid` login (an account with any real mailbox still applies under it), and
 the row is bound to its Auth subject; the typed email is contact info only. "Proven" has one definition, `provenPhoneOf`
 (`prospect-spine/link.server.ts`): the number on the profile, verified, and held by exactly that account — an unreadable read is never proven. It is
-the same anchor `phoneProvenFor` tests a known number against. Test: `phone-account-application-submit.test.ts`.
+the same anchor `phoneProvenFor` tests a known number against. Test: `phone-account-application-submit.test.ts`. That
+server-written binding is also the only thing that lets such an account pay or waive the application fee and pay the
+charges the application raised — its typed address grants nothing:
+[`resident-payments.md`](resident-payments.md) § A manager-keyed charge reaches the resident through their bound
+application.
 
 A prospect who texts the PropLane line to tour or apply and has no account is offered the by-text sign-up (`start_prospect_signup`, `startTourSignup` in
 `one-number/signup/flow.server.ts`): the same W26 conversation as a resident sign-up that remembers the one live home, skips "which home do you live
