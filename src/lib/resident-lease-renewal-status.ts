@@ -11,6 +11,7 @@
  */
 import { hasBothLeaseSignatures, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { listingRollsOverToMonthToMonth } from "@/lib/rental-application/data";
+import { isMonthToMonthTerm } from "@/lib/channel-calendar/property-bookings";
 import { parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
 
 export type ResidentLeaseRenewalStatus =
@@ -60,10 +61,10 @@ export function residentLeaseRenewalStatus(
 
   const leaseEnd = row.application?.leaseEnd?.trim() ?? "";
   const term = row.application?.leaseTerm?.trim() ?? "";
-  if (!leaseEnd || term === "Month-to-Month") {
+  if (!leaseEnd || isMonthToMonthTerm(term)) {
     return {
       kind: "month_to_month",
-      fact: "Month-to-month",
+      fact: "Month to month",
       cta: "Change lease term",
     };
   }

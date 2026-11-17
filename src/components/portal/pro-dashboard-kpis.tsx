@@ -10,6 +10,7 @@
  */
 
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import {
   AlertCircle,
   ArrowDownRight,
@@ -132,6 +133,65 @@ export function Sparkline({
   );
 }
 
+/* ───────────────────────── read states ───────────────────────── */
+
+/**
+ * What a tile knows about the read behind it. A tile never draws a figure it has not read:
+ * `loading` is a skeleton, `failed` is "—" with a Retry, only `ready` shows the number
+ * (including an honest zero).
+ */
+export type ReadState = "loading" | "failed" | "ready";
+
+/** No answer inside this long is "unavailable". */
+export const DASHBOARD_READ_DEADLINE_MS = 12_000;
+
+/** Worst state wins: any failure fails the group, otherwise anything still pending keeps it loading. */
+export function combineReadStates(states: readonly ReadState[]): ReadState {
+  if (states.includes("failed")) return "failed";
+  if (states.includes("loading")) return "loading";
+  return "ready";
+}
+
+/**
+ * Settle one read into a state. A rejection, a read that reports it did not answer (`answered`
+ * returns false), or no answer inside `timeoutMs` is `failed`; otherwise `ready`.
+ */
+export async function settleRead(
+  read: Promise<unknown>,
+  opts?: { answered?: () => boolean; timeoutMs?: number },
+): Promise<"failed" | "ready"> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<"failed">((resolve) => {
+    timer = setTimeout(() => resolve("failed"), opts?.timeoutMs ?? DASHBOARD_READ_DEADLINE_MS);
+  });
+  const answer = read.then(
+    (value): "failed" | "ready" => (value === false || opts?.answered?.() === false ? "failed" : "ready"),
+    (): "failed" => "failed",
+  );
+  try {
+    return await Promise.race([answer, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/** "Unavailable · Retry": Retry re-runs the read; the Button owns the pending state. */
+export function ReadUnavailable({ onRetry }: { onRetry?: () => unknown }) {
+  return (
+    <span className="flex items-center gap-1 text-[12.5px] text-muted" data-attr="dashboard-read-unavailable">
+      <span>Unavailable</span>
+      {onRetry ? (
+        <>
+          <span aria-hidden>·</span>
+          <Button variant="ghost" className="!h-auto !min-h-0 !px-1 !py-0 text-[12.5px] text-primary" onClick={() => onRetry()}>
+            Retry
+          </Button>
+        </>
+      ) : null}
+    </span>
+  );
+}
+
 /* ───────────────────────── KPI card ───────────────────────── */
 
 export function KpiCard({
@@ -146,7 +206,12 @@ export function KpiCard({
   href,
   dataAttr,
   icon: Icon,
+  state = "ready",
+  onRetry,
 }: {
+  /** Not `ready` → the figure is not drawn: a skeleton while loading, "—" and Retry once failed. */
+  state?: ReadState;
+  onRetry?: () => unknown;
   label: string;
   value: string;
   /** The line under the figure — "5 / 7", "2 properties". */
@@ -168,6 +233,30 @@ export function KpiCard({
   // A flat comparison says nothing: show the line only for a real change.
   const shownDelta = visibleKpiDelta(delta);
   const subLine = unit || (!delta ? detail : undefined);
+  if (state !== "ready") {
+    return (
+      <div
+        data-attr={dataAttr}
+        data-read-state={state}
+        className="relative flex h-full min-w-0 flex-col rounded-[10px] border border-border bg-card px-4 py-3.5"
+      >
+        <span className="flex items-center gap-1.5 text-[13px] font-[550] text-muted">
+          {Icon ? <Icon className="size-3.5 shrink-0" aria-hidden /> : null}
+          <span className="truncate max-md:line-clamp-2 max-md:whitespace-normal">{label}</span>
+        </span>
+        {state === "loading" ? (
+          <span role="status" aria-label={`Loading ${label}`} className="my-1.5 block">
+            <span className="block h-[30px] w-16 animate-pulse rounded bg-foreground/10" />
+          </span>
+        ) : (
+          <>
+            <span className="my-1 block whitespace-nowrap text-[26px] font-[650] leading-[1.15] tracking-[-0.03em] text-foreground">—</span>
+            <ReadUnavailable onRetry={onRetry} />
+          </>
+        )}
+      </div>
+    );
+  }
   return (
     <Link
       href={href}
@@ -261,7 +350,16 @@ export function AttentionPanel({
   emptyCopy = "Nothing is waiting on you. Nice.",
   rowClassName = "flex items-center gap-2.5 px-3.5 py-2.5",
   actionClassName = "inline-flex min-h-11 shrink-0 items-center rounded-[7px] border border-border bg-card px-3 text-[13px] font-[550] text-foreground transition hover:bg-[var(--secondary)] lg:min-h-8",
+  state = "ready",
+  onRetry,
 }: {
+  /**
+   * `ready` once every source has answered. While not ready an empty list is never
+   * "Nothing is waiting": rows already read still show, an empty list shows a skeleton
+   * (loading) or "Unavailable · Retry" (failed).
+   */
+  state?: ReadState;
+  onRetry?: () => unknown;
   rows: AttentionRow[];
   /** Vendor metrics already carry the relevant status in their title. */
   hideRowDetail?: boolean;
@@ -272,7 +370,16 @@ export function AttentionPanel({
 }) {
   return (
     <PanelShell title="Needs attention" count={rows.length} dataAttr="dashboard-attention-panel">
-      {rows.length === 0 ? (
+      {rows.length === 0 && state === "loading" ? (
+        <div role="status" aria-label="Loading needs attention" className="space-y-3 px-4 py-5">
+          <span className="block h-4 w-2/3 animate-pulse rounded bg-foreground/10" />
+          <span className="block h-4 w-1/2 animate-pulse rounded bg-foreground/10" />
+        </div>
+      ) : rows.length === 0 && state === "failed" ? (
+        <div className="flex justify-center px-4 py-6">
+          <ReadUnavailable onRetry={onRetry} />
+        </div>
+      ) : rows.length === 0 ? (
         <p className="px-4 py-6 text-center text-[13px] text-muted">{emptyCopy}</p>
       ) : (
         <ul className="divide-y divide-border">

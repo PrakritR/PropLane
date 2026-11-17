@@ -391,7 +391,7 @@ describe("portal schedule-records protocol", () => {
     expect(JSON.stringify(state.replace.mock.calls)).not.toContain("tour-new");
   });
 
-  it("projects a pending inquiry to an applications-edit host only when the trusted roster includes them", async () => {
+  it("gives a pending inquiry in full to an applications-edit host only when the trusted roster includes them", async () => {
     const { GET } = await import("@/app/api/portal-schedule-records/route");
     state.scheduleRows = [singleton(inquiriesId, [{
       id: "inquiry-rostered",
@@ -417,7 +417,9 @@ describe("portal schedule-records protocol", () => {
     expect((inquiry!.payload as Row[]).map((row) => row.id)).toEqual(["inquiry-rostered"]);
     expect((inquiry!.payload as Row[])[0]).toMatchObject({ eligibleHostUserIds: ["co-a"] });
     expect((inquiry!.payload as Row[])[0]).toMatchObject({ requestedWindows: [{ start: "2030-01-02T18:00:00.000Z", end: "2030-01-02T18:30:00.000Z" }] });
-    expect(JSON.stringify(inquiry)).not.toContain("Ava Prospect");
+    // Round 6 (captain, Nov 16): the rostered host approves the request, and Applications at edit already
+    // shows them every applicant on the house, so they read the guest's details instead of a busy block.
+    expect(JSON.stringify(inquiry)).toContain("Ava Prospect");
   });
 });
 

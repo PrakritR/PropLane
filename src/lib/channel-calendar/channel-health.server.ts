@@ -7,6 +7,7 @@ import type { MockProperty } from "@/data/types";
 import { listManagerChannelCalendarBookings } from "@/lib/channel-calendar/bookings.server";
 import { buildAttentionItems, buildSyncRows, feedStateFor, type ChannelHealth, type ChannelHealthHouse, type FeedState, type HealthConnection, type HealthStay, type UnassignedApproval } from "@/lib/channel-calendar/channel-health";
 import { loadChannelStayTombstoneRecords } from "@/lib/channel-calendar/stay-tombstones.server";
+import { leaseBlockEnd } from "@/lib/channel-calendar/property-bookings";
 import { listingRentedWhole } from "@/lib/channel-calendar/export-occupancy";
 import { listingSubmissionFromProperty } from "@/lib/channel-calendar/connections.server";
 import { buildVacancyPost, type VacancyRoom } from "@/lib/channel-calendar/vacancy-post";
@@ -171,7 +172,7 @@ async function loadVacancies(
  */
 async function loadUnassignedApprovals(db: SupabaseClient, propertyId: string, houseLabel: string, today: string): Promise<UnassignedApproval[]> {
   const select =
-    "id,name:row_data->>name,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,ical_connection:row_data->>icalConnectionId,withdrawn:row_data->>withdrawnAt";
+    "id,name:row_data->>name,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,lease_term:row_data->application->>leaseTerm,manual_term:row_data->manualResidentDetails->>leaseTerm,ical_connection:row_data->>icalConnectionId,withdrawn:row_data->>withdrawnAt";
   const found = new Map<string, UnassignedApproval>();
   for (const column of ["property_id", "assigned_property_id"] as const) {
     // Paged to the end: a bare `.limit(500)` drops the rest of a large house's approvals and which ones it drops
@@ -188,8 +189,15 @@ async function loadUnassignedApprovals(db: SupabaseClient, propertyId: string, h
       for (const row of (data ?? []) as unknown as Array<Record<string, unknown>>) {
         if (text(row.ical_connection) || text(row.withdrawn) || text(row.choice) || text(row.preferred)) continue;
         const start = text(row.manual_start) || text(row.lease_start);
-        const end = text(row.manual_end) || text(row.lease_end);
-        if (!start || (end && end < today)) continue;
+        // Same range rule as the export feed: month-to-month / no end runs to today + 365 (still current); a move-out date wins.
+        if (!start) continue;
+        const { end } = leaseBlockEnd({
+          start,
+          leaseEnd: text(row.lease_end),
+          moveOut: text(row.manual_end),
+          leaseTerm: text(row.manual_term) || text(row.lease_term),
+        });
+        if (end < today) continue;
         found.set(text(row.id), { id: text(row.id), propertyId, houseLabel, name: text(row.name) });
       }
       if ((data ?? []).length < PAGE) break;

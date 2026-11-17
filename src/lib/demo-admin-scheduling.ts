@@ -442,6 +442,7 @@ async function fetchScheduleRecordsFromServer(): Promise<boolean> {
     const res = await fetch(adminOversightUrl("/api/portal-schedule-records"), {
       cache: "no-store",
       credentials: "include",
+      signal: AbortSignal.timeout(12_000),
     });
     notePortalResponse(res.status);
     if (!res.ok) return false;

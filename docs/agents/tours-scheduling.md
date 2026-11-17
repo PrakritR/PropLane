@@ -179,6 +179,9 @@ it always runs the double-book check. **One open request per requester and home*
 property and the same keying email is refused `duplicate_request` (409) so a host's queue cannot be flooded, and that requester is held
 to five requests an hour (`rate_limited`, 429); a failed read of the existing requests refuses rather than filing a second one.
 The manager's notice reads "<Name> wants to tour <property> on <Day, Mon D> at <h:mm AM/PM>".
+A pending request reads in full (name, email, phone, house, room) to the owner and to a host on its server-stamped
+`eligibleHostUserIds` roster who holds Applications at edit on that house (`projectScheduleRecordsForViewer`); a calendar-only
+peer reads the free/busy copy.
 With open slots, only those slots are offered, exactly as before.
 
 ## What a prospect is offered = published − busy − booked

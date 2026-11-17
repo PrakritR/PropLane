@@ -1441,6 +1441,7 @@ export function ManagerTours({
             setNotifyPreview(null);
           }}
           recipient={notifyPreviewRow.guestEmail}
+          recipientName={notifyPreviewRow.guestName}
           recipientPhone={notifyPreviewRow.guestPhone?.trim() || undefined}
           subject={notifyPreview.subject}
           body={notifyPreview.body}

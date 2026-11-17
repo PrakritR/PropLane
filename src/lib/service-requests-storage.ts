@@ -20,6 +20,13 @@ const KEY = "axis_service_requests_v1";
 // network fetch, matching the other portal sync helpers.
 const SERVICE_REQUESTS_SYNC_TTL_MS = 15_000;
 let serviceRequestsLastSyncedAt = 0;
+/** Whether the most recent server read answered. A failed or timed-out read still resolves with the local cache, so a caller that must not draw that cache as an answer asks here. */
+let serviceRequestsLastReadOk = false;
+export function serviceRequestsLastReadSucceeded(): boolean {
+  return serviceRequestsLastReadOk;
+}
+/** Dashboard syncs never wait longer than this for the server. */
+const SERVICE_REQUESTS_READ_TIMEOUT_MS = 12_000;
 let serviceRequestsReadScope = "";
 let serviceRequestsReadGeneration = 0;
 let serviceRequestsSyncPromise: Promise<ServiceRequest[]> | null = null;
@@ -252,6 +259,7 @@ export async function syncServiceRequestsFromServer(opts?: { force?: boolean }):
   const force = opts?.force === true;
   if (!force && serviceRequestsSyncPromise) return serviceRequestsSyncPromise;
   if (!force && serviceRequestsLastSyncedAt > 0 && Date.now() - serviceRequestsLastSyncedAt < SERVICE_REQUESTS_SYNC_TTL_MS) {
+    serviceRequestsLastReadOk = true;
     return readAll();
   }
   const generation = ++serviceRequestsReadGeneration;
@@ -259,15 +267,26 @@ export async function syncServiceRequestsFromServer(opts?: { force?: boolean }):
   let currentRequest: Promise<ServiceRequest[]> | null = null;
   try {
     currentRequest = (async () => {
-      const res = await fetch(adminOversightUrl("/api/portal-service-requests"), { credentials: "include" });
-      if (!res.ok || !isCurrentRead()) return readAll();
+      const res = await fetch(adminOversightUrl("/api/portal-service-requests"), {
+        credentials: "include",
+        signal: AbortSignal.timeout(SERVICE_REQUESTS_READ_TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        if (isCurrentRead()) serviceRequestsLastReadOk = false;
+        return readAll();
+      }
+      if (!isCurrentRead()) return readAll();
       const body = (await res.json()) as { rows?: ServiceRequest[] };
       if (!isCurrentRead()) return readAll();
       const rows = Array.isArray(body.rows) ? body.rows : [];
       writeAll(rows);
       serviceRequestsLastSyncedAt = Date.now();
+      serviceRequestsLastReadOk = true;
       return rows;
-    })().catch(() => readAll());
+    })().catch(() => {
+      if (isCurrentRead()) serviceRequestsLastReadOk = false;
+      return readAll();
+    });
     serviceRequestsSyncPromise = currentRequest;
     return await currentRequest;
   } catch {

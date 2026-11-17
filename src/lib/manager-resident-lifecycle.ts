@@ -1,6 +1,7 @@
 import type { DemoManagerPaymentLedgerRow, DemoApplicantRow } from "@/data/demo-portal";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { applicationStartedLabel } from "@/lib/rental-application/in-progress-application";
+import { isMonthToMonthTerm } from "@/lib/channel-calendar/property-bookings";
 import { parseMoneyAmount } from "@/lib/parse-money";
 
 function applicationDetailIso(app: DemoApplicantRow | null | undefined): string | null {
@@ -154,6 +155,10 @@ export type ResidentLifecycleInput = {
   serviceRequestCount?: number;
 };
 
+function leaseIsMonthToMonth(lease: LeasePipelineRow | null): boolean {
+  return isMonthToMonthTerm((lease as { application?: { leaseTerm?: string } } | null)?.application?.leaseTerm);
+}
+
 function primaryLease(rows: LeasePipelineRow[]): LeasePipelineRow | null {
   return rows[0] ?? null;
 }
@@ -192,7 +197,7 @@ export function resolveStage(input: ResidentLifecycleInput): ResidentLifecycleSt
   if (turn === "your_signature") return "awaiting_your_signature";
   if (turn === "signed") {
     const end = (lease as { leaseEnd?: string }).leaseEnd?.trim();
-    if (end && end < todayIso) return "past";
+    if (end && end < todayIso && !leaseIsMonthToMonth(lease)) return "past";
     const start = (lease as { leaseStart?: string }).leaseStart?.trim();
     if (start && start > todayIso) return "signed";
     if (input.moveOutDate && input.moveOutDate < todayIso) return "past";
@@ -499,10 +504,15 @@ export function buildResidentLifecycle(
     kpiCandidates = [
       ["Balance", formatResidentMoney(balanceCents)],
       ["Rent", rentCents > 0 ? `${formatResidentMoney(rentCents)}/mo` : ""],
-      [
-        stage === "moving_out" ? "Moves out" : "Lease ends",
-        formatResidentShortDate(input.moveOutDate ?? (lease as { leaseEnd?: string })?.leaseEnd),
-      ],
+      // A month-to-month lease never "ends"; only a set move-out date reads as a date.
+      input.moveOutDate
+        ? ["Moves out", formatResidentShortDate(input.moveOutDate)]
+        : leaseIsMonthToMonth(lease)
+          ? ["Term", "Month to month"]
+          : [
+              stage === "moving_out" ? "Moves out" : "Lease ends",
+              formatResidentShortDate((lease as { leaseEnd?: string })?.leaseEnd),
+            ],
       ["Next payment", nextCharge ? formatResidentShortDate(nextCharge.dueDate) : ""],
     ];
   }

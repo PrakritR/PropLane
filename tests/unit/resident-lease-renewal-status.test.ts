@@ -97,7 +97,7 @@ describe("residentLeaseRenewalStatus", () => {
       TODAY,
     );
     expect(status.kind).toBe("month_to_month");
-    if (status.kind === "month_to_month") expect(status.fact).toBe("Month-to-month");
+    if (status.kind === "month_to_month") expect(status.fact).toBe("Month to month");
   });
 
   it("carries one short fact and no sentence body", () => {

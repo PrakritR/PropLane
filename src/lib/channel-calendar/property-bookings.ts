@@ -358,7 +358,7 @@ export function roomBlockEntries(
   const out: PropertyBookingEntry[] = [];
   for (const block of blocks) {
     const start = normalizeBookingDateKey(block.checkIn);
-    const end = block.openEnded ? (openEndedBookingHorizonKey() > start ? openEndedBookingHorizonKey() : start) : normalizeBookingDateKey(lastNightBeforeCheckout(block.checkOut));
+    const end = block.openEnded ? openEndedLeaseEnd(start) : normalizeBookingDateKey(lastNightBeforeCheckout(block.checkOut));
     if (!start || !end || end < start) continue;
     out.push({
       source: "block",
@@ -430,7 +430,7 @@ export type ApplicationHoldRow = {
   /** Set on the resident an iCal / Airbnb sync filed for one reservation (feed connection + event UID). */
   icalConnectionId?: string;
   icalSourceUid?: string;
-  application?: { leaseStart?: string; leaseEnd?: string; roomChoice1?: string } | null;
+  application?: { leaseStart?: string; leaseEnd?: string; leaseTerm?: string; roomChoice1?: string } | null;
   /** Resident-wizard dates; win over the application's lease dates (same precedence as /portal/residents). */
   manualResidentDetails?: {
     moveInDate?: string | null;
@@ -466,10 +466,13 @@ export function applicationHoldEntries(
       normalizeBookingDateKey(row.manualResidentDetails?.moveInDate) ||
       normalizeBookingDateKey(row.application?.leaseStart);
     if (!start) continue;
-    const parsedEnd =
-      normalizeBookingDateKey(row.manualResidentDetails?.moveOutDate) ||
-      normalizeBookingDateKey(row.application?.leaseEnd);
-    const end = parsedEnd || opts.openEndedHorizonKey;
+    const { end, openEnded: holdOpenEnded } = leaseBlockEnd({
+      start,
+      leaseEnd: row.application?.leaseEnd,
+      moveOut: row.manualResidentDetails?.moveOutDate,
+      leaseTerm: row.manualResidentDetails?.leaseTerm || row.application?.leaseTerm,
+      horizonKey: opts.openEndedHorizonKey,
+    });
     const roomId = parseRoomChoiceValue(row.assignedRoomChoice ?? row.application?.roomChoice1 ?? "").listingRoomId ?? "";
     // Same rule as a lease: without a room, only a whole-home listing is held.
     if (!roomId && !property.entireHomeListing) continue;
@@ -483,16 +486,57 @@ export function applicationHoldEntries(
       summary: row.name?.trim() || "Approved applicant",
       ...residentFactsFromApplication(row),
       start,
-      end: end >= start ? end : start,
+      end,
       statusLabel: "Approved · lease pending",
-      ...(parsedEnd ? {} : { openEnded: true }),
+      ...(holdOpenEnded ? { openEnded: true } : {}),
     });
   }
   return out;
 }
 
-/** How far out an open-ended (month-to-month) stay is drawn. */
-export const OPEN_ENDED_BOOKING_HORIZON_DAYS = 365 * 2;
+/** How far out an open-ended (month-to-month) stay blocks its room, rolling from today. */
+export const OPEN_ENDED_BOOKING_HORIZON_DAYS = 365;
+
+/** "Month-to-Month" in any casing or spelling ("month to month", "Month_to_Month", "month-2-month"). */
+export function isMonthToMonthTerm(term: unknown): boolean {
+  return typeof term === "string" && /month\W*_*(?:to|2)\W*_*month/i.test(term);
+}
+
+/**
+ * Where an open-ended (month-to-month, or no end date) stay's block ends. A set move-out date
+ * (notice given) wins; otherwise the block runs to `horizonKey` (default: today + 365 days,
+ * recomputed on every read, nothing stored), never before `start`.
+ */
+export function openEndedLeaseEnd(
+  start: string,
+  moveOut?: string | null,
+  horizonKey: string = openEndedBookingHorizonKey(),
+): string {
+  const out = normalizeBookingDateKey(moveOut);
+  if (out) return out >= start ? out : start;
+  return horizonKey > start ? horizonKey : start;
+}
+
+/**
+ * The inclusive last day a lease / approved row blocks. A move-out date wins; a month-to-month
+ * term (whatever end date it carries) or a missing end runs to the rolling horizon; a fixed term
+ * ends on its own end date.
+ */
+export function leaseBlockEnd(input: {
+  start: string;
+  leaseEnd?: string | null;
+  moveOut?: string | null;
+  leaseTerm?: string | null;
+  horizonKey?: string;
+}): { end: string; openEnded: boolean } {
+  const moveOut = normalizeBookingDateKey(input.moveOut);
+  const leaseEnd = normalizeBookingDateKey(input.leaseEnd);
+  if (moveOut) return { end: openEndedLeaseEnd(input.start, moveOut), openEnded: false };
+  if (!leaseEnd || isMonthToMonthTerm(input.leaseTerm)) {
+    return { end: openEndedLeaseEnd(input.start, null, input.horizonKey), openEnded: true };
+  }
+  return { end: leaseEnd >= input.start ? leaseEnd : input.start, openEnded: false };
+}
 
 /** The `openEndedHorizonKey` every Bookings surface uses, so they agree. */
 export function openEndedBookingHorizonKey(from: Date = new Date()): string {
@@ -521,7 +565,7 @@ export type LeaseBookingRow = {
   residentSignature?: { name?: string; signedAtIso?: string } | null;
   signatureName?: string | null;
   signedAtIso?: string | null;
-  application?: { leaseStart?: string; leaseEnd?: string };
+  application?: { leaseStart?: string; leaseEnd?: string; leaseTerm?: string };
 };
 
 /**
@@ -628,9 +672,14 @@ export function leaseBookingEntries(
     if (opts.isResidentLinked && !opts.isResidentLinked(row.residentEmail ?? "")) continue;
     const start = normalizeBookingDateKey(row.application?.leaseStart);
     if (!start) continue;
-    const parsedEnd = normalizeBookingDateKey(row.application?.leaseEnd);
-    const openEnded = !parsedEnd;
-    const end = parsedEnd || opts.openEndedHorizonKey;
+    const resident = opts.applicationForLease?.(row);
+    const { end, openEnded } = leaseBlockEnd({
+      start,
+      leaseEnd: row.application?.leaseEnd,
+      moveOut: resident?.manualResidentDetails?.moveOutDate,
+      leaseTerm: row.application?.leaseTerm || resident?.manualResidentDetails?.leaseTerm,
+      horizonKey: opts.openEndedHorizonKey,
+    });
     const roomId = parseRoomChoiceValue(row.roomChoice ?? "").listingRoomId ?? "";
     const bundleOccupancy =
       row.leaseKind === "joint_bundle" || Boolean(row.bundleGroupKey?.trim());
@@ -643,9 +692,7 @@ export function leaseBookingEntries(
       roomLabel: roomId ? opts.roomLabelForId(roomId) : "Whole home",
       summary: row.residentName?.trim() || "Resident",
       start,
-      // A horizon that has already passed would make the stay a zero-length
-      // range; keep at least the start day rather than dropping it.
-      end: end >= start ? end : start,
+      end,
       statusLabel: row.stageLabel?.trim() || row.status?.trim() || undefined,
       ...(openEnded ? { openEnded: true } : {}),
       ...(row.id?.trim() ? { leaseId: row.id.trim() } : {}),

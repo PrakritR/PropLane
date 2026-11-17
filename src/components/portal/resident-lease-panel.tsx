@@ -86,6 +86,7 @@ import { safeFormatDateTime } from "@/lib/pacific-time";
 import { useResidentLeaseSigningFee } from "@/hooks/use-resident-lease-signing-fee";
 import { useResidentPortalAxisContext } from "@/hooks/use-resident-portal-axis";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
+import { isMonthToMonthTerm } from "@/lib/channel-calendar/property-bookings";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { useOpenFirstNonEmptyTab } from "@/hooks/use-open-first-non-empty-tab";
 
@@ -818,7 +819,7 @@ export function ResidentLeasePanel({
     recordId: leaseDetailId ?? "lease",
     overviewTiles: [
       { id: "rent", label: "Rent", value: formatLeaseRentLabel(pipelineRow?.signedRentLabel) ?? "—" },
-      { id: "term", label: "Term", value: pipelineRow?.application?.leaseTerm ?? "—", detail: pipelineRow?.application?.leaseEnd ? `Ends ${formatLeaseDateLabel(pipelineRow.application.leaseEnd)}` : undefined },
+      { id: "term", label: "Term", value: isMonthToMonthTerm(pipelineRow?.application?.leaseTerm) ? "Month to month" : (pipelineRow?.application?.leaseTerm ?? "—"), detail: pipelineRow?.application?.leaseEnd && !isMonthToMonthTerm(pipelineRow?.application?.leaseTerm) ? `Ends ${formatLeaseDateLabel(pipelineRow.application.leaseEnd)}` : undefined },
       { id: "your-signature", label: "Your signature", value: residentSigned ? "Signed" : "Pending", tone: residentSigned ? "default" : "danger", detail: managerSigned ? "Manager signed" : undefined },
       { id: "move-in", label: "Move-in", value: formatLeaseDateLabel(pipelineRow?.application?.leaseStart) ?? "—" },
     ],

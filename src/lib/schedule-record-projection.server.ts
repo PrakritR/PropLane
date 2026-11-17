@@ -154,13 +154,18 @@ export async function projectScheduleRecordsForViewer(
     const owner = propertyId ? owners.get(propertyId) ?? "" : "";
     if (owner === user.id) return "full";
     if (!propertyId || !owner) return null;
-    if (linked?.propertyIdsByOwner.get(owner)?.has(propertyId)) return "busy";
+    // A pending request is hostless: an eligible host holding Applications at edit on that house is the
+    // person who approves it (`confirmTourInquiry` re-checks the same roster), and that grant already shows
+    // them every applicant's contact details on the house — so they read the whole request (captain, round 6
+    // plan, Nov 16: the full row reaches the host, never a stripped busy copy). The roster is server-stamped,
+    // never a body id; a calendar-only peer still gets the free/busy copy below.
     if (
       pendingInquiry &&
       applicationHosts?.propertyIdsByOwner.get(owner)?.has(propertyId) &&
       Array.isArray(item.eligibleHostUserIds) &&
       item.eligibleHostUserIds.some((id) => text(id) === user.id)
-    ) return "busy";
+    ) return "full";
+    if (linked?.propertyIdsByOwner.get(owner)?.has(propertyId)) return "busy";
     return null;
   };
 

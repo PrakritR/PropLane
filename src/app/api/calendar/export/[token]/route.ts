@@ -15,6 +15,7 @@ import { EXPORT_FEED_ERROR_PREFIX } from "@/lib/channel-calendar/channel-health"
 import { cachedFeedRead } from "@/lib/channel-calendar/export-feed-reads.server";
 import { approvedRowBlocksRoom, blockEchoesToDestination, listingRentedWhole } from "@/lib/channel-calendar/export-occupancy";
 import type { ChannelCalendarProvider } from "@/lib/channel-calendar/types";
+import { leaseBlockEnd } from "@/lib/channel-calendar/property-bookings";
 import { generateIcsCalendar } from "@/lib/ical/generate";
 import { exportBlockedRanges } from "@/lib/occupancy/snapshot";
 import { loadOccupancyAuthors, occupancyAuthorTrusted } from "@/lib/occupancy/row-authorship.server";
@@ -31,7 +32,7 @@ function day(raw: unknown): string | null {
 const FEED_SIBLING_COLUMNS = "id, room_id, provider, imported_ranges, export_token";
 
 const APPROVED_ROW_SELECT =
-  "id,manager_user_id,assigned_property_id,property_id,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,manually_added:row_data->>manuallyAdded,bucket:row_data->>bucket,ical_connection:row_data->>icalConnectionId";
+  "id,manager_user_id,assigned_property_id,property_id,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,lease_term:row_data->application->>leaseTerm,manual_term:row_data->manualResidentDetails->>leaseTerm,manually_added:row_data->>manuallyAdded,bucket:row_data->>bucket,ical_connection:row_data->>icalConnectionId";
 const APPROVED_ROW_PAGE = 500;
 const APPROVED_ROW_MAX_PAGES = 40;
 
@@ -61,6 +62,8 @@ type ApprovedRow = {
   lease_end: unknown;
   manual_start: unknown;
   manual_end: unknown;
+  lease_term?: unknown;
+  manual_term?: unknown;
   manually_added: unknown;
   ical_connection: unknown;
   assigned_property_id: unknown;
@@ -157,7 +160,13 @@ async function occupancyRangesForRoom(
     if (!approvedRowBlocksRoom({ choice: row.choice, preferred: row.preferred, propertyId, roomId, rentedWhole })) continue;
     const start = day(row.manual_start) || day(row.lease_start);
     if (!start) continue;
-    const end = day(row.manual_end) || day(row.lease_end) || start;
+    // Month-to-month (or no end date) blocks from move-in to today + 365 days, rolling; a move-out date wins.
+    const { end } = leaseBlockEnd({
+      start,
+      leaseEnd: day(row.lease_end),
+      moveOut: day(row.manual_end),
+      leaseTerm: String(row.manual_term || row.lease_term || ""),
+    });
     // A row this house's authors did not write is not its occupancy, so it is not published - but a
     // row that SHOULD have counted (a stamp left wrong by a re-assigned grant) would then offer an
     // occupied room as free. Dropping one is reported loudly rather than passing silently, since

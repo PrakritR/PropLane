@@ -136,6 +136,8 @@ import {
   resolveManagerInboxSmsTarget,
   resolvePropLaneUnifiedReplyChannels,
   inboxSmsUnavailableReason,
+  decideManagerInboxSend,
+  inboxSendFailureLine,
 } from "@/lib/manager-inbox-reply-channels";
 import {
   resolveCommunicationInboxThread,
@@ -929,30 +931,39 @@ export const ManagerInbox = forwardRef<
       channels: { email: boolean; sms: boolean; proplane?: boolean },
       attachmentUrls: string[] = [],
     ) => {
-      const thread = localRef.current.find((t) => t.id === rowId);
-      if (!thread) return;
+      // The thread on screen may be a merged/collapsed row whose id is not in
+      // the raw list, so resolve it the way the pane does. Never a silent return.
+      const thread =
+        localRef.current.find((t) => t.id === rowId) ??
+        resolveCommunicationInboxThread(rowId, emailThreads, localRef.current, "manager", userId);
+      if (!thread) {
+        throw new InboxSendRefusal("Can't send: this conversation could not be found. Reload and try again.");
+      }
       // A Team thread replies the way an assistant thread does: in-app only,
       // no person counterparty — the send route posts it to the team.
       const assistantThread = isPropLaneAssistantInboxThread(thread) || isTeamInboxThread(thread);
       const portalRecipient = assistantThread
         ? null
         : resolveManagerInboxPortalRecipient(thread, smsRecipients, smsOutboundEnabled);
-      const proplaneAllowed = Boolean(
-        channels.proplane && (assistantThread || portalRecipient),
-      );
-      const emailAllowed = channels.email && inboxThreadHasEmail(thread.email);
-      const smsAllowed =
-        channels.sms &&
-        Boolean(resolveManagerInboxSmsTarget(thread, smsRecipients, smsOutboundEnabled)?.phone?.trim());
-      if (!proplaneAllowed && !emailAllowed && !smsAllowed) {
+      const smsTargetForSend = resolveManagerInboxSmsTarget(thread, smsRecipients, smsOutboundEnabled);
+      const decision = decideManagerInboxSend({
+        requested: channels,
+        emailAvailable: inboxThreadHasEmail(thread.email),
+        smsAvailable: Boolean(smsTargetForSend?.phone?.trim()),
+        proplaneAvailable: Boolean(assistantThread || portalRecipient),
+      });
+      if (!decision.ok) {
         throw new InboxSendRefusal(
-          channels.proplane && !assistantThread && !portalRecipient
+          channels.proplane && !assistantThread && !portalRecipient && !channels.email && !channels.sms
             ? "This person is not reachable in the PropLane app yet."
-            : channels.email && !inboxThreadHasEmail(thread.email)
-              ? "This conversation has no email address. Send via SMS instead."
-              : null,
+            : !smsOutboundEnabled && !inboxThreadHasEmail(thread.email)
+              ? "Can't send: texting is off for this workspace and this conversation has no email."
+              : decision.reason,
         );
       }
+      const proplaneAllowed = decision.proplane;
+      const emailAllowed = decision.email;
+      const smsAllowed = decision.sms;
 
       const replyId = `reply-${Date.now().toString(36)}`;
       const replyHouseId = replyHouseIdFor(thread);
@@ -1207,7 +1218,7 @@ export const ManagerInbox = forwardRef<
         smsUnknown,
       };
     },
-    [smsRecipients, smsOutboundEnabled],
+    [smsRecipients, smsOutboundEnabled, emailThreads, userId],
   );
 
   // New message is the shared composer (it sends and schedules itself); this
@@ -1899,7 +1910,10 @@ export const ManagerInbox = forwardRef<
         },
         attachmentUrls,
       );
-      if (!outcome) return;
+      if (!outcome) {
+        showToast(inboxSendFailureLine(null));
+        return;
+      }
       setReplyDraft("");
       clearInboxReplyDraft(activeThread.id);
       adoptedAiDraftByThreadRef.current.delete(activeThread.id);
@@ -1912,8 +1926,8 @@ export const ManagerInbox = forwardRef<
     } catch (error) {
       showToast(
         error instanceof InboxSendRefusal
-          ? (error.reason ?? "Could not send reply.")
-          : "Could not send reply.",
+          ? inboxSendFailureLine(error, error.reason)
+          : inboxSendFailureLine(error),
       );
     } finally {
       setReplySending(false);
@@ -2130,7 +2144,11 @@ export const ManagerInbox = forwardRef<
         sms: channels.viaSms,
         proplane: channels.viaProplane,
       });
-      if (outcome) {
+      if (!outcome) {
+        showToast(inboxSendFailureLine(null));
+        return "failed";
+      }
+      {
         adoptedAiDraftByThreadRef.current.delete(activeThread.id);
         setAdoptedAiDraftThreadId(null);
         setReplyDraft("");
@@ -2141,8 +2159,8 @@ export const ManagerInbox = forwardRef<
     } catch (error) {
       const message =
         error instanceof InboxSendRefusal
-          ? (error.reason ?? "Could not send reply.")
-          : "Could not send reply.";
+          ? inboxSendFailureLine(error, error.reason)
+          : inboxSendFailureLine(error);
       // An automatic attempt says it once per draft + channel choice; the
       // person's own Approve click always gets its answer.
       const toastKey = `${activeThread.id}:${text}:${channels.viaEmail}:${channels.viaSms}:${channels.viaProplane}`;

@@ -282,3 +282,41 @@ export function resolveManagerInboxPortalRecipient(
   if (smsTarget?.residentUserId) return { toUserIds: [smsTarget.residentUserId] };
   return null;
 }
+
+export type ManagerInboxSendDecision =
+  | { ok: true; email: boolean; sms: boolean; proplane: boolean; fellBack: boolean }
+  | { ok: false; reason: string };
+
+export const INBOX_SEND_NOTHING_REASON =
+  "Can't send: this conversation has no email or phone yet. Add one in contact details.";
+export const INBOX_SEND_NO_RESULT_REASON = "Could not send reply. Your message is still here.";
+
+/**
+ * A manager Send is never silent: pick the channels a reply can actually leave
+ * on, or say why none can. Requested channels are kept when reachable; when none
+ * of them is, fall back to email if the person has one, else a text to their
+ * phone, else in-app when that is a real channel. Otherwise one line of reason.
+ */
+export function decideManagerInboxSend(args: {
+  requested: { email: boolean; sms: boolean; proplane?: boolean };
+  emailAvailable: boolean;
+  smsAvailable: boolean;
+  proplaneAvailable: boolean;
+}): ManagerInboxSendDecision {
+  const email = args.requested.email && args.emailAvailable;
+  const sms = args.requested.sms && args.smsAvailable;
+  const proplane = Boolean(args.requested.proplane) && args.proplaneAvailable;
+  if (email || sms || proplane) return { ok: true, email, sms, proplane, fellBack: false };
+  if (args.emailAvailable) return { ok: true, email: true, sms: false, proplane: false, fellBack: true };
+  if (args.smsAvailable) return { ok: true, email: false, sms: true, proplane: false, fellBack: true };
+  if (args.proplaneAvailable) return { ok: true, email: false, sms: false, proplane: true, fellBack: true };
+  return { ok: false, reason: INBOX_SEND_NOTHING_REASON };
+}
+
+/** The one line a failed or empty send shows beside the composer. */
+export function inboxSendFailureLine(error: unknown, refusalReason?: string | null): string {
+  const reason = (refusalReason ?? "").trim();
+  if (reason) return reason;
+  void error;
+  return INBOX_SEND_NO_RESULT_REASON;
+}

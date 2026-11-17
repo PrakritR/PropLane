@@ -101,7 +101,7 @@ function shortDate(iso: string): string {
 export function propertyAttentionParts(a: PropertyAttention): { text: string; tone: "warning" | "info" | "neutral" }[] {
   const parts: { text: string; tone: "warning" | "info" | "neutral" }[] = [];
   if (a.waiting > 0) parts.push({ text: `${a.waiting} ${a.waiting === 1 ? "application" : "applications"} waiting`, tone: "warning" });
-  if (a.endingSoon) parts.push({ text: `Lease ends ${shortDate(a.endingSoon.date)}`, tone: "neutral" });
+  if (a.endingSoon) parts.push({ text: `Moves out ${shortDate(a.endingSoon.date)}`, tone: "neutral" });
   return parts;
 }
 

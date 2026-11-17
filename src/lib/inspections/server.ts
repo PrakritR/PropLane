@@ -18,6 +18,7 @@ import {
   type InspectionResidency, type InspectionSummary,
 } from "./model";
 
+import { isMonthToMonthTerm } from "@/lib/channel-calendar/property-bookings";
 import { createRoomInspectionDocument, inspectionRoomListing, resolveInspectionRoom, type InspectionRoom } from "./room-template";
 import { leaseTypeInspectionRequirements, residencyInspectionRequirements, roomInspectionRequirements } from "./requirements";
 
@@ -205,7 +206,11 @@ function residencyFromRecord(record: Record<string, unknown>): ResidencyView {
     manualRoom: text("app_manual_room"),
     leaseTerm: text("app_lease_term"),
     moveInDate: isoDate(text("app_manual_move_in")) || isoDate(text("app_lease_start")),
-    moveOutDate: isoDate(text("app_manual_move_out")) || isoDate(text("app_lease_end")),
+    // A month-to-month lease has no end: only the manager's move-out date (notice given) ends it, never a
+    // stale stored lease end (`leaseBlockEnd`, docs/agents/bookings.md).
+    moveOutDate:
+      isoDate(text("app_manual_move_out"))
+      || (isMonthToMonthTerm(text("app_lease_term")) ? "" : isoDate(text("app_lease_end"))),
     identity: {
       manager_user_id: text("manager_user_id"),
       property_id: text("assigned_property_id") || text("app_assigned_property_id")

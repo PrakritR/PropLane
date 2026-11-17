@@ -3,7 +3,7 @@ import { managerUnreadConversationCount, subscribeManagerUnreadConversationCount
 import { formatMoneyAmountsInLabel } from "@/lib/room-pricing";
 import { withoutLinkedVendorJobs } from "@/lib/add-on-vendor-job";
 
-import { Fragment, createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { DashboardSkeleton, DashboardLoadError } from "@/components/portal/dashboard-skeleton";
@@ -15,6 +15,9 @@ import {
   AttentionPanel,
   DashboardGlyphTile,
   KpiCard,
+  combineReadStates,
+  settleRead,
+  type ReadState,
   UpcomingPanel,
   type AttentionRow,
   type UpcomingRow,
@@ -109,7 +112,7 @@ import {
   loadPersistedInbox,
   MANAGER_INBOX_STORAGE_KEY,
   PORTAL_INBOX_CHANGED_EVENT,
-  syncPersistedInboxFromServer,
+  syncPersistedInboxFromServerWithStatus,
 } from "@/lib/portal-inbox-storage";
 import {
   ManagerPortalPageShell,
@@ -152,6 +155,7 @@ import {
   readFirstListingPortfolioSnapshot,
   shouldSkipFirstListingOnboarding,
 } from "@/lib/manager-first-listing-onboarding";
+import { serviceRequestsLastReadSucceeded } from "@/lib/service-requests-storage";
 import { syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
 import { fetchAccountLinksCached, readCachedAccountLinkInvites } from "@/lib/portal-data-store";
 import { hasIncomingAcceptedTeamLink } from "@/lib/workspace-co-manager-permissions";
@@ -165,6 +169,7 @@ import {
   workspaceContainsProperty,
   workspacePropertyIdFromRow,
 } from "@/lib/workspaces/selection";
+import { isMonthToMonthTerm } from "@/lib/channel-calendar/property-bookings";
 
 const BASE = "/portal";
 
@@ -490,6 +495,33 @@ function formatUsd(amount: number): string {
   });
 }
 
+type DashboardSource =
+  | "applications"
+  | "leases"
+  | "properties"
+  | "inbox"
+  | "charges"
+  | "schedule"
+  | "workOrders"
+  | "serviceRequests"
+  | "expenses";
+const INITIAL_SOURCE_STATES: Record<DashboardSource, ReadState> = {
+  applications: "loading",
+  leases: "loading",
+  properties: "loading",
+  inbox: "loading",
+  charges: "loading",
+  schedule: "loading",
+  workOrders: "loading",
+  serviceRequests: "loading",
+  expenses: "loading",
+};
+
+/** Month-to-month is open-ended: the term says so, or there is no end date (`leaseBlockEnd`). */
+function isOpenEndedLease(term: string | null | undefined, leaseEnd: string | null | undefined): boolean {
+  return isMonthToMonthTerm(term) || !leaseEnd?.trim();
+}
+
 export function ManagerDashboard({ displayName: _displayName = "there" }: { displayName?: string }) {
   void _displayName;
   const router = useRouter();
@@ -668,21 +700,50 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     };
   }, [authReady, userId, tick]);
 
+  /*
+   * One state per read behind the dashboard. Nothing draws a zero from a source that has not
+   * answered: a tile or the attention panel is `loading` until its sources settle, and `failed`
+   * on a rejection, a read that reports it did not answer, or 12 s of silence (`settleRead`).
+   */
+  const [sourceStates, setSourceStates] = useState<Record<DashboardSource, ReadState>>(INITIAL_SOURCE_STATES);
+  const retryFns = useRef<Partial<Record<DashboardSource, () => Promise<unknown>>>>({});
+
   useEffect(() => {
     if (!authReady || !userId) {
       return;
     }
-    void Promise.allSettled([
-      syncManagerApplicationsFromServer({ managerUserId: userId }),
-      syncLeasePipelineFromServer(userId),
-      syncPropertyPipelineFromServer(),
-      syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY),
-      syncHouseholdChargesFromServer(true),
-      syncScheduleRecordsFromServer(),
-      syncManagerWorkOrdersFromServer(),
-      syncServiceRequestsFromServer(),
-      syncManagerOutgoingExpensesFromServer(),
-    ]).then(() => {
+    let cancelled = false;
+    const readers: Record<DashboardSource, { run: (force: boolean) => Promise<unknown>; answered?: () => boolean }> = {
+      applications: { run: (force) => syncManagerApplicationsFromServer({ managerUserId: userId, force }) },
+      leases: { run: (force) => syncLeasePipelineFromServer(userId, { force }) },
+      properties: { run: (force) => syncPropertyPipelineFromServer({ force }) },
+      inbox: {
+        run: async (force) => (await syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY, { force })).ok,
+      },
+      charges: { run: () => syncHouseholdChargesFromServer(true) },
+      schedule: { run: (force) => syncScheduleRecordsFromServer({ force }) },
+      workOrders: { run: (force) => syncManagerWorkOrdersFromServer({ force }) },
+      serviceRequests: {
+        run: (force) => syncServiceRequestsFromServer({ force }),
+        answered: () => isDemoModeActive() || serviceRequestsLastReadSucceeded(),
+      },
+      expenses: { run: (force) => syncManagerOutgoingExpensesFromServer(force) },
+    };
+    const runSource = (key: DashboardSource, force: boolean) => {
+      setSourceStates((prev) => (prev[key] === "loading" ? prev : { ...prev, [key]: "loading" }));
+      const reader = readers[key];
+      return settleRead(reader.run(force), { answered: reader.answered }).then((state) => {
+        if (cancelled) return state;
+        setSourceStates((prev) => (prev[key] === state ? prev : { ...prev, [key]: state }));
+        bump();
+        return state;
+      });
+    };
+    for (const key of Object.keys(readers) as DashboardSource[]) {
+      retryFns.current[key] = () => runSource(key, true);
+    }
+    void Promise.all((Object.keys(readers) as DashboardSource[]).map((key) => runSource(key, false))).then(() => {
+      if (cancelled) return;
       bump();
       setDashboardSynced(true);
     });
@@ -700,6 +761,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     window.addEventListener("storage", bump);
     const unsubscribeUnreadCount = subscribeManagerUnreadConversationCount(bump);
     return () => {
+      cancelled = true;
       unsubscribeUnreadCount();
       window.removeEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, bump);
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, bump);
@@ -910,7 +972,12 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
   );
   const periods = useMemo(() => dashboardPeriods(periodKind, nowMs, 8), [periodKind, nowMs]);
   const occupancyIsLive = authReady && !isDemoModeActive();
-  const portfolioOccupancy = usePortfolioOccupancy(occupancyPropertyIds, occupancyIsLive, periods);
+  const portfolioOccupancy = usePortfolioOccupancy(
+    occupancyPropertyIds,
+    occupancyIsLive,
+    periods,
+    sourceStates.properties === "ready",
+  );
   // Shaped once per answer: the KPI series and every property card read this same map.
   const liveOccupancy = useMemo(
     () =>
@@ -1127,6 +1194,27 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
   });
   const attentionShown = attentionRows.slice(0, MANAGER_ATTENTION_MAX_ROWS);
 
+  // What each tile has actually read. A tile never draws a zero its sources have not answered.
+  const retrySource = (...keys: DashboardSource[]) =>
+    Promise.all(keys.map((key) => retryFns.current[key]?.()));
+  const attentionSources: DashboardSource[] = ["applications", "leases", "properties", "inbox", "charges", "schedule", "workOrders", "serviceRequests"];
+  const attentionState = combineReadStates(attentionSources.map((k) => sourceStates[k]));
+  const retryAttention = () =>
+    retrySource(...attentionSources.filter((k) => sourceStates[k] === "failed"));
+  const occupancySourceState: ReadState = !occupancyIsLive
+    ? "ready"
+    : combineReadStates([
+        sourceStates.properties,
+        portfolioOccupancy.status === "ok" ? "ready" : portfolioOccupancy.status,
+      ]);
+  const retryOccupancy = () => {
+    if (sourceStates.properties === "failed") void retrySource("properties");
+    if (portfolioOccupancy.status === "failed") portfolioOccupancy.retry();
+  };
+  const collectedState = sourceStates.charges;
+  const requestsState = combineReadStates([sourceStates.workOrders, sourceStates.serviceRequests]);
+  const applicationsState = sourceStates.applications;
+
   // Rooms occupied today per property, for the occupancy bar on each card. Live: the occupancy
   // snapshot (a house it did not answer for is absent, so the card says unknown, not 0). Demo: signed leases.
   const occupiedByProperty = new Map<string, number>();
@@ -1145,6 +1233,10 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
   const occupancyState: "loading" | "failed" | "ok" = occupancyIsLive ? portfolioOccupancy.status : "ok";
 
   // Upcoming: the next 14 days of tours, move-ins and move-outs.
+  const monthToMonthResidencyIds = new Set<string>();
+  for (const lease of data?.leases ?? []) {
+    if (isOpenEndedLease(lease.application?.leaseTerm, lease.application?.leaseEnd)) monthToMonthResidencyIds.add(lease.id);
+  }
   const horizonMs = nowTick + 14 * 24 * 60 * 60 * 1000;
   const upcomingRows: UpcomingRow[] = [
     ...tours
@@ -1166,7 +1258,9 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
         rows.push({ id: `movein-${r.id}`, kind: "Move-in inspection", title: r.name, detail: where, at: moveIn, href: `${BASE}/move-in/inspections/move-in` });
       }
       if (moveOut != null && moveOut >= nowTick - 24 * 60 * 60 * 1000 && moveOut <= horizonMs) {
-        rows.push({ id: `moveout-${r.id}`, kind: "Lease ends", title: r.name, detail: where, at: moveOut, href: `${BASE}/move-in/inspections/move-out` });
+        // A month-to-month lease has no "lease end": only a real move-out date is shown, as a move-out.
+        const m2m = monthToMonthResidencyIds.has(r.id);
+        rows.push({ id: `moveout-${r.id}`, kind: m2m ? "Moves out" : "Lease ends", title: r.name, detail: where, at: moveOut, href: `${BASE}/move-in/inspections/move-out` });
       }
       return rows;
     }),
@@ -1434,7 +1528,9 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <KpiCard
             label="Occupancy"
-            value={kpis?.occupancy.value ?? "0%"}
+            state={occupancySourceState}
+            onRetry={retryOccupancy}
+            value={kpis?.occupancy.value ?? "—"}
             unit={kpis?.occupancy.unit}
             detail="Beds with someone in them today"
             delta={kpis?.occupancy.delta ?? null}
@@ -1446,7 +1542,9 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
           />
           <KpiCard
             label="Rent collected"
-            value={kpis?.collected.value ?? "$0"}
+            state={collectedState}
+            onRetry={() => retrySource("charges")}
+            value={kpis?.collected.value ?? "—"}
             unit={kpis?.collected.unit}
             detail="Paid this period"
             delta={kpis?.collected.delta ?? null}
@@ -1458,7 +1556,9 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
           />
           <KpiCard
             label="Open requests"
-            value={kpis?.requests.value ?? "0"}
+            state={requestsState}
+            onRetry={() => retrySource("workOrders", "serviceRequests")}
+            value={kpis?.requests.value ?? "—"}
             unit={kpis?.requests.unit}
             detail="Services and maintenance still open"
             delta={kpis?.requests.delta ?? null}
@@ -1470,6 +1570,8 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
           />
           <KpiCard
             label="Applications ready"
+            state={applicationsState}
+            onRetry={() => retrySource("applications")}
             value={String(pendingApps.length)}
             unit={
               pendingApps.length > 0
@@ -1485,7 +1587,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
 
         {/* What needs a decision now, and what the next fortnight holds. */}
         <div className="grid items-stretch gap-4 lg:grid-cols-2">
-          <AttentionPanel rows={attentionShown} />
+          <AttentionPanel rows={attentionShown} state={attentionState} onRetry={retryAttention} />
           <UpcomingPanel rows={upcomingRows} nowMs={nowTick} calendarHref={`${BASE}/calendar`} />
         </div>
 

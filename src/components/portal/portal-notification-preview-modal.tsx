@@ -87,6 +87,7 @@ export function PortalNotificationPreviewModal({
   editableBody = true,
   editableSubject = true,
   recipientPhone,
+  recipientName,
   initialScheduleLater = false,
   scheduledRecipientEmail,
   scheduledSmsAvailable = false,
@@ -141,6 +142,8 @@ export function PortalNotificationPreviewModal({
   editableBody?: boolean;
   editableSubject?: boolean;
   recipientPhone?: string;
+  /** The person being written to; when set the Recipient fact names them and lists each address. */
+  recipientName?: string;
   /** When true, opens with Schedule for later checked (resident detail thread flow). */
   initialScheduleLater?: boolean;
   /** When set, lists this recipient's scheduled messages at the bottom of the modal. */
@@ -361,7 +364,9 @@ export function PortalNotificationPreviewModal({
 
   return (
     <PortalDialog
-      contextPanel={<PopupRecordPreview rows={[{ label: "Recipient", value: recipient }, ...(recipientPhone ? [{ label: "Phone", value: recipientPhone }] : [])]} />}
+      contextPanel={<PopupRecordPreview rows={recipientName?.trim()
+        ? [{ label: "Recipient", value: recipientName.trim() }, ...(recipient.trim() ? [{ label: "Email", value: recipient.trim() }] : []), ...(recipientPhone?.trim() ? [{ label: "Phone", value: recipientPhone.trim() }] : [])]
+        : [{ label: "Recipient", value: recipient }, ...(recipientPhone ? [{ label: "Phone", value: recipientPhone }] : [])]} />}
       previewLabel="Message preview"
       preview={skipMessage ? <PopupRecordPreview rows={[{ label: "Delivery", value: "No message" }]} /> : <PopupMessagePreview subject={draftSubject} body={draftBody} recipient={recipient} channel={[viaEmail && "Email", viaSms && "SMS"].filter(Boolean).join(" · ")} sendAt={scheduleLater ? sendAt : undefined} />}
       open={open}
