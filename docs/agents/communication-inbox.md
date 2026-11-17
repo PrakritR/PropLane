@@ -677,8 +677,17 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   house-less thread follows the work line it used (the owning workspace's SMS
   number or assistant address — shared-in number assignments do not duplicate
   threads), and only when no line places it does it fall back to the owner's
-  default workspace. Threads older than the stamp are filled in by
-  `scripts/backfill-thread-workspaces.mjs`.
+  default workspace. **On the viewer's OWN conversation the stamp also PLACES
+  it** (Nov 17): a row stamped with the workspace that is open shows there
+  outright, ahead of the line, house and default-workspace rules — without
+  that, a message the server stamped into a non-default workspace was hidden
+  both there (the untagged fallback reads only the default) and in the default
+  (the stamp refuses it), so it was visible nowhere. The stamp is the
+  conversation key resolver's (`conversationColumns`, server-side at send),
+  never a request body's. This never widens anyone
+  else's rows: another owner's conversation still needs a granted house that
+  is in the active workspace, stamp or no stamp. Threads older than the stamp
+  are filled in by `scripts/backfill-thread-workspaces.mjs`.
   Manager email inbox sync is server-authoritative on fetch:
   rows the API omits are dropped from local storage (local-only ghosts do not
   resurrect). New SMS projection archive/read state is per viewer with a

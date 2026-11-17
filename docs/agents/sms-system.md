@@ -209,9 +209,13 @@ through it or through the workspace-keyed helpers in
   column, so nothing there moves. The data pass for threads that predate the
   workspace stamp is `scripts/backfill-thread-workspaces.mjs` (dry run first;
   it also prints the one-number/one-email report and changes nothing there).
-- **Placement**: a conversation about no house shows in the workspace whose
-  line carried it (`conversation-visibility.server.ts` rule 3, `lines`);
-  only when no line places it does the owner's default workspace rule apply.
+- **Placement** is `conversation-visibility.server.ts` rule 3's, which owns the
+  order: the viewer's OWN conversation shows in the workspace its
+  `workspace_id` stamp names while that workspace is open, whatever house it
+  names; otherwise a house-less one follows the line that carried it (`lines`),
+  and only then the owner's default workspace. Another owner's row still needs
+  a granted house inside the workspace. See
+  [`communication-inbox.md`](communication-inbox.md) rule (3).
 - "Sent by <teammate>" inside Communication is a read-time join from
   `manager_sms_messages.message_sid` to `sms_outbox.actor_user_id`; never shown
   to the texter. Coverage: `tests/unit/workspace-work-identity.test.ts`,
@@ -236,8 +240,8 @@ number is shared by the whole team, so the houses on a thread decide which
 members see it: `fetchManagerSmsConversations` filters every conversation
 through `conversationVisible` (`src/lib/communication/conversation-visibility.server.ts`)
 after the houses are attached — a co-manager only on a granted house, everyone
-only inside the workspace that holds it, an untagged thread in the owner's
-default workspace. Pass `visibility: "none"` only for delivery on the owner's
+only inside the workspace that holds it, an untagged thread where rule 3 puts
+it (the **Placement** bullet above). Pass `visibility: "none"` only for delivery on the owner's
 behalf (no viewer to narrow for). Library:
 `src/lib/sms/conversation-houses.server.ts`.
 
