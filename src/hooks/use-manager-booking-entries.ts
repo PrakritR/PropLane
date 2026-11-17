@@ -293,15 +293,18 @@ export function useManagerBookingEntries({
     if (!userId) return [];
     const scoped = new Set(propertyIds);
     // Same two-way match `applicationRowForLease` uses: the Axis id binds
-    // exactly; email + property covers a lease whose id was never stamped.
+    // exactly; email + property covers a lease whose id was never stamped. Both keys carry the
+    // HOUSE, because a lease only draws its stay on its own house — a lease filed under another
+    // one leaves this room held, and dropping the hold on its strength would show it free.
     const leasedIds = new Set<string>();
     const leasedPeople = new Set<string>();
     for (const row of leaseRows) {
       if (!leaseIsFullyExecuted(row)) continue;
+      const housed = (row.propertyId ?? "").trim();
       const axisId = normalizeApplicationAxisId(row.axisId ?? "");
-      if (axisId) leasedIds.add(axisId);
+      if (axisId) leasedIds.add(`${axisId}|${housed}`);
       const email = row.residentEmail?.trim().toLowerCase();
-      if (email) leasedPeople.add(`${email}|${(row.propertyId ?? "").trim()}`);
+      if (email) leasedPeople.add(`${email}|${housed}`);
     }
     return applicationHoldEntries(applicationRows, {
       properties: propertyOptions
@@ -314,9 +317,11 @@ export function useManagerBookingEntries({
       roomLabelForId: (propertyId, roomId) =>
         bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? UNASSIGNED_ROOM_LABEL,
       isLeased: (row) => {
-        if (leasedIds.has(normalizeApplicationAxisId(row.id))) return true;
+        // The house this hold would draw on, by the same expression `applicationHoldEntries` uses.
+        const propertyId = (row.assignedPropertyId || row.propertyId || "").trim();
+        const axisId = normalizeApplicationAxisId(row.id);
+        if (axisId && leasedIds.has(`${axisId}|${propertyId}`)) return true;
         const email = row.email?.trim().toLowerCase();
-        const propertyId = (row.assignedPropertyId ?? row.propertyId ?? "").trim();
         return Boolean(email) && leasedPeople.has(`${email}|${propertyId}`);
       },
       openEndedHorizonKey: openEndedBookingHorizonKey(),

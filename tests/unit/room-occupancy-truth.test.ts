@@ -266,6 +266,17 @@ describe("the manager snapshot reads the same holds", () => {
     expect(holds).toEqual([]);
   });
 
+  it("a lease filed under another house does not release this house's hold", async () => {
+    // The lease draws its stay on its own house only, so dropping the hold here would publish an
+    // occupied room as free.
+    const holdRows = db([row("AXIS-8", {}, { email: "ana@example.com" })]);
+    const elsewhere = [{ id: "lease-1", axisId: "AXIS-8", propertyId: "p2", status: "Fully Signed", residentEmail: "ana@example.com" }];
+    const kept = await occupancyHoldEntries(holdRows, ["p1"], elsewhere, meta);
+    expect(kept).toHaveLength(1);
+    const sameHouse = [{ ...elsewhere[0]!, propertyId: "p1" }];
+    expect(await occupancyHoldEntries(db([row("AXIS-8", {}, { email: "ana@example.com" })]), ["p1"], sameHouse, meta)).toEqual([]);
+  });
+
   it("the lease lookup binds on the application id the lease carries, not the lease's own id", async () => {
     const holds = await occupancyApprovedHoldRows(db([row("AXIS-7", {}, { email: "ana@example.com" })]), ["p1"]);
     expect(holds).toHaveLength(1);

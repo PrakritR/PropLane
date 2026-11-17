@@ -138,6 +138,7 @@ import {
   inboxSmsUnavailableReason,
   decideManagerInboxSend,
   inboxReplyPickBlocker,
+  inboxScheduledToastMessage,
   inboxSendFailureLine,
 } from "@/lib/manager-inbox-reply-channels";
 import {
@@ -1903,7 +1904,7 @@ export const ManagerInbox = forwardRef<
         clearInboxReplyDraft(activeThread.id);
         setReplyAttachments([]);
         setScheduleLater(false);
-        showToast("Message scheduled.");
+        showToast(inboxScheduledToastMessage(scheduledVia));
         // Pull the pinned "N scheduled" card back in. Without this the
         // conversation still shows the OLD count, so a manager who just
         // scheduled something sees no sign it worked and schedules it twice.

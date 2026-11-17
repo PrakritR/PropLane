@@ -462,22 +462,28 @@ export async function occupancyHoldEntries(
 ) {
   if (propertyIds.length === 0) return [];
   const holds = holdRows ?? (await occupancyApprovedHoldRows(db, propertyIds));
+  // Both keys carry the HOUSE, because a lease only draws its stay on its own house
+  // (`leaseBookingEntries`): a lease filed under another one leaves this room held, and dropping
+  // the hold on its strength would publish an occupied room as free.
   const leasedIds = new Set<string>();
   const leasedPeople = new Set<string>();
   for (const row of leaseRows) {
     if (!leaseIsFullyExecuted(row as Parameters<typeof leaseIsFullyExecuted>[0])) continue;
+    const housed = (row.propertyId ?? "").trim();
     const axisId = normalizeApplicationAxisId(row.axisId ?? "");
-    if (axisId) leasedIds.add(axisId);
+    if (axisId) leasedIds.add(`${axisId}|${housed}`);
     const email = row.residentEmail?.trim().toLowerCase();
-    if (email) leasedPeople.add(`${email}|${(row.propertyId ?? "").trim()}`);
+    if (email) leasedPeople.add(`${email}|${housed}`);
   }
   return applicationHoldEntries(holds, {
     properties: meta.properties,
     roomLabelForId: meta.roomLabelForId,
     isLeased: (row) => {
-      if (leasedIds.has(normalizeApplicationAxisId(row.id))) return true;
+      // The house this hold would draw on, by the same expression `applicationHoldEntries` uses.
+      const propertyId = (row.assignedPropertyId || row.propertyId || "").trim();
+      const axisId = normalizeApplicationAxisId(row.id);
+      if (axisId && leasedIds.has(`${axisId}|${propertyId}`)) return true;
       const email = row.email?.trim().toLowerCase();
-      const propertyId = (row.assignedPropertyId ?? row.propertyId ?? "").trim();
       return Boolean(email) && leasedPeople.has(`${email}|${propertyId}`);
     },
     openEndedHorizonKey: openEndedBookingHorizonKey(),

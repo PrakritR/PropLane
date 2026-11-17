@@ -498,8 +498,9 @@ function formatUsd(amount: number): string {
 
 /**
  * A read something on this page DRAWS, so its state decides what that tile or panel shows. The
- * outgoing-expense read is not one: its only reader is the demo-only cash-flow chart, so it is
- * awaited beside these (the page is "synced" once it lands) without a state nothing consults.
+ * outgoing-expense read is not one: its only reader is the demo-only cash-flow chart (a live
+ * manager gets `FinancialCashflowChart`, which fetches its own), so it is read only in the demo
+ * sandbox and carries no state nothing consults.
  */
 type DashboardSource =
   | "applications"
@@ -752,7 +753,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     }
     void Promise.all([
       ...(Object.keys(readers) as DashboardSource[]).map((key) => runSource(key, false)),
-      syncManagerOutgoingExpensesFromServer(false).catch(() => undefined),
+      ...(isDemoModeActive() ? [syncManagerOutgoingExpensesFromServer(false).catch(() => undefined)] : []),
     ]).then(() => {
       if (cancelled) return;
       bump();
@@ -933,9 +934,11 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
       (c) => parseMoneyLabel(c.amountLabel || c.balanceLabel),
     );
     const expensesByMonth = bucketByMonth(
-      readManagerOutgoingExpenses().filter(
-        (e) => !e.propertyId?.trim() || workspaceContainsProperty(e.propertyId.trim()),
-      ),
+      isDemoModeActive()
+        ? readManagerOutgoingExpenses().filter(
+            (e) => !e.propertyId?.trim() || workspaceContainsProperty(e.propertyId.trim()),
+          )
+        : [],
       months,
       (e) => e.expenseDate,
       (e) => e.amountCents / 100,

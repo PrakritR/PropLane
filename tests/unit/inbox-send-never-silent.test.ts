@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   decideManagerInboxSend,
   inboxReplyPickBlocker,
+  inboxScheduledToastMessage,
   inboxSendFailureLine,
   INBOX_SEND_NOTHING_REASON,
   INBOX_SEND_NO_RESULT_REASON,
@@ -85,6 +86,14 @@ describe("a manager Send is never silent", () => {
         proplaneAvailable: false,
       }),
     ).toBeNull();
+  });
+
+  it("a scheduled reply names the channel it will leave on", () => {
+    expect(inboxScheduledToastMessage({ email: false, sms: true, proplane: false })).toBe("Message scheduled via text.");
+    expect(inboxScheduledToastMessage({ email: true, sms: true, proplane: false })).toBe("Message scheduled via email and text.");
+    expect(inboxScheduledToastMessage({ email: true, sms: true, proplane: true })).toBe(
+      "Message scheduled via PropLane, email and text.",
+    );
   });
 
   it("a send that returns nothing is a visible error line", () => {

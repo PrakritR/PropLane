@@ -338,6 +338,26 @@ export function decideManagerInboxSend(args: {
 }
 
 /**
+ * What a scheduled reply says once it is filed: the channels it will actually leave on, in the
+ * same words the immediate send reports (`inboxReplySentToastMessage`). The decision may have
+ * substituted a channel for an unreachable pick, and a text spends communication credit, so the
+ * manager is told which one rather than a bare "Message scheduled.".
+ */
+export function inboxScheduledToastMessage(via: { email: boolean; sms: boolean; proplane: boolean }): string {
+  const channels = [
+    ...(via.proplane ? ["PropLane"] : []),
+    ...(via.email ? ["email"] : []),
+    ...(via.sms ? ["text"] : []),
+  ];
+  if (channels.length === 0) return "Message scheduled.";
+  const label =
+    channels.length > 2
+      ? `${channels.slice(0, -1).join(", ")} and ${channels.at(-1)}`
+      : channels.join(" and ");
+  return `Message scheduled via ${label}.`;
+}
+
+/**
  * The one line a failed or empty send shows beside the composer. A refusal carries its own reason;
  * anything else (a network error, a 500 from the send route) has no line a manager can act on, so
  * it is logged rather than swallowed — otherwise the real cause is never diagnosable.
