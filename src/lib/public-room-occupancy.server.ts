@@ -4,6 +4,9 @@ import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
 import { occupiedBedSpans, type RoomBedSpan } from "@/lib/room-occupancy-rule";
 import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import { isIcalAvailabilityBlock } from "@/lib/occupancy/snapshot";
+import { countRoomsAvailableNow } from "@/lib/public-listing-available-count";
+import { pacificTodayKey } from "@/lib/room-availability-range";
+import { isMonthToMonthTerm, leaseBlockEnd } from "@/lib/channel-calendar/property-bookings";
 import { leaseIsFullyExecuted, normalizeLeasePipelineRow, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { canonicalRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
@@ -32,6 +35,7 @@ type ExecutedLease = {
   roomChoice: string;
   start: string | null;
   end: string | null;
+  leaseTerm: string;
 };
 
 /**
@@ -76,7 +80,7 @@ async function executedLeases(
           }
           const leaseId = String(row.id ?? lease.id ?? "").trim() || [...applicationIds].join("|");
           if (found.has(leaseId)) continue;
-          const dataRow = row.row_data as { roomChoice?: unknown; application?: { leaseStart?: unknown; leaseEnd?: unknown } };
+          const dataRow = row.row_data as { roomChoice?: unknown; leaseTerm?: unknown; application?: { leaseStart?: unknown; leaseEnd?: unknown; leaseTerm?: unknown } };
           found.set(leaseId, {
             applicationIds: [...applicationIds],
             leaseId,
@@ -85,6 +89,7 @@ async function executedLeases(
             roomChoice: typeof dataRow.roomChoice === "string" ? dataRow.roomChoice.trim() : "",
             start: day(dataRow.application?.leaseStart),
             end: day(dataRow.application?.leaseEnd),
+            leaseTerm: String(dataRow.application?.leaseTerm || dataRow.leaseTerm || "").trim(),
           });
         }
         if ((data ?? []).length < 500) break;
@@ -152,7 +157,7 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
       return db
         .from("manager_application_records")
         .select(
-          "id,occupancy_start,manager_user_id,property_id,assigned_property_id,assigned:row_data->>assignedPropertyId,property:row_data->>propertyId,application_property:row_data->application->>propertyId,withdrawn:row_data->>withdrawnAt,manually_added:row_data->>manuallyAdded,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,manual_room:row_data->manualResidentDetails->>roomNumber,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd",
+          "id,occupancy_start,manager_user_id,property_id,assigned_property_id,assigned:row_data->>assignedPropertyId,property:row_data->>propertyId,application_property:row_data->application->>propertyId,withdrawn:row_data->>withdrawnAt,manually_added:row_data->>manuallyAdded,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,manual_room:row_data->manualResidentDetails->>roomNumber,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,lease_term:row_data->application->>leaseTerm,manual_term:row_data->manualResidentDetails->>leaseTerm",
         )
         .eq("row_data->>bucket", "approved")
         .or(
@@ -256,8 +261,13 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
       const start = day(row.manual_start) || day(row.lease_start);
       if (!start) continue;
       const occupancyStart = row.occupancy_start && row.occupancy_start < start ? row.occupancy_start : start;
-      const end = day(row.manual_end) || day(row.lease_end);
+      let end = day(row.manual_end) || day(row.lease_end);
       if (end && end < occupancyStart) continue;
+      // A month-to-month residency has no real end: a stale past leaseEnd must not read the room free.
+      // The shared rule ends it at today + 365 (rolling); a move-out date still wins.
+      if (isMonthToMonthTerm(row.manual_term || row.lease_term)) {
+        end = leaseBlockEnd({ start: occupancyStart, leaseEnd: day(row.lease_end), moveOut: day(row.manual_end), leaseTerm: String(row.manual_term || row.lease_term) }).end;
+      }
       countedApplicationIds.add(normalizeApplicationAxisId(String(row.id)));
       for (const room of rooms) {
         placements.get(`${property.id}::${room.id}`)?.set(String(row.id).toUpperCase(), {
@@ -277,10 +287,13 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
       const rooms = roomsForChoice(property, lease.roomChoice, "");
       if (!rooms.length) continue;
       if (lease.end && lease.end < lease.start) continue;
+      const leaseEnd = isMonthToMonthTerm(lease.leaseTerm)
+        ? leaseBlockEnd({ start: lease.start, leaseEnd: lease.end, leaseTerm: lease.leaseTerm }).end
+        : lease.end;
       for (const room of rooms) {
         placements.get(`${property.id}::${room.id}`)?.set(`lease:${lease.leaseId}`, {
           start: lease.start,
-          end: lease.end,
+          end: leaseEnd,
           count: lease.roomChoice === property.id ? (room.occupancyCapacity ?? 1) : 1,
         });
       }
@@ -333,4 +346,24 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
       spans: occupiedBedSpans([...rows.values()]),
     }));
     return rooms;
+}
+
+/**
+ * Rooms open TODAY per house, counted in rooms from the one occupancy read ("open now" is the one
+ * availability count). A house the read fails for is absent: callers claim nothing for it.
+ */
+export async function loadOpenNowRoomCounts(db: Db, listings: Listing[], today: string = pacificTodayKey()): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (!listings.length) return counts;
+  try {
+    const occupancy = await loadPublicRoomOccupancy(db, listings);
+    for (const listing of listings) {
+      const rooms = listing.listingSubmission?.rooms ?? [];
+      if (!rooms.length) continue;
+      counts.set(listing.id, countRoomsAvailableNow(rooms, occupancy, today, listing.id));
+    }
+  } catch {
+    // No read, no claim.
+  }
+  return counts;
 }

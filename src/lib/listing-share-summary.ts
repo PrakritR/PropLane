@@ -11,6 +11,11 @@ export type ListingShareSummary = {
 type ListingShareSummaryOptions = {
   roomChoice?: string;
   roomId?: string;
+  /**
+   * Rooms open TODAY, counted from the one occupancy snapshot (`countRoomsAvailableNow`). Absent or null
+   * means the caller has no read: the summary then states the room count and makes no availability claim.
+   */
+  openNow?: number | null;
 };
 
 /** Short bullet-style facts for prospect emails (no long amenity lists). */
@@ -43,7 +48,14 @@ export function buildListingShareSummary(
         roomLine = selectedRoomLabel;
       } else {
         const roomCount = rooms.length;
-        if (roomCount > 0) roomLine = `${roomCount} room${roomCount === 1 ? "" : "s"} available`;
+        if (roomCount > 0) {
+          const total = `${roomCount} room${roomCount === 1 ? "" : "s"}`;
+          const open = options?.openNow;
+          roomLine =
+            typeof open === "number" && Number.isFinite(open)
+              ? `${Math.max(0, Math.min(roomCount, Math.floor(open)))} of ${total} open now`
+              : total;
+        }
       }
     }
   }

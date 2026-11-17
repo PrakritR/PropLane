@@ -77,11 +77,11 @@ describe("tile and bar share one number", () => {
     } as unknown as ListingRichContent;
     const property = { beds: 3, baths: 1, petFriendly: false };
     expect(n).toBe(2);
-    expect(deriveListingKeyFacts(rich, property, n).find((f) => f.id === "rooms")?.label).toBe(`${n} available now`);
+    expect(deriveListingKeyFacts(rich, property, n).find((f) => f.id === "rooms")?.label).toBe(`${n} open now`);
     // Loading: no sublabel at all, never a stale static number.
     expect(deriveListingKeyFacts(rich, property, null).find((f) => f.id === "rooms")?.label).toBeUndefined();
     // No override: existing static behavior.
-    expect(deriveListingKeyFacts(rich, property).find((f) => f.id === "rooms")?.label).toBe("3 available now");
+    expect(deriveListingKeyFacts(rich, property).find((f) => f.id === "rooms")?.label).toBe("3 open now");
   });
 });
 
@@ -92,6 +92,6 @@ describe("deriveListingKeyFacts next opening", () => {
     const facts = deriveListingKeyFacts(rich, property, 0, "Next opening Oct 15");
     expect(facts.find((f) => f.id === "rooms")?.label).toBe("Next opening Oct 15");
     expect(facts.find((f) => f.id === "availability")).toBeUndefined();
-    expect(deriveListingKeyFacts(rich, property, 1, "Next opening Oct 15").find((f) => f.id === "rooms")?.label).toBe("1 available now");
+    expect(deriveListingKeyFacts(rich, property, 1, "Next opening Oct 15").find((f) => f.id === "rooms")?.label).toBe("1 open now");
   });
 });

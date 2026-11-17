@@ -97,7 +97,7 @@ describe("room modal availability timeline", () => {
 
   it("leaves an open room green", () => {
     renderRoom(roomRow());
-    expect(screen.getByText("Available now")).toBeTruthy();
+    expect(screen.getByText("Open now")).toBeTruthy();
     expect(redDays()).toEqual([]);
   });
 });

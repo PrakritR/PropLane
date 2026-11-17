@@ -75,7 +75,7 @@ function AvailabilityPill({
     );
   }
   const t = text.toLowerCase();
-  const green = t.includes("available") || t.includes("included");
+  const green = t.includes("available") || t.includes("open now") || t.includes("included");
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)] sm:gap-1.5 sm:px-2.5 sm:py-1 sm:text-xs ${

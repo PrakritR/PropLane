@@ -1,4 +1,5 @@
 import type { ReportRow } from "./types";
+import { ledgerRowIsRevenue } from "@/lib/charge-paid";
 
 export function summarizeFinancialActivity(rows: ReportRow[]) {
   const months = new Map<string, { revenueCents: number; expenseCents: number; profitCents: number; rentCollectedCents: number }>();
@@ -14,7 +15,7 @@ export function summarizeFinancialActivity(rows: ReportRow[]) {
     }
     // Capital and loan principal are cash movements, never operating expenses.
     if (/^(capital_improvement|construction|remodel|purchase|down_payment|sale_proceeds|cashback|principal|loan_principal|mortgage_principal|loan_payoff)$/.test(category)) continue;
-    if (row.accountType !== "income" && row.accountType !== "expense") continue;
+    if (row.accountType !== "expense" && !ledgerRowIsRevenue(row)) continue;
     const month = String(row.date).slice(0, 7);
     const totals = months.get(month) ?? { revenueCents: 0, expenseCents: 0, profitCents: 0, rentCollectedCents: 0 };
     if (row.accountType === "expense") totals.expenseCents -= amount;
@@ -44,7 +45,7 @@ export function summarizeFinancialActivityByProperty(rows: ReportRow[], month: s
   for (const row of rows) {
     const category = String(row.categoryCode ?? "");
     if (DEPOSIT_CATEGORY.test(category) || NON_OPERATING_CATEGORY.test(category)) continue;
-    if (row.accountType !== "income" && row.accountType !== "expense") continue;
+    if (row.accountType !== "expense" && !ledgerRowIsRevenue(row)) continue;
     if (String(row.date).slice(0, 7) !== month) continue;
     const amount = Number(row.amountCents);
     if (!Number.isSafeInteger(amount)) throw new Error("Invalid ledger amount.");

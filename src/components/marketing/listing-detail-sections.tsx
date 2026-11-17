@@ -301,7 +301,7 @@ function ListingDetailBody({
   const rooms = useMemo(() => rich.floorPlans.flatMap((f) => f.rooms), [rich.floorPlans]);
   const roomCount = rooms.length;
   const { rooms: occupancyRows, loading: occupancyLoading } = useListingPublicOccupancy(property.id);
-  // Held back while occupancy loads so a static "9 available" never flashes; a failed fetch leaves no rows, i.e. the static count.
+  // Held back while occupancy loads so a static "9 open now" never flashes; a failed fetch leaves no rows, i.e. the static count.
   const availableNow = useMemo(
     () => (occupancyLoading ? null : countRoomsAvailableNow(rooms, occupancyRows, pacificTodayKey(), property.id)),
     [occupancyLoading, rooms, occupancyRows, property.id],
@@ -316,7 +316,7 @@ function ListingDetailBody({
   const roomsLine =
     roomCount > 0
       ? `${roomCount} room${roomCount === 1 ? "" : "s"}${
-          availableNow === null ? "" : ` · ${nextOpeningLabel ?? `${availableNow} available`}`
+          availableNow === null ? "" : ` · ${nextOpeningLabel ?? `${availableNow} open now`}`
         }`
       : null;
   const availableLine =
@@ -324,8 +324,8 @@ function ListingDetailBody({
       ? null
       : availableNow > 0
         ? roomCount > 1
-          ? `${availableNow} of ${roomCount} rooms available now`
-          : "Available now"
+          ? `${availableNow} of ${roomCount} rooms open now`
+          : "Open now"
         : nextOpeningLabel;
   const embeddedPreview = previewModal || portalEmbedded;
   const houseRulesDisplay =

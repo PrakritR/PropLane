@@ -257,8 +257,23 @@ async function recipientOwnsManagedWorkspace(db: SupabaseClient, ownerUserId: st
 
 type ActionEventResult = { eventId: string; duplicate: boolean; delivered: number; submitted: number; deferred: number; failed: number };
 
-/** The Team chat line for an event (one per event; the messageId makes a retry or a second path post once). */
-function teamNoticeFor(input: {
+/**
+ * Routine booking events (a booking made or cancelled, native or from a channel) go to the owner's Assistant notice
+ * only: they drown people's messages in the Team chat. The ONE place this rule lives. A clash and a failed sync still
+ * post, because the team must act on them; every other domain is unchanged.
+ */
+export function teamChatSkipsRoutineEvent(domain?: string | null, event?: string | null): boolean {
+  if (domain !== "channel_booking") return false;
+  return (
+    event === "booking_created" ||
+    event === "booking_cancelled" ||
+    event === "channel_booking_created" ||
+    event === "channel_booking_cancelled"
+  );
+}
+
+/** The Team chat line for an event (one per event; the messageId makes a retry or a second path post once). Null = no Team line at all. */
+export function teamNoticeFor(input: {
   eventKey: string;
   domain?: string;
   eventType?: string;
@@ -266,7 +281,8 @@ function teamNoticeFor(input: {
   payload?: Record<string, unknown> | null;
   senderName?: string;
   urgent?: boolean;
-}): { text: string; messageId: string } {
+}): { text: string; messageId: string } | null {
+  if (teamChatSkipsRoutineEvent(input.domain, input.eventType)) return null;
   const payloadText = (key: string) => {
     const value = input.payload?.[key];
     return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -301,6 +317,12 @@ function teamNoticeFor(input: {
       urgent: input.urgent,
     }),
   };
+}
+
+/** `teamNotice` when there is a line; `noTeamNotice` when the rule says none (a null must never mean "derive one"). */
+function teamNoticeArgs(input: Parameters<typeof teamNoticeFor>[0]): { teamNotice: { text: string; messageId: string } } | { noTeamNotice: true } {
+  const teamNotice = teamNoticeFor(input);
+  return teamNotice ? { teamNotice } : { noTeamNotice: true };
 }
 
 async function deliverProjection(
@@ -368,7 +390,7 @@ async function deliverProjection(
         idempotencyKey: `action-event:${input.eventKey}:team`,
         excludeUserIds: [input.senderUserId],
         urgent: input.urgent,
-        teamNotice: teamNoticeFor(input),
+        ...teamNoticeArgs(input),
       });
       const { error } = await db.from("action_event_deliveries").update({
         status: "delivered", attempts: input.attempts + 1, last_error: null, next_attempt_at: null,
@@ -444,7 +466,7 @@ async function deliverProjection(
         idempotencyKey: `action-event:${input.eventKey}:manager`,
         rollKey: bookingNoticeRollKey(input.payload?.bookingKey),
         urgent: input.urgent,
-        teamNotice: teamNoticeFor(input),
+        ...teamNoticeArgs(input),
       });
       const { error } = await db.from("action_event_deliveries").update({
         status: "delivered", attempts: input.attempts + 1, last_error: null, next_attempt_at: null,
@@ -488,7 +510,7 @@ async function deliverProjection(
         idempotencyKey: `action-event:${input.eventKey}:manager`,
         excludeUserIds: [input.recipient.userId, input.senderUserId],
         urgent: input.urgent,
-        teamNotice: teamNoticeFor(input),
+        ...teamNoticeArgs(input),
       });
     } catch (error) {
       const updatedAt = input.now.toISOString();

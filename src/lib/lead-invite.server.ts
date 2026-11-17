@@ -23,6 +23,7 @@ import {
   buildManagerTourUrl,
 } from "@/lib/manager-property-links";
 import { buildListingShareSummary } from "@/lib/listing-share-summary";
+import { loadOpenNowRoomCounts } from "@/lib/public-room-occupancy.server";
 import { getShareablePropertyForUser } from "@/lib/manager-property-share-access";
 import { postResendEmail } from "@/lib/resend-delivery.server";
 import {
@@ -130,11 +131,16 @@ export async function sendLeadInvite(
   });
   const tourUrl = buildManagerTourUrl(input.origin, input.propertyId);
   const listingPageUrl = await buildReadableListingUrl(input.origin, input.propertyId);
+  const openNow =
+    input.kind === "listing"
+      ? (await loadOpenNowRoomCounts(db as never, [{ id: input.propertyId, listingSubmission: listing.listingSubmission }])).get(input.propertyId)
+      : undefined;
   const listingSummary =
     input.kind === "listing"
       ? buildListingShareSummary(listing, {
           roomChoice: input.roomName || undefined,
           roomId: input.listingRoomId || undefined,
+          openNow,
         })
       : undefined;
 

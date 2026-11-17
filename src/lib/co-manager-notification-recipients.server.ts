@@ -414,6 +414,8 @@ export async function notifyPropertyScopedManagersFromAgent(
     urgent?: boolean;
     /** The one Team chat line for this event (built by `buildTeamNoticeLine`); `messageId` makes a retry post once. */
     teamNotice?: { text: string; messageId: string };
+    /** The event has NO Team line (never derive one): owner's Assistant notice only. */
+    noTeamNotice?: boolean;
     /** Names the event on a derived Team line when the caller built none ("Tour", "Booking", ...). */
     eventLabel?: string;
   },
@@ -430,8 +432,9 @@ export async function notifyPropertyScopedManagersFromAgent(
   // from the notice itself when the caller did not build one); only an urgent
   // event notifies each teammate's own Assistant.
   const urgent = input.urgent === true;
-  const teamNotice =
-    input.teamNotice?.text.trim() && input.teamNotice.messageId.trim()
+  const teamNotice = input.noTeamNotice
+    ? null
+    : input.teamNotice?.text.trim() && input.teamNotice.messageId.trim()
       ? { text: input.teamNotice.text.trim(), messageId: input.teamNotice.messageId.trim() }
       : derivedTeamNotice(input);
   const directToTeammates = urgent;
@@ -573,10 +576,12 @@ export async function postTeamNoticeLineForEvent(
     propertyId?: string | null;
     module: CoManagerPermissionId;
     category?: ManagerNotificationCategory;
-    teamNotice: { text: string; messageId: string };
+    /** Null = the event has no Team line (`teamChatSkipsRoutineEvent`): post nothing. */
+    teamNotice: { text: string; messageId: string } | null;
     excludeUserIds?: readonly string[];
   },
 ): Promise<void> {
+  if (!input.teamNotice) return;
   const ownerId = input.ownerManagerUserId.trim();
   const text = input.teamNotice.text.trim();
   const messageId = input.teamNotice.messageId.trim();

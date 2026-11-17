@@ -101,7 +101,7 @@ describe("deriveListingKeyFacts", () => {
     const facts = deriveListingKeyFacts(rich(), property);
     expect(facts.map((f) => f.id)).toEqual(["rent", "rooms", "baths", "availability", "pets"]);
     expect(facts.find((f) => f.id === "rent")).toEqual({ id: "rent", value: "$1,000 – $1,300", label: "base rent / mo" });
-    expect(facts.find((f) => f.id === "rooms")).toEqual({ id: "rooms", value: "4 rooms", label: "2 available now" });
+    expect(facts.find((f) => f.id === "rooms")).toEqual({ id: "rooms", value: "4 rooms", label: "2 open now" });
     expect(facts.find((f) => f.id === "baths")).toEqual({ id: "baths", value: "2 baths", label: "1 private" });
     expect(facts.find((f) => f.id === "availability")).toEqual({ id: "availability", value: "Available now" });
   });
@@ -111,7 +111,7 @@ describe("deriveListingKeyFacts", () => {
       rich({ floorPlans: [{ floorLabel: "First", fromPrice: "", roomCount: 1, rooms: [room("Room 1", "Available after Oct 1, 2099")] }] }),
       property,
     );
-    expect(facts.find((f) => f.id === "rooms")?.label).toBe("0 available now");
+    expect(facts.find((f) => f.id === "rooms")?.label).toBe("0 open now");
     expect(facts.find((f) => f.id === "availability")?.value).toBe("Available after Oct 1, 2099");
   });
 

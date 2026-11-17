@@ -17,6 +17,7 @@ import {
   buildManagerTourUrl,
 } from "@/lib/manager-property-links";
 import { buildListingShareSummary } from "@/lib/listing-share-summary";
+import { loadOpenNowRoomCounts } from "@/lib/public-room-occupancy.server";
 import {
   ensureWaiveOnSendWaiverCode,
   revokeApplicationFeeWaiverCode,
@@ -367,9 +368,14 @@ export async function POST(req: Request) {
         : kind === "tour"
           ? tourUrl
           : applyUrl;
+    // "Open now" comes from the one occupancy read; no read means the summary claims no availability.
+    const openNowCounts =
+      kind === "listing" && !linkOnly
+        ? await loadOpenNowRoomCounts(svc, authorized.map((entry) => ({ id: entry.id, listingSubmission: entry.listing.listingSubmission })))
+        : new Map<string, number>();
     const listingSummary =
       kind === "listing" && !isMultiListing && listing
-        ? buildListingShareSummary(listing, { roomChoice: roomName || undefined, roomId: listingRoomId || undefined })
+        ? buildListingShareSummary(listing, { roomChoice: roomName || undefined, roomId: listingRoomId || undefined, openNow: openNowCounts.get(propertyId) })
         : undefined;
 
     if (linkOnly) {
@@ -389,7 +395,7 @@ export async function POST(req: Request) {
       listingSummary,
       listingShare: kind === "listing" ? {
         intro: typeof body.listingIntro === "string" ? body.listingIntro.slice(0, 4000) : renderListingSharedIntro(DEFAULT_LISTING_SHARED_INTRO, { count: authorized.length, property: propertyTitle, name: prospectName }),
-        listings: authorized.map((entry) => buildListingShareSummary(entry.listing)),
+        listings: authorized.map((entry) => buildListingShareSummary(entry.listing, { openNow: openNowCounts.get(entry.id) })),
         signature: [fromHeaderDisplayName(from), ...(signatureNumber ? [signatureNumber] : []), fromHeaderAddress(from)],
       } : undefined,
       managerNote: note || undefined,

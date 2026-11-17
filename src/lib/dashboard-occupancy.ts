@@ -52,7 +52,38 @@ export type DashboardOccupancy = {
   bedsToday: number;
   /** Occupied at the end of each period (today for the current one), same order as `periods`. */
   occupiedByPeriod: number[];
+  /**
+   * ROOMS with a person in them today (a shared room with one resident counts once), from the snapshot's
+   * stays. Anything that says "rooms" reads this, never `occupiedToday` (beds). Null when the payload
+   * carries no stays or room list to count from.
+   */
+  roomsOccupiedToday: number | null;
+  /** Rooms across the houses asked about (an entire-home listing counts as one), same population as `roomsOccupiedToday`. Null when unknown. */
+  roomsTotal: number | null;
 };
+
+/** Rooms held by a person on `today` (blocks and closures are nobody's home), and the rooms there are. */
+function roomCountsFromSnapshot(
+  snapshot: OccupancySnapshotResponse,
+  houseIds: readonly string[],
+  today: string,
+): { occupied: number | null; total: number | null } {
+  if (!snapshot.rooms || !Array.isArray(snapshot.stays)) return { occupied: null, total: null };
+  const houses = new Set(houseIds);
+  let total = 0;
+  for (const id of houses) total += Math.max(1, snapshot.rooms[id]?.length ?? 0);
+  const held = new Set<string>();
+  for (const raw of snapshot.stays) {
+    const stay = raw as { propertyId?: unknown; roomId?: unknown; start?: unknown; end?: unknown; kind?: unknown; echoable?: unknown };
+    const propertyId = String(stay.propertyId ?? "");
+    if (!houses.has(propertyId) || stay.kind === "block" || stay.echoable === true) continue;
+    const start = String(stay.start ?? "");
+    const end = String(stay.end ?? "");
+    if (!start || start > today || (end && end < today)) continue;
+    held.add(`${propertyId}::${String(stay.roomId ?? "")}`);
+  }
+  return { occupied: Math.min(held.size, total), total };
+}
 
 /**
  * Who is in the beds of a snapshot cell. `inHouse` counts people; a closed room (a host block, a
@@ -89,7 +120,10 @@ export function dashboardOccupancyFromSnapshot(
     if (!cell) return null;
     occupiedByPeriod.push(peopleHeld(cell));
   }
+  const roomCounts = roomCountsFromSnapshot(snapshot as OccupancySnapshotResponse, [...bedsByProperty.keys()], today);
   return {
+    roomsOccupiedToday: roomCounts.occupied,
+    roomsTotal: roomCounts.total,
     byProperty,
     bedsByProperty,
     occupiedToday: peopleHeld(todayCell),

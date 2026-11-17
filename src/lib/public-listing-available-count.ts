@@ -1,5 +1,5 @@
 import type { ListingRoomRow } from "@/data/listing-rich-content";
-import { publicStatusFromAvailability, roomAvailability, type RoomAvailability } from "@/lib/room-availability";
+import { formatOpeningDate, publicStatusFromAvailability, roomAvailability, type RoomAvailability } from "@/lib/room-availability";
 import { roomAvailabilityTone, type RoomAvailabilityTone } from "@/lib/room-availability-style";
 import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/room-choice-value";
 import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
@@ -36,7 +36,22 @@ export function findPublicRoomOccupancy(
   );
 }
 
-type AvailabilityRoom = Pick<ListingRoomRow, "id" | "availability" | "occupancyCapacity">;
+type AvailabilityRoom = Pick<ListingRoomRow, "id" | "availability" | "occupancyCapacity"> & {
+  /** The room's own opening date (submission field). A future one is a floor: the room is not open before it. */
+  moveInAvailableDate?: string | null;
+};
+
+const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The room's saved availability text with the move-in-date floor applied, exactly as `publicRoomStatus` applies it. */
+function floorAwareRoom(room: AvailabilityRoom, today: string): AvailabilityRoom {
+  const date = room.moveInAvailableDate ?? "";
+  if (DAY_KEY.test(date) && date > today) {
+    const label = new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+    return { ...room, availability: `Available from ${label}` };
+  }
+  return room;
+}
 
 /** One room's availability from the property's published occupancy rows (no row = no spans). */
 export function resolveRoomAvailability(
@@ -46,13 +61,14 @@ export function resolveRoomAvailability(
   propertyId: string,
 ): RoomAvailability {
   const spans = findPublicRoomOccupancy(occupancyRows, propertyId, room.id)?.spans ?? [];
-  return roomAvailability(room, spans, today);
+  return roomAvailability(floorAwareRoom(room, today), spans, today);
 }
 
 /**
- * Rooms a renter can move into today: the shared `roomAvailability` predicate says "now". The one
- * place the key-facts tile and the sticky bar read, so they cannot disagree. With no occupancy
- * rows (fetch failed) it is the static count.
+ * "Open now" is the ONE availability count: rooms (never beds) a renter can move into today, where the
+ * shared `roomAvailability` predicate says "now". A room that opens later reads "Opens <date>" and is
+ * never counted. The header, key-facts tile, room list and sticky bar all read this, so they cannot
+ * disagree. With no occupancy rows (fetch failed) it is the static count.
  */
 export function countRoomsAvailableNow(
   rooms: readonly AvailabilityRoom[],
@@ -92,9 +108,9 @@ export function roomAvailabilityDisplay(
   if (occupancy.loading) return null;
   if (occupancy.failed) return { text: room.availability, tone: roomAvailabilityTone(room.availability) };
   const spans = findPublicRoomOccupancy(occupancy.rows, propertyId, room.id)?.spans ?? [];
-  const status = publicStatusFromAvailability(roomAvailability(room, spans, today), spans, room.occupancyCapacity, today);
+  const status = publicStatusFromAvailability(resolveRoomAvailability(room, occupancy.rows, today, propertyId), spans, room.occupancyCapacity, today);
   return {
-    text: status.text,
+    text: status.kind === "now" ? "Open now" : status.kind === "soon" && status.date ? `Opens ${formatOpeningDate(status.date, today)}` : status.text,
     tone: status.kind === "now" ? "available" : status.kind === "soon" ? "future" : "unavailable",
   };
 }

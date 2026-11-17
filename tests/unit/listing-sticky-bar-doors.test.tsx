@@ -100,7 +100,7 @@ describe("listing sticky bar", () => {
     const el = bar();
     // The same price line the card prints, from the one derivation both read.
     expect(el.textContent).toContain("$1,050 / mo");
-    expect(el.textContent).toContain("9 rooms · 9 available");
+    expect(el.textContent).toContain("9 rooms · 9 open now");
     expect(el.querySelector('[data-attr="listing-web-apply"]')).not.toBeNull();
     expect(el.querySelector('[data-attr="listing-web-tour"]')).not.toBeNull();
     // The price and rooms line share a row with the doors, the actions sit under them.
@@ -113,7 +113,7 @@ describe("listing sticky bar", () => {
     occupancy.state = { rooms: [], loading: true };
     render(<ListingDetailSections property={property({})} rich={rich} />);
     expect(bar().textContent).toContain("9 rooms");
-    expect(bar().textContent).not.toContain("available");
+    expect(bar().textContent).not.toContain("open now");
     cleanup();
     const full = rich.floorPlans.flatMap((f) => f.rooms).map((r) => ({
       roomChoice: `p1::${r.id}`,
@@ -121,7 +121,7 @@ describe("listing sticky bar", () => {
     }));
     occupancy.state = { rooms: full, loading: false };
     render(<ListingDetailSections property={property({})} rich={rich} />);
-    expect(bar().textContent).toContain("9 rooms · 0 available");
+    expect(bar().textContent).toContain("9 rooms · 0 open now");
     // Nothing is open: the page never claims rooms are available now.
     expect(document.body.textContent).not.toContain("available now");
   });

@@ -92,7 +92,7 @@ export function deriveListingKeyFacts(
         rooms.length > 0 && availableNow !== null
           ? availableNow === 0 && nextOpeningLabel
             ? nextOpeningLabel
-            : `${availableNow} available now`
+            : `${availableNow} open now`
           : undefined,
     });
   }

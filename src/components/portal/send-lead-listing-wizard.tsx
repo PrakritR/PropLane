@@ -23,6 +23,10 @@ import {
 } from "@/lib/manager-property-links";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { buildListingShareSummary } from "@/lib/listing-share-summary";
+import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
+import { countRoomsAvailableNow } from "@/lib/public-listing-available-count";
+import { pacificTodayKey } from "@/lib/room-availability-range";
+
 import { activeWorkspaceScope } from "@/lib/workspaces/selection";
 import { getPropertyById } from "@/lib/rental-application/data";
 import {
@@ -133,12 +137,21 @@ export function SendLeadListingWizard({
     return properties.find((p) => p.id === singlePropertyId)?.label ?? singlePropertyId;
   }, [properties, singlePropertyId, isMultiListing, propertyIds.length]);
 
+  // "Open now" from the same occupancy read the listing page uses (one shared request); no read, no claim.
+  const { rooms: occupancyRows, loading: occupancyLoading, failed: occupancyFailed } = useListingPublicOccupancy(
+    isMultiListing ? null : singlePropertyId,
+  );
   const listingSummary = useMemo(() => {
     if (isMultiListing || !singlePropertyId) return null;
     const property = getPropertyById(singlePropertyId);
     if (!property) return null;
-    return buildListingShareSummary(property);
-  }, [singlePropertyId, isMultiListing]);
+    const rooms = property.listingSubmission?.rooms ?? [];
+    const openNow =
+      occupancyLoading || occupancyFailed || rooms.length === 0
+        ? undefined
+        : countRoomsAvailableNow(rooms, occupancyRows, pacificTodayKey(), singlePropertyId);
+    return buildListingShareSummary(property, { openNow });
+  }, [singlePropertyId, isMultiListing, occupancyRows, occupancyLoading, occupancyFailed]);
 
   const { viaEmail, viaSms } = portalMessageChannelsFromSelection(sendVia);
 

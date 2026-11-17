@@ -41,6 +41,10 @@ import {
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { getPropertyById, getRoomOptionsForProperty, parseRoomChoiceValue, propertyAllowsShortTermRental } from "@/lib/rental-application/data";
 import { buildListingShareSummary } from "@/lib/listing-share-summary";
+import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
+import { countRoomsAvailableNow } from "@/lib/public-listing-available-count";
+import { pacificTodayKey } from "@/lib/room-availability-range";
+
 import { applicationFormChoicesForProperty, applicationFormIdForLink, defaultApplicationFormId } from "@/lib/send-forms";
 import { normalizeManagerSmsConversationsPayload } from "@/lib/manager-sms-messages";
 import {
@@ -404,12 +408,21 @@ export function ShareLeadLinkModal({
   const listingIntro = intro ?? renderListingSharedIntro(listingTemplate, { count: propertyIds.length, property: properties.filter((property) => propertyIds.includes(property.id)).map((property) => property.label).join(", "), name: prospectName });
   const listingShare = useMemo(() => ({ intro: listingIntro, signature: sender ? [sender.name, ...(sender.workNumber ? [sender.workNumber] : []), sender.email] : undefined, listings: propertyIds.flatMap((id) => { const property = getPropertyById(id); return property ? [buildListingShareSummary(property)] : []; }) }), [listingIntro, propertyIds, sender]);
 
+  // "Open now" from the same occupancy read the listing page uses (one shared request); no read, no claim.
+  const { rooms: occupancyRows, loading: occupancyLoading, failed: occupancyFailed } = useListingPublicOccupancy(
+    kind !== "listing" || isMultiListing ? null : singlePropertyId,
+  );
   const listingSummary = useMemo(() => {
     if (kind !== "listing" || isMultiListing || !singlePropertyId) return null;
     const property = getPropertyById(singlePropertyId);
     if (!property) return null;
-    return buildListingShareSummary(property);
-  }, [kind, singlePropertyId, isMultiListing]);
+    const rooms = property.listingSubmission?.rooms ?? [];
+    const openNow =
+      occupancyLoading || occupancyFailed || rooms.length === 0
+        ? undefined
+        : countRoomsAvailableNow(rooms, occupancyRows, pacificTodayKey(), singlePropertyId);
+    return buildListingShareSummary(property, { openNow });
+  }, [kind, singlePropertyId, isMultiListing, occupancyRows, occupancyLoading, occupancyFailed]);
 
   const invitePreviewBody = useMemo(() => {
     if (!linkUrl) return "";

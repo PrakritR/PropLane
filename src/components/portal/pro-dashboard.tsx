@@ -73,6 +73,7 @@ import {
 import {
   MANAGER_APPLICATIONS_EVENT,
   managerApplicationsReadSucceeded,
+  isBookingResidencyRow,
   readManagerApplicationRows,
   syncManagerApplicationsFromServer,
 } from "@/lib/manager-applications-storage";
@@ -147,7 +148,12 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import { isSubmittedPendingApplicationRow } from "@/lib/rental-application/in-progress-application";
+import { isChargePaid, chargePaidAmount } from "@/lib/charge-paid";
+import {
+  scopeApplicationsLikeThePage,
+  pendingTabApplications,
+  residentsLivingToday,
+} from "@/lib/dashboard-agreement";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { DocumentExpirationSummary } from "@/lib/documents/document-expiration";
@@ -794,10 +800,13 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     void tick;
     if (!userId) return null;
 
-    const allApps = readManagerApplicationRows()
-      .filter((a) => applicationVisibleToPortalUser(a, userId))
-      .filter((a) => workspaceContainsProperty(workspacePropertyIdFromRow(a) ?? undefined));
-    const pendingApps = allApps.filter((a) => isSubmittedPendingApplicationRow(a));
+    // The Applications page's own scope and its Pending tab: the card's number is that tab's count.
+    const allApps = scopeApplicationsLikeThePage(readManagerApplicationRows(), {
+      isBookingResidencyRow,
+      visible: (a) => applicationVisibleToPortalUser(a, userId, "applications"),
+      inWorkspace: (a) => workspaceContainsProperty(workspacePropertyIdFromRow(a) ?? undefined),
+    });
+    const pendingApps = pendingTabApplications(allApps);
     // N080: a work order / service request whose resident has no surviving
     // directory row (Potential/Current/Past) is orphaned data and must not
     // inflate the "requests" KPI or the attention list below. Charges are
@@ -928,7 +937,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     // outgoing expenses bucketed by expense date.
     const months = lastNMonths(nowMs, 24);
     const paymentsByMonth = bucketByMonth(
-      charges.filter((c) => c.status === "paid"),
+      charges.filter((c) => isChargePaid(c)),
       months,
       (c) => c.paidAt ?? c.createdAt,
       (c) => parseMoneyLabel(c.amountLabel || c.balanceLabel),
@@ -1040,13 +1049,13 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     // Not yet answered (or the read failed): unknown, never a confident zero.
     const occupancyUnknown = occupancyIsLive && !liveOccupancy;
 
-    // Rent collected: paid charges by the day they were paid; due: every charge
-    // whose due date falls in the current period.
+    // Rent collected and due are read over the SAME set: the period's charges by DUE date. Collected
+    // is the paid portion of those charges, so it can never exceed what was due.
     const collectedSeries = bucketSeries(
-      data.charges.filter((c) => c.status === "paid" || c.paidAt),
+      data.charges,
       periods,
-      (c) => toMs(c.paidAt ?? c.createdAt),
-      (c) => moneyToNumber(c.amountLabel),
+      (c) => householdChargeDueDate(c)?.getTime() ?? null,
+      (c) => chargePaidAmount(c),
     );
     const dueThisPeriod = data.charges.reduce((sum, c) => {
       const due = householdChargeDueDate(c)?.getTime();
@@ -1144,8 +1153,13 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     activated: residentAccountEmails.has(lease.residentEmail.trim().toLowerCase()),
   }));
 
+  // Residents = people living there today. Live, that is the occupancy snapshot's people figure (the
+  // Occupancy tile's own); demo has no server to ask and keeps the signed-lease list.
+  const residentsToday = occupancyIsLive
+    ? residentsLivingToday(liveOccupancy)
+    : residentAttentionItems.length;
   const residentsSectionTone: AttentionTone =
-    residentAttentionItems.length === 0
+    (residentsToday ?? residentAttentionItems.length) === 0
       ? "success"
       : residentAttentionItems.some((r) => !r.activated)
         ? "pending"
@@ -1164,7 +1178,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     (visibility.tours ? pendingTours.length : 0) +
     (visibility.applications ? pendingApps.length : 0) +
     (visibility.leases ? pendingLeaseRows.length : 0) +
-    (visibility.residents ? residentAttentionItems.length : 0) +
+    (visibility.residents ? (residentsToday ?? residentAttentionItems.length) : 0) +
     (visibility.payments ? pendingCharges.length : 0) +
     (visibility.services ? serviceItems.length : 0) +
     (visibility.inbox ? inboxCount : 0);
@@ -1384,7 +1398,14 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
         tone={residentsSectionTone}
         order={3}
         items={residentAttentionItems}
-        emptyMessage="No current residents yet."
+        headerCount={residentsToday ?? undefined}
+        emptyMessage={
+          occupancyState === "loading"
+            ? "Loading residents…"
+            : occupancyState === "failed"
+              ? "Residents unavailable."
+              : "No current residents yet."
+        }
         keyForItem={(item) => item.lease.id}
         renderRow={(item: DashboardResidentAttentionItem) => {
           const rowTone: AttentionTone = item.activated ? "success" : "pending";
