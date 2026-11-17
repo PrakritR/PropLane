@@ -34,6 +34,7 @@ import { managedCartProblem } from "@/lib/managed-finance/resolve.server";
 import { serviceSetupPendingProblem } from "@/lib/managed-finance/unpolicied-service.server";
 import { assertResidentCheckoutAttemptTerms, assertResidentCheckoutSession,
   type ResidentCheckoutAttempt } from "@/lib/resident-checkout-claim.server";
+import { chargeRowBoundToResident, loadResidentChargeBinding, type ResidentChargeBinding } from "@/lib/resident-charge-binding.server";
 
 /**
  * The Stripe Checkout core for paying pending household charges, extracted from
@@ -158,10 +159,11 @@ export async function loadHouseholdChargesForCheckout(
   }
 
   const loaded: LoadedHouseholdChargeForCheckout[] = [];
+  let binding: ResidentChargeBinding | null = null;
   for (const id of uniqueIds) {
     const { data: row, error: rowErr } = await db
       .from("portal_household_charge_records")
-      .select("id, row_data, status, manager_user_id")
+      .select("id, row_data, status, manager_user_id, resident_user_id, resident_email")
       .eq("id", id)
       .maybeSingle();
 
@@ -175,7 +177,18 @@ export async function loadHouseholdChargesForCheckout(
       return { ok: false, status: 409, error: "One or more selected charges are no longer available for payment." };
     }
     if (!chargeOwnedByUser(charge, input.userId, userEmail)) {
-      return { ok: false, status: 403, error: "You do not have access to one of the selected charges." };
+      // A charge the resident's Payments read shows through their bound application (no resident id on the row,
+      // keyed to that application or its own address) is theirs to pay too - the same rule, the same loader.
+      binding ??= await loadResidentChargeBinding(db, input.userId);
+      const bound = chargeRowBoundToResident({
+        residentUserId: (row.resident_user_id as string | null) ?? charge.residentUserId ?? null,
+        managerUserId: String(row.manager_user_id ?? ""),
+        residentEmail: String(row.resident_email ?? ""),
+        applicationId: String((charge as { applicationId?: unknown }).applicationId ?? ""),
+      }, binding);
+      if (!bound) {
+        return { ok: false, status: 403, error: "You do not have access to one of the selected charges." };
+      }
     }
 
     const rowManagerUserId = (row.manager_user_id as string | null)?.trim() || "";

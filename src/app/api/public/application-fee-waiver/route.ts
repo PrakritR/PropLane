@@ -8,6 +8,7 @@ import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-app
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { applicationPayerSessionMatches } from "@/lib/rental-application/application-payer-session";
 
 export const runtime = "nodejs";
 
@@ -65,7 +66,7 @@ export async function POST(req: Request) {
     const auth = await createSupabaseServerClient();
     const { data: { user } } = await auth.auth.getUser();
     let authorized = false;
-    if (user?.email?.trim().toLowerCase() === residentEmail.toLowerCase()) {
+    if (user && applicationPayerSessionMatches({ sessionUserId: user.id, sessionEmail: user.email, residentEmail, rowData: application.row_data })) {
       const { data: profile, error: profileError } = await db.from("profiles")
         .select("role").eq("id", user.id).maybeSingle();
       if (profileError) throw profileError;

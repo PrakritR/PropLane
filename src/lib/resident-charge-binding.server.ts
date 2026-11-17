@@ -96,3 +96,22 @@ export function residentBoundChargeClause(binding: ResidentChargeBinding): strin
   if (parts.length === 0) return null;
   return `and(resident_user_id.is.null,or(${parts.join(",")}))`;
 }
+
+/**
+ * The same decision as `residentBoundChargeClause`, for ONE loaded charge row: a row with no resident id of its own
+ * that names one of the subject's bound applications, or was written by the same manager for that application's own
+ * (unshared) address. Paying a charge must follow exactly what the resident's Payments read shows them, or a phone
+ * sign-up resident (whose sign-in address is a placeholder) sees "Pay" on their own charge and is refused at checkout.
+ */
+export function chargeRowBoundToResident(
+  row: { residentUserId: string | null; managerUserId: string; residentEmail: string; applicationId: string },
+  binding: ResidentChargeBinding,
+): boolean {
+  if (row.residentUserId?.trim()) return false;
+  const applicationId = row.applicationId.trim();
+  if (applicationId && binding.applicationIds.includes(applicationId)) return true;
+  const manager = row.managerUserId.trim();
+  const email = row.residentEmail.trim().toLowerCase();
+  if (!manager || !email) return false;
+  return binding.managerEmails.some((pair) => pair.managerUserId === manager && pair.email === email);
+}

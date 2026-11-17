@@ -4,6 +4,7 @@ import { resolveAppOrigin } from "@/lib/app-url";
 import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import { buildResidentSetupHref, isResidentSetupTokenValid } from "@/lib/auth/resident-setup-token";
 import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
+import { applicationPayerSessionMatches } from "@/lib/rental-application/application-payer-session";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
 import { openApplicantRow } from "@/lib/security/applicant-identity";
@@ -88,7 +89,7 @@ export async function POST(req: Request) {
     const { data: { user } } = await auth.auth.getUser();
     let authorized = false;
     let authenticatedResidentId: string | null = null;
-    if (user?.email?.trim().toLowerCase() === residentEmail.toLowerCase()) {
+    if (user && applicationPayerSessionMatches({ sessionUserId: user.id, sessionEmail: user.email, residentEmail, rowData: application.row_data })) {
       const { data: profile, error: profileError } = await db.from("profiles")
         .select("role").eq("id", user.id).maybeSingle();
       if (profileError) throw new Error(profileError.message);
