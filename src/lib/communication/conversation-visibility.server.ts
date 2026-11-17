@@ -204,6 +204,10 @@ export function conversationVisible(scope: CommunicationScope, input: Visibility
   // Own rows, and legacy owner-less rows the store query matched by the
   // viewer's email. A work line places the thread before house membership.
   if (!ownerId || ownerId === scope.viewerId) {
+    // Your own conversation stamped with the open workspace is that workspace's. Without this, an untagged
+    // message stamped into a NON-default workspace was hidden there (untagged reads only in the default) and
+    // in the default too (the stamp above refuses it) - invisible everywhere. The stamp is server-written.
+    if (ownerId && stampedWorkspaceId && stampedWorkspaceId === clean(scope.activeWorkspaceId)) return true;
     if (lineHolders) {
       if (!scope.activeWorkspaceId) return lineHolders.size > 0;
       return lineHolders.has(scope.activeWorkspaceId);

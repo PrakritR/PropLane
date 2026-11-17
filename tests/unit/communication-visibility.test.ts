@@ -283,3 +283,17 @@ describe("inboxStoreOwnerIds", () => {
     expect(inboxStoreOwnerIds(scope())).toEqual([VIEWER]);
   });
 });
+
+describe("conversationVisible — a workspace stamp places your own conversation", () => {
+  it("shows an untagged conversation stamped into a non-default workspace in that workspace", () => {
+    const second = scope({ workspaceHouseIds: new Set(["house-b"]), untaggedOwnedVisible: false, activeWorkspaceId: "ws-second" });
+    expect(conversationVisible(second, { ownerId: VIEWER, houseIds: [], workspaceId: "ws-second" })).toBe(true);
+  });
+
+  it("still hides it in another workspace, and never widens another owner's row", () => {
+    const other = scope({ workspaceHouseIds: new Set(["house-mine"]), activeWorkspaceId: "ws-other" });
+    expect(conversationVisible(other, { ownerId: VIEWER, houseIds: ["house-elsewhere"], workspaceId: "ws-default" })).toBe(false);
+    const mine = scope({ workspaceHouseIds: new Set(["house-mine"]), activeWorkspaceId: "ws-default" });
+    expect(conversationVisible(mine, { ownerId: OWNER, houseIds: ["house-elsewhere"], workspaceId: "ws-default" })).toBe(false);
+  });
+});
