@@ -193,6 +193,8 @@ export function PortalNotificationPreviewModal({
   } | null>(
     null,
   );
+  /** The read either lands or it does not: a failure is said out loud, never read as "no number". */
+  const [smsSetupReadFailed, setSmsSetupReadFailed] = useState(false);
 
   const showAssigneePicker = Boolean(assigneeKind && assigneeTeamMembers);
 
@@ -238,14 +240,20 @@ export function PortalNotificationPreviewModal({
   useEffect(() => {
     if (!open) {
       setSmsSetup(null);
+      setSmsSetupReadFailed(false);
       return;
     }
     if (smsSetupOverride) return;
     let active = true;
+    setSmsSetupReadFailed(false);
     void sharedGet("/api/manager/messaging-number")
       .then((res) => (res.ok ? (res.data as ManagerMessagingNumberStatus | null) : null))
       .then((status) => {
-        if (!active || !status) return;
+        if (!active) return;
+        if (!status) {
+          setSmsSetupReadFailed(true);
+          return;
+        }
         setSmsSetup({
           phone: workspaceWorkNumber(status),
           canSend: status.canSend,
@@ -254,7 +262,9 @@ export function PortalNotificationPreviewModal({
         });
       })
       .catch(() => {
-        if (active) setSmsSetup(null);
+        if (!active) return;
+        setSmsSetup(null);
+        setSmsSetupReadFailed(true);
       });
     return () => {
       active = false;
@@ -277,6 +287,7 @@ export function PortalNotificationPreviewModal({
 
   const { viaEmail, viaSms } = portalMessageChannelsFromSelection(sendVia);
   const smsBlocked = viaSms && effectiveSmsSetup !== null && !effectiveSmsSetup.canSend;
+  const smsReadFailed = !smsSetupOverride && effectiveSmsSetup === null && smsSetupReadFailed;
 
   const channelsOk =
     !showChannelPicker ||
@@ -435,7 +446,8 @@ export function PortalNotificationPreviewModal({
         </div>
 
         <ManagerSmsWorkNumberHint
-          show={Boolean(showChannelPicker && !skipMessage && viaSms && effectiveSmsSetup !== null)}
+          show={Boolean(showChannelPicker && !skipMessage && viaSms && (effectiveSmsSetup !== null || smsReadFailed))}
+          statusUnknown={smsReadFailed}
           phone={effectiveSmsSetup?.phone ?? null}
           lineReady={(effectiveSmsSetup?.lineReady ?? effectiveSmsSetup?.canSend) === true}
           awaitingCarrier={effectiveSmsSetup?.awaitingCarrier === true}

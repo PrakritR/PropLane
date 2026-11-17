@@ -69,6 +69,28 @@ function withoutDataUrls(value: unknown): unknown {
 }
 
 /**
+ * How many base64 `data:` URLs a submission still holds — what
+ * `stripSubmissionDataUrls` is about to drop, so a failed upload can be
+ * REPORTED rather than leaving the manager with a silently empty photo strip.
+ */
+export function countSubmissionDataUrls(sub: ManagerListingSubmissionV1): number {
+  let found = 0;
+  const walk = (value: unknown): void => {
+    if (isDataUrl(value)) {
+      found += 1;
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach(walk);
+      return;
+    }
+    if (value && typeof value === "object") Object.values(value as Record<string, unknown>).forEach(walk);
+  };
+  walk(sub);
+  return found;
+}
+
+/**
  * Every base64 `data:` URL removed from a submission, whole-submission rather
  * than field by field for the same reason the fingerprint is: a media field
  * added to the wizard tomorrow is covered without touching this.

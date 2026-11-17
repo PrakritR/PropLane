@@ -553,7 +553,8 @@ export function ListingWizardV2({
               setSubmission(filled.submission);
               submissionRef.current = filled.submission;
             }
-            const prepared = await persistSubmission(submissionRef.current, { validateWaiverCode: true });
+            const raw = submissionRef.current;
+            const prepared = await persistSubmission(raw, { validateWaiverCode: true });
             if (!prepared.ok) {
               setActionError(prepared.message);
               showToast?.(prepared.message);
@@ -581,9 +582,15 @@ export function ListingWizardV2({
               return false;
             }
             savedFingerprintRef.current = listingSubmissionFingerprint(prepared.submission);
+            // Same adoption the draft save does: the baseline is the PREPARED submission, so state
+            // and the ref must become it or an edit-mode Save leaves "Unsaved changes" stuck.
+            if (submissionRef.current === raw && prepared.submission !== raw) {
+              submissionRef.current = prepared.submission;
+              setSubmission(prepared.submission);
+            }
             await publishPendingApplicationVersions(result.id, prepared.submission, publishedMarksRef.current);
             setActionError(null);
-            setDirty(false);
+            setDirty(listingWizardHasUnsavedInput(submissionRef.current, savedFingerprintRef.current));
             if (prepared.droppedMediaCount > 0) {
               showToast?.("Published. Some attachments could not upload and were removed.");
             }

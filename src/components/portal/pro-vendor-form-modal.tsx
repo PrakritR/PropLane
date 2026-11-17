@@ -59,6 +59,7 @@ import {
   normalizeTypicalRates,
   typicalRatePropertyIds,
 } from "@/lib/manager-vendor-typical-rates";
+import { formatPricingMoney } from "@/lib/property-pricing-summary";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 import { DateField } from "@/components/ui/date-field";
 import {
@@ -169,8 +170,19 @@ function rateRangeLabel(cents: readonly number[]): string | null {
   if (set.length === 0) return null;
   const lo = Math.min(...set);
   const hi = Math.max(...set);
-  const fmt = (value: number) => `$${dollarsInputFromCents(value)}`;
+  const fmt = (value: number) => formatPricingMoney(value / 100);
   return lo === hi ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`;
+}
+
+/**
+ * Whether Dispatch still reads as the carried-over answer for these trades. A
+ * preserved draft comes back without the "the manager typed here" flag, so the
+ * value itself has to say: anything other than what the trades derive is theirs.
+ */
+function sameDispatchRoles(dispatchTrades: readonly string[], trades: readonly string[]): boolean {
+  const derived = vendorDispatchRoles({ trades });
+  const held = [...new Set(dispatchTrades.map((role) => role.trim()).filter(Boolean))];
+  return held.length === derived.length && held.every((role) => derived.includes(role as (typeof derived)[number]));
 }
 
 export function typicalPriceSummary(rates: readonly ManagerVendorTypicalRate[]): string {
@@ -561,7 +573,7 @@ export function ManagerVendorFormModal({
   const [removePreview, setRemovePreview] = useState<ManagerVendorRemovalPreview | null>(null);
   const [createdVendorId, setCreatedVendorId] = useState<string | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
-  const dispatchTouched = useRef(false);
+  const [dispatchTouched, setDispatchTouched] = useState(false);
   const [issueQuery, setIssueQuery] = useState("");
   const [onlineHits, setOnlineHits] = useState<VendorIssueSearchHit[]>([]);
   const [checkedCatalogIds, setCheckedCatalogIds] = useState<string[]>([]);
@@ -616,7 +628,7 @@ export function ManagerVendorFormModal({
         dispatchTrades: vendorDispatchRoles({ trades: [trade] }),
       });
     }
-    dispatchTouched.current = false;
+    setDispatchTouched(false);
     setError(null);
     setSaving(false);
     setInvitePath(catalogVendor?.phone?.trim() ? "message" : "link");
@@ -634,19 +646,34 @@ export function ManagerVendorFormModal({
   }, [open, mode, vendor, initialTrade, catalogVendor, userId]);
 
   const patch = (next: Partial<ManagerVendorFormDraft>) => {
-    if (next.dispatchTrades) dispatchTouched.current = true;
+    if (next.dispatchTrades) setDispatchTouched(true);
     setDraft((prev) => ({ ...prev, ...next }));
   };
   /** Add only: trades ticked on "What they do" carry into Dispatch until the manager sets Dispatch themselves. */
   const patchTrades = (trades: string[], trade: string, extra: Partial<ManagerVendorFormDraft> = {}) => {
-    setDraft((prev) => ({
-      ...prev,
-      ...extra,
-      trades,
-      trade,
-      ...(mode === "add" && !dispatchTouched.current ? { dispatchTrades: vendorDispatchRoles({ trades }) } : {}),
-    }));
+    setDraft((prev) => {
+      const handSet = dispatchTouched || !sameDispatchRoles(prev.dispatchTrades, prev.trades);
+      return {
+        ...prev,
+        ...extra,
+        trades,
+        trade,
+        ...(mode === "add" && !handSet ? { dispatchTrades: vendorDispatchRoles({ trades }) } : {}),
+      };
+    });
   };
+
+  const rateFallback = catalogVendor?.hourlyCents != null && catalogVendor.serviceCents != null
+    ? { hourlyCents: catalogVendor.hourlyCents, serviceCents: catalogVendor.serviceCents }
+    : undefined;
+  /** The cells the Typical price step shows and the save stores — one list, so Review states the saved rates. */
+  const typicalRateCells = (): ManagerVendorTypicalRate[] =>
+    expandTypicalRateCells({
+      propertyIds: typicalRatePropertyIds(draft.propertyIds),
+      trades: draft.trades,
+      existing: draft.typicalRates,
+      fallback: rateFallback,
+    });
 
   const buildRow = (): ManagerVendorRow | null => {
     const name = draft.name.trim();
@@ -688,14 +715,7 @@ export function ManagerVendorFormModal({
       insuranceExpiresAt: draft.insuranceExpiresAt || undefined,
       licenseNumber: draft.licenseNumber.trim() || undefined,
       dispatchAvailable: draft.dispatchAvailable ? undefined : false,
-      typicalRates: expandTypicalRateCells({
-        propertyIds: typicalRatePropertyIds(draft.propertyIds),
-        trades: draft.trades,
-        existing: draft.typicalRates,
-        fallback: catalogVendor?.hourlyCents != null && catalogVendor.serviceCents != null
-          ? { hourlyCents: catalogVendor.hourlyCents, serviceCents: catalogVendor.serviceCents }
-          : undefined,
-      }),
+      typicalRates: typicalRateCells(),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
@@ -1015,15 +1035,12 @@ export function ManagerVendorFormModal({
         label: propertyOptions.find((row) => row.id === id)?.label ?? "Property",
       }))
     : [{ id: ALL_PROPERTIES_RATE_ID, label: "Every property" }];
-  const rateFallback = catalogVendor?.hourlyCents != null && catalogVendor.serviceCents != null
-    ? { hourlyCents: catalogVendor.hourlyCents, serviceCents: catalogVendor.serviceCents }
-    : undefined;
 
   const workspaceDraft = useWorkspaceDraft({
     scope: `vendor:${mode}:${vendor?.id ?? "new"}`,
     actor: userId,
-    open, value: { draft, invitePath, axisInput, draftAxisId, draftAxisName, stepIdx, issueQuery, checkedCatalogIds },
-    restore: (saved) => { setDraft({ ...EMPTY_MANAGER_VENDOR_FORM_DRAFT, ...saved.draft }); setInvitePath(saved.invitePath); setAxisInput(saved.axisInput); setDraftAxisId(saved.draftAxisId); setDraftAxisName(saved.draftAxisName); setStepIdx(saved.stepIdx); setIssueQuery(saved.issueQuery); setCheckedCatalogIds(saved.checkedCatalogIds); },
+    open, value: { draft, invitePath, axisInput, draftAxisId, draftAxisName, stepIdx, issueQuery, checkedCatalogIds, dispatchTouched },
+    restore: (saved) => { setDraft({ ...EMPTY_MANAGER_VENDOR_FORM_DRAFT, ...saved.draft }); setDispatchTouched(saved.dispatchTouched === true); setInvitePath(saved.invitePath); setAxisInput(saved.axisInput); setDraftAxisId(saved.draftAxisId); setDraftAxisName(saved.draftAxisName); setStepIdx(saved.stepIdx); setIssueQuery(saved.issueQuery); setCheckedCatalogIds(saved.checkedCatalogIds); },
   });
 
   if (!open) return null;
@@ -1390,9 +1407,9 @@ export function ManagerVendorFormModal({
           {stepId === "review" ? (
             <div className="space-y-4">
               <p className="text-[13.5px]">{[draft.name, draft.trade, draft.email, draft.phone].filter(Boolean).join(" · ")}</p>
-              {typicalPriceSummary(draft.typicalRates) ? (
+              {typicalPriceSummary(typicalRateCells()) ? (
                 <p className="text-[13.5px]" data-attr="vendor-review-typical-price">
-                  {`Typical price: ${typicalPriceSummary(draft.typicalRates)}`}
+                  {`Typical price: ${typicalPriceSummary(typicalRateCells())}`}
                 </p>
               ) : null}
               <FieldSingleSelect

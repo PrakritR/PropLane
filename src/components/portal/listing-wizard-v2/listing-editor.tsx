@@ -162,7 +162,12 @@ import { submissionWithShortStayDefaults } from "@/lib/leasing-quick-add";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { LONG_TERM_LEASE_TERM as DEFAULT_QUOTE_TERM } from "@/lib/rental-application/lease-terms";
 import { listingV2PublishPricingBlocker, PUBLISH_BLOCKER_RENT } from "@/lib/listing-wizard-validation";
-import type { WorkspacePricingDefaults } from "@/lib/workspace-pricing-defaults";
+import {
+  normalizeWorkspacePricingDefaults,
+  workspaceDefaultRentForRoom,
+  type WorkspacePricingDefaults,
+} from "@/lib/workspace-pricing-defaults";
+import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { ListingPricingSections } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
 import { ListingPreviewPanel } from "@/components/portal/listing-wizard-v2/listing-side-panel";
 import {
@@ -265,23 +270,44 @@ export function listingV2PathStepIds(_sub: ManagerListingSubmissionV1): ListingV
   return LISTING_V2_STEPS.map((step) => step.id);
 }
 
-/** "No photos yet · 2 rooms have no price." — only the parts that apply; null when neither does. */
+/**
+ * "No photos yet · 2 rooms have no price." — only the parts that apply; null when neither does.
+ *
+ * A room counts as unpriced only when NOTHING would give it a price: not its
+ * own rent, not a term's, not the house default, and not the workspace default
+ * `applyWorkspaceDefaultsOnPublish` fills it from a moment later. Asking about
+ * a room publish is about to price is a false alarm.
+ */
 export function listingPublishSoftGapsNote(
   sub: ManagerListingSubmissionV1,
   defaults: ListingHouseDefaults,
+  workspacePricingDefaults: WorkspacePricingDefaults = {},
 ): string | null {
   const parts: string[] = [];
   if (listingSyndicationPhotoUrls(sub).length === 0) parts.push("No photos yet");
   if (!isEntireHomeListing(sub)) {
+    const workspaceDefaults = normalizeWorkspacePricingDefaults(workspacePricingDefaults);
     const unpriced = (sub.rooms ?? []).filter(
-      (room) =>
-        room.name.trim() &&
-        propertyPricingRoomAmount(room) === "—" &&
-        !(roomInheritsDefault(room, defaults, "monthlyRent") && hasPositiveMoney(defaults.monthlyRent)),
+      (room) => room.name.trim() && !roomHasAnyPublishPrice(room, sub, defaults, workspaceDefaults),
     ).length;
     if (unpriced > 0) parts.push(`${unpriced} ${unpriced === 1 ? "room has" : "rooms have"} no price`);
   }
   return parts.length ? `${parts.join(" · ")}.` : null;
+}
+
+/** Every way a room can arrive at a price by publish time, in one place. */
+function roomHasAnyPublishPrice(
+  room: ManagerRoomSubmission,
+  sub: ManagerListingSubmissionV1,
+  defaults: ListingHouseDefaults,
+  workspaceDefaults: WorkspacePricingDefaults,
+): boolean {
+  if (propertyPricingRoomAmount(room) !== "—") return true;
+  if (listingPricingLeaseTabs(sub).map(listingPricingTabToLeaseTerm).some((term) => roomOffersRentForTerm(room, sub, defaults, term))) {
+    return true;
+  }
+  const cap = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
+  return Boolean(workspaceDefaultRentForRoom(workspaceDefaults, cap));
 }
 
 export function listingV2StepIndex(id: ListingV2StepId | null | undefined): number {
@@ -3190,28 +3216,33 @@ function hasOfferedListingRent(submission: ManagerListingSubmissionV1): boolean 
 
   return offeredTerms.some((term) => {
     if (isEntireHomeListing(submission)) return entireHomeMonthlyRentAmount(submission) > 0;
-
-    if (isStayLeaseTerm(term)) {
-      return rooms.some(
-        (room) =>
-          roomHasStayOffer(room) ||
-          (roomInheritsDefault(room, defaults, "shortTermRent") && hasPositiveMoney(defaults.shortTermRent)) ||
-          (roomInheritsDefault(room, defaults, "weeklyRentPrice") && hasPositiveMoney(defaults.weeklyRentPrice)),
-      );
-    }
-
-    return rooms.some((room) => {
-      const termDefault = submission.houseTermPricing?.[term]?.monthlyRent;
-      return (
-        hasPositiveMoney(room.termPricing?.[term]?.monthlyRent) ||
-        (hasPositiveMoney(termDefault) && roomFollowsTermDefault(room, term, "monthlyRent", submission.houseTermPricing)) ||
-        hasPositiveMoney(room.monthlyRent) ||
-        (roomInheritsDefault(room, defaults, "monthlyRent") && hasPositiveMoney(defaults.monthlyRent)) ||
-        (room.rentBasis === "daily" && hasPositiveMoney(room.dailyRentPrice)) ||
-        (room.rentBasis === "weekly" && hasPositiveMoney(room.weeklyRentPrice))
-      );
-    });
+    return rooms.some((room) => roomOffersRentForTerm(room, submission, defaults, term));
   });
+}
+
+/** One room's price for ONE term — its own, the term's, or the house default it follows. */
+function roomOffersRentForTerm(
+  room: ManagerRoomSubmission,
+  submission: ManagerListingSubmissionV1,
+  defaults: ListingHouseDefaults,
+  term: string,
+): boolean {
+  if (isStayLeaseTerm(term)) {
+    return (
+      roomHasStayOffer(room) ||
+      (roomInheritsDefault(room, defaults, "shortTermRent") && hasPositiveMoney(defaults.shortTermRent)) ||
+      (roomInheritsDefault(room, defaults, "weeklyRentPrice") && hasPositiveMoney(defaults.weeklyRentPrice))
+    );
+  }
+  const termDefault = submission.houseTermPricing?.[term]?.monthlyRent;
+  return (
+    hasPositiveMoney(room.termPricing?.[term]?.monthlyRent) ||
+    (hasPositiveMoney(termDefault) && roomFollowsTermDefault(room, term, "monthlyRent", submission.houseTermPricing)) ||
+    hasPositiveMoney(room.monthlyRent) ||
+    (roomInheritsDefault(room, defaults, "monthlyRent") && hasPositiveMoney(defaults.monthlyRent)) ||
+    (room.rentBasis === "daily" && hasPositiveMoney(room.dailyRentPrice)) ||
+    (room.rentBasis === "weekly" && hasPositiveMoney(room.weeklyRentPrice))
+  );
 }
 
 export function ListingEditorV2({
@@ -3385,7 +3416,7 @@ export function ListingEditorV2({
 
   /** Soft gaps (no photos, unpriced rooms) are asked about once, never blocked and never papered over. */
   const publishSoftGapsNote = (): string | null =>
-    listingPublishSoftGapsNote(submission, houseDefaultsForSubmission(submission));
+    listingPublishSoftGapsNote(submission, houseDefaultsForSubmission(submission), workspacePricingDefaults ?? {});
 
   const publishFromCurrentStep = async (): Promise<boolean> => {
     const blocker = publishBlocker();
@@ -3402,9 +3433,10 @@ export function ListingEditorV2({
     const gaps = publishSoftGapsNote();
     if (gaps) {
       const ok = await confirmAction({
-        title: "Publish anyway?",
+        // Edit mode's finish button says Save, so the ask has to name THAT action.
+        title: isEdit ? "Save anyway?" : "Publish anyway?",
         description: gaps,
-        confirmLabel: "Publish",
+        confirmLabel: isEdit ? "Save" : "Publish",
         cancelLabel: "Go back",
         note: null,
         tone: "primary",
@@ -3416,22 +3448,10 @@ export function ListingEditorV2({
     return (await onPublish()) !== false;
   };
 
-  // The short path (see listingV2PathStepIds). A step reached from the rail
-  // that is not on it still gets Back/Continue that make sense: Continue goes
-  // to the next step on the path after it, Back to the one before.
-  const pathIds = listingV2PathStepIds(submission);
-  const pathIndexOf = (id: ListingV2StepId) => pathIds.indexOf(id);
-  const stepIndexOf = (id: ListingV2StepId) => LISTING_V2_STEPS.findIndex((s) => s.id === id);
-  const nextOnPath = (): number | null => {
-    const after = pathIds.find((id) => stepIndexOf(id) > step);
-    return after ? stepIndexOf(after) : null;
-  };
-  const prevOnPath = (): number | null => {
-    const before = [...pathIds].reverse().find((id) => stepIndexOf(id) < step);
-    return before != null ? stepIndexOf(before) : null;
-  };
-  const nextStep = nextOnPath();
-  const prevStep = prevOnPath();
+  // Continue visits every step (see listingV2PathStepIds), so the neighbours
+  // are simply the next and previous ones.
+  const nextStep = step + 1 < LISTING_V2_STEPS.length ? step + 1 : null;
+  const prevStep = step > 0 ? step - 1 : null;
 
   // The same assistant the previous wizard offered, told which step it is on so
   // it can answer about the field in front of the manager.
@@ -3454,7 +3474,6 @@ export function ListingEditorV2({
     id: s.id,
     label: s.label,
     attention: attention[s.id] ?? 0,
-    offPath: !pathIds.includes(s.id),
   }));
   // The leading step, when there is one, is index 0 on the rail and shifts the
   // listing steps by one; `step` itself still indexes LISTING_V2_STEPS.

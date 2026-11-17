@@ -47,11 +47,17 @@ describe("SMS work-number hint waits for the read", () => {
     expect(screen.queryByText(/SMS needs an active work number/)).toBeNull();
   });
 
-  it("shows nothing when the read fails", async () => {
+  it("says the check failed rather than claiming there is no number", async () => {
     sharedGet.mockRejectedValue(new Error("boom"));
     renderModal();
-    await new Promise((r) => setTimeout(r, 20));
+    await waitFor(() => expect(screen.getByText(/Could not check your work number/)).toBeTruthy());
     expect(screen.queryByText(/SMS needs an active work number/)).toBeNull();
+  });
+
+  it("says the check failed when the status body comes back empty", async () => {
+    sharedGet.mockResolvedValue({ ok: false, data: null });
+    renderModal();
+    await waitFor(() => expect(screen.getByText(/Could not check your work number/)).toBeTruthy());
   });
 
   it("warns once the read says there is no number", async () => {

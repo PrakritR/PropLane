@@ -33,7 +33,7 @@ import {
   type ImportStripState,
 } from "@/components/portal/listing-wizard-v2/import-upload-step";
 import { ImportPropertySwitcher } from "@/components/portal/listing-wizard-v2/import-property-switcher";
-import { LISTING_V2_STEPS, listingRailChrome, listingV2PathStepIds, type ListingV2StepId } from "@/components/portal/listing-wizard-v2/listing-editor";
+import { LISTING_V2_STEPS, listingRailChrome, type ListingV2StepId } from "@/components/portal/listing-wizard-v2/listing-editor";
 import {
   ListingWorkspace,
   RailCover,
@@ -558,14 +558,12 @@ export function CreateWorkspace({
   // The Import step, drawn on the same shell the editor uses — same header,
   // rail, footer — so stepping into Basics changes nothing but the body.
   const chrome = selected ? listingRailChrome(selected.submission) : null;
-  const pathIds = selected ? listingV2PathStepIds(selected.submission) : LISTING_V2_STEPS.map((s) => s.id);
   const railSteps = [
     { id: IMPORT_STEP_ID, label: "Import", attention: needLook },
     ...LISTING_V2_STEPS.map((s) => ({
       id: s.id,
       label: s.label,
       attention: chrome?.attention[s.id] ?? 0,
-      offPath: !pathIds.includes(s.id),
     })),
   ];
   const canContinue = entries.length > 0 && !busy;

@@ -143,6 +143,7 @@ export function ManagerSmsWorkNumberHint({
   phone,
   lineReady,
   awaitingCarrier: awaitingCarrierProp = false,
+  statusUnknown = false,
   className,
 }: {
   show: boolean;
@@ -156,6 +157,11 @@ export function ManagerSmsWorkNumberHint({
   lineReady: boolean;
   /** `workNumberAwaitingCarrier(status)` - the only state that names the carrier. */
   awaitingCarrier?: boolean;
+  /**
+   * The number read did not come back. Silence would be a claim the line is
+   * fine, and "no work number" would be a claim it is not - say neither.
+   */
+  statusUnknown?: boolean;
   className?: string;
 }) {
   const pathname = usePathname();
@@ -163,7 +169,7 @@ export function ManagerSmsWorkNumberHint({
   if (!show) return null;
 
   const trimmed = typeof phone === "string" ? phone.trim() : "";
-  if (lineReady && trimmed) return null;
+  if (!statusUnknown && lineReady && trimmed) return null;
 
   // This hint renders inside the messaging settings page itself as well as in
   // compose surfaces, so pointing at "Settings → Messaging" can send the reader
@@ -180,18 +186,20 @@ export function ManagerSmsWorkNumberHint({
 
   return (
     <p className={cn("text-xs font-medium text-danger", className)} role="alert">
-      {awaitingCarrier
-        ? `SMS is waiting on carrier approval for ${formatManagerMessagingPhone(trimmed)}.`
-        : haveNumber
-          ? `SMS cannot send from ${formatManagerMessagingPhone(trimmed)} right now.`
-          : "SMS needs an active work number."}{" "}
+      {statusUnknown
+        ? "Could not check your work number, so this SMS may not send."
+        : awaitingCarrier
+          ? `SMS is waiting on carrier approval for ${formatManagerMessagingPhone(trimmed)}.`
+          : haveNumber
+            ? `SMS cannot send from ${formatManagerMessagingPhone(trimmed)} right now.`
+            : "SMS needs an active work number."}{" "}
       {alreadyOnSettings ? null : (
         <>
           <Link
             href="/portal/profile?tab=messaging"
             className="font-semibold text-primary hover:underline"
           >
-            {haveNumber ? "Check status in Settings → Messaging" : "Finish setup in Settings → Messaging"}
+            {haveNumber || statusUnknown ? "Check status in Settings → Messaging" : "Finish setup in Settings → Messaging"}
           </Link>
           ,{" "}
         </>

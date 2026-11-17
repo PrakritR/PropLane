@@ -1,5 +1,5 @@
 import { isValidWaiverCodeFormat } from "@/lib/application-fee-waiver";
-import { stripSubmissionDataUrls } from "@/lib/manager-listing-draft-autosave";
+import { countSubmissionDataUrls, stripSubmissionDataUrls } from "@/lib/manager-listing-draft-autosave";
 import { uploadListingSubmissionMedia } from "@/lib/listing-submission-media-upload";
 import {
   applyListingBathroomSlots,
@@ -40,7 +40,7 @@ export async function prepareListingSubmissionForPersist(
     return { submission: uploaded.submission, droppedMediaCount: uploaded.failedCount };
   } catch (err) {
     console.error("prepare-listing-submission-for-persist: media upload failed", err);
-    return { submission: stripSubmissionDataUrls(ready), droppedMediaCount: 0 };
+    return { submission: stripSubmissionDataUrls(ready), droppedMediaCount: countSubmissionDataUrls(ready) };
   }
 }
 
