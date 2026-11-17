@@ -696,7 +696,7 @@ export function leaseBookingEntries(
       statusLabel: row.stageLabel?.trim() || row.status?.trim() || undefined,
       ...(openEnded ? { openEnded: true } : {}),
       ...(row.id?.trim() ? { leaseId: row.id.trim() } : {}),
-      ...residentFactsFromApplication(opts.applicationForLease?.(row)),
+      ...residentFactsFromApplication(resident),
     });
   }
   return out;

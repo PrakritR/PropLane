@@ -130,6 +130,9 @@ function leaseBookingRowFromScope(record: {
     application: {
       leaseStart: str(application.leaseStart) || undefined,
       leaseEnd: str(application.leaseEnd) || undefined,
+      // A month-to-month term rolls the block past a stale stored end (`leaseBlockEnd`), so the
+      // snapshot must carry it or PropLane availability disagrees with the iCal feed.
+      leaseTerm: str(application.leaseTerm) || undefined,
     },
     residentEmail: str(data.residentEmail) || undefined,
   } as LeaseBookingRow & { residentEmail?: string };
@@ -163,6 +166,7 @@ export function holdRowFromApplication(row: {
     application: {
       leaseStart: str(application.leaseStart) || undefined,
       leaseEnd: str(application.leaseEnd) || undefined,
+      leaseTerm: str(application.leaseTerm) || undefined,
       roomChoice1: str(application.roomChoice1) || undefined,
     },
     signedMonthlyRent: positiveNumber(data.signedMonthlyRent),
@@ -401,15 +405,60 @@ async function readApprovedHoldRows(db: SupabaseClient, propertyIds: string[]): 
   return rows;
 }
 
+/**
+ * The approved application rows these houses really own, as hold rows. Read once per snapshot: the
+ * lease entries need them too (a resident's recorded move-out ends a month-to-month lease's block,
+ * `leaseBlockEnd`), and reading the table twice for one snapshot is pure egress.
+ *
+ * A row holds a house's room only when its author is the owner or a teammate linked to that house.
+ */
+export async function occupancyApprovedHoldRows(db: SupabaseClient, propertyIds: string[]): Promise<ApplicationHoldRow[]> {
+  if (propertyIds.length === 0) return [];
+  const [data, authors] = await Promise.all([readApprovedHoldRows(db, propertyIds), loadOccupancyAuthors(db, propertyIds)]);
+  const scoped = new Set(propertyIds);
+  return (data ?? []).flatMap((row) => {
+    const hold = holdRowFromApplication(row);
+    const propertyId = (hold.assignedPropertyId || hold.propertyId || "").trim();
+    return scoped.has(propertyId) && occupancyAuthorTrusted(authors, propertyId, row.manager_user_id) ? [hold] : [];
+  });
+}
+
+/**
+ * The resident behind a lease, by the same two-way match `isLeased` uses: the Axis id binds
+ * exactly, email + property covers a lease whose id was never stamped. This is what carries a
+ * recorded move-out (and a manual lease term) onto a lease's block.
+ */
+export function applicationForLeaseLookup(
+  holds: readonly ApplicationHoldRow[],
+): (lease: LeaseBookingRow & { residentEmail?: string }) => ApplicationHoldRow | undefined {
+  const byAxisId = new Map<string, ApplicationHoldRow>();
+  const byPerson = new Map<string, ApplicationHoldRow>();
+  for (const row of holds) {
+    const axisId = normalizeApplicationAxisId(row.id);
+    if (axisId && !byAxisId.has(axisId)) byAxisId.set(axisId, row);
+    const email = row.email?.trim().toLowerCase();
+    const propertyId = (row.assignedPropertyId ?? row.propertyId ?? "").trim();
+    if (email && !byPerson.has(`${email}|${propertyId}`)) byPerson.set(`${email}|${propertyId}`, row);
+  }
+  return (lease) => {
+    const axisId = normalizeApplicationAxisId(lease.id ?? "");
+    const byId = axisId ? byAxisId.get(axisId) : undefined;
+    if (byId) return byId;
+    const email = lease.residentEmail?.trim().toLowerCase();
+    return email ? byPerson.get(`${email}|${(lease.propertyId ?? "").trim()}`) : undefined;
+  };
+}
+
 export async function occupancyHoldEntries(
   db: SupabaseClient,
   propertyIds: string[],
   leaseRows: Array<LeaseBookingRow & { residentEmail?: string }>,
   meta: OccupancyPropertyMeta,
+  /** Already-read hold rows (`occupancyApprovedHoldRows`), so one snapshot reads the table once. */
+  holdRows?: readonly ApplicationHoldRow[],
 ) {
   if (propertyIds.length === 0) return [];
-  const [data, authors] = await Promise.all([readApprovedHoldRows(db, propertyIds), loadOccupancyAuthors(db, propertyIds)]);
-  const scoped = new Set(propertyIds);
+  const holds = holdRows ?? (await occupancyApprovedHoldRows(db, propertyIds));
   const leasedIds = new Set<string>();
   const leasedPeople = new Set<string>();
   for (const row of leaseRows) {
@@ -419,12 +468,6 @@ export async function occupancyHoldEntries(
     const email = row.residentEmail?.trim().toLowerCase();
     if (email) leasedPeople.add(`${email}|${(row.propertyId ?? "").trim()}`);
   }
-  // A row holds a house's room only when its author is the owner or a teammate linked to that house.
-  const holds = (data ?? []).flatMap((row) => {
-    const hold = holdRowFromApplication(row);
-    const propertyId = (hold.assignedPropertyId || hold.propertyId || "").trim();
-    return scoped.has(propertyId) && occupancyAuthorTrusted(authors, propertyId, row.manager_user_id) ? [hold] : [];
-  });
   return applicationHoldEntries(holds, {
     properties: meta.properties,
     roomLabelForId: meta.roomLabelForId,
@@ -545,10 +588,11 @@ export async function occupancyEntriesForManager(
   },
 ) {
   const propertyIds = [...new Set(input.propertyIds.map((id) => id.trim()).filter(Boolean))];
-  const [bookings, capacities, meta] = await Promise.all([
+  const [bookings, capacities, meta, holdRows] = await Promise.all([
     listManagerChannelCalendarBookings(db, userId, propertyIds, input.browserOrigin),
     occupancyCapacitiesForProperties(db, propertyIds),
     occupancyPropertyMeta(db, propertyIds),
+    occupancyApprovedHoldRows(db, propertyIds),
   ]);
   const leaseRecords =
     input.leaseRecords ?? (await fetchLeasesForManagerUser(db as Parameters<typeof fetchLeasesForManagerUser>[0], userId));
@@ -558,9 +602,12 @@ export async function occupancyEntriesForManager(
     properties: meta.properties,
     roomLabelForId: meta.roomLabelForId,
     openEndedHorizonKey: openEndedBookingHorizonKey(),
+    // The resident's own row carries the recorded move-out that ends a month-to-month block, so
+    // PropLane availability and the iCal feed end the same stay on the same day.
+    applicationForLease: applicationForLeaseLookup(holdRows),
   });
   const [holdEntries, blockEntries, financialHouses] = await Promise.all([
-    occupancyHoldEntries(db, propertyIds, leaseRows, meta),
+    occupancyHoldEntries(db, propertyIds, leaseRows, meta, holdRows),
     occupancyBlockEntries(db, propertyIds, meta),
     residentFinancialPropertyIds(db, userId, propertyIds),
   ]);

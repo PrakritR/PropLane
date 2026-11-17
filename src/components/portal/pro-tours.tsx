@@ -165,6 +165,8 @@ type TourNotifyPreview = {
 type GuestMessagePreview = {
   email: string;
   phone?: string;
+  /** The guest, so the modal names the person it is writing to rather than their raw address. */
+  name?: string;
 };
 
 const TOUR_NOTIFY_PREVIEW_COPY: Record<
@@ -846,6 +848,7 @@ export function ManagerTours({
       setGuestMessagePreview({
         email,
         phone: row.guestPhone?.trim() || undefined,
+        name: row.guestName?.trim() || undefined,
       });
     },
     [showToast],
@@ -1472,6 +1475,7 @@ export function ManagerTours({
             setGuestMessagePreview(null);
           }}
           recipient={guestMessagePreview.email}
+          recipientName={guestMessagePreview.name}
           recipientPhone={guestMessagePreview.phone}
           subject=""
           body=""

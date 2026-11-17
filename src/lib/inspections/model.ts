@@ -58,6 +58,11 @@ export type InspectionResidency = {
   /** ISO `YYYY-MM-DD`, or "" when the placement carries no date yet. */
   moveInDate: string;
   moveOutDate: string;
+  /**
+   * Month-to-month, or no end date: there is no "lease end" to show, so a date on this
+   * residency's far end is a move-out the manager recorded (`leaseBlockEnd`).
+   */
+  openEnded?: boolean;
   occupancy: InspectionOccupancy;
 };
 

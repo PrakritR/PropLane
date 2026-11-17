@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { pacificTodayKey } from "@/lib/room-availability-range";
 import { dashboardOccupancyDayKeys, dashboardOccupancyUrl, emptyDashboardOccupancySnapshot } from "@/lib/dashboard-occupancy";
@@ -44,8 +44,15 @@ export function usePortfolioOccupancy(
   });
 
   const [attempt, setAttempt] = useState(0);
+  /*
+   * Which url a Retry asked to be re-read. `force` bypasses the shared-GET TTL and its in-flight
+   * guard, so it is spent on exactly that one read: keyed on the attempt counter alone it stayed on
+   * for the component's life, and every later period switch (a new url) re-fetched past the cache.
+   */
+  const forceUrlRef = useRef("");
   const retry = useCallback(() => {
     setRead((prev) => (prev.url === url ? { url: "", snapshot: null, failed: false } : prev));
+    forceUrlRef.current = url;
     setAttempt((n) => n + 1);
   }, [url]);
 
@@ -57,7 +64,9 @@ export function usePortfolioOccupancy(
       if (cancelled) return;
       setRead((prev) => (prev.url === url && prev.snapshot ? prev : { url, snapshot: null, failed: true }));
     }, PORTFOLIO_OCCUPANCY_TIMEOUT_MS);
-    void sharedGet(url, attempt > 0 ? { force: true } : undefined).then((result) => {
+    const forced = forceUrlRef.current === url;
+    if (forced) forceUrlRef.current = "";
+    void sharedGet(url, forced ? { force: true } : undefined).then((result) => {
       if (cancelled) return;
       clearTimeout(deadline);
       const snapshot = result.ok && result.data && typeof result.data === "object" ? (result.data as OccupancySnapshotResponse) : null;

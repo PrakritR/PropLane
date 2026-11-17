@@ -1824,11 +1824,15 @@ export const ManagerInbox = forwardRef<
       .filter((a) => a.uploadUrl && !a.uploading && !a.error)
       .map((a) => a.uploadUrl!);
     if (!text && attachmentUrls.length === 0) return;
+    // Only "did you pick a channel?" is answered here. Whether a picked channel can actually
+    // carry this reply — and the fallback and the one-line reason when it cannot — belongs to
+    // `decideManagerInboxSend` inside handleReply; clamping the pick by availability here made
+    // every unreachable thread say "choose a channel" instead of why nothing could go out.
     if (
       !hasInboxReplyChannelSelected({
-        viaEmail: replyViaEmail && activeEmailAvailable,
-        viaSms: replyViaSms && activeSmsAvailable,
-        viaProplane: replyViaProplane && activeProplaneAvailable,
+        viaEmail: replyViaEmail,
+        viaSms: replyViaSms,
+        viaProplane: replyViaProplane,
       })
     ) {
       showToast("Choose PropLane, Email, SMS, or a combination.");
@@ -2124,14 +2128,14 @@ export const ManagerInbox = forwardRef<
     const text = replyDraft.trim();
     if (!activeThread || !pending || !text) return "skipped";
     if (text !== pending) return "skipped";
-    // Resolve against live availability so auto-send (and a stale picker
-    // state right after opening a phone-only thread) still picks SMS when
-    // email is impossible — never toast "choose a channel" and stick the
-    // auto-send latch forever.
+    // What the person picked, unclamped: handleReply's `decideManagerInboxSend` drops a channel
+    // this thread cannot carry and falls back to one it can (a stale picker state right after
+    // opening a phone-only thread still texts), so an unreachable pick is answered with its
+    // reason instead of a "choose a channel" toast that sticks the auto-send latch forever.
     const channels = {
-      viaEmail: replyViaEmail && activeEmailAvailable,
-      viaSms: replyViaSms && activeSmsAvailable,
-      viaProplane: replyViaProplane && activeProplaneAvailable,
+      viaEmail: replyViaEmail,
+      viaSms: replyViaSms,
+      viaProplane: replyViaProplane,
     };
     if (!hasInboxReplyChannelSelected(channels)) {
       if (!opts?.auto) showToast("Choose PropLane, Email, SMS, or a combination.");
@@ -2173,9 +2177,6 @@ export const ManagerInbox = forwardRef<
       setApprovingDraft(false);
     }
   }, [
-    activeEmailAvailable,
-    activeProplaneAvailable,
-    activeSmsAvailable,
     activeThread,
     handleReply,
     replyDraft,

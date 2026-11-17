@@ -60,17 +60,20 @@ import {
   householdChargeDisplayTitle,
   householdChargeDueDate,
   householdChargeManagerBucket,
+  householdChargesReadSucceeded,
   isHouseholdChargeOverdue,
   syncHouseholdChargesFromServer,
 } from "@/lib/household-charges";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
   LEASE_PIPELINE_EVENT,
+  leasePipelineReadSucceeded,
   readLeasePipeline,
   syncLeasePipelineFromServer,
 } from "@/lib/lease-pipeline-storage";
 import {
   MANAGER_APPLICATIONS_EVENT,
+  managerApplicationsReadSucceeded,
   readManagerApplicationRows,
   syncManagerApplicationsFromServer,
 } from "@/lib/manager-applications-storage";
@@ -95,6 +98,7 @@ import {
 } from "@/lib/portal-monthly-profit";
 import {
   MANAGER_WORK_ORDERS_EVENT,
+  managerWorkOrdersReadSucceeded,
   readManagerWorkOrderRows,
   syncManagerWorkOrdersFromServer,
 } from "@/lib/manager-work-orders-storage";
@@ -169,7 +173,6 @@ import {
   workspaceContainsProperty,
   workspacePropertyIdFromRow,
 } from "@/lib/workspaces/selection";
-import { isMonthToMonthTerm } from "@/lib/channel-calendar/property-bookings";
 
 const BASE = "/portal";
 
@@ -517,11 +520,6 @@ const INITIAL_SOURCE_STATES: Record<DashboardSource, ReadState> = {
   expenses: "loading",
 };
 
-/** Month-to-month is open-ended: the term says so, or there is no end date (`leaseBlockEnd`). */
-function isOpenEndedLease(term: string | null | undefined, leaseEnd: string | null | undefined): boolean {
-  return isMonthToMonthTerm(term) || !leaseEnd?.trim();
-}
-
 export function ManagerDashboard({ displayName: _displayName = "there" }: { displayName?: string }) {
   void _displayName;
   const router = useRouter();
@@ -714,15 +712,27 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     }
     let cancelled = false;
     const readers: Record<DashboardSource, { run: (force: boolean) => Promise<unknown>; answered?: () => boolean }> = {
-      applications: { run: (force) => syncManagerApplicationsFromServer({ managerUserId: userId, force }) },
-      leases: { run: (force) => syncLeasePipelineFromServer(userId, { force }) },
+      applications: {
+        run: (force) => syncManagerApplicationsFromServer({ managerUserId: userId, force }),
+        answered: () => managerApplicationsReadSucceeded(userId),
+      },
+      leases: {
+        run: (force) => syncLeasePipelineFromServer(userId, { force }),
+        answered: () => leasePipelineReadSucceeded(userId),
+      },
       properties: { run: (force) => syncPropertyPipelineFromServer({ force }) },
       inbox: {
         run: async (force) => (await syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY, { force })).ok,
       },
-      charges: { run: () => syncHouseholdChargesFromServer(true) },
+      charges: {
+        run: () => syncHouseholdChargesFromServer(true),
+        answered: () => isDemoModeActive() || householdChargesReadSucceeded(),
+      },
       schedule: { run: (force) => syncScheduleRecordsFromServer({ force }) },
-      workOrders: { run: (force) => syncManagerWorkOrdersFromServer({ force }) },
+      workOrders: {
+        run: (force) => syncManagerWorkOrdersFromServer({ force }),
+        answered: () => isDemoModeActive() || managerWorkOrdersReadSucceeded(),
+      },
       serviceRequests: {
         run: (force) => syncServiceRequestsFromServer({ force }),
         answered: () => isDemoModeActive() || serviceRequestsLastReadSucceeded(),
@@ -1233,10 +1243,6 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
   const occupancyState: "loading" | "failed" | "ok" = occupancyIsLive ? portfolioOccupancy.status : "ok";
 
   // Upcoming: the next 14 days of tours, move-ins and move-outs.
-  const monthToMonthResidencyIds = new Set<string>();
-  for (const lease of data?.leases ?? []) {
-    if (isOpenEndedLease(lease.application?.leaseTerm, lease.application?.leaseEnd)) monthToMonthResidencyIds.add(lease.id);
-  }
   const horizonMs = nowTick + 14 * 24 * 60 * 60 * 1000;
   const upcomingRows: UpcomingRow[] = [
     ...tours
@@ -1258,9 +1264,9 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
         rows.push({ id: `movein-${r.id}`, kind: "Move-in inspection", title: r.name, detail: where, at: moveIn, href: `${BASE}/move-in/inspections/move-in` });
       }
       if (moveOut != null && moveOut >= nowTick - 24 * 60 * 60 * 1000 && moveOut <= horizonMs) {
-        // A month-to-month lease has no "lease end": only a real move-out date is shown, as a move-out.
-        const m2m = monthToMonthResidencyIds.has(r.id);
-        rows.push({ id: `moveout-${r.id}`, kind: m2m ? "Moves out" : "Lease ends", title: r.name, detail: where, at: moveOut, href: `${BASE}/move-in/inspections/move-out` });
+        // A month-to-month lease has no "lease end": the date is the move-out the manager recorded
+        // (the server leaves it empty otherwise), so it is labelled as one.
+        rows.push({ id: `moveout-${r.id}`, kind: r.openEnded ? "Moves out" : "Lease ends", title: r.name, detail: where, at: moveOut, href: `${BASE}/move-in/inspections/move-out` });
       }
       return rows;
     }),

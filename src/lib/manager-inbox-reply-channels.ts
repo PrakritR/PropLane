@@ -313,10 +313,14 @@ export function decideManagerInboxSend(args: {
   return { ok: false, reason: INBOX_SEND_NOTHING_REASON };
 }
 
-/** The one line a failed or empty send shows beside the composer. */
+/**
+ * The one line a failed or empty send shows beside the composer. A refusal carries its own reason;
+ * anything else (a network error, a 500 from the send route) has no line a manager can act on, so
+ * it is logged rather than swallowed — otherwise the real cause is never diagnosable.
+ */
 export function inboxSendFailureLine(error: unknown, refusalReason?: string | null): string {
   const reason = (refusalReason ?? "").trim();
   if (reason) return reason;
-  void error;
+  if (error != null) console.error("manager inbox send failed", error);
   return INBOX_SEND_NO_RESULT_REASON;
 }

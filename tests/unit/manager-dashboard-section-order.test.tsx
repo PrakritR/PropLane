@@ -64,6 +64,7 @@ import { serviceChargeDisplayTitle } from "@/lib/service-charge-title";
 vi.mock("@/lib/household-charges", () => ({
   HOUSEHOLD_CHARGES_EVENT: "household-charges-changed",
   syncHouseholdChargesFromServer: () => Promise.resolve(),
+  householdChargesReadSucceeded: () => true,
   readChargesForManager: () => CHARGES,
   isHouseholdChargeOverdue: (c: { __overdue?: boolean }) => Boolean(c.__overdue),
   // The dashboard now buckets through the same helper the Payments tabs use, so
@@ -85,6 +86,7 @@ vi.mock("@/lib/manager-applications-storage", () => ({
     (row as { bookingResidency?: unknown } | null)?.bookingResidency === true,
   MANAGER_APPLICATIONS_EVENT: "manager-applications-changed",
   syncManagerApplicationsFromServer: () => Promise.resolve(),
+  managerApplicationsReadSucceeded: () => true,
   readManagerApplicationRows: () => [
     { id: "app-1", bucket: "pending", name: "Alex Kim", email: "alex@example.com", property: "Elm St #2", stage: "Screening" },
     { id: "app-2", bucket: "pending", name: "Jordan Fox", email: "jordan@example.com", property: "Oak Ave #5", stage: "Review" },
@@ -108,6 +110,7 @@ vi.mock("@/lib/manager-portfolio-access", () => ({
 vi.mock("@/lib/lease-pipeline-storage", () => ({
   LEASE_PIPELINE_EVENT: "lease-pipeline-changed",
   syncLeasePipelineFromServer: () => Promise.resolve(),
+  leasePipelineReadSucceeded: () => true,
   readLeasePipeline: () => [
     {
       id: "lease-1",

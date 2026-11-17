@@ -45,6 +45,7 @@ vi.mock("@/lib/supabase/service", () => ({
                 lease_term: pathValue(row, "row_data->application->>leaseTerm"),
                 manual_term: pathValue(row, "row_data->manualResidentDetails->>leaseTerm"),
                 manually_added: pathValue(row, "row_data->>manuallyAdded"),
+                withdrawn: pathValue(row, "row_data->>withdrawnAt"),
                 bucket: pathValue(row, "row_data->>bucket"),
                 ical_connection: pathValue(row, "row_data->>icalConnectionId"),
               })),
@@ -110,6 +111,13 @@ describe("export feed: open-ended leases", () => {
     const evs = events(await (await request()).text());
     expect(evs).toHaveLength(1);
     expect(evs[0]).toContain("DTEND;VALUE=DATE:20270215");
+  });
+
+  it("a withdrawn month-to-month approval blocks nothing, stale end date or not", async () => {
+    const row = resident({ leaseStart: "2026-09-01", leaseEnd: "2026-10-01", leaseTerm: "Month-to-Month" }, {});
+    (row.row_data as Record<string, unknown>).withdrawnAt = "2026-10-02T00:00:00Z";
+    state.records = [row];
+    expect(events(await (await request()).text())).toHaveLength(0);
   });
 
   it("a fixed-term lease is unchanged", async () => {

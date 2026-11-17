@@ -116,6 +116,15 @@ let memoryCharges: HouseholdCharge[] = [];
 let memoryRentProfiles: RecurringRentProfile[] = [];
 const HOUSEHOLD_CHARGES_SYNC_TTL_MS = 15_000;
 let householdChargesLastSyncedAt = 0;
+/**
+ * Whether the most recent server read answered. A failed or unreadable read still resolves with
+ * the local cache (deliberately: it says nothing about the ledger), so a caller that must not draw
+ * that cache as an answer — the dashboard's money tile — asks here instead.
+ */
+let householdChargesLastReadOk = false;
+export function householdChargesReadSucceeded(): boolean {
+  return householdChargesLastReadOk;
+}
 type HouseholdChargesSyncResult = { charges: HouseholdCharge[]; rentProfiles: RecurringRentProfile[] };
 export type AuthoritativeBillingSnapshot = HouseholdChargesSyncResult;
 
@@ -902,6 +911,7 @@ export async function syncHouseholdChargesFromServer(
 ): Promise<HouseholdChargesSyncResult> {
   if (!isBrowser()) return { charges: [], rentProfiles: [] };
   if (isDemoModeActive()) {
+    householdChargesLastReadOk = true;
     hydrateHouseholdStateFromSession();
     return { charges: readAll(), rentProfiles: readRentProfiles() };
   }
@@ -962,6 +972,7 @@ async function runHouseholdChargesSync({
       if (requestedIncremental && !res.ok) {
         // A failed delta read says nothing about the ledger: change nothing, write nothing, and keep
         // the watermark so the next tick asks for the same window again.
+        householdChargesLastReadOk = false;
         return { charges: readAll(), rentProfiles: readRentProfiles() };
       }
       // A failed or unreadable FULL read says nothing about the ledger. Treating it as an empty
@@ -1129,9 +1140,11 @@ async function runHouseholdChargesSync({
         reconcileApprovedResidentPaymentSchedules(null);
         syncAllRecurringRentCharges();
       }
+      householdChargesLastReadOk = true;
       return { charges: readAll(), rentProfiles: readRentProfiles() };
     })
     .catch(() => {
+      householdChargesLastReadOk = false;
       hydrateHouseholdStateFromSession();
       if (!skipReconcile) {
         reconcileApprovedResidentPaymentSchedules(null);

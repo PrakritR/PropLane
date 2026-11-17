@@ -32,7 +32,7 @@ function day(raw: unknown): string | null {
 const FEED_SIBLING_COLUMNS = "id, room_id, provider, imported_ranges, export_token";
 
 const APPROVED_ROW_SELECT =
-  "id,manager_user_id,assigned_property_id,property_id,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,lease_term:row_data->application->>leaseTerm,manual_term:row_data->manualResidentDetails->>leaseTerm,manually_added:row_data->>manuallyAdded,bucket:row_data->>bucket,ical_connection:row_data->>icalConnectionId";
+  "id,manager_user_id,assigned_property_id,property_id,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,lease_term:row_data->application->>leaseTerm,manual_term:row_data->manualResidentDetails->>leaseTerm,withdrawn:row_data->>withdrawnAt,manually_added:row_data->>manuallyAdded,bucket:row_data->>bucket,ical_connection:row_data->>icalConnectionId";
 const APPROVED_ROW_PAGE = 500;
 const APPROVED_ROW_MAX_PAGES = 40;
 
@@ -64,6 +64,7 @@ type ApprovedRow = {
   manual_end: unknown;
   lease_term?: unknown;
   manual_term?: unknown;
+  withdrawn?: unknown;
   manually_added: unknown;
   ical_connection: unknown;
   assigned_property_id: unknown;
@@ -153,6 +154,11 @@ async function occupancyRangesForRoom(
       if (importedStart) importPlacements.push({ connectionId: String(row.ical_connection), start: importedStart, end: day(row.manual_end) || day(row.lease_end) || importedStart });
       continue;
     }
+    // A withdrawn approval is nobody's tenancy: it never blocks a room. Said here because an
+    // open-ended term now rolls past its stored end date, so a withdrawn month-to-month row that
+    // a stale `leaseEnd` used to release would otherwise publish a bookable room as occupied for a
+    // year. `applicationHoldEntries` drops the same rows.
+    if (String(row.withdrawn ?? "").trim()) continue;
     const property = String(row.assigned_property_id || row.property_id || "").trim();
     if (property !== propertyId && !String(row.choice || row.preferred || "").startsWith(`${propertyId}::`)) continue;
     // An approved application that names no room holds no room of a house let by the room (the old test let an empty

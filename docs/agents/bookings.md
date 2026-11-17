@@ -34,7 +34,7 @@ A resident-backed entry carries that resident's OWN figures — `monthlyRent`,
 (`booking-presentation.ts`) prints the resident's rent ahead of the room
 listing's rate or a block's nightly rate, because the resident is who pays.
 
-An open-ended (month-to-month, or no end date) stay blocks its room 365 days rolling from today (`openEndedLeaseEnd` / `leaseBlockEnd` in `property-bookings.ts`; recomputed on every read, nothing stored) in Bookings, availability and the iCal export alike; a move-out date wins and ends the block that day. Coverage: `tests/unit/month-to-month-rolling-block.test.ts`, `tests/unit/export-open-ended-lease.test.ts`.
+An open-ended (month-to-month, or no end date) stay blocks its room 365 days rolling from today (`openEndedLeaseEnd` / `leaseBlockEnd` in `property-bookings.ts`; recomputed on every read, nothing stored) in Bookings, availability and the iCal export alike; a move-out date wins and ends the block that day. Coverage: `tests/unit/month-to-month-rolling-block.test.ts`, `tests/unit/export-open-ended-lease.test.ts`. The term and the move-out reach every reader the same way: the occupancy snapshot carries `application.leaseTerm` and resolves each lease's own resident row (`applicationForLeaseLookup`), and a withdrawn approval blocks nothing on any surface.
 
 ## Residents come from the occupancy snapshot
 

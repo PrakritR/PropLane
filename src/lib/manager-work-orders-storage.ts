@@ -25,6 +25,16 @@ function canUseStorage() {
   return typeof window !== "undefined";
 }
 
+/**
+ * Whether the most recent server read answered. A failed read still resolves with the local cache
+ * (and the seeded default snapshot), so a caller that must not draw that cache as an answer — the
+ * dashboard's "Open requests" tile — asks here instead.
+ */
+let managerWorkOrdersLastReadOk = false;
+export function managerWorkOrdersReadSucceeded(): boolean {
+  return managerWorkOrdersLastReadOk;
+}
+
 function hydrateWorkOrdersFromSession() {
   if (!canUseStorage() || memoryRows.length > 0) return;
   try {
@@ -101,7 +111,10 @@ function deleteWorkOrderFromServer(id: string) {
 export async function syncManagerWorkOrdersFromServer(opts?: { force?: boolean }): Promise<DemoManagerWorkOrderRow[]> {
   if (!canUseStorage()) return [];
   hydrateWorkOrdersFromSession();
-  if (isDemoModeActive()) return readManagerWorkOrderRows();
+  if (isDemoModeActive()) {
+    managerWorkOrdersLastReadOk = true;
+    return readManagerWorkOrderRows();
+  }
   const force = opts?.force === true;
   if (!force && managerWorkOrdersSyncPromise) return managerWorkOrdersSyncPromise;
   if (!force && managerWorkOrdersLastSyncedAt > 0 && Date.now() - managerWorkOrdersLastSyncedAt < MANAGER_WORK_ORDERS_SYNC_TTL_MS) {
@@ -110,18 +123,23 @@ export async function syncManagerWorkOrdersFromServer(opts?: { force?: boolean }
   try {
     managerWorkOrdersSyncPromise = (async () => {
       const res = await fetch(adminOversightUrl("/api/portal-work-orders"), { credentials: "include" });
-      if (!res.ok) return readManagerWorkOrderRows();
+      if (!res.ok) {
+        managerWorkOrdersLastReadOk = false;
+        return readManagerWorkOrderRows();
+      }
       const body = (await res.json()) as { rows?: DemoManagerWorkOrderRow[] };
       const rows = Array.isArray(body.rows) ? body.rows : [];
       const changed = workOrderRowsChanged(memoryRows, rows);
       memoryRows = rows;
       persistWorkOrdersToSession(rows);
       managerWorkOrdersLastSyncedAt = Date.now();
+      managerWorkOrdersLastReadOk = true;
       if (changed) emit();
       return rows;
     })();
     return await managerWorkOrdersSyncPromise;
   } catch {
+    managerWorkOrdersLastReadOk = false;
     return readManagerWorkOrderRows();
   } finally {
     managerWorkOrdersSyncPromise = null;
