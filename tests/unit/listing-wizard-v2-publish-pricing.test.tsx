@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import React, { useState } from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { AIRBNB_LEASE_TERM, LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+
+beforeEach(() => {
+  // No photos in these fixtures: Publish asks "Publish anyway?" (window.confirm outside a provider). Say yes.
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+});
 
 afterEach(() => cleanup());
 
@@ -46,7 +51,7 @@ function publish() {
 }
 
 describe("V2 publish pricing readiness", () => {
-  it("accepts a short-term-only nightly price entered through the V2 control", () => {
+  it("accepts a short-term-only nightly price entered through the V2 control", async () => {
     const base = readyBase();
     const onPublish = mount({
       ...base,
@@ -57,10 +62,10 @@ describe("V2 publish pricing readiness", () => {
 
     publish();
 
-    expect(onPublish).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onPublish).toHaveBeenCalledTimes(1));
   });
 
-  it("accepts a short-term stay priced only on a per-resident slot", () => {
+  it("accepts a short-term stay priced only on a per-resident slot", async () => {
     const base = readyBase();
     const onPublish = mount({
       ...base,
@@ -79,10 +84,10 @@ describe("V2 publish pricing readiness", () => {
 
     publish();
 
-    expect(onPublish).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onPublish).toHaveBeenCalledTimes(1));
   });
 
-  it("accepts a short-term-only weekly V2 price with no monthly rent", () => {
+  it("accepts a short-term-only weekly V2 price with no monthly rent", async () => {
     const base = readyBase();
     const onPublish = mount({
       ...base,
@@ -93,10 +98,10 @@ describe("V2 publish pricing readiness", () => {
 
     publish();
 
-    expect(onPublish).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onPublish).toHaveBeenCalledTimes(1));
   });
 
-  it("accepts an Airbnb-only offered stay with a nightly V2 price", () => {
+  it("accepts an Airbnb-only offered stay with a nightly V2 price", async () => {
     const base = readyBase();
     const onPublish = mount({
       ...base,
@@ -107,10 +112,10 @@ describe("V2 publish pricing readiness", () => {
 
     publish();
 
-    expect(onPublish).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onPublish).toHaveBeenCalledTimes(1));
   });
 
-  it("accepts a whole-home Airbnb offer with its supported positive rent", () => {
+  it("accepts a whole-home Airbnb offer with its supported positive rent", async () => {
     const onPublish = mount({
       ...readyBase(),
       listingPlaceCategoryId: "entire_home",
@@ -121,10 +126,10 @@ describe("V2 publish pricing readiness", () => {
 
     publish();
 
-    expect(onPublish).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onPublish).toHaveBeenCalledTimes(1));
   });
 
-  it("accepts monthly pricing on an enabled term-specific lease tab", () => {
+  it("accepts monthly pricing on an enabled term-specific lease tab", async () => {
     const base = readyBase();
     const onPublish = mount({
       ...base,
@@ -134,10 +139,10 @@ describe("V2 publish pricing readiness", () => {
 
     publish();
 
-    expect(onPublish).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onPublish).toHaveBeenCalledTimes(1));
   });
 
-  it("rejects a price that exists only on a disabled lease term", () => {
+  it("rejects a price that exists only on a disabled lease term", async () => {
     const base = readyBase();
     const onPublish = mount({
       ...base,
@@ -151,7 +156,7 @@ describe("V2 publish pricing readiness", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Add a rent before publishing.");
   });
 
-  it("rejects stale nightly and weekly rates when short-term is disabled", () => {
+  it("rejects stale nightly and weekly rates when short-term is disabled", async () => {
     const base = readyBase();
     const onPublish = mount({
       ...base,
@@ -165,7 +170,7 @@ describe("V2 publish pricing readiness", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Add a rent before publishing.");
   });
 
-  it("rejects nightly pricing when no short-term lease is offered", () => {
+  it("rejects nightly pricing when no short-term lease is offered", async () => {
     const base = readyBase();
     const onPublish = mount({
       ...base,
@@ -179,7 +184,7 @@ describe("V2 publish pricing readiness", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Add a rent before publishing.");
   });
 
-  it("does not treat negative V2 nightly or weekly rates as rent", () => {
+  it("does not treat negative V2 nightly or weekly rates as rent", async () => {
     const base = readyBase();
     const onPublish = mount({
       ...base,
@@ -194,7 +199,7 @@ describe("V2 publish pricing readiness", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Add a rent before publishing.");
   });
 
-  it("rejects an otherwise complete listing with no offered lease type", () => {
+  it("rejects an otherwise complete listing with no offered lease type", async () => {
     const onPublish = mount(readyBase());
 
     publish();
@@ -203,7 +208,7 @@ describe("V2 publish pricing readiness", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Choose a lease type before publishing.");
   });
 
-  it("keeps a truly unpriced offered listing blocked", () => {
+  it("keeps a truly unpriced offered listing blocked", async () => {
     const onPublish = mount({
       ...readyBase(),
       allowedLeaseTerms: [LONG_TERM_LEASE_TERM],

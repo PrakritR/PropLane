@@ -92,9 +92,9 @@ describe("the wizard rail", () => {
     expect(LISTING_V2_STEPS).toHaveLength(9);
   });
 
-  it("walks the leasing steps on the Next path (Basics, Rooms, 4 leasing, Review), not five", () => {
+  it("walks every step on the Next path (nothing skipped)", () => {
     mount();
-    expect(listingV2PathStepIds(sub())).toHaveLength(7);
+    expect(listingV2PathStepIds(sub())).toHaveLength(9);
     expect(screen.queryByText(/^Step \d+ of \d+$/)).toBeNull(); // the footer carries no counter
   });
 
@@ -737,7 +737,7 @@ describe("Move-in step, empty", () => {
 });
 
 describe("Pricing step", () => {
-  it("the heading is the count ('1 room'), room cards have a menu with Edit, and a bundle is titled by its rooms", async () => {
+  it("the heading is Pricing, room cards have a menu with Edit, and a bundle is titled by its rooms", async () => {
     const base = sub();
     mountLive({
       ...base,
@@ -748,7 +748,7 @@ describe("Pricing step", () => {
       bundles: [{ id: "b1", label: "Two or more rooms", price: "2200", strikethrough: "", promo: "", roomsLine: "", includedRoomIds: ["room-a", "room-b"] }],
     } as unknown as typeof base);
     go("pricing");
-    expect(stepHeadingText()).toBe("2 rooms");
+    expect(stepHeadingText()).toBe("Pricing");
     const rooms = cards("pricing");
     expect(rooms).toHaveLength(2);
     const items = await openMenu(rooms[0]!.querySelector("[data-attr='listing-v2-pricing-room-menu']")!);
@@ -760,11 +760,11 @@ describe("Pricing step", () => {
     expect(bundle.textContent).not.toContain("Two or more rooms");
   });
 
-  it("a whole place reads 'Whole place' in the heading", () => {
+  it("a whole place titles the step Pricing", () => {
     const base = sub();
     mountLive({ ...base, listingPlaceCategoryId: "entire_home", entireHomeMonthlyRent: 3200 } as unknown as typeof base);
     go("pricing");
-    expect(stepHeadingText()).toBe("Whole place");
+    expect(stepHeadingText()).toBe("Pricing");
   });
 
   it("by the room: one card per room with its rent on the right", () => {

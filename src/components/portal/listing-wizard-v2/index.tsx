@@ -353,6 +353,12 @@ export function ListingWizardV2({
         return false;
       }
       savedFingerprintRef.current = listingSubmissionFingerprint(prepared.submission);
+      // The baseline is the PREPARED (normalized, media-uploaded) submission, so state and the ref must
+      // become that same object or "Unsaved changes" never clears. Edits typed during the save win.
+      if (submissionRef.current === raw && prepared.submission !== raw) {
+        submissionRef.current = prepared.submission;
+        setSubmission(prepared.submission);
+      }
       if (result.id?.trim()) savedIdRef.current = result.id.trim();
       if (editing) {
         await publishPendingApplicationVersions(result.id?.trim() || editListingId?.trim() || "", prepared.submission, publishedMarksRef.current);

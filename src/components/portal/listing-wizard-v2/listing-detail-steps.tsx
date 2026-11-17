@@ -1758,7 +1758,7 @@ export function StepPricing({ sub, onChange }: StepProps) {
 
   return (
     <StepColumn>
-      <StepHeading title={wholeHome ? "Whole place" : plural(rooms.length, "room")} />
+      <StepHeading title="Pricing" />
       {wholeHome ? (
         <RecordCard
           propertyEditor

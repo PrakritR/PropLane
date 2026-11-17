@@ -31,6 +31,7 @@ export type ConfirmRequest = {
   /** The question itself, e.g. `Delete "September rent" for Ada?`. */
   description: ReactNode;
   confirmLabel?: string;
+  cancelLabel?: string;
   /** Line under the question; pass null when the action IS reversible. */
   note?: ReactNode;
   tone?: "danger" | "primary";
@@ -172,6 +173,7 @@ export function AppUiProvider({ children }: { children: ReactNode }) {
         title={confirmRequest?.title ?? "Delete"}
         description={confirmRequest?.description ?? ""}
         confirmLabel={confirmRequest?.confirmLabel ?? "Delete"}
+        cancelLabel={confirmRequest?.cancelLabel}
         note={confirmRequest?.note === undefined ? "This cannot be undone." : confirmRequest.note}
         tone={confirmRequest?.tone ?? "danger"}
         dataAttr={confirmRequest?.dataAttr}

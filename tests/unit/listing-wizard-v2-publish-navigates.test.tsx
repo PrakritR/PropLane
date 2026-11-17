@@ -109,6 +109,8 @@ function publishButton(): Element {
 }
 
 beforeEach(() => {
+  // No photos in these fixtures: Publish asks "Publish anyway?" (window.confirm outside a provider). Say yes.
+  vi.spyOn(window, "confirm").mockReturnValue(true);
   publishDraft.mockReset();
   submitPending.mockReset();
   saveDraft.mockReset();

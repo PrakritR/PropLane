@@ -435,7 +435,7 @@ export function PortalNotificationPreviewModal({
         </div>
 
         <ManagerSmsWorkNumberHint
-          show={Boolean(showChannelPicker && !skipMessage && viaSms)}
+          show={Boolean(showChannelPicker && !skipMessage && viaSms && effectiveSmsSetup !== null)}
           phone={effectiveSmsSetup?.phone ?? null}
           lineReady={(effectiveSmsSetup?.lineReady ?? effectiveSmsSetup?.canSend) === true}
           awaitingCarrier={effectiveSmsSetup?.awaitingCarrier === true}

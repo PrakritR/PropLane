@@ -44,6 +44,7 @@ import {
   type ManagerListingSubmissionV1,
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
+import { basicsBathroomCount } from "@/lib/listing-basics-sync";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { deriveRoomAvailability, formatDateKeyShort, legacyMoveInDateAsSpan, manualRangesToSpans, todayDateKey } from "@/lib/room-availability-timeline";
 
@@ -146,7 +147,7 @@ export function ListingPreviewPanel({
       <Facts
         rows={[
           ["Rooms", String(rooms.length)],
-          ["Bathrooms", String((sub.bathrooms ?? []).length)],
+          ["Bathrooms", String(basicsBathroomCount(sub))],
           ["Residents", residents > 0 ? `Up to ${residents}` : "—"],
           ["Available", listingAvailabilityFact(rooms)],
         ]}

@@ -163,6 +163,22 @@ function vendorEmailLooksValid(email: string): boolean {
   return Boolean(normalized && /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(normalized));
 }
 
+/** "$75" when every set cell agrees, "$60–$90" when they differ, null when none is set. */
+function rateRangeLabel(cents: readonly number[]): string | null {
+  const set = cents.filter((value) => value > 0);
+  if (set.length === 0) return null;
+  const lo = Math.min(...set);
+  const hi = Math.max(...set);
+  const fmt = (value: number) => `$${dollarsInputFromCents(value)}`;
+  return lo === hi ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`;
+}
+
+export function typicalPriceSummary(rates: readonly ManagerVendorTypicalRate[]): string {
+  const hourly = rateRangeLabel(rates.map((rate) => rate.hourlyCents));
+  const service = rateRangeLabel(rates.map((rate) => rate.serviceCents));
+  return [hourly ? `Hourly ${hourly}` : "", service ? `Typical service ${service}` : ""].filter(Boolean).join(" · ");
+}
+
 export function TypicalPriceFields({
   houses,
   trades,
@@ -206,21 +222,31 @@ export function TypicalPriceFields({
                 <p className="text-sm font-semibold sm:col-span-2">{trade}</p>
                 <label className="block space-y-1">
                   <span className="text-sm font-semibold">Hourly</span>
-                  <Input
-                    inputMode="decimal"
-                    value={dollarsInputFromCents(cell.hourlyCents)}
-                    onChange={(e) => patchCell(house.id, trade, "hourlyCents", e.target.value)}
-                    data-attr={`vendor-rate-hourly-${house.id}-${trade}`}
-                  />
+                  <span className="relative block">
+                    <span aria-hidden className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-muted">$</span>
+                    <Input
+                      className="!pl-8"
+                      aria-label="Hourly"
+                      inputMode="decimal"
+                      value={dollarsInputFromCents(cell.hourlyCents)}
+                      onChange={(e) => patchCell(house.id, trade, "hourlyCents", e.target.value)}
+                      data-attr={`vendor-rate-hourly-${house.id}-${trade}`}
+                    />
+                  </span>
                 </label>
                 <label className="block space-y-1">
                   <span className="text-sm font-semibold">Typical service</span>
-                  <Input
-                    inputMode="decimal"
-                    value={dollarsInputFromCents(cell.serviceCents)}
-                    onChange={(e) => patchCell(house.id, trade, "serviceCents", e.target.value)}
-                    data-attr={`vendor-rate-service-${house.id}-${trade}`}
-                  />
+                  <span className="relative block">
+                    <span aria-hidden className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-muted">$</span>
+                    <Input
+                      className="!pl-8"
+                      aria-label="Typical service"
+                      inputMode="decimal"
+                      value={dollarsInputFromCents(cell.serviceCents)}
+                      onChange={(e) => patchCell(house.id, trade, "serviceCents", e.target.value)}
+                      data-attr={`vendor-rate-service-${house.id}-${trade}`}
+                    />
+                  </span>
                 </label>
               </div>
             );
@@ -535,6 +561,7 @@ export function ManagerVendorFormModal({
   const [removePreview, setRemovePreview] = useState<ManagerVendorRemovalPreview | null>(null);
   const [createdVendorId, setCreatedVendorId] = useState<string | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
+  const dispatchTouched = useRef(false);
   const [issueQuery, setIssueQuery] = useState("");
   const [onlineHits, setOnlineHits] = useState<VendorIssueSearchHit[]>([]);
   const [checkedCatalogIds, setCheckedCatalogIds] = useState<string[]>([]);
@@ -586,8 +613,10 @@ export function ManagerVendorFormModal({
         notes: catalogVendor?.description ?? "",
         catalogId: catalogVendor?.catalogId,
         typicalRates: [],
+        dispatchTrades: vendorDispatchRoles({ trades: [trade] }),
       });
     }
+    dispatchTouched.current = false;
     setError(null);
     setSaving(false);
     setInvitePath(catalogVendor?.phone?.trim() ? "message" : "link");
@@ -604,7 +633,20 @@ export function ManagerVendorFormModal({
     setCheckedCatalogIds([]);
   }, [open, mode, vendor, initialTrade, catalogVendor, userId]);
 
-  const patch = (next: Partial<ManagerVendorFormDraft>) => setDraft((prev) => ({ ...prev, ...next }));
+  const patch = (next: Partial<ManagerVendorFormDraft>) => {
+    if (next.dispatchTrades) dispatchTouched.current = true;
+    setDraft((prev) => ({ ...prev, ...next }));
+  };
+  /** Add only: trades ticked on "What they do" carry into Dispatch until the manager sets Dispatch themselves. */
+  const patchTrades = (trades: string[], trade: string, extra: Partial<ManagerVendorFormDraft> = {}) => {
+    setDraft((prev) => ({
+      ...prev,
+      ...extra,
+      trades,
+      trade,
+      ...(mode === "add" && !dispatchTouched.current ? { dispatchTrades: vendorDispatchRoles({ trades }) } : {}),
+    }));
+  };
 
   const buildRow = (): ManagerVendorRow | null => {
     const name = draft.name.trim();
@@ -921,10 +963,8 @@ export function ManagerVendorFormModal({
     const on = checkedCatalogIds.includes(hit.id);
     setCheckedCatalogIds((prev) => (on ? prev.filter((id) => id !== hit.id) : [...prev, hit.id]));
     if (!on) {
-      patch({
+      patchTrades([hit.trade], hit.trade, {
         name: hit.name,
-        trade: hit.trade,
-        trades: [hit.trade],
         phone: hit.phone,
         email: hit.email ?? draft.email,
         catalogId: hit.source === "catalog" ? hit.id : draft.catalogId,
@@ -1139,7 +1179,7 @@ export function ManagerVendorFormModal({
                         checked={on}
                         onChange={() => {
                           const trades = on ? draft.trades.filter((item) => item !== trade) : [...draft.trades, trade];
-                          patch({ trades, trade: trades[0] ?? trade });
+                          patchTrades(trades, trades[0] ?? trade);
                         }}
                         data-attr={`vendor-trade-${trade}`}
                       />
@@ -1350,6 +1390,11 @@ export function ManagerVendorFormModal({
           {stepId === "review" ? (
             <div className="space-y-4">
               <p className="text-[13.5px]">{[draft.name, draft.trade, draft.email, draft.phone].filter(Boolean).join(" · ")}</p>
+              {typicalPriceSummary(draft.typicalRates) ? (
+                <p className="text-[13.5px]" data-attr="vendor-review-typical-price">
+                  {`Typical price: ${typicalPriceSummary(draft.typicalRates)}`}
+                </p>
+              ) : null}
               <FieldSingleSelect
                 label="Share on PropLane"
                 dataAttr="vendor-share-on-proplane"

@@ -22,6 +22,7 @@
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { propertyPricingRoomAmount } from "@/lib/property-pricing-summary";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { WorkspaceFileCard, WorkspaceHeaderUploadPresent, type WorkspaceHeaderUploadProps } from "@/components/portal/add-workspace/upload-action";
 import { Input, Textarea } from "@/components/ui/input";
@@ -255,28 +256,32 @@ export type ListingEditorLeadingStep = {
  *
  * The steps a listing HAS to pass through. Basics carries the title, photos and
  * description; Review publishes. Rent is set on the property Payments tab.
- * Rooms, Bathrooms and Shared spaces are detail a manager adds when they want
- * to — Continue skips them, and the rail marks them optional.
- *
- * The one exception is deliberate: a home let BY THE ROOM keeps Rooms on the
- * path, because there the rooms are the product and each carries its own price.
- * That choice is the manager's own answer on Basics — never inferred from a
- * blank — which is why it, and not a room count, decides this.
- *
- * A detail step the manager has already filled in stays on the path too: work
- * they did should not disappear from Continue.
+ * Rooms, Bathrooms and Shared spaces are optional detail, but Continue still
+ * visits each one (captain's choice): an empty one shows its empty state with
+ * its Add action, so nothing is skipped silently. The path is every step.
  */
-export function listingV2PathStepIds(sub: ManagerListingSubmissionV1): ListingV2StepId[] {
-  const byTheRoom = sub.listingPlaceCategoryId === "shared_home";
-  const hasRooms = byTheRoom || (sub.rooms?.length ?? 0) > 0;
-  const hasBathrooms = (sub.bathrooms ?? []).length > 0;
-  const hasSpaces = (sub.sharedSpaces ?? []).length > 0;
-  return LISTING_V2_STEPS.map((step) => step.id).filter((id) => {
-    if (id === "rooms") return hasRooms;
-    if (id === "bathrooms") return hasBathrooms;
-    if (id === "spaces") return hasSpaces;
-    return true;
-  });
+export function listingV2PathStepIds(_sub: ManagerListingSubmissionV1): ListingV2StepId[] {
+  // Next visits EVERY step. An empty optional step shows its own empty state and Add action.
+  return LISTING_V2_STEPS.map((step) => step.id);
+}
+
+/** "No photos yet · 2 rooms have no price." — only the parts that apply; null when neither does. */
+export function listingPublishSoftGapsNote(
+  sub: ManagerListingSubmissionV1,
+  defaults: ListingHouseDefaults,
+): string | null {
+  const parts: string[] = [];
+  if (listingSyndicationPhotoUrls(sub).length === 0) parts.push("No photos yet");
+  if (!isEntireHomeListing(sub)) {
+    const unpriced = (sub.rooms ?? []).filter(
+      (room) =>
+        room.name.trim() &&
+        propertyPricingRoomAmount(room) === "—" &&
+        !(roomInheritsDefault(room, defaults, "monthlyRent") && hasPositiveMoney(defaults.monthlyRent)),
+    ).length;
+    if (unpriced > 0) parts.push(`${unpriced} ${unpriced === 1 ? "room has" : "rooms have"} no price`);
+  }
+  return parts.length ? `${parts.join(" · ")}.` : null;
 }
 
 export function listingV2StepIndex(id: ListingV2StepId | null | undefined): number {
@@ -3378,6 +3383,10 @@ export function ListingEditorV2({
     return null;
   };
 
+  /** Soft gaps (no photos, unpriced rooms) are asked about once, never blocked and never papered over. */
+  const publishSoftGapsNote = (): string | null =>
+    listingPublishSoftGapsNote(submission, houseDefaultsForSubmission(submission));
+
   const publishFromCurrentStep = async (): Promise<boolean> => {
     const blocker = publishBlocker();
     if (blocker) {
@@ -3390,6 +3399,20 @@ export function ListingEditorV2({
     }
     setPublishError(null);
     setPublishFix(null);
+    const gaps = publishSoftGapsNote();
+    if (gaps) {
+      const ok = await confirmAction({
+        title: "Publish anyway?",
+        description: gaps,
+        confirmLabel: "Publish",
+        cancelLabel: "Go back",
+        note: null,
+        tone: "primary",
+        guard: "confirm",
+        dataAttr: "listing-v2-publish-anyway",
+      });
+      if (!ok) return false;
+    }
     return (await onPublish()) !== false;
   };
 

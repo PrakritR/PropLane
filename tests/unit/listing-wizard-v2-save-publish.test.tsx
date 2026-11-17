@@ -53,6 +53,8 @@ function rail(id: string) {
 }
 
 beforeEach(() => {
+  // No photos in these fixtures: Publish asks "Publish anyway?" (window.confirm outside a provider). Say yes.
+  vi.spyOn(window, "confirm").mockReturnValue(true);
 	saveDraft.mockReset().mockResolvedValue("draft-1");
 	publishDraft.mockReset().mockResolvedValue("listing-1");
 	submitPending.mockReset().mockResolvedValue("listing-1");
@@ -63,7 +65,7 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("V2 editor action availability", () => {
-	it("renders Next on earlier steps and Create property only on Review", () => {
+	it("renders Next on earlier steps and Create property only on Review", async () => {
 		const onClose = vi.fn();
 		const onPublish = vi.fn(async () => true);
 		render(
@@ -88,7 +90,7 @@ describe("V2 editor action availability", () => {
 			}
 		}
 		fireEvent.click(screen.getByRole("button", { name: "Create property" }));
-		expect(onPublish).toHaveBeenCalled();
+		await waitFor(() => expect(onPublish).toHaveBeenCalled());
 		expect(onClose).not.toHaveBeenCalled();
 	});
 });
