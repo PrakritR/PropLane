@@ -98,20 +98,23 @@ export function residentBoundChargeClause(binding: ResidentChargeBinding): strin
 }
 
 /**
- * The same decision as `residentBoundChargeClause`, for ONE loaded charge row: a row with no resident id of its own
- * that names one of the subject's bound applications, or was written by the same manager for that application's own
- * (unshared) address. Paying a charge must follow exactly what the resident's Payments read shows them, or a phone
- * sign-up resident (whose sign-in address is a placeholder) sees "Pay" on their own charge and is refused at checkout.
+ * May this subject ACT on ONE loaded charge row that carries neither their Auth id nor their sign-in address -
+ * pay it, or message their manager about it? Only the APPLICATION shape counts: the row has no resident id of its
+ * own and names one of the applications bound to this Auth subject. A phone sign-up resident (whose sign-in
+ * address is a placeholder) is then the payer of the charges their own approved application raised.
+ *
+ * The address shape above (`managerEmails`) is deliberately NOT an action grant. An application's address is typed
+ * by the applicant - an account that proved a phone owns its row whatever mailbox it types (`prepareResidentSelfWrite`),
+ * and the shared-address drop can only see the collision when ANOTHER application names the same address with a
+ * subject of its own. A manager-created resident, a guest application or a resident with no application row leaves
+ * an unverified address looking exclusive, which is tolerable for a read and never enough to settle someone else's
+ * money. Acting stays on the one proof the server wrote itself.
  */
-export function chargeRowBoundToResident(
-  row: { residentUserId: string | null; managerUserId: string; residentEmail: string; applicationId: string },
+export function chargeRowActionableByResident(
+  row: { residentUserId: string | null; applicationId: string },
   binding: ResidentChargeBinding,
 ): boolean {
   if (row.residentUserId?.trim()) return false;
   const applicationId = row.applicationId.trim();
-  if (applicationId && binding.applicationIds.includes(applicationId)) return true;
-  const manager = row.managerUserId.trim();
-  const email = row.residentEmail.trim().toLowerCase();
-  if (!manager || !email) return false;
-  return binding.managerEmails.some((pair) => pair.managerUserId === manager && pair.email === email);
+  return Boolean(applicationId) && binding.applicationIds.includes(applicationId);
 }

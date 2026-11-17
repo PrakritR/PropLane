@@ -10,7 +10,7 @@ vi.mock("@/lib/resident-charge-binding.server", async (importOriginal) => ({
 }));
 
 import { loadHouseholdChargesForCheckout } from "@/lib/stripe-household-charge-checkout.server";
-import { chargeRowBoundToResident } from "@/lib/resident-charge-binding.server";
+import { chargeRowActionableByResident } from "@/lib/resident-charge-binding.server";
 
 /** A phone sign-up resident: their sign-in address is the placeholder, never the application's address. */
 const phoneResident = { userId: "resident-1", userEmail: "0f3a@phone.proplane.invalid" };
@@ -37,7 +37,7 @@ function fakeDb(charge: { residentUserId?: string | null; residentEmail: string;
   } };
 }
 
-describe("checkout follows the resident's bound charges", () => {
+describe("checkout follows the resident's bound application", () => {
   beforeEach(() => {
     getStripe.mockReset();
     loadResidentChargeBinding.mockReset();
@@ -51,35 +51,41 @@ describe("checkout follows the resident's bound charges", () => {
     expect(loadResidentChargeBinding).toHaveBeenCalledWith(expect.anything(), "resident-1");
   });
 
-  it("lets them pay a manager-entered charge for their application's own (unshared) address", async () => {
-    loadResidentChargeBinding.mockResolvedValue({ applicationIds: [], managerEmails: [{ managerUserId: "manager-1", email: "ava@example.com" }] });
-    await expect(loadHouseholdChargesForCheckout(fakeDb({ residentEmail: "ava@example.com" }) as never, {
-      ...phoneResident, chargeIds: ["charge-1"],
-    })).rejects.toThrow("PAST_OWNERSHIP");
-  });
-
-  it("still refuses a charge pinned to another resident, or one the binding does not reach", async () => {
+  it("still refuses a charge pinned to another resident, or one no bound application names", async () => {
     loadResidentChargeBinding.mockResolvedValue({ applicationIds: ["PROPLANE-ABC"], managerEmails: [{ managerUserId: "manager-1", email: "ava@example.com" }] });
     const pinned = await loadHouseholdChargesForCheckout(fakeDb({ residentUserId: "resident-2", residentEmail: "ava@example.com", applicationId: "PROPLANE-ABC" }) as never, {
       ...phoneResident, chargeIds: ["charge-1"],
     });
     expect(pinned).toMatchObject({ ok: false, status: 403 });
-    loadResidentChargeBinding.mockResolvedValue({ applicationIds: [], managerEmails: [] });
     const unbound = await loadHouseholdChargesForCheckout(fakeDb({ residentEmail: "bo@example.com" }) as never, {
       ...phoneResident, chargeIds: ["charge-1"],
     });
     expect(unbound).toMatchObject({ ok: false, status: 403 });
     expect(getStripe).not.toHaveBeenCalled();
   });
+
+  /**
+   * The address a manager keyed a charge to is typed by the applicant, so it is a READ heuristic only: a phone
+   * sign-up account owns its application row whatever mailbox it writes there, and the shared-address drop cannot
+   * see a victim who has no application of their own. Paying never rests on it.
+   */
+  it("refuses a manager-entered charge the binding reaches only by its address", async () => {
+    loadResidentChargeBinding.mockResolvedValue({ applicationIds: [], managerEmails: [{ managerUserId: "manager-1", email: "ava@example.com" }] });
+    const addressOnly = await loadHouseholdChargesForCheckout(fakeDb({ residentEmail: "ava@example.com" }) as never, {
+      ...phoneResident, chargeIds: ["charge-1"],
+    });
+    expect(addressOnly).toMatchObject({ ok: false, status: 403 });
+    expect(getStripe).not.toHaveBeenCalled();
+  });
 });
 
-describe("chargeRowBoundToResident", () => {
+describe("chargeRowActionableByResident", () => {
   const binding = { applicationIds: ["APP-1"], managerEmails: [{ managerUserId: "m1", email: "ava@example.com" }] };
-  it("matches the same two shapes as the Payments read, and only on rows with no resident id", () => {
-    expect(chargeRowBoundToResident({ residentUserId: null, managerUserId: "x", residentEmail: "", applicationId: "APP-1" }, binding)).toBe(true);
-    expect(chargeRowBoundToResident({ residentUserId: null, managerUserId: "m1", residentEmail: "AVA@example.com", applicationId: "" }, binding)).toBe(true);
-    expect(chargeRowBoundToResident({ residentUserId: "someone", managerUserId: "m1", residentEmail: "ava@example.com", applicationId: "APP-1" }, binding)).toBe(false);
-    expect(chargeRowBoundToResident({ residentUserId: null, managerUserId: "m2", residentEmail: "ava@example.com", applicationId: "" }, binding)).toBe(false);
-    expect(chargeRowBoundToResident({ residentUserId: null, managerUserId: "m1", residentEmail: "ava@example.com", applicationId: "" }, { applicationIds: [], managerEmails: [] })).toBe(false);
+  it("takes only an unpinned row naming one of the subject's own applications", () => {
+    expect(chargeRowActionableByResident({ residentUserId: null, applicationId: "APP-1" }, binding)).toBe(true);
+    expect(chargeRowActionableByResident({ residentUserId: "someone", applicationId: "APP-1" }, binding)).toBe(false);
+    expect(chargeRowActionableByResident({ residentUserId: null, applicationId: "" }, binding)).toBe(false);
+    expect(chargeRowActionableByResident({ residentUserId: null, applicationId: "APP-2" }, binding)).toBe(false);
+    expect(chargeRowActionableByResident({ residentUserId: null, applicationId: "APP-1" }, { applicationIds: [], managerEmails: [] })).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
+import { chargeRowActionableByResident, loadResidentChargeBinding } from "@/lib/resident-charge-binding.server";
 import { chargeOwnedByUser } from "@/lib/stripe-household-charge-checkout.server";
 import type { HouseholdCharge, ResidentChargeMessage } from "@/lib/household-charges";
 import {
@@ -67,7 +68,7 @@ export async function sendResidentChargeMessage(
 
   const { data: row, error: rowError } = await db
     .from("portal_household_charge_records")
-    .select("id, row_data, manager_user_id, status")
+    .select("id, row_data, manager_user_id, resident_user_id, status")
     .eq("id", chargeId)
     .maybeSingle();
   if (rowError) {
@@ -80,7 +81,16 @@ export async function sendResidentChargeMessage(
   const charge = row.row_data as HouseholdCharge;
   const userEmail = input.userEmail.trim().toLowerCase();
   if (!chargeOwnedByUser(charge, input.userId, userEmail)) {
-    return { ok: false, status: 403, error: "You can only message about your own charges." };
+    const actionable = chargeRowActionableByResident(
+      {
+        residentUserId: (row.resident_user_id as string | null) ?? charge.residentUserId ?? null,
+        applicationId: String((charge as { applicationId?: unknown }).applicationId ?? ""),
+      },
+      await loadResidentChargeBinding(db, input.userId),
+    );
+    if (!actionable) {
+      return { ok: false, status: 403, error: "You can only message about your own charges." };
+    }
   }
 
   const managerUserId = String(row.manager_user_id ?? charge.managerUserId ?? "").trim();

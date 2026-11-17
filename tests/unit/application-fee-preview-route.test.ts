@@ -16,8 +16,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * empty object stood in while the preview passed no property at all, which is
  * exactly the drift this route was quoting one total and charging another for.
  */
-const { workspace, serviceDb } = vi.hoisted(() => {
+const { workspace, boundApplications, serviceDb } = vi.hoisted(() => {
   const workspace = { id: null as string | null, paymentSettings: null as unknown };
+  /** Applications at this manager carrying the queried address and bound to the session's Auth subject. */
+  const boundApplications = { rows: [] as Array<{ id: string }> };
   const serviceDb = () => ({
     from(table: string) {
       const data =
@@ -27,12 +29,16 @@ const { workspace, serviceDb } = vi.hoisted(() => {
       const query = {
         select: () => query,
         eq: () => query,
+        limit: async () => ({
+          data: table === "manager_application_records" ? boundApplications.rows : [],
+          error: null,
+        }),
         maybeSingle: async () => ({ data, error: null }),
       };
       return query;
     },
   });
-  return { workspace, serviceDb };
+  return { workspace, boundApplications, serviceDb };
 });
 
 vi.mock("@/lib/supabase/service", () => ({
@@ -116,6 +122,7 @@ describe("POST /api/public/application-fee-preview", () => {
     getUser.mockReset().mockResolvedValue({ data: { user: null } });
     workspace.id = null;
     workspace.paymentSettings = null;
+    boundApplications.rows = [];
   });
 
   // The quote and the charge must agree. The checkout mint passes the property
@@ -246,6 +253,29 @@ describe("POST /api/public/application-fee-preview", () => {
         residentEmail: "rent@example.com",
         residentUserId: "spoofed_user",
       }),
+    );
+    const json = await res.json();
+
+    expect(json.repeatApplicantFeeWaived).toBe(true);
+    expect(shouldWaiveApplicationFeeForResidentServer).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ residentEmail: "rent@example.com", residentUserId: "user_1" }),
+    );
+  });
+
+  /**
+   * A phone sign-up account has only the placeholder `@phone.proplane.invalid` mailbox, so the session-email rule
+   * alone left the waiver unanswered while the checkout mint — which resolves it from the APPLICATION's address —
+   * refused their pay with `APPLICATION_FEE_WAIVED`. Their own bound application carrying the address is the proof.
+   */
+  it("resolves the waiver for a phone sign-up whose own application carries the address", async () => {
+    vi.mocked(resolveApplicationFeeProperty).mockResolvedValue(resolvedListing());
+    getUser.mockResolvedValue({ data: { user: { id: "user_1", email: "4b1c@phone.proplane.invalid" } } });
+    boundApplications.rows = [{ id: "PROPLANE-ABC" }];
+    const { POST } = await import("@/app/api/public/application-fee-preview/route");
+
+    const res = await POST(
+      post({ propertyId: "prop_1", managerUserId: "mgr_A", channel: "manual", residentEmail: "rent@example.com" }),
     );
     const json = await res.json();
 

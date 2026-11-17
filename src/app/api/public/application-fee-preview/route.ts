@@ -26,8 +26,9 @@ type Body = {
   /** Optional — when present, also reports whether the code currently looks redeemable. */
   waiverCode?: string;
   /**
-   * Only honored for a signed-in caller whose own session email matches it —
-   * the repeat-applicant waiver reveals that this address has applied to this
+   * Only honored for a signed-in caller who owns this address — their session
+   * mailbox is it, or an application of theirs at this manager carries it. The
+   * repeat-applicant waiver reveals that this address has applied to this
    * manager before, which an anonymous caller must never be able to probe.
    */
   residentEmail?: string;
@@ -40,11 +41,38 @@ async function sessionApplicant(): Promise<{ email: string; userId: string } | n
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    const email = user?.email?.trim().toLowerCase() ?? "";
-    if (!user?.id || !email) return null;
-    return { email, userId: user.id };
+    if (!user?.id) return null;
+    return { email: user.email?.trim().toLowerCase() ?? "", userId: user.id };
   } catch {
     return null;
+  }
+}
+
+/**
+ * The same ownership the fee routes authorize payment with (`applicationPayerSessionMatches`), asked of an
+ * address instead of one row: does this Auth subject hold an application at this manager carrying it? A phone
+ * sign-up account has only the placeholder `@phone.proplane.invalid` mailbox, so the session-email rule alone
+ * never answered the waiver for them while the checkout mint — which resolves the waiver from the APPLICATION's
+ * address — refuses their pay with `APPLICATION_FEE_WAIVED`. Any failed read answers "no"; this only ever opens
+ * what the mint would already disclose to the same caller.
+ */
+async function sessionOwnsApplicationAddress(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  input: { userId: string; managerUserId: string; residentEmail: string },
+): Promise<boolean> {
+  if (!input.userId || !input.managerUserId || !input.residentEmail) return false;
+  try {
+    const { data, error } = await db
+      .from("manager_application_records")
+      .select("id")
+      .eq("manager_user_id", input.managerUserId)
+      .eq("resident_email", input.residentEmail)
+      .eq("row_data->>residentUserId", input.userId)
+      .limit(1);
+    if (error) return false;
+    return (data ?? []).length > 0;
+  } catch {
+    return false;
   }
 }
 
@@ -112,13 +140,22 @@ export async function POST(req: Request) {
     let repeatApplicantFeeWaived: boolean | undefined;
     if (residentEmail.includes("@")) {
       const applicant = await sessionApplicant();
-      if (applicant && applicant.email === residentEmail) {
-        repeatApplicantFeeWaived = await shouldWaiveApplicationFeeForResidentServer(db, {
-          managerUserId: ownerUserId,
-          residentEmail: applicant.email,
-          residentUserId: applicant.userId,
-          chargePolicy,
-        });
+      if (applicant) {
+        const ownsAddress =
+          applicant.email === residentEmail ||
+          (await sessionOwnsApplicationAddress(db, {
+            userId: applicant.userId,
+            managerUserId: ownerUserId,
+            residentEmail,
+          }));
+        if (ownsAddress) {
+          repeatApplicantFeeWaived = await shouldWaiveApplicationFeeForResidentServer(db, {
+            managerUserId: ownerUserId,
+            residentEmail,
+            residentUserId: applicant.userId,
+            chargePolicy,
+          });
+        }
       }
     }
 
