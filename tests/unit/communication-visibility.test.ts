@@ -290,10 +290,20 @@ describe("conversationVisible — a workspace stamp places your own conversation
     expect(conversationVisible(second, { ownerId: VIEWER, houseIds: [], workspaceId: "ws-second" })).toBe(true);
   });
 
-  it("still hides it in another workspace, and never widens another owner's row", () => {
+  it("still hides it in another workspace", () => {
     const other = scope({ workspaceHouseIds: new Set(["house-mine"]), activeWorkspaceId: "ws-other" });
     expect(conversationVisible(other, { ownerId: VIEWER, houseIds: ["house-elsewhere"], workspaceId: "ws-default" })).toBe(false);
-    const mine = scope({ workspaceHouseIds: new Set(["house-mine"]), activeWorkspaceId: "ws-default" });
-    expect(conversationVisible(mine, { ownerId: OWNER, houseIds: ["house-elsewhere"], workspaceId: "ws-default" })).toBe(false);
+  });
+
+  it("never widens another owner's row stamped with the open workspace", () => {
+    const granted = scope({
+      workspaceHouseIds: new Set(["house-mine"]),
+      grantedHousesByOwner: new Map([[OWNER, new Set(["house-elsewhere"])]]),
+      activeWorkspaceId: "ws-default",
+    });
+    // Granted the very house the row names: the house must still be IN this workspace, the one
+    // narrowing only an own row's stamp may skip. Untagged, it is no one else's either.
+    expect(conversationVisible(granted, { ownerId: OWNER, houseIds: ["house-elsewhere"], workspaceId: "ws-default" })).toBe(false);
+    expect(conversationVisible(granted, { ownerId: OWNER, houseIds: [], workspaceId: "ws-default" })).toBe(false);
   });
 });
