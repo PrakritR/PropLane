@@ -3448,10 +3448,10 @@ export function ListingEditorV2({
     return (await onPublish()) !== false;
   };
 
-  // Continue visits every step (see listingV2PathStepIds), so the neighbours
-  // are simply the next and previous ones.
-  const nextStep = step + 1 < LISTING_V2_STEPS.length ? step + 1 : null;
-  const prevStep = step > 0 ? step - 1 : null;
+  // Back and Continue walk the one path `listingV2PathStepIds` defines.
+  const pathStepIndexes = listingV2PathStepIds(submission).map((id) => listingV2StepIndex(id));
+  const nextStep = pathStepIndexes.find((index) => index > step) ?? null;
+  const prevStep = pathStepIndexes.filter((index) => index < step).pop() ?? null;
 
   // The same assistant the previous wizard offered, told which step it is on so
   // it can answer about the field in front of the manager.

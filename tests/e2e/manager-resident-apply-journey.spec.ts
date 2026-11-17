@@ -150,6 +150,11 @@ async function publishFirstListing(page: Page, stamp: number): Promise<string> {
   await shot(page, "06-listing-review-priced");
   const publishResponse = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/property-records", { timeout: 60_000 });
   await resumedEditor.locator('[data-attr="listing-v2-publish"]').click();
+  // The synthetic listing supplies no photo, so publish asks once; the confirm is
+  // rendered by AppUiProvider at the root, not inside the editor dialog.
+  const publishAnyway = page.locator('[data-attr="listing-v2-publish-anyway"]');
+  await expect(publishAnyway).toBeVisible({ timeout: 20_000 });
+  await publishAnyway.click();
   const publishedResponse = await publishResponse;
   if (!publishedResponse.ok()) throw new Error(`Publishing the exact synthetic listing failed (${publishedResponse.status()}).`);
   await expect(page.locator('[data-attr="listing-published-dialog"]')).toBeVisible({ timeout: 45_000 });

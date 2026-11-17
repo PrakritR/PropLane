@@ -89,8 +89,18 @@ describe("demo Properties tab matches the real Properties page", () => {
     }
     const create = await within(dialog).findByRole("button", { name: "Create property" });
     fireEvent.click(create);
-    expect(screen.queryByRole("dialog", { name: "Cedar House" })).toBeNull();
-    expect(screen.getByRole("status").textContent).toMatch(/Property created/);
+    // The sample home carries no photo, so publish asks once before it goes ahead.
+    const publishAnyway = await vi.waitFor(() => {
+      const el = document.querySelector('[data-attr="listing-v2-publish-anyway"]');
+      if (!el) throw new Error("publish-anyway confirm not shown");
+      return el as HTMLElement;
+    });
+    expect(document.body.textContent).toMatch(/No photos yet/);
+    fireEvent.click(publishAnyway);
+    await vi.waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Cedar House" })).toBeNull();
+      expect(screen.getByRole("status").textContent).toMatch(/Property created/);
+    });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
