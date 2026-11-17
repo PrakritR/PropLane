@@ -34,7 +34,7 @@ A resident-backed entry carries that resident's OWN figures — `monthlyRent`,
 (`booking-presentation.ts`) prints the resident's rent ahead of the room
 listing's rate or a block's nightly rate, because the resident is who pays.
 
-An open-ended (month-to-month, or no end date) stay blocks its room 365 days rolling from today (`openEndedLeaseEnd` / `leaseBlockEnd` in `property-bookings.ts`; recomputed on every read, nothing stored) in Bookings, the manager occupancy snapshot (`/api/portal/occupancy`), channel health and the iCal export alike; a move-out date wins and ends the block that day. The public listing's own spans (`loadPublicRoomOccupancy`) still key off the stored end date, so a month-to-month row that carries a past `leaseEnd` reads free there — a term it does not read yet, not a second rule. Coverage: `tests/unit/month-to-month-rolling-block.test.ts`, `tests/unit/export-open-ended-lease.test.ts`. The term and the move-out reach every reader the same way: the occupancy snapshot carries `application.leaseTerm` and resolves each lease's own resident row (`applicationForLeaseLookup`), and a withdrawn approval blocks nothing on any surface. `isMonthToMonthTerm` (same file) is the one "is this month-to-month" predicate, so every reader that consults a term agrees that only a recorded move-out ends one: a residency stays current past a stale stored `leaseEnd` and its move-out report is dated the day it is opened rather than that date (`inspections/server.ts`), the resident's stage never flips to past on it (`manager-resident-lifecycle.ts`), and a date the manager recorded reads "Moves out" (`moveOutRecorded`) while "Lease ends" is kept for a fixed term's own end — a month-to-month tenancy shows "Month to month" instead of either.
+An open-ended (month-to-month, or no end date) stay blocks its room 365 days rolling from today (`openEndedLeaseEnd` / `leaseBlockEnd` in `property-bookings.ts`; recomputed on every read, nothing stored) in Bookings, the manager occupancy snapshot (`/api/portal/occupancy`), channel health and the iCal export alike; a move-out date wins and ends the block that day. The public listing's own spans (`loadPublicRoomOccupancy`) read the term the same way: a month-to-month or end-less residency is held to that rolling horizon through `leaseBlockEnd` (a recorded move-out still wins), so a row carrying a stale past `leaseEnd` no longer publishes an occupied room as free (`tests/unit/public-room-occupancy-month-to-month.test.ts`). Coverage: `tests/unit/month-to-month-rolling-block.test.ts`, `tests/unit/export-open-ended-lease.test.ts`. The term and the move-out reach every reader the same way: the occupancy snapshot carries `application.leaseTerm` and resolves each lease's own resident row (`applicationForLeaseLookup`), and a withdrawn approval blocks nothing on any surface. `isMonthToMonthTerm` (same file) is the one "is this month-to-month" predicate, so every reader that consults a term agrees that only a recorded move-out ends one: a residency stays current past a stale stored `leaseEnd` and its move-out report is dated the day it is opened rather than that date (`inspections/server.ts`), the resident's stage never flips to past on it (`manager-resident-lifecycle.ts`), and a date the manager recorded reads "Moves out" (`moveOutRecorded`) while "Lease ends" is kept for a fixed term's own end — a month-to-month tenancy shows "Month to month" instead of either.
 
 ## Residents come from the occupancy snapshot
 
@@ -303,6 +303,9 @@ Bookings' own removal surfaces go through ONE router (`deleteOrCancel`): the lis
   [`../action-event-catalog.md`](../action-event-catalog.md) § Producer contract — a missing
   `channel_booking` entry there (until `20261013000000`) is why no alert ever went out, so the
   sync's best-effort catch now logs a warning instead of swallowing the refusal.
+- A routine booking notice is the OWNER's Assistant notice (plus the owner email below) and posts no Team chat line —
+  a clash and a failed sync still post one. That rule is owned by
+  [`automated-communication.md`](automated-communication.md) § Team notices and the Team chat.
 - The notice reads "New Airbnb booking · House · Room N · Oct 13 – Oct 16 (3 nights) · <code>" and links to the
   booking RECORD page (`bookingRecordUrl`), never the calendar. The Assistant thread shows an "Open booking"
   action for any notice whose body carries a record link (`bookingRecordPathFromNotice`).
@@ -516,22 +519,38 @@ Plan `channels-sync-1027` (captain, Oct 27). No migration; one production row wa
   end: "Not available". A vacant room with its own `moveInAvailableDate` ahead is "Available <date>", never "Leased".
   A derived label ("Leased until ...") is an occupancy label like "Unavailable until ...": the spans replace it, so the
   listing page never pins a room on a label it was handed. A move-in date filter has already judged the room for those
-  dates and is never hidden by the label.
+  dates and is never hidden by the label. Those are the words every STORED and syndicated reader prints (the catalog
+  label `applyLiveRoomAvailability` stamps, the browse card, the feeds, JSON-LD, the assistant), because that stamped
+  label is parsed back by `classifyRoomOpening`. A LIVE room on the listing page (room row, mobile row, room modal)
+  states that same status in the "open now" wording instead, from the one helper that owns it
+  (`openNowStatusText`): "Open now" today, "Opens <date>" for a dated opening, the status's own text otherwise — so
+  no two live surfaces word one status differently.
 - **Where the label is computed, and every surface that prints it.** `roomAvailability` (`room-availability.ts`) is the
   one predicate for "when can a renter move into this room" — **now**, **from `<date>`** (a span ending today frees the
   room tomorrow) or **unavailable**, and no date is ever invented. The room's own copy still counts: a dated
   "Available from …" is a floor and manager copy that closes the room ("Leased", "Waitlist") is respected, while only
-  the occupancy fold's own labels are replaced by the spans they came from. `publicStatusFromAvailability` and
-  `formatNextOpening` put that answer in the D1 words above, and `countRoomsAvailableNow` / `nextOpeningDate`
-  (`public-listing-available-count.ts`) are how the key-facts rooms tile ("N available now"), the phone sticky price
+  the occupancy fold's own labels are replaced by the spans they came from. The room's own opening date
+  (`moveInAvailableDate`, handed in as `floorDate` and resolved for every live reader by `resolveRoomAvailability`) is a
+  FLOOR in exactly the same way — never a verdict, and the later of the two dates wins. `publicStatusFromAvailability`
+  and `formatNextOpening` put that answer in the D1 words above, and `countRoomsAvailableNow` / `nextOpeningDate`
+  (`public-listing-available-count.ts`) are how the key-facts rooms tile ("N open now"), the phone sticky price
   bar's rooms line, the browse card and the room rows / room modal (`roomAvailabilityDisplay`) all read it, so they
-  cannot disagree. Where a count would have read "0 available" they read "Next opening Oct 15" instead — the same
+  cannot disagree. Where a count would have read "0 open now" they read "Next opening Oct 15" instead — the same
   calendar-glyph fact a browse card carries, never a pill — and the listing's static "Available now" tile is dropped
   when live occupancy says no room is open today. While the read is in flight no count and no room label is shown at
-  all (never a static "9 available" flash); a failed read keeps each room's own static label rather than claiming a
-  date. The hero and the room tables share that one request (`useListingPublicOccupancy` through `sharedGet`), and the
+  all (never a static "9 open now" flash); a failed read keeps each room's own static label rather than claiming a
+  date. The hero and the room tables share that one request (`useListingPublicOccupancy`, or
+  `useListingsPublicOccupancy` for several houses, through `sharedGet`), and the
   apply wizard's own room labels (`effectiveRoomAvailabilityLabel`) use the same wording. Coverage:
   `tests/unit/room-availability.test.ts`, `tests/unit/public-listing-available-count.test.ts`.
+- **"Open now" is the ONE availability count.** Anything that says a house has rooms open — the listing header, the
+  key-facts tile, the room rows, the phone sticky bar and the share-listing email — counts ROOMS open TODAY from that
+  same occupancy snapshot (`countRoomsAvailableNow`); a room that opens later reads "Opens <date>" and is never
+  counted, and beds are never counted. **No read, no claim:** a share summary built without an answered occupancy read
+  states the room count alone and makes no availability claim (`buildListingShareSummary`'s `openNow`, derived by
+  `shareOpenNowCount` in the modal and wizard previews and by `loadOpenNowRoomCounts` on the send route, so the preview
+  says what the email will say; a house whose read failed is simply absent). Coverage:
+  `tests/unit/availability-one-count.test.ts`, `tests/unit/share-summary-open-now.test.ts`.
 - **The export feed (`/api/calendar/export/[token]`) never closes a room nobody holds.** An approved application with no
   room choice blocks nothing in a house let by the room, but holds EVERY room of one rented whole (an entire-home listing, a
   house with one room, or a listing that cannot be read: `listingRentedWhole`, `approvedRowBlocksRoom`), so a house rented whole is
@@ -592,5 +611,3 @@ switches and contact numbers are Settings -> Automations (`workspace_automation_
 `stay_arrival_guide` / `stay_checkout_reminder` / `move_in_arrival` sweeps are no longer run by `dispatch-reminders`.
 
 The check-in message's default template ends with `{house_guide}` (the rules and trash lines the resident's Check-in guide shows, bathroom rule excluded because it already has its own line); a saved custom template is untouched. Scheduled set per stay or lease: check-in (room, room code, front door, Wi-Fi, house guide) 10:00 local the day before, check-out 09:00 on the day (`tests/unit/stay-messages-airbnb-set.test.ts`).
-
-**"Open now" is the one availability count.** Anything that says a house has rooms "available" (listing header, key-facts tile, room rows, sticky bar, share-listing email) counts ROOMS open today from the one occupancy snapshot (`countRoomsAvailableNow`); a room that opens later reads "Opens <date>" and is never counted, and a future `moveInAvailableDate` is a floor. A share summary with no read states only the room count (`buildListingShareSummary` `openNow`). The public occupancy read ends a month-to-month residency at today + 365 through `leaseBlockEnd`, a move-out date winning.

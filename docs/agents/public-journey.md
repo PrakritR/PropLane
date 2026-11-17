@@ -92,7 +92,9 @@ configured, or on a failed read, the heading stands alone and the rest of the pa
   `channels-sync-1027`). The catalog (`getPublicListings`) carries the label `applyLiveRoomAvailability` wrote, so a
   leased room never says "Available now". A room freeing within 60 days reads "Available <date>"; a room leased
   longer reads "Leased until <date>" on its listing page and is left off the browse card; one closed with no end is
-  "Not available". Full rules and guards: [`bookings.md`](bookings.md) § Channels: true availability.
+  "Not available". The listing page itself states an open or opening room in the "open now" wording ("Open now" /
+  "Opens <date>"), and any count of what is open counts rooms open today. Full rules, that one count and the guards:
+  [`bookings.md`](bookings.md) § Channels: true availability.
 - Room type on browse derives from `listingSubmission.listingPlaceCategoryId`; an option shows only when some
   loaded listing has it.
 

@@ -2276,15 +2276,20 @@ so a fine or a replacement key never reaches the signing itemization or its tota
 
 Charge status decides only the OUTSTANDING balance, never the contractual
 obligation, and the two are separate snapshot fields throughout. `paid`,
-`cancelled` and `refunded` are settled — nothing owed — exactly as
+`cancelled`, `refunded` and `void` are settled — nothing owed — exactly as
 `householdChargeManagerBucket` reads them; a waived or returned charge contributes
 zero and must never be dropped from the snapshot, because a missing row falls back
-to the full contractual amount and re-quotes an obligation the manager voided.
+to the full contractual amount and re-quotes an obligation the manager voided. So is
+any row the one "was this paid, and how much" predicate already counts as collected
+(`isChargePaid`, `src/lib/charge-paid.ts`: the `paid` status, or a recorded payment time
+on a status that is not clearing, part-paid or voided), so no charge is ever reported as
+received AND still due.
 Everything else keeps its balance, including `processing` (a clearing ACH),
 `partially_paid` and `failed` — the payment ATTEMPT failed, the charge did not go
 away. "Already received" is its own figure (`securityDepositReceived` /
 `moveInFeeReceived` / `receivedBeforeMoveIn`), summed from dollars that actually
-CLEARED rather than inferred by subtracting the balance from the obligation. A
+CLEARED (`chargePaidAmount`, the same module, which the dashboard's Rent collected
+reads too) rather than inferred by subtracting the balance from the obligation. A
 clearing, waived or refunded charge is therefore never described to a resident as
 a payment received. Every settled line in every document — deposit, move-in fee,
 holding deposit, one-time custom fee, other signing cost — reads "paid" only when

@@ -241,6 +241,19 @@ a number — including an honest zero. A read that has not answered within
 "Nothing is waiting on you" only once every source has answered. Coverage:
 `tests/unit/dashboard-no-false-zeros.test.tsx`.
 
+**A dashboard figure that names another screen's count is computed from that screen's own
+functions** (`src/lib/dashboard-agreement.ts`), so the two cannot drift: **Applications** uses the
+Applications page's scoping and its Pending tab (`applicationListTabForRow`), and the
+waiting-on-you list and the open-items total narrow that to the rows anyone can still decide on
+(withdrawn rows are listed on the tab but need no decision); **Residents** is people living there
+today, the occupancy snapshot's own figure ([`shared-room-capacity.md`](shared-room-capacity.md)),
+unknown rather than zero while that read is out; **Rent collected** and **due** are read over the
+SAME charges — the period's by due date — through the one "was this paid, and how much" predicate
+(`src/lib/charge-paid.ts`, which the resident statement's received amount reads too), so collected
+can never exceed due. A section's `headerCount` may count a wider population than the rows under it:
+it never decides whether those rows are drawn, and a count with no rows says where to go instead of
+opening onto a blank body. Coverage: `tests/unit/dashboard-kpis-agree.test.ts`.
+
 ## 7. Checks before handing over
 
 Real tabs and labels (`src/lib/portals/*`); desktop and phone; empty, loading and error

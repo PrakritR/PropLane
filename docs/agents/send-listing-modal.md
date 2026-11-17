@@ -26,6 +26,10 @@ the modal targets one tour flow. Rules baked into the modal +
   everywhere — a listing that isn't publicly active never appears on browse).
 - The **room selector only shows for exactly one selected property** — it is
   meaningless (and hidden) for a multi-send.
+- **The summary's rooms line claims availability only from a read.** "N of M rooms open
+  now" comes from the one occupancy read (the preview's client read, the route's
+  `loadOpenNowRoomCounts`); with no answer it states the room count alone. The one count and
+  its wording: [`bookings.md`](bookings.md) § Channels: true availability.
 - The email builder (`lead-invite-email.ts`) takes an optional `listingCount`;
   `>1` switches subject + body/html to the multi-listing "browse these N homes"
   copy instead of the single-listing summary.

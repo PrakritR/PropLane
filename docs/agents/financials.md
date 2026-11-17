@@ -697,6 +697,12 @@ controlling operating totals and the deposit subledger controlling held funds.
 It does **not** yet reconcile every Stripe/platform movement or supply a running
 PropLane balance; never invent an opening balance to hide those missing sources.
 
+What counts as revenue there is ONE predicate (`ledgerRowIsRevenue`, `src/lib/charge-paid.ts`): an
+income account, plus a resident payment the chart never classified (rent money that landed, never a
+deposit or a capital movement). A REFUND of such a payment is the same row shape with a negative
+amount, so it must pass the same test and net out — counting the payment and skipping its refund
+overstates revenue permanently.
+
 The offline receipt sheet posts `recordOfflinePayment` to
 `/api/portal-household-charges`, passing only charge id, date, method and note.
 The server re-reads the amount, checks ownership/workspace and current status,
