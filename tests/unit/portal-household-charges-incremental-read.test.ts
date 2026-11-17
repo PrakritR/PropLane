@@ -91,6 +91,8 @@ function readChain(table: string, rowsFor: (call: Call) => Row[]) {
 
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({
+    // A confirmed-mailbox account: its bound application's address shape counts (a phone-only one never does).
+    auth: { admin: { getUserById: async () => ({ data: { user: { email: "viewer@test.local", email_confirmed_at: "2026-11-01T00:00:00Z" } }, error: null }) } },
     from(table: string) {
       if (table === "profiles") {
         return {

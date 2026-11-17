@@ -14,7 +14,10 @@ const MANAGER = "22222222-2222-4222-8222-222222222222";
  * `rows` answers the subject read; `sharedRows` (when given) answers the follow-up that looks for the same
  * (manager, address) pair on ANOTHER subject's application.
  */
-function dbWith(rows: Row[] | Error, sharedRows?: Row[] | Error) {
+type AuthUser = { email: string; email_confirmed_at: string | null; app_metadata?: Record<string, unknown> } | Error;
+const MAILBOX_USER: AuthUser = { email: "fekadu.b@example.com", email_confirmed_at: "2026-11-01T00:00:00Z" };
+
+function dbWith(rows: Row[] | Error, sharedRows?: Row[] | Error, authUser: AuthUser = MAILBOX_USER) {
   const calls: Array<[string, unknown]> = [];
   let reads = 0;
   const chain: Record<string, unknown> = {
@@ -30,7 +33,10 @@ function dbWith(rows: Row[] | Error, sharedRows?: Row[] | Error) {
       return answer instanceof Error ? { data: null, error: { message: answer.message } } : { data: answer, error: null };
     },
   };
-  return { db: { from: () => chain } as never, calls };
+  const auth = { admin: { getUserById: async () => authUser instanceof Error
+    ? { data: { user: null }, error: { message: authUser.message } }
+    : { data: { user: authUser }, error: null } } };
+  return { db: { from: () => chain, auth } as never, calls };
 }
 
 describe("loadResidentChargeBinding", () => {
@@ -89,5 +95,26 @@ describe("residentBoundChargeClause", () => {
     expect(clause).toBe(
       `and(resident_user_id.is.null,or(row_data->>applicationId.in.(app-1,app-2),and(manager_user_id.eq.${MANAGER},resident_email.eq.fekadu@example.com)))`,
     );
+  });
+});
+
+describe("a phone sign-up account's typed address", () => {
+  const rows = [{ id: "app-phone", manager_user_id: MANAGER, resident_email: "someone.else@example.com" }];
+
+  it("never binds by address: only the application id the server wrote", async () => {
+    for (const user of [
+      { email: "4b1c@phone.proplane.invalid", email_confirmed_at: "2026-11-16T00:00:00Z" },
+      { email: "real@example.com", email_confirmed_at: "2026-11-16T00:00:00Z", app_metadata: { phone_only: true } },
+      { email: "real@example.com", email_confirmed_at: null },
+      new Error("auth down"),
+    ] as AuthUser[]) {
+      expect(await loadResidentChargeBinding(dbWith(rows, [], user).db, USER)).toEqual({ applicationIds: ["app-phone"], managerEmails: [] });
+    }
+  });
+
+  it("keeps the address shape for a confirmed mailbox account", async () => {
+    expect((await loadResidentChargeBinding(dbWith(rows).db, USER)).managerEmails).toEqual([
+      { managerUserId: MANAGER, email: "someone.else@example.com" },
+    ]);
   });
 });

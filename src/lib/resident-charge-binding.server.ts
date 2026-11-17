@@ -59,6 +59,24 @@ async function dropSharedAddressPairs(
   }
 }
 
+/**
+ * Does this Auth subject sign in with a real, confirmed mailbox? A phone sign-up account (captain, Nov 14) owns its
+ * application by a proven PHONE, and the address on that application is whatever it typed - so for it the address
+ * shape is no proof at all, not even for a read: typing someone else's email must never show their charges. Only the
+ * application-id shape (written server-side) binds such an account. An unreadable account reads as "no".
+ */
+async function subjectHasProvenMailbox(db: SupabaseClient, userId: string): Promise<boolean> {
+  try {
+    const { data, error } = await db.auth.admin.getUserById(userId);
+    const user = data?.user;
+    const email = user?.email?.trim().toLowerCase() ?? "";
+    if (error || !user?.email_confirmed_at || !email.includes("@")) return false;
+    return !email.endsWith("@phone.proplane.invalid") && user.app_metadata?.phone_only !== true;
+  } catch {
+    return false;
+  }
+}
+
 export async function loadResidentChargeBinding(db: SupabaseClient, userId: string): Promise<ResidentChargeBinding> {
   const empty: ResidentChargeBinding = { applicationIds: [], managerEmails: [] };
   if (!userId) return empty;
@@ -78,6 +96,7 @@ export async function loadResidentChargeBinding(db: SupabaseClient, userId: stri
       const email = String(row.resident_email ?? "").trim().toLowerCase();
       if (SAFE_UUID.test(managerUserId) && SAFE_EMAIL.test(email)) pairs.set(`${managerUserId}|${email}`, { managerUserId, email });
     }
+    if (pairs.size > 0 && !(await subjectHasProvenMailbox(db, userId))) pairs.clear();
     if (pairs.size > 0) await dropSharedAddressPairs(db, userId, pairs);
     return { applicationIds: [...applicationIds], managerEmails: [...pairs.values()] };
   } catch {
