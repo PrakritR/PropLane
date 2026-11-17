@@ -63,8 +63,7 @@ import { serviceChargeDisplayTitle } from "@/lib/service-charge-title";
 
 vi.mock("@/lib/household-charges", () => ({
   HOUSEHOLD_CHARGES_EVENT: "household-charges-changed",
-  syncHouseholdChargesFromServer: () => Promise.resolve(),
-  householdChargesReadSucceeded: () => true,
+  syncHouseholdChargesFromServer: () => Promise.resolve({ charges: [], rentProfiles: [], ok: true }),
   readChargesForManager: () => CHARGES,
   isHouseholdChargeOverdue: (c: { __overdue?: boolean }) => Boolean(c.__overdue),
   // The dashboard now buckets through the same helper the Payments tabs use, so

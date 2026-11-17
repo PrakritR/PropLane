@@ -60,7 +60,6 @@ import {
   householdChargeDisplayTitle,
   householdChargeDueDate,
   householdChargeManagerBucket,
-  householdChargesReadSucceeded,
   isHouseholdChargeOverdue,
   syncHouseholdChargesFromServer,
 } from "@/lib/household-charges";
@@ -98,9 +97,8 @@ import {
 } from "@/lib/portal-monthly-profit";
 import {
   MANAGER_WORK_ORDERS_EVENT,
-  managerWorkOrdersReadSucceeded,
   readManagerWorkOrderRows,
-  syncManagerWorkOrdersFromServer,
+  syncManagerWorkOrdersFromServerWithStatus,
 } from "@/lib/manager-work-orders-storage";
 import {
   readAllServiceRequests,
@@ -498,6 +496,11 @@ function formatUsd(amount: number): string {
   });
 }
 
+/**
+ * A read something on this page DRAWS, so its state decides what that tile or panel shows. The
+ * outgoing-expense read is not one: its only reader is the demo-only cash-flow chart, so it is
+ * awaited beside these (the page is "synced" once it lands) without a state nothing consults.
+ */
 type DashboardSource =
   | "applications"
   | "leases"
@@ -506,8 +509,7 @@ type DashboardSource =
   | "charges"
   | "schedule"
   | "workOrders"
-  | "serviceRequests"
-  | "expenses";
+  | "serviceRequests";
 const INITIAL_SOURCE_STATES: Record<DashboardSource, ReadState> = {
   applications: "loading",
   leases: "loading",
@@ -517,7 +519,6 @@ const INITIAL_SOURCE_STATES: Record<DashboardSource, ReadState> = {
   schedule: "loading",
   workOrders: "loading",
   serviceRequests: "loading",
-  expenses: "loading",
 };
 
 export function ManagerDashboard({ displayName: _displayName = "there" }: { displayName?: string }) {
@@ -725,19 +726,16 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
         run: async (force) => (await syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY, { force })).ok,
       },
       charges: {
-        run: () => syncHouseholdChargesFromServer(true),
-        answered: () => isDemoModeActive() || householdChargesReadSucceeded(),
+        run: async () => (await syncHouseholdChargesFromServer(true)).ok === true,
       },
       schedule: { run: (force) => syncScheduleRecordsFromServer({ force }) },
       workOrders: {
-        run: (force) => syncManagerWorkOrdersFromServer({ force }),
-        answered: () => isDemoModeActive() || managerWorkOrdersReadSucceeded(),
+        run: async (force) => (await syncManagerWorkOrdersFromServerWithStatus({ force })).ok,
       },
       serviceRequests: {
         run: (force) => syncServiceRequestsFromServer({ force }),
         answered: () => isDemoModeActive() || serviceRequestsLastReadSucceeded(),
       },
-      expenses: { run: (force) => syncManagerOutgoingExpensesFromServer(force) },
     };
     const runSource = (key: DashboardSource, force: boolean) => {
       setSourceStates((prev) => (prev[key] === "loading" ? prev : { ...prev, [key]: "loading" }));
@@ -752,7 +750,10 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     for (const key of Object.keys(readers) as DashboardSource[]) {
       retryFns.current[key] = () => runSource(key, true);
     }
-    void Promise.all((Object.keys(readers) as DashboardSource[]).map((key) => runSource(key, false))).then(() => {
+    void Promise.all([
+      ...(Object.keys(readers) as DashboardSource[]).map((key) => runSource(key, false)),
+      syncManagerOutgoingExpensesFromServer(false).catch(() => undefined),
+    ]).then(() => {
       if (cancelled) return;
       bump();
       setDashboardSynced(true);
@@ -1264,9 +1265,10 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
         rows.push({ id: `movein-${r.id}`, kind: "Move-in inspection", title: r.name, detail: where, at: moveIn, href: `${BASE}/move-in/inspections/move-in` });
       }
       if (moveOut != null && moveOut >= nowTick - 24 * 60 * 60 * 1000 && moveOut <= horizonMs) {
-        // A month-to-month lease has no "lease end": the date is the move-out the manager recorded
-        // (the server leaves it empty otherwise), so it is labelled as one.
-        rows.push({ id: `moveout-${r.id}`, kind: r.openEnded ? "Moves out" : "Lease ends", title: r.name, detail: where, at: moveOut, href: `${BASE}/move-in/inspections/move-out` });
+        // The date decides the word: a move-out the manager recorded is a move-out (a
+        // month-to-month tenancy only ever has that one), a stored lease end is a lease ending.
+        // Same order as `manager-resident-lifecycle.ts`.
+        rows.push({ id: `moveout-${r.id}`, kind: r.moveOutRecorded ? "Moves out" : "Lease ends", title: r.name, detail: where, at: moveOut, href: `${BASE}/move-in/inspections/move-out` });
       }
       return rows;
     }),

@@ -10,7 +10,7 @@ const EMPTY_FALLBACK: DemoManagerWorkOrderRow[] = [];
 let memoryRows: DemoManagerWorkOrderRow[] = [];
 const MANAGER_WORK_ORDERS_SYNC_TTL_MS = 15_000;
 let managerWorkOrdersLastSyncedAt = 0;
-let managerWorkOrdersSyncPromise: Promise<DemoManagerWorkOrderRow[]> | null = null;
+let managerWorkOrdersSyncPromise: Promise<ManagerWorkOrdersSyncResult> | null = null;
 
 function workOrderRowsChanged(a: DemoManagerWorkOrderRow[], b: DemoManagerWorkOrderRow[]) {
   return JSON.stringify(a) !== JSON.stringify(b);
@@ -25,15 +25,16 @@ function canUseStorage() {
   return typeof window !== "undefined";
 }
 
-/**
- * Whether the most recent server read answered. A failed read still resolves with the local cache
- * (and the seeded default snapshot), so a caller that must not draw that cache as an answer — the
- * dashboard's "Open requests" tile — asks here instead.
- */
+/** Whether the last completed server read answered — what a TTL-reused result reports. */
 let managerWorkOrdersLastReadOk = false;
-export function managerWorkOrdersReadSucceeded(): boolean {
-  return managerWorkOrdersLastReadOk;
-}
+
+/**
+ * Rows plus whether THIS call's server read answered. A failed read still resolves with the local
+ * cache (and the seeded default snapshot), so a caller that must not draw that cache as an answer
+ * — the dashboard's "Open requests" tile — reads `ok` rather than the row count. It rides on the
+ * result, so a concurrent reader of the same store can never answer for it.
+ */
+export type ManagerWorkOrdersSyncResult = { rows: DemoManagerWorkOrderRow[]; ok: boolean };
 
 function hydrateWorkOrdersFromSession() {
   if (!canUseStorage() || memoryRows.length > 0) return;
@@ -109,23 +110,26 @@ function deleteWorkOrderFromServer(id: string) {
 }
 
 export async function syncManagerWorkOrdersFromServer(opts?: { force?: boolean }): Promise<DemoManagerWorkOrderRow[]> {
-  if (!canUseStorage()) return [];
+  return (await syncManagerWorkOrdersFromServerWithStatus(opts)).rows;
+}
+
+export async function syncManagerWorkOrdersFromServerWithStatus(opts?: {
+  force?: boolean;
+}): Promise<ManagerWorkOrdersSyncResult> {
+  if (!canUseStorage()) return { rows: [], ok: false };
   hydrateWorkOrdersFromSession();
-  if (isDemoModeActive()) {
-    managerWorkOrdersLastReadOk = true;
-    return readManagerWorkOrderRows();
-  }
+  if (isDemoModeActive()) return { rows: readManagerWorkOrderRows(), ok: true };
   const force = opts?.force === true;
   if (!force && managerWorkOrdersSyncPromise) return managerWorkOrdersSyncPromise;
   if (!force && managerWorkOrdersLastSyncedAt > 0 && Date.now() - managerWorkOrdersLastSyncedAt < MANAGER_WORK_ORDERS_SYNC_TTL_MS) {
-    return readManagerWorkOrderRows();
+    return { rows: readManagerWorkOrderRows(), ok: managerWorkOrdersLastReadOk };
   }
   try {
     managerWorkOrdersSyncPromise = (async () => {
       const res = await fetch(adminOversightUrl("/api/portal-work-orders"), { credentials: "include" });
       if (!res.ok) {
         managerWorkOrdersLastReadOk = false;
-        return readManagerWorkOrderRows();
+        return { rows: readManagerWorkOrderRows(), ok: false };
       }
       const body = (await res.json()) as { rows?: DemoManagerWorkOrderRow[] };
       const rows = Array.isArray(body.rows) ? body.rows : [];
@@ -135,12 +139,12 @@ export async function syncManagerWorkOrdersFromServer(opts?: { force?: boolean }
       managerWorkOrdersLastSyncedAt = Date.now();
       managerWorkOrdersLastReadOk = true;
       if (changed) emit();
-      return rows;
+      return { rows, ok: true };
     })();
     return await managerWorkOrdersSyncPromise;
   } catch {
     managerWorkOrdersLastReadOk = false;
-    return readManagerWorkOrderRows();
+    return { rows: readManagerWorkOrderRows(), ok: false };
   } finally {
     managerWorkOrdersSyncPromise = null;
   }

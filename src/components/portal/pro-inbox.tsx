@@ -137,6 +137,7 @@ import {
   resolvePropLaneUnifiedReplyChannels,
   inboxSmsUnavailableReason,
   decideManagerInboxSend,
+  inboxReplyPickBlocker,
   inboxSendFailureLine,
 } from "@/lib/manager-inbox-reply-channels";
 import {
@@ -1824,18 +1825,18 @@ export const ManagerInbox = forwardRef<
       .filter((a) => a.uploadUrl && !a.uploading && !a.error)
       .map((a) => a.uploadUrl!);
     if (!text && attachmentUrls.length === 0) return;
-    // Only "did you pick a channel?" is answered here. Whether a picked channel can actually
-    // carry this reply — and the fallback and the one-line reason when it cannot — belongs to
-    // `decideManagerInboxSend` inside handleReply; clamping the pick by availability here made
-    // every unreachable thread say "choose a channel" instead of why nothing could go out.
-    if (
-      !hasInboxReplyChannelSelected({
-        viaEmail: replyViaEmail,
-        viaSms: replyViaSms,
-        viaProplane: replyViaProplane,
-      })
-    ) {
-      showToast("Choose PropLane, Email, SMS, or a combination.");
+    // Reachability, the fallback and the reason belong to `decideManagerInboxSend` inside
+    // handleReply; only a pick the manager themselves must fix is answered here, and a
+    // conversation nothing can reach gets its own line rather than "choose a channel" (the
+    // picker clamps itself to nothing there, so there is nothing to choose).
+    const pickBlocker = inboxReplyPickBlocker({
+      picked: { viaEmail: replyViaEmail, viaSms: replyViaSms, viaProplane: replyViaProplane },
+      emailAvailable: activeEmailAvailable,
+      smsAvailable: activeSmsAvailable,
+      proplaneAvailable: activeProplaneAvailable,
+    });
+    if (pickBlocker) {
+      showToast(pickBlocker);
       return;
     }
     const attachmentBlockReason = inboxAttachmentSendBlockReason(replyAttachments);
@@ -1860,6 +1861,19 @@ export const ManagerInbox = forwardRef<
         showToast("Send time must be in the future.");
         return;
       }
+      // One decision owner for what a reply leaves on, scheduled or not: clamping the picks here
+      // could post every channel false, and the route stores that as a message nothing can ever
+      // deliver while answering "scheduled".
+      const scheduledVia = decideManagerInboxSend({
+        requested: { email: replyViaEmail, sms: replyViaSms, proplane: replyViaProplane },
+        emailAvailable: activeEmailAvailable,
+        smsAvailable: activeSmsAvailable,
+        proplaneAvailable: activeProplaneAvailable,
+      });
+      if (!scheduledVia.ok) {
+        showToast(scheduledVia.reason);
+        return;
+      }
       setReplySending(true);
       try {
         const res = await fetch("/api/portal/scheduled-inbox-messages", {
@@ -1873,9 +1887,9 @@ export const ManagerInbox = forwardRef<
             sendAt: sendAt.toISOString(),
             recipientEmail: activeThread.email,
             recipientName: activeThread.from || activeThread.email,
-            deliverViaInbox: replyViaProplane && activeProplaneAvailable,
-            deliverViaEmail: replyViaEmail && activeEmailAvailable,
-            deliverViaSms: replyViaSms && activeSmsAvailable,
+            deliverViaInbox: scheduledVia.proplane,
+            deliverViaEmail: scheduledVia.email,
+            deliverViaSms: scheduledVia.sms,
           }),
         });
         if (!res.ok) {
@@ -2137,8 +2151,14 @@ export const ManagerInbox = forwardRef<
       viaSms: replyViaSms,
       viaProplane: replyViaProplane,
     };
-    if (!hasInboxReplyChannelSelected(channels)) {
-      if (!opts?.auto) showToast("Choose PropLane, Email, SMS, or a combination.");
+    const draftPickBlocker = inboxReplyPickBlocker({
+      picked: channels,
+      emailAvailable: activeEmailAvailable,
+      smsAvailable: activeSmsAvailable,
+      proplaneAvailable: activeProplaneAvailable,
+    });
+    if (draftPickBlocker) {
+      if (!opts?.auto) showToast(draftPickBlocker);
       return "skipped";
     }
     setApprovingDraft(true);
@@ -2177,6 +2197,9 @@ export const ManagerInbox = forwardRef<
       setApprovingDraft(false);
     }
   }, [
+    activeEmailAvailable,
+    activeProplaneAvailable,
+    activeSmsAvailable,
     activeThread,
     handleReply,
     replyDraft,

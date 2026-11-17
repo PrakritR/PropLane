@@ -180,8 +180,8 @@ type ResidencyView = {
   moveOutDate: string;
   /** The lease length this residency signed on; the listing requires inspections per type. */
   leaseTerm: string;
-  /** Month-to-month, or no end date at all: this tenancy has no "lease end", only a move-out. */
-  openEnded: boolean;
+  /** The move-out date won: the manager recorded one, so this is not a lease simply ending. */
+  moveOutRecorded: boolean;
   identity: { manager_user_id: string; property_id: string; resident_email: string; resident_user_id: string | null };
 };
 
@@ -207,7 +207,7 @@ function residencyFromRecord(record: Record<string, unknown>): ResidencyView {
     roomLabel: text("app_room_choice") || text("app_manual_room") || "",
     manualRoom: text("app_manual_room"),
     leaseTerm: text("app_lease_term"),
-    openEnded: isMonthToMonthTerm(text("app_lease_term")) || !isoDate(text("app_lease_end")),
+    moveOutRecorded: Boolean(isoDate(text("app_manual_move_out"))),
     moveInDate: isoDate(text("app_manual_move_in")) || isoDate(text("app_lease_start")),
     // A month-to-month lease has no end: only the manager's move-out date (notice given) ends it, never a
     // stale stored lease end (`leaseBlockEnd`, docs/agents/bookings.md).
@@ -259,7 +259,7 @@ export async function listInspectionResidencies(actor: InspectionActor): Promise
       propertyId: identity.property_id,
       room: residency.roomLabel, requiredKinds,
       moveInDate: residency.moveInDate, moveOutDate: residency.moveOutDate,
-      openEnded: residency.openEnded,
+      moveOutRecorded: residency.moveOutRecorded,
       occupancy: residencyOccupancy(residency.moveInDate, residency.moveOutDate),
       canCreate: Boolean(residency.roomLabel && residency.roomLabel !== identity.property_id) && authorized(actor, editScope, identity) };
   });

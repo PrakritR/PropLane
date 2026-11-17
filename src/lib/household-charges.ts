@@ -116,16 +116,20 @@ let memoryCharges: HouseholdCharge[] = [];
 let memoryRentProfiles: RecurringRentProfile[] = [];
 const HOUSEHOLD_CHARGES_SYNC_TTL_MS = 15_000;
 let householdChargesLastSyncedAt = 0;
-/**
- * Whether the most recent server read answered. A failed or unreadable read still resolves with
- * the local cache (deliberately: it says nothing about the ledger), so a caller that must not draw
- * that cache as an answer — the dashboard's money tile — asks here instead.
- */
-let householdChargesLastReadOk = false;
-export function householdChargesReadSucceeded(): boolean {
-  return householdChargesLastReadOk;
-}
-type HouseholdChargesSyncResult = { charges: HouseholdCharge[]; rentProfiles: RecurringRentProfile[] };
+/** Whether the last completed server read answered — what a TTL-reused result reports. */
+let householdLastFullReadOk = false;
+type HouseholdChargesSyncResult = {
+  charges: HouseholdCharge[];
+  rentProfiles: RecurringRentProfile[];
+  /**
+   * Whether THIS call's server read answered. A failed or unreadable read still resolves with the
+   * local cache (deliberately: it says nothing about the ledger), so a caller that must not draw
+   * that cache as an answer — the dashboard's money tile — reads this instead of the cache's
+   * length. It rides on the result rather than a module flag so a concurrent reader of the same
+   * store (Payments forcing a refresh, a resident `skipReconcile` run) cannot answer for it.
+   */
+  ok?: boolean;
+};
 export type AuthoritativeBillingSnapshot = HouseholdChargesSyncResult;
 
 const billingSnapshotRefreshers = new Map<string, CoalescedRefresher<AuthoritativeBillingSnapshot>>();
@@ -909,21 +913,21 @@ export async function syncHouseholdChargesFromServer(
   force = false,
   { skipReconcile = false }: { skipReconcile?: boolean } = {},
 ): Promise<HouseholdChargesSyncResult> {
-  if (!isBrowser()) return { charges: [], rentProfiles: [] };
+  if (!isBrowser()) return { charges: [], rentProfiles: [], ok: false };
   if (isDemoModeActive()) {
-    householdChargesLastReadOk = true;
     hydrateHouseholdStateFromSession();
-    return { charges: readAll(), rentProfiles: readRentProfiles() };
+    return { charges: readAll(), rentProfiles: readRentProfiles(), ok: true };
   }
-  // Signed out: stop the interval-driven refetch instead of 401ing forever.
+  // Signed out: stop the interval-driven refetch instead of 401ing forever. Nothing was read, so
+  // nothing is answered for.
   if (portalSessionEnded()) {
     hydrateHouseholdStateFromSession();
-    return { charges: readAll(), rentProfiles: readRentProfiles() };
+    return { charges: readAll(), rentProfiles: readRentProfiles(), ok: false };
   }
   if (force) householdForceFullSyncPending = true;
   if (!force && householdChargesSyncPromise) return householdChargesSyncPromise;
   if (!force && householdChargesLastSyncedAt > 0 && Date.now() - householdChargesLastSyncedAt < HOUSEHOLD_CHARGES_SYNC_TTL_MS) {
-    return { charges: readAll(), rentProfiles: readRentProfiles() };
+    return { charges: readAll(), rentProfiles: readRentProfiles(), ok: householdLastFullReadOk };
   }
   // `force` bypasses the TTL by design, so the panels that force a refresh on
   // mount each issued their own request (measured: 3 on one `/portal/payments`
@@ -972,8 +976,8 @@ async function runHouseholdChargesSync({
       if (requestedIncremental && !res.ok) {
         // A failed delta read says nothing about the ledger: change nothing, write nothing, and keep
         // the watermark so the next tick asks for the same window again.
-        householdChargesLastReadOk = false;
-        return { charges: readAll(), rentProfiles: readRentProfiles() };
+        householdLastFullReadOk = false;
+        return { charges: readAll(), rentProfiles: readRentProfiles(), ok: false };
       }
       // A failed or unreadable FULL read says nothing about the ledger. Treating it as an empty
       // server list made every cached row look "local-only" (uploaded) and, with confirmed ids,
@@ -1140,17 +1144,17 @@ async function runHouseholdChargesSync({
         reconcileApprovedResidentPaymentSchedules(null);
         syncAllRecurringRentCharges();
       }
-      householdChargesLastReadOk = true;
-      return { charges: readAll(), rentProfiles: readRentProfiles() };
+      householdLastFullReadOk = true;
+      return { charges: readAll(), rentProfiles: readRentProfiles(), ok: true };
     })
     .catch(() => {
-      householdChargesLastReadOk = false;
+      householdLastFullReadOk = false;
       hydrateHouseholdStateFromSession();
       if (!skipReconcile) {
         reconcileApprovedResidentPaymentSchedules(null);
         syncAllRecurringRentCharges();
       }
-      return { charges: readAll(), rentProfiles: readRentProfiles() };
+      return { charges: readAll(), rentProfiles: readRentProfiles(), ok: false };
     });
   householdChargesSyncPromise = syncPromise;
   const result = await syncPromise;

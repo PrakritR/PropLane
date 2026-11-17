@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import { loadPublicRoomOccupancy } from "@/lib/public-room-occupancy.server";
 import { roomAvailabilityForRange } from "@/lib/room-availability-range.server";
-import { occupancyHoldEntries } from "@/lib/occupancy/snapshot.server";
+import { applicationForLeaseLookup, occupancyApprovedHoldRows, occupancyHoldEntries } from "@/lib/occupancy/snapshot.server";
 import { occupancyForDay } from "@/lib/occupancy/snapshot";
 import { roomAvailabilityTextFromOccupancy } from "@/lib/property-record-row-facts";
 import { dashboardOccupancyDayKeys, dashboardOccupancyFromSnapshot, dashboardOccupancyUrl } from "@/lib/dashboard-occupancy";
@@ -257,6 +257,22 @@ describe("the manager snapshot reads the same holds", () => {
   it("a withdrawn application holds nothing", async () => {
     const entries = await occupancyHoldEntries(db([row("AXIS-2", {}, { withdrawnAt: "2026-10-01T00:00:00Z" })]), ["p1"], [], meta);
     expect(entries).toEqual([]);
+  });
+
+  it("a withdrawn application is not a resident any reader of the snapshot can find", async () => {
+    // It must not reach the lease lookup either: handing a live lease a withdrawn row's move-out
+    // would end its block early and publish an occupied room as free.
+    const holds = await occupancyApprovedHoldRows(db([row("AXIS-2", {}, { withdrawnAt: "2026-10-01T00:00:00Z" })]), ["p1"]);
+    expect(holds).toEqual([]);
+  });
+
+  it("the lease lookup binds on the application id the lease carries, not the lease's own id", async () => {
+    const holds = await occupancyApprovedHoldRows(db([row("AXIS-7", {}, { email: "ana@example.com" })]), ["p1"]);
+    expect(holds).toHaveLength(1);
+    const forLease = applicationForLeaseLookup(holds);
+    // A lease row with no resident email at all: only the axis id can find the resident.
+    expect(forLease({ id: "lease-record-uuid", axisId: "AXIS-7", propertyId: "p1" })?.id).toBe("AXIS-7");
+    expect(forLease({ id: "AXIS-7", propertyId: "p1" })).toBeUndefined();
   });
 
   it("a row that only carries the applicant's first choice still holds that room", async () => {

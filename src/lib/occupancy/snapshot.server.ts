@@ -107,6 +107,7 @@ function leaseBookingRowFromScope(record: {
   const application = asRecord(data.application);
   return {
     id: record.id,
+    axisId: str(data.axisId) || undefined,
     propertyId: String(record.property_id ?? data.propertyId ?? "").trim(),
     roomChoice: typeof data.roomChoice === "string" ? data.roomChoice : null,
     residentName: str(data.residentName) || undefined,
@@ -418,15 +419,17 @@ export async function occupancyApprovedHoldRows(db: SupabaseClient, propertyIds:
   const scoped = new Set(propertyIds);
   return (data ?? []).flatMap((row) => {
     const hold = holdRowFromApplication(row);
+    if (hold.withdrawnAt?.trim()) return [];
     const propertyId = (hold.assignedPropertyId || hold.propertyId || "").trim();
     return scoped.has(propertyId) && occupancyAuthorTrusted(authors, propertyId, row.manager_user_id) ? [hold] : [];
   });
 }
 
 /**
- * The resident behind a lease, by the same two-way match `isLeased` uses: the Axis id binds
- * exactly, email + property covers a lease whose id was never stamped. This is what carries a
- * recorded move-out (and a manual lease term) onto a lease's block.
+ * The resident behind a lease, by the same two-way match `isLeased` uses: the application id the
+ * lease carries (`axisId`, never the lease record's own `id`) binds exactly, email + property
+ * covers a lease that was never stamped with one. This is what carries a recorded move-out (and a
+ * manual lease term) onto a lease's block.
  */
 export function applicationForLeaseLookup(
   holds: readonly ApplicationHoldRow[],
@@ -441,7 +444,7 @@ export function applicationForLeaseLookup(
     if (email && !byPerson.has(`${email}|${propertyId}`)) byPerson.set(`${email}|${propertyId}`, row);
   }
   return (lease) => {
-    const axisId = normalizeApplicationAxisId(lease.id ?? "");
+    const axisId = normalizeApplicationAxisId(lease.axisId ?? "");
     const byId = axisId ? byAxisId.get(axisId) : undefined;
     if (byId) return byId;
     const email = lease.residentEmail?.trim().toLowerCase();
@@ -463,7 +466,7 @@ export async function occupancyHoldEntries(
   const leasedPeople = new Set<string>();
   for (const row of leaseRows) {
     if (!leaseIsFullyExecuted(row as Parameters<typeof leaseIsFullyExecuted>[0])) continue;
-    const axisId = normalizeApplicationAxisId(row.id ?? "");
+    const axisId = normalizeApplicationAxisId(row.axisId ?? "");
     if (axisId) leasedIds.add(axisId);
     const email = row.residentEmail?.trim().toLowerCase();
     if (email) leasedPeople.add(`${email}|${(row.propertyId ?? "").trim()}`);

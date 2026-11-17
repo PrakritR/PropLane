@@ -59,10 +59,11 @@ export type InspectionResidency = {
   moveInDate: string;
   moveOutDate: string;
   /**
-   * Month-to-month, or no end date: there is no "lease end" to show, so a date on this
-   * residency's far end is a move-out the manager recorded (`leaseBlockEnd`).
+   * `moveOutDate` is the move-out the manager recorded, not a stored lease end. A month-to-month
+   * tenancy only ever ends that way (`leaseBlockEnd`), and so does a fixed term the manager ended
+   * early, so this is what decides whether a surface says "Moves out" or "Lease ends".
    */
-  openEnded?: boolean;
+  moveOutRecorded?: boolean;
   occupancy: InspectionOccupancy;
 };
 

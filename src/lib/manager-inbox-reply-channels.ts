@@ -284,12 +284,36 @@ export function resolveManagerInboxPortalRecipient(
 }
 
 export type ManagerInboxSendDecision =
-  | { ok: true; email: boolean; sms: boolean; proplane: boolean; fellBack: boolean }
+  | { ok: true; email: boolean; sms: boolean; proplane: boolean }
   | { ok: false; reason: string };
 
 export const INBOX_SEND_NOTHING_REASON =
   "Can't send: this conversation has no email or phone yet. Add one in contact details.";
 export const INBOX_SEND_NO_RESULT_REASON = "Could not send reply. Your message is still here.";
+export const INBOX_SEND_PICK_A_CHANNEL = "Choose PropLane, Email, SMS, or a combination.";
+
+/**
+ * Why a Send cannot even be attempted, as the one line to show — or `null` to let
+ * `decideManagerInboxSend` have it. "Pick a channel" and "this person has no channel" are two
+ * different answers: a conversation with no email, no phone and no PropLane account can never be
+ * picked for (the picker clamps itself to nothing), so telling the manager to choose is a dead
+ * end. Only that case is a reason here; an empty pick on a reachable thread is still theirs to fix.
+ */
+export function inboxReplyPickBlocker(args: {
+  picked: { viaEmail: boolean; viaSms: boolean; viaProplane?: boolean };
+  emailAvailable: boolean;
+  smsAvailable: boolean;
+  proplaneAvailable: boolean;
+}): string | null {
+  if (!args.emailAvailable && !args.smsAvailable && !args.proplaneAvailable) return INBOX_SEND_NOTHING_REASON;
+  const picked = {
+    viaEmail: args.picked.viaEmail,
+    viaSms: args.picked.viaSms,
+    viaProplane: Boolean(args.picked.viaProplane),
+  };
+  if (!hasInboxReplyChannelSelected(picked)) return INBOX_SEND_PICK_A_CHANNEL;
+  return null;
+}
 
 /**
  * A manager Send is never silent: pick the channels a reply can actually leave
@@ -306,10 +330,10 @@ export function decideManagerInboxSend(args: {
   const email = args.requested.email && args.emailAvailable;
   const sms = args.requested.sms && args.smsAvailable;
   const proplane = Boolean(args.requested.proplane) && args.proplaneAvailable;
-  if (email || sms || proplane) return { ok: true, email, sms, proplane, fellBack: false };
-  if (args.emailAvailable) return { ok: true, email: true, sms: false, proplane: false, fellBack: true };
-  if (args.smsAvailable) return { ok: true, email: false, sms: true, proplane: false, fellBack: true };
-  if (args.proplaneAvailable) return { ok: true, email: false, sms: false, proplane: true, fellBack: true };
+  if (email || sms || proplane) return { ok: true, email, sms, proplane };
+  if (args.emailAvailable) return { ok: true, email: true, sms: false, proplane: false };
+  if (args.smsAvailable) return { ok: true, email: false, sms: true, proplane: false };
+  if (args.proplaneAvailable) return { ok: true, email: false, sms: false, proplane: true };
   return { ok: false, reason: INBOX_SEND_NOTHING_REASON };
 }
 

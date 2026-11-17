@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   decideManagerInboxSend,
+  inboxReplyPickBlocker,
   inboxSendFailureLine,
   INBOX_SEND_NOTHING_REASON,
   INBOX_SEND_NO_RESULT_REASON,
+  INBOX_SEND_PICK_A_CHANNEL,
 } from "@/lib/manager-inbox-reply-channels";
 import { resolveCommunicationInboxThread } from "@/lib/communication-assistant-inbox-list";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
@@ -48,6 +50,41 @@ describe("a manager Send is never silent", () => {
     });
     expect(d).toEqual({ ok: false, reason: INBOX_SEND_NOTHING_REASON });
     expect(INBOX_SEND_NOTHING_REASON).toContain("no email or phone");
+  });
+
+  it("a conversation nothing can reach says so, not \"choose a channel\"", () => {
+    // The picker clamps itself to nothing on such a thread, so an empty pick is not the manager's
+    // to fix — the reason is.
+    expect(
+      inboxReplyPickBlocker({
+        picked: { viaEmail: false, viaSms: false, viaProplane: false },
+        emailAvailable: false,
+        smsAvailable: false,
+        proplaneAvailable: false,
+      }),
+    ).toBe(INBOX_SEND_NOTHING_REASON);
+  });
+
+  it("an empty pick on a reachable conversation still asks for a channel", () => {
+    expect(
+      inboxReplyPickBlocker({
+        picked: { viaEmail: false, viaSms: false, viaProplane: false },
+        emailAvailable: true,
+        smsAvailable: false,
+        proplaneAvailable: false,
+      }),
+    ).toBe(INBOX_SEND_PICK_A_CHANNEL);
+  });
+
+  it("a pick that cannot be carried is not blocked here — the fallback decides", () => {
+    expect(
+      inboxReplyPickBlocker({
+        picked: { viaEmail: true, viaSms: false, viaProplane: false },
+        emailAvailable: false,
+        smsAvailable: true,
+        proplaneAvailable: false,
+      }),
+    ).toBeNull();
   });
 
   it("a send that returns nothing is a visible error line", () => {
