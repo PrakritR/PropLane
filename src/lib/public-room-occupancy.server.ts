@@ -261,13 +261,15 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
       const start = day(row.manual_start) || day(row.lease_start);
       if (!start) continue;
       const occupancyStart = row.occupancy_start && row.occupancy_start < start ? row.occupancy_start : start;
-      let end = day(row.manual_end) || day(row.lease_end);
-      if (end && end < occupancyStart) continue;
       // A month-to-month residency has no real end: a stale past leaseEnd must not read the room free.
-      // The shared rule ends it at today + 365 (rolling); a move-out date still wins.
-      if (isMonthToMonthTerm(row.manual_term || row.lease_term)) {
-        end = leaseBlockEnd({ start: occupancyStart, leaseEnd: day(row.lease_end), moveOut: day(row.manual_end), leaseTerm: String(row.manual_term || row.lease_term) }).end;
-      }
+      // The shared rule ends it at today + 365 (rolling); a move-out date still wins. Resolved BEFORE the
+      // ends-before-it-starts guard, or the stalest rows of all would escape through it.
+      const moveOut = day(row.manual_end);
+      const term = String(row.manual_term || row.lease_term || "");
+      const end = isMonthToMonthTerm(term)
+        ? leaseBlockEnd({ start: occupancyStart, leaseEnd: day(row.lease_end), moveOut, leaseTerm: term }).end
+        : moveOut || day(row.lease_end);
+      if (end && end < occupancyStart) continue;
       countedApplicationIds.add(normalizeApplicationAxisId(String(row.id)));
       for (const room of rooms) {
         placements.get(`${property.id}::${room.id}`)?.set(String(row.id).toUpperCase(), {
@@ -286,10 +288,10 @@ export async function loadPublicRoomOccupancy(db: Db, listings: Listing[], expec
       if (!property) continue;
       const rooms = roomsForChoice(property, lease.roomChoice, "");
       if (!rooms.length) continue;
-      if (lease.end && lease.end < lease.start) continue;
       const leaseEnd = isMonthToMonthTerm(lease.leaseTerm)
         ? leaseBlockEnd({ start: lease.start, leaseEnd: lease.end, leaseTerm: lease.leaseTerm }).end
         : lease.end;
+      if (leaseEnd && leaseEnd < lease.start) continue;
       for (const room of rooms) {
         placements.get(`${property.id}::${room.id}`)?.set(`lease:${lease.leaseId}`, {
           start: lease.start,

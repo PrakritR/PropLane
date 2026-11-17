@@ -2,7 +2,7 @@
 
 import { SendListingLinkRow } from "@/components/portal/zillow-rental-network-row";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/documents/manager-documents";
 import {
@@ -41,8 +41,8 @@ import {
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { getPropertyById, getRoomOptionsForProperty, parseRoomChoiceValue, propertyAllowsShortTermRental } from "@/lib/rental-application/data";
 import { buildListingShareSummary } from "@/lib/listing-share-summary";
-import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
-import { countRoomsAvailableNow } from "@/lib/public-listing-available-count";
+import { useListingsPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
+import { shareOpenNowCount } from "@/lib/public-listing-available-count";
 import { pacificTodayKey } from "@/lib/room-availability-range";
 
 import { applicationFormChoicesForProperty, applicationFormIdForLink, defaultApplicationFormId } from "@/lib/send-forms";
@@ -406,23 +406,31 @@ export function ShareLeadLinkModal({
   }, [open, kind, templatePropertyId, showToast]);
 
   const listingIntro = intro ?? renderListingSharedIntro(listingTemplate, { count: propertyIds.length, property: properties.filter((property) => propertyIds.includes(property.id)).map((property) => property.label).join(", "), name: prospectName });
-  const listingShare = useMemo(() => ({ intro: listingIntro, signature: sender ? [sender.name, ...(sender.workNumber ? [sender.workNumber] : []), sender.email] : undefined, listings: propertyIds.flatMap((id) => { const property = getPropertyById(id); return property ? [buildListingShareSummary(property)] : []; }) }), [listingIntro, propertyIds, sender]);
 
-  // "Open now" from the same occupancy read the listing page uses (one shared request); no read, no claim.
-  const { rooms: occupancyRows, loading: occupancyLoading, failed: occupancyFailed } = useListingPublicOccupancy(
-    kind !== "listing" || isMultiListing ? null : singlePropertyId,
+  // "Open now" from the same occupancy read the listing page and the send route use (one shared
+  // request, every shared house); no read, no claim. The preview says what the email will say.
+  const { rooms: occupancyRows, loading: occupancyLoading, failed: occupancyFailed } = useListingsPublicOccupancy(
+    kind === "listing" ? propertyIds : [],
   );
+  const openNowFor = useCallback(
+    (property: { id: string; listingSubmission?: { rooms?: Parameters<typeof shareOpenNowCount>[0] } | null }) =>
+      shareOpenNowCount(
+        property.listingSubmission?.rooms ?? [],
+        { rows: occupancyRows, loading: occupancyLoading, failed: occupancyFailed },
+        pacificTodayKey(),
+        property.id,
+      ),
+    [occupancyRows, occupancyLoading, occupancyFailed],
+  );
+
+  const listingShare = useMemo(() => ({ intro: listingIntro, signature: sender ? [sender.name, ...(sender.workNumber ? [sender.workNumber] : []), sender.email] : undefined, listings: propertyIds.flatMap((id) => { const property = getPropertyById(id); return property ? [buildListingShareSummary(property, { openNow: openNowFor(property) })] : []; }) }), [listingIntro, propertyIds, sender, openNowFor]);
+
   const listingSummary = useMemo(() => {
     if (kind !== "listing" || isMultiListing || !singlePropertyId) return null;
     const property = getPropertyById(singlePropertyId);
     if (!property) return null;
-    const rooms = property.listingSubmission?.rooms ?? [];
-    const openNow =
-      occupancyLoading || occupancyFailed || rooms.length === 0
-        ? undefined
-        : countRoomsAvailableNow(rooms, occupancyRows, pacificTodayKey(), singlePropertyId);
-    return buildListingShareSummary(property, { openNow });
-  }, [kind, singlePropertyId, isMultiListing, occupancyRows, occupancyLoading, occupancyFailed]);
+    return buildListingShareSummary(property, { openNow: openNowFor(property) });
+  }, [kind, singlePropertyId, isMultiListing, openNowFor]);
 
   const invitePreviewBody = useMemo(() => {
     if (!linkUrl) return "";

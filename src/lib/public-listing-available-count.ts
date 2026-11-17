@@ -41,19 +41,11 @@ type AvailabilityRoom = Pick<ListingRoomRow, "id" | "availability" | "occupancyC
   moveInAvailableDate?: string | null;
 };
 
-const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
-
-/** The room's saved availability text with the move-in-date floor applied, exactly as `publicRoomStatus` applies it. */
-function floorAwareRoom(room: AvailabilityRoom, today: string): AvailabilityRoom {
-  const date = room.moveInAvailableDate ?? "";
-  if (DAY_KEY.test(date) && date > today) {
-    const label = new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
-    return { ...room, availability: `Available from ${label}` };
-  }
-  return room;
-}
-
-/** One room's availability from the property's published occupancy rows (no row = no spans). */
+/**
+ * One room's availability from the property's published occupancy rows (no row = no spans).
+ * The room's own `moveInAvailableDate` rides along as a FLOOR (`roomAvailability`'s `floorDate`):
+ * saved copy that closes the room still closes it, and the later of the two dates wins.
+ */
 export function resolveRoomAvailability(
   room: AvailabilityRoom,
   occupancyRows: readonly PublicRoomOccupancy[],
@@ -61,7 +53,7 @@ export function resolveRoomAvailability(
   propertyId: string,
 ): RoomAvailability {
   const spans = findPublicRoomOccupancy(occupancyRows, propertyId, room.id)?.spans ?? [];
-  return roomAvailability(floorAwareRoom(room, today), spans, today);
+  return roomAvailability(room, spans, today, { floorDate: room.moveInAvailableDate ?? null });
 }
 
 /**
@@ -77,6 +69,21 @@ export function countRoomsAvailableNow(
   propertyId: string,
 ): number {
   return rooms.filter((room) => resolveRoomAvailability(room, occupancyRows, today, propertyId).kind === "now").length;
+}
+
+/**
+ * The share summary's `openNow` for one house, from a client occupancy read: the count when the read
+ * answered, `undefined` while it loads, when it failed, or when the house lists no rooms — no read, no claim.
+ * The one place every share preview derives it, so a preview can never disagree with the sent email.
+ */
+export function shareOpenNowCount(
+  rooms: readonly AvailabilityRoom[],
+  occupancy: { rows: readonly PublicRoomOccupancy[]; loading: boolean; failed: boolean },
+  today: string,
+  propertyId: string,
+): number | undefined {
+  if (occupancy.loading || occupancy.failed || rooms.length === 0) return undefined;
+  return countRoomsAvailableNow(rooms, occupancy.rows, today, propertyId);
 }
 
 /** The earliest day any room frees up after today, or null when none has a date. Used when nothing is open now. */

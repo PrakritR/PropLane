@@ -432,11 +432,6 @@ export async function notifyPropertyScopedManagersFromAgent(
   // from the notice itself when the caller did not build one); only an urgent
   // event notifies each teammate's own Assistant.
   const urgent = input.urgent === true;
-  const teamNotice = input.noTeamNotice
-    ? null
-    : input.teamNotice?.text.trim() && input.teamNotice.messageId.trim()
-      ? { text: input.teamNotice.text.trim(), messageId: input.teamNotice.messageId.trim() }
-      : derivedTeamNotice(input);
   const directToTeammates = urgent;
   const recipientIds = (
     directToTeammates
@@ -460,6 +455,16 @@ export async function notifyPropertyScopedManagersFromAgent(
     : false;
   if (managedWorkspace && !urgent && input.category === "payment_reminders") return;
   const ownerHearsIt = !managedWorkspace || urgent || input.module === "payments" || input.module === "financials";
+  // `noTeamNotice` says the owner's own Assistant notice IS the record for this routine event, so the
+  // Team chat does not repeat it. On a PropLane-managed workspace the client-owner never hears a routine
+  // event at all, and the staff who run the house would be left with no in-app record of it — so there
+  // the line stays, as it was before the event was taken off the Team chat.
+  const teamNotice =
+    input.noTeamNotice && ownerHearsIt
+      ? null
+      : input.teamNotice?.text.trim() && input.teamNotice.messageId.trim()
+        ? { text: input.teamNotice.text.trim(), messageId: input.teamNotice.messageId.trim() }
+        : derivedTeamNotice(input);
   if (managedWorkspace && !ownerHearsIt) {
     // The service manager's verified phone (when set) still hears it, exactly as it did through the owner's notice.
     const { alertServiceManagerFromNotice } = await import("@/lib/service/service-manager-alerts.server");

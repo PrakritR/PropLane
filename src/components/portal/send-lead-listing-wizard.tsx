@@ -24,7 +24,7 @@ import {
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { buildListingShareSummary } from "@/lib/listing-share-summary";
 import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
-import { countRoomsAvailableNow } from "@/lib/public-listing-available-count";
+import { shareOpenNowCount } from "@/lib/public-listing-available-count";
 import { pacificTodayKey } from "@/lib/room-availability-range";
 
 import { activeWorkspaceScope } from "@/lib/workspaces/selection";
@@ -145,12 +145,14 @@ export function SendLeadListingWizard({
     if (isMultiListing || !singlePropertyId) return null;
     const property = getPropertyById(singlePropertyId);
     if (!property) return null;
-    const rooms = property.listingSubmission?.rooms ?? [];
-    const openNow =
-      occupancyLoading || occupancyFailed || rooms.length === 0
-        ? undefined
-        : countRoomsAvailableNow(rooms, occupancyRows, pacificTodayKey(), singlePropertyId);
-    return buildListingShareSummary(property, { openNow });
+    return buildListingShareSummary(property, {
+      openNow: shareOpenNowCount(
+        property.listingSubmission?.rooms ?? [],
+        { rows: occupancyRows, loading: occupancyLoading, failed: occupancyFailed },
+        pacificTodayKey(),
+        singlePropertyId,
+      ),
+    });
   }, [singlePropertyId, isMultiListing, occupancyRows, occupancyLoading, occupancyFailed]);
 
   const { viaEmail, viaSms } = portalMessageChannelsFromSelection(sendVia);

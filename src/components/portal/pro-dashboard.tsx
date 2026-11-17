@@ -148,6 +148,7 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
+import { isSubmittedPendingApplicationRow } from "@/lib/rental-application/in-progress-application";
 import { isChargePaid, chargePaidAmount } from "@/lib/charge-paid";
 import {
   scopeApplicationsLikeThePage,
@@ -330,7 +331,11 @@ export function AttentionGroup<T>({
   /** Stable position for the staggered entrance delay (0-based). */
   order?: number;
   badge?: ReactNode;
-  /** When set, shown as the header count instead of `items.length`. */
+  /**
+   * When set, shown as the header count instead of `items.length`. It may count a WIDER population than
+   * the rows (people living today over the resident rows, folded conversations over loaded threads), so
+   * it never decides whether the rows are drawn — `items` does.
+   */
   headerCount?: number;
   items: T[];
   emptyMessage: string;
@@ -339,7 +344,10 @@ export function AttentionGroup<T>({
 }) {
   const { visible } = usePortalPreviewSlice(items);
   const count = headerCount ?? items.length;
-  const isEmpty = count === 0;
+  const hasRows = items.length > 0;
+  // Nothing to show at all: a count of zero WITH no rows. A zero count over real rows still draws them,
+  // and a positive count with no rows says so instead of opening to a blank body.
+  const isEmpty = count === 0 && !hasRows;
   const Icon = icon;
   // null → follow the "open when non-empty" default (reactive to async loads);
   // boolean → the manager's explicit tap wins.
@@ -386,7 +394,7 @@ export function AttentionGroup<T>({
         </Link>
       </div>
       {open ? (
-        isEmpty ? (
+        !hasRows ? (
           <p className="px-3.5 py-2.5 text-[12.5px] text-muted [html[data-native]_&]:px-3 [html[data-native]_&]:py-2">
             {emptyMessage}
           </p>
@@ -807,13 +815,21 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
       inWorkspace: (a) => workspaceContainsProperty(workspacePropertyIdFromRow(a) ?? undefined),
     });
     const pendingApps = pendingTabApplications(allApps);
+    // Rows still waiting on the manager: the Pending tab also lists withdrawn applications, which
+    // nobody can decide on, so the "needs a decision" list and the open-items total count these.
+    const awaitingDecisionApps = pendingApps.filter((a) => isSubmittedPendingApplicationRow(a));
     // N080: a work order / service request whose resident has no surviving
     // directory row (Potential/Current/Past) is orphaned data and must not
     // inflate the "requests" KPI or the attention list below. Charges are
     // already scoped this way inside `readManagerPaymentsLedgerCharges`
     // (manager-payments-scope.ts), so this dashboard needs no separate pass
     // for those.
-    const directoryEmails = directoryResidentEmailSet(allApps);
+    //
+    // "Does this manager still have ANY record of them" is a question about every application row of
+    // every kind (resident-directory-scope.ts), NOT about what the Applications page lists: a booking
+    // residency, an SMS lead and a merged row are all still a record. Read the unscoped rows, exactly
+    // as the sidebar badge and the Services panel do, or a real service request is silently dropped.
+    const directoryEmails = directoryResidentEmailSet(readManagerApplicationRows());
 
     const leases = readLeasePipeline(userId).filter((l) =>
       workspaceContainsProperty(l.propertyId?.trim() || l.application?.propertyId?.trim() || undefined),
@@ -965,6 +981,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     return {
       portfolio,
       pendingApps,
+      awaitingDecisionApps,
       pendingLeaseRows,
       pendingCharges,
       inboxThreads,
@@ -1125,6 +1142,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
   const {
     portfolio,
     pendingApps,
+    awaitingDecisionApps,
     pendingLeaseRows,
     pendingCharges,
     inboxThreads,
@@ -1176,7 +1194,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
   const showAiDrafts = visibility.aiDrafts && pendingDrafts.length > 0;
   const openCount =
     (visibility.tours ? pendingTours.length : 0) +
-    (visibility.applications ? pendingApps.length : 0) +
+    (visibility.applications ? awaitingDecisionApps.length : 0) +
     (visibility.leases ? pendingLeaseRows.length : 0) +
     (visibility.residents ? (residentsToday ?? residentAttentionItems.length) : 0) +
     (visibility.payments ? pendingCharges.length : 0) +
@@ -1209,7 +1227,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     basePath: BASE,
     overdueChargeCount,
     overdueBalanceLabel,
-    pendingApplicationCount: pendingApps.length,
+    pendingApplicationCount: awaitingDecisionApps.length,
     managerSignatureLeaseCount,
     pendingTourCount: pendingTours.length,
     messagingNeedsSetup,
@@ -1343,7 +1361,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
         icon={ClipboardList}
         tone="pending"
         order={1}
-        items={pendingApps}
+        items={awaitingDecisionApps}
         emptyMessage="No applications waiting for your review."
         keyForItem={(app) => app.id}
         renderRow={(app: DemoApplicantRow, sectionTone) => (
@@ -1404,7 +1422,9 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
             ? "Loading residents…"
             : occupancyState === "failed"
               ? "Residents unavailable."
-              : "No current residents yet."
+              : (residentsToday ?? 0) > 0
+                ? "Nothing to do for the people living here."
+                : "No current residents yet."
         }
         keyForItem={(item) => item.lease.id}
         renderRow={(item: DashboardResidentAttentionItem) => {
@@ -1506,7 +1526,11 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
         order={6}
         headerCount={inboxCount}
         items={inboxThreads}
-        emptyMessage="No unread messages. Communication is clear."
+        emptyMessage={
+          inboxCount > 0
+            ? "Open Communication for the unread conversations."
+            : "No unread messages. Communication is clear."
+        }
         keyForItem={(thread) => thread.id}
         renderRow={(thread, sectionTone) => (
           <IssueRow
@@ -1610,7 +1634,11 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
                 ? `${applicationProperties.size} ${applicationProperties.size === 1 ? "property" : "properties"}`
                 : undefined
             }
-            detail={pendingApps.length > 0 ? "Waiting for your decision" : "No applications waiting"}
+            detail={
+              awaitingDecisionApps.length > 0
+                ? `${awaitingDecisionApps.length} waiting for your decision`
+                : "No applications waiting"
+            }
             delta={null}
             href={`${BASE}/applications/pending`}
             dataAttr="dashboard-metric-applications"

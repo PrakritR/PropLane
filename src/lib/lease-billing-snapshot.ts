@@ -15,6 +15,7 @@ import {
 } from "@/lib/household-charges";
 import { collectLinkedPropertyIdsForModule } from "@/lib/manager-portfolio-access";
 import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
+import { chargePaidAmount } from "@/lib/charge-paid";
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { resolvePlacementValuesForRow } from "@/lib/rental-application/placement-values";
 import { computeLeasePaymentAtSigning } from "@/lib/rental-application/listing-fees-display";
@@ -133,13 +134,10 @@ function chargeOutstandingAmount(c: HouseholdCharge): number {
 
 // Dollars that actually CLEARED. A clearing ACH has not arrived, and a cancelled or
 // refunded charge is money the manager never kept — none of the three may be reported to a
-// resident as a payment received.
+// resident as a payment received. `chargePaidAmount` (charge-paid.ts) is that one decision, so
+// this statement and the dashboard's Rent collected can never answer differently on one row.
 function chargeReceivedAmount(c: HouseholdCharge): number {
-  if (c.status === "paid") return Math.max(0, parseMoneyLabel(c.amountLabel || "0"));
-  if (c.status !== "partially_paid") return 0;
-  const amount = parseMoneyLabel(c.amountLabel || "0");
-  const balance = parseMoneyLabel(c.balanceLabel || "0");
-  return Math.max(0, amount - balance);
+  return chargePaidAmount(c);
 }
 
 const SECURITY_DEPOSIT_KINDS = new Set<HouseholdChargeKind>(["security_deposit", "holding_deposit"]);

@@ -92,7 +92,7 @@ describe("manager preview — slim phone sticky bar", () => {
     expect(bar).not.toBeNull();
     expect(bar.hasAttribute("data-slim")).toBe(true);
     expect(bar.textContent).toContain("$1,450 / mo");
-    expect(bar.textContent).toContain("5 rooms · 2 available");
+    expect(bar.textContent).toContain("5 rooms · 2 open now");
     expect(bar.querySelector('[data-attr="listing-web-apply"]')?.textContent).toContain("Book");
     expect(bar.querySelector('[data-attr="listing-web-tour"]')?.textContent).toBe("Tour");
     // Email moved into the record header menu

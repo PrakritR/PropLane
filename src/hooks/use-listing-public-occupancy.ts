@@ -10,13 +10,27 @@ export function useListingPublicOccupancy(propertyId: string | null | undefined)
   /** The occupancy request failed: callers keep the room's static label instead of claiming a date. */
   failed: boolean;
 } {
+  return useListingsPublicOccupancy(propertyId?.trim() ? [propertyId.trim()] : []);
+}
+
+/**
+ * The same one read for SEVERAL houses (a multi-listing share): rows for every id asked about, from
+ * the one `sharedGet`. Callers still pick a house's rows by id (`findPublicRoomOccupancy`), so a
+ * house never reads another's spans.
+ */
+export function useListingsPublicOccupancy(propertyIds: readonly string[]): {
+  rooms: PublicRoomOccupancy[];
+  loading: boolean;
+  failed: boolean;
+} {
+  const key = [...new Set(propertyIds.map((id) => id.trim()).filter(Boolean))].sort().join(",");
   const [rooms, setRooms] = useState<PublicRoomOccupancy[]>([]);
-  const [loading, setLoading] = useState(Boolean(propertyId?.trim()));
+  const [loading, setLoading] = useState(Boolean(key));
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    const id = propertyId?.trim();
-    if (!id) {
+    const ids = key.split(",").filter(Boolean);
+    if (!ids.length) {
       setRooms([]);
       setFailed(false);
       setLoading(false);
@@ -30,7 +44,9 @@ export function useListingPublicOccupancy(propertyId: string | null | undefined)
         if (cancelled) return;
         setFailed(!read.ok);
         const all = (read.ok ? (read.data as { rooms?: PublicRoomOccupancy[] } | null)?.rooms : null) ?? [];
-        setRooms(all.filter((row) => row.roomChoice.startsWith(`${id}::`) || row.roomChoice.startsWith(`${id}:`)));
+        setRooms(
+          all.filter((row) => ids.some((id) => row.roomChoice.startsWith(`${id}::`) || row.roomChoice.startsWith(`${id}:`))),
+        );
       })
       .catch(() => {
         if (!cancelled) {
@@ -44,7 +60,7 @@ export function useListingPublicOccupancy(propertyId: string | null | undefined)
     return () => {
       cancelled = true;
     };
-  }, [propertyId]);
+  }, [key]);
 
   return { rooms, loading, failed };
 }

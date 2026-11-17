@@ -94,7 +94,7 @@ describe("the listing page and the browse card agree with the label", () => {
   it("a catalog label that is itself derived never overrides the spans on the listing page", () => {
     // spans now say it frees in 10 days: the saved "Leased until" must not pin the room as unavailable
     const display = roomAvailabilityDisplay(room, rowsFor([{ start: "2026-09-01", end: day(9), count: 1 }]), TODAY, "p");
-    expect(display).toEqual({ text: "Available Nov 6", tone: "future" });
+    expect(display).toEqual({ text: "Opens Nov 6", tone: "future" });
   });
 
   it("a leased room reads Leased until on the listing page", () => {

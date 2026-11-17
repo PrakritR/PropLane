@@ -23,6 +23,8 @@ export type RoomAvailabilityRoom = { availability?: string | null; occupancyCapa
 /** The static label the occupancy fold itself writes ("Unavailable until …", "Unavailable (occupied)"): spans replace it. */
 const OCCUPANCY_DERIVED_LABEL = /^\s*(?:unavailable\s*(?:until\b|\()|leased until\b)/i;
 
+const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
+
 function localDayKey(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
@@ -36,11 +38,15 @@ function localDayKey(date: Date): string {
  * The room's own static copy still counts: a dated "Available from …" is a floor, and manager
  * copy that closes the room ("Leased", "Waitlist") is respected; the fold's own "Unavailable until …" is replaced by
  * the spans it came from.
+ *
+ * `options.floorDate` is the room's own opening date (the submission's `moveInAvailableDate`): a FLOOR only,
+ * never a verdict. Copy that closes the room still closes it, and the later of the two dates wins.
  */
 export function roomAvailability(
   room: RoomAvailabilityRoom,
   spans: PublicRoomOccupancy["spans"],
   today: string,
+  options?: { floorDate?: string | null },
 ): RoomAvailability {
   const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
   const staticText = (room.availability ?? "").trim();
@@ -54,6 +60,8 @@ export function roomAvailability(
       if (dated > floor) floor = dated;
     }
   }
+  const floorDate = options?.floorDate?.trim() ?? "";
+  if (DAY_KEY.test(floorDate) && floorDate > floor) floor = floorDate;
   // Occupancy only frees up the day after a span ends, so those are the only dates worth testing.
   const candidates = [floor];
   for (const span of spans) {
@@ -195,10 +203,9 @@ export function publicRoomStatus(
   spans: PublicRoomOccupancy["spans"],
   today: string,
 ): PublicRoomStatus {
-  const floor = /^\d{4}-\d{2}-\d{2}$/.test(room.moveInAvailableDate ?? "") && (room.moveInAvailableDate as string) > today
-    ? `Available from ${formatLeasedThrough(room.moveInAvailableDate as string)}`
-    : "";
-  const result = roomAvailability({ availability: floor, occupancyCapacity: room.occupancyCapacity }, spans, today);
+  const result = roomAvailability({ occupancyCapacity: room.occupancyCapacity }, spans, today, {
+    floorDate: room.moveInAvailableDate,
+  });
   return publicStatusFromAvailability(result, spans, room.occupancyCapacity, today);
 }
 
