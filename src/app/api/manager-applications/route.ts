@@ -1525,8 +1525,10 @@ export async function POST(req: Request) {
         }
       }
     }
-    // An existing pending self-application must belong to this Auth subject.
-    // A new application requires the verified session mailbox.
+    // An existing pending self-application must belong to this Auth subject. A new one opens this door
+    // (a login whose portal role is not resident) only under the verified session mailbox — the resident
+    // path below also owns a new row by a proven phone when the account has no mailbox at all, which
+    // `prepareResidentSelfWrite` is the one decision for.
     let selfApplicationWrite = false;
     let authorizedWriteRecord: StoredApplicationRecord | null = null;
     if (role !== "resident") {

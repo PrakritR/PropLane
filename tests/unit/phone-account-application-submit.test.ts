@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 const proven = vi.fn();
-vi.mock("@/lib/prospect-spine/link.server", () => ({ phoneProvenFor: (...a: unknown[]) => proven(...a) }));
+vi.mock("@/lib/prospect-spine/link.server", () => ({ provenPhoneOf: (...a: unknown[]) => proven(...a) }));
 vi.mock("@/lib/resident-identity/baseline.server", () => ({ resolveBaselineResidentIdentity: async () => "ok" }));
 vi.mock("@/lib/screening/preapply.server", () => ({
   preApplySubmitGate: async (_db: unknown, _user: unknown, row: unknown) => ({ ok: true, row }),
@@ -32,7 +32,7 @@ import { prepareResidentSelfWrite } from "@/lib/rental-application/signed-in-app
 
 const PHONE_USER = { id: "user-phone", email: "86a2e10a@phone.proplane.invalid", email_confirmed_at: "2026-11-17T03:50:52Z" };
 
-/** No stored application (a NEW one), and the profile read the phone-proof check makes. */
+/** No stored application (a NEW one). The phone proof itself is `provenPhoneOf`, mocked above. */
 function fakeDb(profile: Record<string, unknown> | null) {
   return {
     from(table: string) {
@@ -59,7 +59,7 @@ beforeEach(() => proven.mockReset());
 
 describe("an account that signed up by a texted code can send its own application", () => {
   it("a proven phone with no mailbox may submit a NEW application with the email it typed, bound to its own login", async () => {
-    proven.mockResolvedValue(true);
+    proven.mockResolvedValue("+13135550100");
     const db = fakeDb({ phone: "+13135550100", phone_verified_at: "2026-11-17T03:50:53Z" });
     const out = await prepareResidentSelfWrite(db, PHONE_USER, { row, requestedRowId: "PROPLANE-NEWROW01", role: "resident", email: "" });
     expect(out.ok).toBe(true);
@@ -67,11 +67,11 @@ describe("an account that signed up by a texted code can send its own applicatio
       expect(out.row.residentUserId).toBe("user-phone");
       expect(out.row.email).toBe("applicant@uw.edu");
     }
-    expect(proven).toHaveBeenCalledWith(db, "user-phone", "+13135550100");
+    expect(proven).toHaveBeenCalledWith(db, "user-phone");
   });
 
   it("no proven phone and no mailbox is still refused", async () => {
-    proven.mockResolvedValue(false);
+    proven.mockResolvedValue(null);
     for (const profile of [null, { phone: null }, { phone: "+13135550100" }]) {
       const out = await prepareResidentSelfWrite(fakeDb(profile), PHONE_USER, { row, requestedRowId: "PROPLANE-NEWROW01", role: "resident", email: "" });
       expect(out.ok).toBe(false);
@@ -80,7 +80,7 @@ describe("an account that signed up by a texted code can send its own applicatio
   });
 
   it("an account that HAS a mailbox (unconfirmed or not) never takes the phone path", async () => {
-    proven.mockResolvedValue(true);
+    proven.mockResolvedValue("+13135550100");
     const out = await prepareResidentSelfWrite(
       fakeDb({ phone: "+13135550100" }),
       { id: "user-unconfirmed", email: "real@mailbox.com", email_confirmed_at: null },
@@ -91,7 +91,7 @@ describe("an account that signed up by a texted code can send its own applicatio
   });
 
   it("an account WITH a verified mailbox still has to apply under that mailbox", async () => {
-    proven.mockResolvedValue(true);
+    proven.mockResolvedValue("+13135550100");
     const out = await prepareResidentSelfWrite(
       fakeDb({ phone: "+13135550100", phone_verified_at: "2026-11-17T03:50:53Z" }),
       { id: "user-mail", email: "someone@else.com", email_confirmed_at: "2026-01-01" },

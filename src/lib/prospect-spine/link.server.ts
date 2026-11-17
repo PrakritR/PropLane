@@ -23,17 +23,28 @@ const str = (v: unknown): string => (typeof v === "string" ? v.trim() : v == nul
  */
 export async function phoneProvenFor(db: SupabaseClient, userId: string, phoneE164: string): Promise<boolean> {
   const phone = normalizeE164(phoneE164);
-  if (!phone || !userId) return false;
+  if (!phone) return false;
+  return (await provenPhoneOf(db, userId)) === phone;
+}
+
+/**
+ * The one number PROVEN to belong to `userId` and to nobody else, or null — the same anchor
+ * `phoneProvenFor` answers with, read once, for a caller that does not already hold a number to test.
+ * An unreadable profile, an unverified one, and a number two accounts hold all read null.
+ */
+export async function provenPhoneOf(db: SupabaseClient, userId: string): Promise<string | null> {
+  if (!userId) return null;
   try {
     const { data: profile, error } = await db.from("profiles").select("id, phone, phone_verified_at").eq("id", userId).maybeSingle();
-    if (error || !profile) return false;
+    if (error || !profile) return null;
     const row = profile as Row;
-    if (!str(row.phone_verified_at) || normalizeE164(str(row.phone)) !== phone) return false;
+    const phone = normalizeE164(str(row.phone));
+    if (!phone || !str(row.phone_verified_at)) return null;
     const { phoneOwners } = await import("@/lib/auth/phone-auth.server");
     const owners = await phoneOwners(db, phone);
-    return owners.length === 1 && owners[0] === userId;
+    return owners.length === 1 && owners[0] === userId ? phone : null;
   } catch {
-    return false;
+    return null;
   }
 }
 

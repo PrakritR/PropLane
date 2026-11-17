@@ -385,16 +385,13 @@ function isPhoneOnlyLogin(authEmail: string | null | undefined): boolean {
 }
 
 /**
- * The account's own phone is verified and held by exactly this account — `phoneProvenFor` is the one
- * definition; this only supplies the account's number. Any unreadable read is NOT proven.
+ * The account's own phone is verified and held by exactly this account — `provenPhoneOf` is the one
+ * definition, and reads it once. Any unreadable read is NOT proven.
  */
 async function accountPhoneProven(db: Db, userId: string): Promise<boolean> {
   try {
-    const { data, error } = await db.from("profiles").select("phone").eq("id", userId).maybeSingle();
-    const phone = (data as { phone?: unknown } | null)?.phone;
-    if (error || typeof phone !== "string" || !phone.trim()) return false;
-    const { phoneProvenFor } = await import("@/lib/prospect-spine/link.server");
-    return await phoneProvenFor(db as never, userId, phone);
+    const { provenPhoneOf } = await import("@/lib/prospect-spine/link.server");
+    return Boolean(await provenPhoneOf(db as never, userId));
   } catch {
     return false;
   }
@@ -406,8 +403,10 @@ export type PreparedResidentSelfWrite =
 
 /**
  * A signed-in applicant writing their OWN application (a resident, or a non-resident login applying
- * somewhere they do not manage). Existing rows must be bound to the Auth subject and pending;
- * new rows require the verified session mailbox.
+ * somewhere they do not manage). Existing rows must be bound to the Auth subject and pending; a new row
+ * carries the verified session mailbox, or — for an account that signed up by a texted code and has no
+ * mailbox at all — is owned by its proven phone (`accountPhoneProven`). Either way it is bound to this
+ * Auth subject, so the row's email is contact info and never the grant.
  */
 export async function prepareResidentSelfWrite(
   db: Db,
