@@ -1114,6 +1114,15 @@ who had only ever emailed — the reply landed on a row nobody could read.
 
 ### The composer's channel: last inbound, sticky, honest (screen J, Oct 8)
 
+- **A Send is never silent (Nov 16).** `decideManagerInboxSend` is the one decision for what a reply
+  leaves on: the picked channels this thread can actually carry, else a fallback to the one it can
+  (email, then a text to the phone labeled "Text", then in-app), else one line of reason beside the
+  composer — never a dropped click. The thread itself is resolved through
+  `resolveCommunicationInboxThread`, so a merged or collapsed row still sends; an empty send result
+  is an error line and the draft is kept. A **scheduled** reply runs the same decision and its toast
+  names the channels it will go out on ("Message scheduled via email and text."), because the
+  decision may have substituted one and a text spends communication credit. Test:
+  `tests/unit/inbox-send-never-silent.test.ts`.
 - **Inbound SMS notices are stamped.** `upsertManagerInboxNotice` writes
   `rootChannel: "sms"` on the root and `channel: "sms"` on every appended turn, and
   `append_manager_sms_inbox_notice` (migration `20261008230000_sms_notice_channel_stamp.sql`)
@@ -1362,5 +1371,3 @@ A PropLane Assistant notice thread (`agent_notice_*`) never opens blank. The wri
 - **Admin "All managed"** (`?workspaceId=managed`, `ADMIN_SMS_MANAGED_FILTER`) lists every PropLane-managed workspace's threads; the main list stays the PropLane line's own inbox (nothing a managed workspace holds); a placed thread leaves it and shows under managed. Reading is a view, never routing.
 - **Assistant review** (`assistant_thread_reviews`, service role only): an assistant turn is a labeled "PropLane Assistant" bubble with its time; Flag (reason), Correct (what the answer should have been: stored on the thread AND as an approved `property_knowledge_entries` row the assistant reads through `lookup_property_knowledge`, data it quotes, never an instruction), Pause / Resume / Take over per conversation (key = conversation id, conversation key or `sms:<10 digits>`). Every auto-reply path honors a pause in EVERY mode (a work number of its own too): the SMS pipeline, the resident thread auto-reply (`isAssistantPaused`); an unreadable pause state is PAUSED (quiet), a missing table is not. Flag / correct / pause / resume write `assistant_reply_flag` / `assistant_reply_correct` / `assistant_thread_pause` / `assistant_thread_resume` audit rows. A Correct writes knowledge under the same rules as `saveKnowledgeAnswerTool`: the named house is re-read as this workspace's (a request id is never trusted) and a DELEGATED seat must name one of its own assigned houses, never a team-wide answer or audience `all`. Manager route `/api/portal/assistant-review` (active workspace + Communication grant re-derived), admin route `/api/admin/assistant-review` (admin + a PropLane Service workspace, owner read from the row). The Filter's "Assistant review" lists open flags and pauses.
 - **Ask PropLane links**: a notice may add `?ask=<kind>:<id>`; the portal opens the one assistant surface with a context hint that names the record and tells the assistant to read it through its own (re-authorizing) tools. The param is a reference, never a prompt; it is dropped from the URL and used for the first question only.
-
-- **A manager Send is never silent.** `decideManagerInboxSend` (`manager-inbox-reply-channels.ts`) sends on a reachable channel (email, else a text to the phone labeled "Text", else in-app) or shows one line of reason beside the composer; the thread is resolved through `resolveCommunicationInboxThread`, an empty send result is an error line, and the draft is kept. Test: `tests/unit/inbox-send-never-silent.test.ts`.

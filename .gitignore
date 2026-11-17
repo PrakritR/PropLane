@@ -141,5 +141,8 @@ output/
 # Round 7 pop-up sweep screenshots (local evidence output)
 tests/browser/popup-sweep-round7/shots/
 
+# Round 6 (p0-fixes-1116) screenshots (local evidence output)
+tests/browser/round6-1116/shots/
+
 # Oct 16 portal sweep screenshots (local evidence output)
 tests/browser/ui-sweep-1016/.shots/

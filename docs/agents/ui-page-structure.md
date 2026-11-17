@@ -233,6 +233,14 @@ There is no "Defaults for properties" page.
 Keep the original layout: four KPI cards with sparklines, Needs attention and Upcoming,
 Your properties cards, Cash flow, and Everything open. Additions only as questions.
 
+**A tile never draws a figure it has not read.** Each KPI card and Needs attention carries the
+state of the reads behind it (`ReadState` in `pro-dashboard-kpis.tsx`): `loading` is a skeleton,
+`failed` is "—" with "Unavailable · Retry" (Retry re-runs only the reads that failed), and only `ready` prints
+a number — including an honest zero. A read that has not answered within
+`DASHBOARD_READ_DEADLINE_MS` (12 s) is `failed`, never a zero, and an empty Needs attention is
+"Nothing is waiting on you" only once every source has answered. Coverage:
+`tests/unit/dashboard-no-false-zeros.test.tsx`.
+
 ## 7. Checks before handing over
 
 Real tabs and labels (`src/lib/portals/*`); desktop and phone; empty, loading and error
