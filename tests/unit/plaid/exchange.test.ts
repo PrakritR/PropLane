@@ -1,0 +1,58 @@
+import { describe, expect, it, vi } from "vitest";
+import { exchangePublicToken } from "@/lib/plaid/exchange.server";
+import { createFakeDb } from "./fake-db";
+
+function client() {
+  return {
+    itemPublicTokenExchange: vi.fn(async () => ({ data: { access_token: "access-sandbox-xyz", item_id: "plaid-item-1" } })),
+    accountsGet: vi.fn(async () => ({
+      data: {
+        item: { institution_id: "ins_109508" },
+        accounts: [
+          { account_id: "acc-credit", type: "credit", mask: "1111", name: "Card" },
+          { account_id: "acc-1", type: "depository", mask: "0000", name: "Plaid Checking" },
+        ],
+      },
+    })),
+    institutionsGetById: vi.fn(async () => ({ data: { institution: { name: "First Platypus Bank" } } })),
+  };
+}
+
+describe("exchangePublicToken", () => {
+  it("stores the item under the session user, last four only", async () => {
+    const { db, tables } = createFakeDb({ manager_bank_accounts: [{ id: "ba-1", manager_user_id: "user-1" }] });
+    const createItem = vi.fn(async (_db: unknown, input: Record<string, unknown>) => ({ id: "row-1", institution_name: input.institutionName, account_mask: input.accountMask, account_name: input.accountName }) as never);
+    const result = await exchangePublicToken(
+      { db, client: client() as never, createItem: createItem as never },
+      { ownerUserId: "user-1", purpose: "bank_feed", publicToken: "public-sandbox-1", bankAccountId: "ba-1", preferredPlaidAccountId: null },
+    );
+    expect(result.ok).toBe(true);
+    const input = createItem.mock.calls[0]![1];
+    expect(input.ownerUserId).toBe("user-1");
+    expect(input.plaidAccountId).toBe("acc-1");
+    expect(input.accountMask).toBe("0000");
+    expect(input.institutionName).toBe("First Platypus Bank");
+    expect(JSON.stringify(input)).not.toMatch(/routing|account_number/i);
+    expect(tables.plaid_items).toHaveLength(0);
+  });
+
+  it("refuses another manager's bank account before touching Plaid", async () => {
+    const { db } = createFakeDb({ manager_bank_accounts: [{ id: "ba-1", manager_user_id: "someone-else" }] });
+    const c = client();
+    const result = await exchangePublicToken(
+      { db, client: c as never, createItem: vi.fn() as never },
+      { ownerUserId: "user-1", purpose: "bank_feed", publicToken: "p", bankAccountId: "ba-1", preferredPlaidAccountId: null },
+    );
+    expect(result).toMatchObject({ ok: false, status: 404 });
+    expect(c.itemPublicTokenExchange).not.toHaveBeenCalled();
+  });
+
+  it("requires a bank account for a bank feed", async () => {
+    const { db } = createFakeDb();
+    const result = await exchangePublicToken(
+      { db, client: client() as never, createItem: vi.fn() as never },
+      { ownerUserId: "user-1", purpose: "bank_feed", publicToken: "p", bankAccountId: null, preferredPlaidAccountId: null },
+    );
+    expect(result).toMatchObject({ ok: false, status: 400 });
+  });
+});

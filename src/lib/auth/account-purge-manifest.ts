@@ -712,6 +712,17 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    // Plaid bank links (access token encrypted, service role only). One login can hold items of
+    // several purposes: a manager's bank feed, a resident's bank pay and income check. A single
+    // portal's removal drops only that portal's purposes (PLAID_PURPOSES_BY_SCOPE in
+    // purge-portal-account-data.ts); a full delete drops them all after a best-effort /item/remove.
+    table: "plaid_items",
+    phase: 2,
+    manager: { ids: ["owner_user_id"] },
+    resident: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
+  },
+  {
     table: "manager_budgets",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
