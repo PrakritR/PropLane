@@ -304,6 +304,15 @@ trade labels ("Plumbing" -> plumber); use it (not `row.trade`) wherever the engi
 "does this vendor take this job". Edited on the vendor form's Dispatch step; shown as a
 glyph fact on Your vendors rows; Filter > Dispatch role narrows Your vendors.
 
+**Add carries "What they do" into Dispatch until Dispatch is the manager's own answer.**
+On the Add vendor form only (never an edit of an existing row), ticking a trade re-derives
+`dispatchTrades` from `vendorDispatchRoles({ trades })`, so the vendor the manager just said
+does plumbing is dispatchable for plumbing without retyping it. The carry stops the moment
+Dispatch is set by hand. That "set by hand" flag rides in the held draft
+(`useWorkspaceDraft`), and where it is absent — a draft kept from before it existed — the
+value itself answers: roles that are anything other than what the ticked trades derive are
+the manager's and are left alone. Guard: `tests/unit/vendor-add-dispatch-carry.test.tsx`.
+
 **Dispatch rules** (`rules.ts` pure validator, `rules.server.ts` CRUD, `access.server.ts`
 actor): routes `GET/POST /api/portal/vendor-dispatch/rules`,
 `PATCH/DELETE .../rules/[id]` (PATCH `{ active }` pauses). Workspace and owner are

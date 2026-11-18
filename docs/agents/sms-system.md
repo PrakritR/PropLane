@@ -125,7 +125,16 @@ through it or through the workspace-keyed helpers in
   surface, the resident-welcome reachability line, the listing CTA phone, and
   the Workspace number row's Ready / Not ready. Only `workNumberAwaitingCarrier`
   (a real `number` row short of registration) may name the carrier as the
-  reason; every other refusal gets neutral copy. **The WORDING of a blocked
+  reason; every other refusal gets neutral copy.
+  **A status read that has not landed is neither answer.** A surface that fetches
+  the status itself (the notification compose modal is the reference) keeps
+  `ManagerSmsWorkNumberHint` hidden until the read resolves — "SMS needs an active
+  work number" over a pending read is a claim about a line nobody has looked at
+  yet — and passes `statusUnknown` when it fails or comes back empty, which words
+  it as "Could not check your work number, so this SMS may not send." and links
+  Settings → Messaging. Never collapse a failed read into "no number", and never
+  into silence: silence reads as "the line is fine". Coverage:
+  `tests/unit/sms-hint-after-read.test.tsx`. **The WORDING of a blocked
   line is `lineBlocked`**, the status's own reason - `deployment` (this
   deployment's switch or runtime mode), `billing` (the workspace wallet),
   `setup` (the line genuinely is not provisioned yet) or `unavailable` (the

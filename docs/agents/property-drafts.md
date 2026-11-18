@@ -50,7 +50,13 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
   `pro-add-listing-form.tsx` path still uses its close-triggered/background
   autosave contract. Both paths compare the full submission fingerprint, so an
   untouched wizard closes without writing and future fields are covered without
-  an allowlist. Live edits continue to write in place through
+  an allowlist. **The saved baseline is the PREPARED submission** (normalized,
+  with its media uploaded), so after a Save or a Publish the editor's state and
+  its ref become that same object and the dirty flag is re-derived from it
+  (`listingWizardHasUnsavedInput`) — adopt it on both paths or "Unsaved changes"
+  stays lit over work that is already stored, and anything typed during the save
+  still wins. Guard: `tests/unit/listing-editor-saved-clears.test.tsx`. Live
+  edits continue to write in place through
   `updateExtraListingFromSubmissionOnServer` and never fork a draft.
   Closing with X flushes remaining dirty work, then leaves; the footer's red **Delete** is the
   opposite door — it confirms ("Delete this property?"), deletes the draft row and reclaims its
@@ -96,6 +102,21 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
   saved, then the host opens that tab. A missing lease type is fixed on Rooms
   (Leases offered), so it still jumps there. Each requirement must stay settable
   where its refusal sends the manager: `tests/unit/publish-requirements-reachable.test.tsx`.
+- **A gap that is not a blocker is ASKED about once, never papered over.** No
+  photos yet, or rooms nothing would price, do not refuse the publish: Publish
+  (or **Save** when editing a live listing — the ask names the button the
+  manager pressed) raises one confirm whose body is the gap sentence
+  `listingPublishSoftGapsNote` writes ("No photos yet · 2 rooms have no
+  price."), with **Go back** beside it. Answering it publishes as asked — a
+  missing photo is never filled with a stock image (root `AGENTS.md`, "never
+  fabricate a listing photo"), and nothing is auto-priced. A room counts as
+  unpriced only when NOTHING would give it a price by publish time: not its own
+  rent, not a term's, not the house default it follows, and not the workspace
+  default `applyWorkspaceDefaultsOnPublish` is about to fill it from — and a
+  whole-place listing, which has no rooms to price, is only ever asked about
+  photos. Coverage:
+  `tests/unit/listing-publish-confirm.test.ts` (the sentence),
+  `tests/unit/listing-publish-confirm-dialog.test.tsx` (the one ask).
 - **The wizard is the only editor of a draft** (Pricing above is the one exception). The drafts row (bucket 5) hides
   every detail panel that persists through `houseSaveTarget` (House details,
   Application questions, Lease) — a draft is absent from the extras catalog, so
@@ -142,3 +163,9 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
   target, so the wizard saves first and reads the result back. A brand-new draft is saved on
   the first "Edit in full" (the editors need a record id). Coverage:
   `tests/unit/listing-wizard-leasing-steps.test.tsx`.
+- **Back and Next visit EVERY step** (captain, Nov 17): `listingV2PathStepIds`
+  returns the whole of `LISTING_V2_STEPS`, so no step is skipped for being
+  empty — an untouched Rooms, Bathrooms or Shared spaces shows its own empty
+  state and Add action instead of being walked past silently. The rail marks
+  nothing off-path. Optional still means optional: none of those steps can
+  refuse a Publish. Guard: `tests/unit/listing-next-every-step.test.ts`.

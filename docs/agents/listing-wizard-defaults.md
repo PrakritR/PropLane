@@ -47,7 +47,13 @@ listing and the lease read exactly what the card shows.
   (`floorLevelSelectOptions(listingStoriesId, "")[0]`) as a display default
   and writes one only when the manager picks. A stamped floor reads as a
   filled-in card to `isBathroomSlotRemovable`, and lowering the count would
-  then refuse forever.
+  then refuse forever. **How many bathrooms the listing HAS is the one number the
+  Basics stepper shows**, `basicsBathroomCount` (`src/lib/listing-basics-sync.ts`:
+  the cards, counting a half or quarter bath as a half, else the stored
+  `listingTotalBathroomsId`). The preview panel's Bathrooms fact reads that
+  helper, never `sub.bathrooms.length`, so the preview and the stepper can never
+  disagree — a listing that only ever answered the stepper previews its answer
+  instead of 0. Guard: `tests/unit/listing-side-panel-bathrooms.test.tsx`.
 - **Shared spaces** (PLAN-0920-0631): Type, Floor and Who may use it on the
   card; What is in it, Size (sq ft, `sizeSqft`, like a room's — labelled "Lot
   size" for an outdoor space), Description, Photos and Video behind More ▾. A

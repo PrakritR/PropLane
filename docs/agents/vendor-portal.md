@@ -72,7 +72,19 @@ and rates stay on the catalog card. Overview and Profile are one Overview tab.
 Catalog Communication is the record thread (`RecordCommunicationSection`) with
 Send via PropLane / Email / SMS; the first send adds them to Your vendors
 (Every property) if they are not already there. Regular Add vendor keeps the
-six-step workspace.
+full step workspace (Invite by · Contact · Properties · What they do · Dispatch ·
+Typical price · Review); editing an existing vendor is the same walk with one
+Vendor step in place of Invite by + Contact, and "Who can handle" for the trades.
+
+**Typical price is money, and Review states the rates that will be saved.** Each
+Hourly / Typical service field wears a `$` prefix, and the Review step reads the
+very cells the save stores — one `expandTypicalRateCells` call for both — as
+"Typical price: Hourly $75 · Typical service $60–$90", a range when the per-house
+or per-trade cells disagree and nothing at all when none is set. Never summarize
+rates from a second derivation; Review that disagrees with what lands on
+`manager_vendor_records.row_data.typicalRates` is the bug this closes. Guard:
+`tests/unit/vendor-review-prices.test.tsx`. Dispatch roles on the same form:
+[`one-number.md`](one-number.md) § W7b.
 
 **Invites are server-issued and always expire.** A link minted for a directory row (Add vendor) carries that row's id, and redemption links THAT row instead of inserting a second one; previewing an invite reuses the unexpired pending token. `vendor_invites` is
 `SELECT`-only for `anon`/`authenticated` (owner-scoped read;
