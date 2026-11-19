@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AccountType, type PlaidApi } from "plaid";
 import type { PlaidPurpose } from "@/lib/plaid/client.server";
-import type { CreatePlaidItemInput, PlaidItemRow } from "@/lib/plaid/items.server";
+import { PlaidItemConflictError, type CreatePlaidItemInput, type PlaidItemRow } from "@/lib/plaid/items.server";
 
 export type ExchangeDeps = {
   db: SupabaseClient;
@@ -84,16 +84,21 @@ export async function exchangePublicToken(deps: ExchangeDeps, input: ExchangeInp
     bankAccountId = created.id;
   }
 
-  const item = await deps.createItem(deps.db, {
-    ownerUserId: input.ownerUserId,
-    purpose: input.purpose,
-    itemId: plaidItemId,
-    accessToken,
-    institutionName,
-    accountMask: chosen.mask ?? null,
-    accountName: chosen.name ?? chosen.official_name ?? null,
-    plaidAccountId: chosen.account_id,
-    bankAccountId,
-  });
-  return { ok: true, item };
+  try {
+    const item = await deps.createItem(deps.db, {
+      ownerUserId: input.ownerUserId,
+      purpose: input.purpose,
+      itemId: plaidItemId,
+      accessToken,
+      institutionName,
+      accountMask: chosen.mask ?? null,
+      accountName: chosen.name ?? chosen.official_name ?? null,
+      plaidAccountId: chosen.account_id,
+      bankAccountId,
+    });
+    return { ok: true, item };
+  } catch (error) {
+    if (error instanceof PlaidItemConflictError) return { ok: false, status: error.status, error: error.message };
+    throw error;
+  }
 }

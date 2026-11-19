@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeAll } from "vitest";
 import { randomBytes } from "node:crypto";
-import { createPlaidItem, readPlaidAccessToken, toPlaidItemView, maskLastFour } from "@/lib/plaid/items.server";
+import { createPlaidItem, PlaidItemConflictError, readPlaidAccessToken, toPlaidItemView, maskLastFour } from "@/lib/plaid/items.server";
 import { createFakeDb } from "./fake-db";
 
 beforeAll(() => {
@@ -25,14 +25,18 @@ describe("plaid items", () => {
     const { db } = createFakeDb();
     await createPlaidItem(db, { ownerUserId: "u1", purpose: "bank_feed", itemId: "i1", accessToken: "t" });
     await expect(createPlaidItem(db, { ownerUserId: "u2", purpose: "bank_feed", itemId: "i1", accessToken: "t" })).rejects.toThrow(/another account/);
+    await createPlaidItem(db, { ownerUserId: "u1", purpose: "bank_feed", itemId: "i2", accessToken: "t" });
+    const refusal = await createPlaidItem(db, { ownerUserId: "u2", purpose: "bank_feed", itemId: "i2", accessToken: "t" }).catch((e) => e);
+    expect(refusal).toBeInstanceOf(PlaidItemConflictError);
+    expect(refusal.status).toBe(403);
   });
 
   it("refuses to reclassify an item under another purpose and keeps its bank binding", async () => {
     const { db, tables } = createFakeDb();
     await createPlaidItem(db, { ownerUserId: "u1", purpose: "bank_feed", itemId: "i1", accessToken: "t", bankAccountId: "ba-1" });
-    await expect(createPlaidItem(db, { ownerUserId: "u1", purpose: "resident_pay", itemId: "i1", accessToken: "t" })).rejects.toThrow(
-      /already linked/,
-    );
+    const refusal = await createPlaidItem(db, { ownerUserId: "u1", purpose: "resident_pay", itemId: "i1", accessToken: "t" }).catch((e) => e);
+    expect(refusal).toBeInstanceOf(PlaidItemConflictError);
+    expect(refusal.status).toBe(409);
     // A reconnect names no bank account: the feed's binding survives.
     await createPlaidItem(db, { ownerUserId: "u1", purpose: "bank_feed", itemId: "i1", accessToken: "t2" });
     expect(tables.plaid_items).toHaveLength(1);

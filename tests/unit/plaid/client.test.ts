@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { plaidEnabled, plaidFailure, getPlaidClient } from "@/lib/plaid/client.server";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { isTransportError, logPlaidFailure, plaidEnabled, plaidFailure, getPlaidClient } from "@/lib/plaid/client.server";
 import { plaidWebhookUrl } from "@/lib/plaid/webhook-url";
 
 const full = { PLAID_CLIENT_ID: "id", PLAID_SECRET: "secret", PLAID_ENV: "sandbox" } as unknown as NodeJS.ProcessEnv;
@@ -32,6 +32,65 @@ describe("plaidFailure", () => {
   });
   it("maps a network failure to UNREACHABLE", () => {
     expect(plaidFailure(new Error("socket hang up")).code).toBe("UNREACHABLE");
+  });
+});
+
+describe("logPlaidFailure", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const printed = () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    return () => [...warn.mock.calls, ...error.mock.calls].map((call) => call.map((a) => inspect(a)).join(" ")).join("\n");
+  };
+  const inspect = (value: unknown) => {
+    try {
+      return typeof value === "string" ? value : JSON.stringify(value, Object.getOwnPropertyNames(value ?? {}));
+    } catch {
+      return String(value);
+    }
+  };
+  const axiosish = (extra: Record<string, unknown>) =>
+    Object.assign(new Error("timeout of 20000ms exceeded"), {
+      isAxiosError: true,
+      code: "ECONNABORTED",
+      config: { headers: { "PLAID-CLIENT-ID": "cid", "PLAID-SECRET": "topsecret" } },
+      ...extra,
+    });
+
+  it("never prints the request config of a transport failure (no Plaid error body)", () => {
+    const read = printed();
+    logPlaidFailure("[plaid] x failed", axiosish({}));
+    const out = read();
+    expect(out).not.toContain("topsecret");
+    expect(out).toContain("ECONNABORTED");
+  });
+
+  it("never prints it for a 5xx whose body is not Plaid JSON either", () => {
+    const read = printed();
+    logPlaidFailure("[plaid] x failed", axiosish({ response: { status: 502, data: "<html>bad gateway</html>", config: { headers: { "PLAID-SECRET": "topsecret" } } } }));
+    expect(read()).not.toContain("topsecret");
+  });
+
+  it("prints only the public code for an error Plaid answered with", () => {
+    const read = printed();
+    logPlaidFailure("[plaid] x failed", axiosish({ response: { status: 400, data: { error_code: "ITEM_LOGIN_REQUIRED" } } }));
+    const out = read();
+    expect(out).not.toContain("topsecret");
+    expect(out).toContain("ITEM_LOGIN_REQUIRED");
+  });
+
+  it("still logs a non-transport failure in full, so a Stripe or database error stays debuggable", () => {
+    const read = printed();
+    logPlaidFailure("[plaid] x failed", Object.assign(new Error("No such customer"), { type: "StripeInvalidRequestError" }));
+    expect(read()).toContain("No such customer");
+  });
+
+  it("treats anything carrying an HTTP client shape as sensitive", () => {
+    expect(isTransportError(axiosish({}))).toBe(true);
+    expect(isTransportError({ request: {} })).toBe(true);
+    expect(isTransportError(new Error("plain"))).toBe(false);
+    expect(isTransportError(null)).toBe(false);
   });
 });
 

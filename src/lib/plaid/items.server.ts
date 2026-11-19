@@ -79,6 +79,20 @@ export type CreatePlaidItemInput = {
   bankAccountId?: string | null;
 };
 
+/**
+ * A refusal, not a failure: this bank login is already held for someone else or for another purpose.
+ * Carries the status the caller answers with, so it never falls into a route's "couldn't reach your
+ * bank" catch-all the way a bare `Error` would.
+ */
+export class PlaidItemConflictError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "PlaidItemConflictError";
+    this.status = status;
+  }
+}
+
 export async function createPlaidItem(db: SupabaseClient, input: CreatePlaidItemInput): Promise<PlaidItemRow> {
   if (!input.ownerUserId) throw new Error("Owner is required.");
   const now = new Date().toISOString();
@@ -89,11 +103,13 @@ export async function createPlaidItem(db: SupabaseClient, input: CreatePlaidItem
     .eq("item_id", input.itemId)
     .maybeSingle();
   if (readError) throw new Error(readError.message);
-  if (existing && existing.owner_user_id !== input.ownerUserId) throw new Error("This bank connection belongs to another account.");
+  if (existing && existing.owner_user_id !== input.ownerUserId) {
+    throw new PlaidItemConflictError("This bank connection belongs to another account.", 403);
+  }
   // A row's purpose is fixed for its life: re-exchanging the same Plaid item under another purpose would
   // reclassify a manager's bank feed (and orphan the statements bound to it) while its cursor stayed behind.
   if (existing && existing.purpose && existing.purpose !== input.purpose) {
-    throw new Error("This bank connection is already linked for something else.");
+    throw new PlaidItemConflictError("This bank login is already connected for something else. Unlink it first.", 409);
   }
 
   const id = existing?.id ? String(existing.id) : randomUUID();

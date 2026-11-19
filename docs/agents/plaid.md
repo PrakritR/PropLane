@@ -76,11 +76,18 @@ micro-deposits stay as "Enter numbers instead"; phone-bound links and saved-bank
   read would under-count one month and, because each opening chains into the next closing, corrupt
   every older one.
 - **A Plaid item's purpose is fixed for its life.** Re-exchanging the same `item_id` under another
-  purpose is refused (`createPlaidItem`), and a reconnect that names no bank account keeps the one
-  the feed is already bound to.
-- **Log through `logPlaidFailure`.** It prints `plaidFailure(error).code` for an error Plaid itself
-  answered with (a raw axios error carries the secret header) and the full error for anything else —
-  a Stripe or database failure would otherwise be flattened to `UNREACHABLE` with nothing to debug.
+  purpose, or under another owner, is refused with a `PlaidItemConflictError` carrying its own status
+  (409 / 403) that `exchangePublicToken` turns into a typed refusal — never a bare throw that a route
+  answers as "couldn't reach your bank". A reconnect that names no bank account keeps the one the feed
+  is already bound to.
+- **Log through `logPlaidFailure`, and never log an error that touched the HTTP client.** An
+  `AxiosError` keeps `config` / `request` / `response.config` as own enumerable properties and the
+  Plaid client's config headers hold `PLAID-SECRET`, so `util.inspect` would print the live secret —
+  and a transport failure (timeout, DNS, TLS, a 5xx with an HTML body) carries NO Plaid error body, so
+  "is it Plaid-shaped" is the wrong question. `isTransportError` is the gate: anything that answers it
+  is reduced to its public code plus the transport code, status and message. Only an error that never
+  went through the client (Stripe, the database, a bug) is logged whole, which is what keeps it
+  debuggable after `plaidFailure` would have flattened it to `UNREACHABLE`.
 - **Purge.** `plaid_items` is in `account-purge-manifest.ts`; a purge calls `/item/remove`
   best-effort first, and a single-portal removal drops only that portal's purposes.
 
@@ -95,10 +102,13 @@ group never waits on it.
   applicant. A guest (no session) never sees it and keeps the pay-stub path. Binding a guest to the held draft was judged too
   much: the held draft only exists after the form is finished, and the account is created after proof.
 - **Method.** Link with the Transactions product (90 days), then `/transactions/get` and `income-calc.ts`: payroll-style
-  deposits (Plaid `INCOME_WAGES`, or a payroll name; never a transfer, refund, peer payment or pending line) averaged over the
-  history the bank actually shared (`coveredMonths`, capped at the 3 months asked for), at least two deposits or no figure, and
-  no figure at all under `INCOME_MIN_COVERAGE_DAYS` of history — the divisor is never a window the bank did not cover, and
-  `months` in the manager's line is the divisor used. Plaid's own Income products (`/credit/bank_income/get`) need separate product
+  deposits (Plaid `INCOME_WAGES`, or a payroll name; never a transfer, refund, peer payment or pending line) divided by the
+  period THOSE DEPOSITS cover, never the window asked for. `depositCoverageMonths` reads the cadence off the deposits: `n` of
+  them spanning `span` days imply a cycle of `span / (n - 1)` and cover `span + cycle` days, capped at the 3 months requested
+  and never rounded — rounding the divisor down is what would report a monthly-paid applicant at twice their income, and
+  rounding the window up is what would report them at a third of it. At least two deposits, spanning at least
+  `INCOME_MIN_COVERAGE_DAYS` of real observation, or there is no figure at all. `months` in the manager's line is the
+  whole-month label for that period; the figure itself comes from the unrounded divisor. Plaid's own Income products (`/credit/bank_income/get`) need separate product
   access, so they are not used; proven against the sandbox with a custom user.
 - **Server-owned.** `POST /api/plaid/income/verify` takes only the public token and the listing id (never a figure), computes
   on the server, stores one row per (applicant, listing) in `applicant_income_verifications` (service role only, a figure and

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { exchangePublicToken } from "@/lib/plaid/exchange.server";
+import { PlaidItemConflictError } from "@/lib/plaid/items.server";
 import { createFakeDb } from "./fake-db";
 
 function client() {
@@ -54,6 +55,19 @@ describe("exchangePublicToken", () => {
       { ownerUserId: "user-1", purpose: "bank_feed", publicToken: "p", bankAccountId: null, preferredPlaidAccountId: null },
     );
     expect(result).toMatchObject({ ok: false, status: 400 });
+  });
+
+  it("answers an item conflict as its own refusal, never as 'couldn't reach your bank'", async () => {
+    const { db } = createFakeDb({ manager_bank_accounts: [{ id: "ba-1", manager_user_id: "user-1" }] });
+    const createItem = vi.fn(async () => {
+      throw new PlaidItemConflictError("This bank login is already connected for something else. Unlink it first.", 409);
+    });
+    const result = await exchangePublicToken(
+      { db, client: client() as never, createItem: createItem as never },
+      { ownerUserId: "user-1", purpose: "bank_feed", publicToken: "p", bankAccountId: "ba-1", preferredPlaidAccountId: null },
+    );
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    expect(result.ok === false && result.error).toMatch(/already connected/);
   });
 
   it("makes the manager's operating account from the linked account when none was picked", async () => {

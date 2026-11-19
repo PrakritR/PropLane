@@ -20,7 +20,10 @@ export type IncomeTransactionInput = {
 
 export const INCOME_LOOKBACK_MONTHS = 3;
 export const INCOME_MIN_DEPOSITS = 2;
-/** Below this much shared history there is no honest monthly figure to report, so none is reported. */
+/**
+ * The payroll deposits must span at least this many days of real observation. Two deposits a few days
+ * apart say nothing about a pay cycle, and dividing by the period they imply would multiply the figure.
+ */
 export const INCOME_MIN_COVERAGE_DAYS = 28;
 const DAYS_PER_MONTH = 30.44;
 
@@ -48,30 +51,40 @@ function dayNumber(value: string | null | undefined): number | null {
 }
 
 /**
- * How many whole months of history the bank actually shared, from the span of the transactions it
- * returned — never more than `requestedMonths`, and never less than one. `null` when no transaction
- * carries a date (the denominator then stays the requested window) or when the span is shorter than
- * `INCOME_MIN_COVERAGE_DAYS`, which is "too little history to say" rather than a bigger figure.
+ * The period the payroll deposits themselves cover, in months, as a fraction — never rounded, because
+ * rounding the divisor down inflates the figure, and this figure is shown to a manager as verified fact.
+ *
+ * `n` deposits spanning `span` days imply a pay cycle of `span / (n - 1)`, and together they cover one
+ * cycle's worth of earnings beyond the last one, so the period is `span + cycle`. That is accurate for
+ * every cadence (two monthly paychecks 30 days apart cover ~1.97 months, not 1; three biweekly ones over
+ * 28 days cover ~1.38) and it is capped at the window actually requested, so a wide gap between two
+ * deposits can only understate.
+ *
+ * `{ tooShort: true }` when the deposits span less than `INCOME_MIN_COVERAGE_DAYS` of real observation.
+ * `null` when the deposits are not all dated, in which case the caller keeps the requested window.
  */
-export function coveredMonths(
-  transactions: readonly IncomeTransactionInput[],
+export function depositCoverageMonths(
+  deposits: readonly IncomeTransactionInput[],
   requestedMonths: number,
 ): { months: number } | { tooShort: true } | null {
-  const days = transactions.map((t) => dayNumber(t.date)).filter((d): d is number => d !== null);
-  if (days.length === 0) return null;
-  const spanDays = Math.max(...days) - Math.min(...days) + 1;
+  const days = deposits.map((t) => dayNumber(t.date)).filter((d): d is number => d !== null);
+  if (days.length < 2 || days.length !== deposits.length) return null;
+  const sorted = [...days].sort((a, b) => a - b);
+  const spanDays = sorted[sorted.length - 1]! - sorted[0]!;
   if (spanDays < INCOME_MIN_COVERAGE_DAYS) return { tooShort: true };
-  return { months: Math.max(1, Math.min(requestedMonths, Math.round(spanDays / DAYS_PER_MONTH))) };
+  const cycleDays = spanDays / (sorted.length - 1);
+  const coveredDays = Math.min(spanDays + cycleDays, requestedMonths * DAYS_PER_MONTH);
+  return { months: coveredDays / DAYS_PER_MONTH };
 }
 
 /**
  * Average monthly payroll-style deposits, or null when there is not enough to say.
  *
- * The divisor is the history the bank actually shared, not the window we asked for: an institution
- * that returns five weeks would otherwise have two paychecks divided by three months and understate
- * real income two- to threefold — and the figure is shown to a manager as verified fact. Shorter than
- * `INCOME_MIN_COVERAGE_DAYS` of history yields no figure at all, so a short window can never inflate
- * one either. The `months` returned is the divisor used, which is also what the manager is shown.
+ * The divisor is the period the deposits actually cover (`depositCoverageMonths`), never the window we
+ * asked for: dividing five weeks of paychecks by three months would understate real income two- to
+ * threefold, and dividing them by a rounded one month would overstate it twofold. Deposits spanning
+ * less than `INCOME_MIN_COVERAGE_DAYS` yield no figure at all. `months` is the whole-month label for
+ * that period; the figure itself is computed from the unrounded divisor.
  */
 export function estimateMonthlyIncome(
   transactions: readonly IncomeTransactionInput[],
@@ -79,11 +92,12 @@ export function estimateMonthlyIncome(
 ): IncomeEstimate | null {
   const deposits = transactions.filter(looksLikePayrollDeposit);
   if (deposits.length < INCOME_MIN_DEPOSITS || months <= 0) return null;
-  const coverage = coveredMonths(transactions, months);
+  const coverage = depositCoverageMonths(deposits, months);
   if (coverage && "tooShort" in coverage) return null;
   const divisor = coverage?.months ?? months;
+  if (!(divisor > 0)) return null;
   const totalCents = deposits.reduce((sum, txn) => sum + Math.round(Math.abs(txn.amount) * 100), 0);
   const monthlyIncomeCents = Math.round(totalCents / divisor);
   if (monthlyIncomeCents <= 0) return null;
-  return { monthlyIncomeCents, months: divisor, depositCount: deposits.length };
+  return { monthlyIncomeCents, months: Math.max(1, Math.round(divisor)), depositCount: deposits.length };
 }

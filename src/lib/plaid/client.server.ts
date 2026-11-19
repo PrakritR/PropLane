@@ -82,12 +82,39 @@ export function isPlaidShapedError(error: unknown): boolean {
 }
 
 /**
- * The one way a Plaid route logs a failure. A Plaid/axios error carries the request config (headers
- * with the secret), so only its public code is logged. Anything else — Stripe, the database, a bug —
- * is not Plaid-shaped and `plaidFailure` would flatten it to `UNREACHABLE`, leaving nothing to debug,
- * so it is logged in full.
+ * True for an error that came out of the HTTP client, whether or not Plaid answered it: a timeout, a
+ * DNS or TLS failure, a 5xx with an HTML body. `AxiosError` keeps `config` / `request` /
+ * `response.config` as OWN ENUMERABLE properties, and the Plaid client's config headers hold
+ * `PLAID-SECRET`, so `util.inspect` would print the live secret. Such an error is never logged whole.
+ */
+export function isTransportError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const e = error as Record<string, unknown>;
+  return e.isAxiosError === true || "config" in e || "request" in e || "response" in e;
+}
+
+/**
+ * The one way a Plaid route logs a failure.
+ *
+ * Nothing that touched the HTTP client is ever logged whole — not even a transport failure, whose
+ * axios error carries the request config with the secret header. Those are reduced to their public
+ * code plus the transport code, status and message. Anything else (Stripe, the database, a bug) holds
+ * no Plaid credential and `plaidFailure` would flatten it to `UNREACHABLE` with nothing left to
+ * debug, so it is logged in full.
  */
 export function logPlaidFailure(label: string, error: unknown): void {
-  if (isPlaidShapedError(error)) console.warn(label, plaidFailure(error).code);
-  else console.error(`${label} (not a Plaid error)`, error);
+  if (isPlaidShapedError(error)) {
+    console.warn(label, plaidFailure(error).code);
+    return;
+  }
+  if (isTransportError(error)) {
+    const e = error as { code?: unknown; message?: unknown; response?: { status?: unknown } };
+    console.warn(label, plaidFailure(error).code, {
+      transport: typeof e.code === "string" ? e.code : "UNKNOWN",
+      status: typeof e.response?.status === "number" ? e.response.status : null,
+      message: typeof e.message === "string" ? e.message.slice(0, 300) : "",
+    });
+    return;
+  }
+  console.error(`${label} (not a Plaid error)`, error);
 }
