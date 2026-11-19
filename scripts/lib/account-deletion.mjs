@@ -229,6 +229,11 @@ export const DELETE_ORDER = [
   "workspace_automation_settings",
   "listing_prefill_usage",
   "manager_billing_settings",
+  // Plaid links (encrypted access token, service role only) before `manager_bank_accounts`:
+  // `plaid_items.bank_account_id` references it. The verified-income figure is a leaf on the
+  // applicant's own login. Both match the in-app purge manifest's phase 2.
+  "plaid_items",
+  "applicant_income_verifications",
   "manager_bank_accounts",
   "manager_budgets",
   "manager_comms_credit_adjustments",

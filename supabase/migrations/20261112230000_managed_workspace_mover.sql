@@ -223,6 +223,9 @@ as $$
     ('payout_destination_cache_refreshes', 'keep', 'owner_user_id'),
     ('payout_destinations_cache', 'keep', 'owner_user_id'),
     ('payout_identity_status', 'keep', 'owner_user_id'),
+    -- The client's own bank login. Its access token is encrypted with the owner id in the AAD, so a moved row would
+    -- decrypt nowhere; it also belongs to the same client as the kept manager_bank_accounts it points at.
+    ('plaid_items', 'keep', 'owner_user_id'),
     ('platform_hold_refund_attempts', 'keep', 'owner_user_id'),
     ('platform_hold_refund_transfer_legs', 'keep', 'owner_user_id'),
     ('platform_hold_transfer_attempts', 'keep', 'owner_user_id'),
