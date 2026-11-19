@@ -78,7 +78,9 @@ micro-deposits stay as "Enter numbers instead"; phone-bound links and saved-bank
 - **A Plaid item's purpose is fixed for its life.** Re-exchanging the same `item_id` under another
   purpose, or under another owner, is refused with a `PlaidItemConflictError` carrying its own status
   (409 / 403) that `exchangePublicToken` turns into a typed refusal — never a bare throw that a route
-  answers as "couldn't reach your bank". A reconnect that names no bank account keeps the one the feed
+  answers as "couldn't reach your bank". Its message reaches the requester, so the foreign-owner case
+  stays generic ("This bank login can't be connected here."): that another account holds the login is
+  not theirs to learn. A reconnect that names no bank account keeps the one the feed
   is already bound to.
 - **Log through `logPlaidFailure`, and never log an error that touched the HTTP client.** An
   `AxiosError` keeps `config` / `request` / `response.config` as own enumerable properties and the
@@ -106,9 +108,12 @@ group never waits on it.
   period THOSE DEPOSITS cover, never the window asked for. `depositCoverageMonths` reads the cadence off the deposits: `n` of
   them spanning `span` days imply a cycle of `span / (n - 1)` and cover `span + cycle` days, capped at the 3 months requested
   and never rounded — rounding the divisor down is what would report a monthly-paid applicant at twice their income, and
-  rounding the window up is what would report them at a third of it. At least two deposits, spanning at least
-  `INCOME_MIN_COVERAGE_DAYS` of real observation, or there is no figure at all. `months` in the manager's line is the
-  whole-month label for that period; the figure itself comes from the unrounded divisor. Plaid's own Income products (`/credit/bank_income/get`) need separate product
+  rounding the window up is what would report them at a third of it. `INCOME_MIN_DEPOSITS` is **three**, because two
+  deposits are one gap: a cadence guessed from a single interval cannot tell a monthly paycheck pair from a paycheck plus
+  a bonus. Fewer than three, or a span under `INCOME_MIN_COVERAGE_DAYS` of real observation, and there is no figure at
+  all — which costs the applicant nothing, since the check never blocks a submit. `months` in the manager's line is the
+  whole-month label for the history the bank SHARED (`observedMonths`), a fact they can hold the figure against; the
+  figure itself comes from the unrounded earning period, which is derived, not observed. Plaid's own Income products (`/credit/bank_income/get`) need separate product
   access, so they are not used; proven against the sandbox with a custom user.
 - **Server-owned.** `POST /api/plaid/income/verify` takes only the public token and the listing id (never a figure), computes
   on the server, stores one row per (applicant, listing) in `applicant_income_verifications` (service role only, a figure and

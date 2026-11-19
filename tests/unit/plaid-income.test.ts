@@ -42,26 +42,30 @@ describe("income calc", () => {
 
   const dated = (amount: number, date: string) => ({ ...wages(amount), date });
 
-  it("divides by the period the paychecks cover, not the window asked for", () => {
-    // Three monthly paychecks: the figure is one paycheck a month, whatever window was requested.
+  it("divides by the period the paychecks earn over, not the window asked for", () => {
+    // Three monthly paychecks: the figure is one paycheck a month, whatever window was requested, and the
+    // label is the history the bank really shared (61 days), never the derived 3-month earning period.
     expect(estimateMonthlyIncome([dated(2425, "2026-09-15"), dated(2425, "2026-10-15"), dated(2425, "2026-11-15")])).toEqual({
       monthlyIncomeCents: 242500,
-      months: 3,
+      months: 2,
       depositCount: 3,
     });
-  });
-
-  it("never overstates when the bank shared a short window: two monthly paychecks are not one month's pay", () => {
-    // 30 days of shared history. Dividing by a rounded 1 month would report ~2x real income.
-    const estimate = estimateMonthlyIncome([dated(2425, "2026-10-10"), dated(2425, "2026-11-09")]);
-    expect(estimate).toEqual({ monthlyIncomeCents: 246057, months: 2, depositCount: 2 });
   });
 
   it("reads a biweekly cadence as biweekly, not as the calendar span", () => {
     // Three biweekly paychecks over 28 days: 2425 x 26 / 12 is about 5254/mo.
     const estimate = estimateMonthlyIncome([dated(2425, "2026-10-22"), dated(2425, "2026-11-05"), dated(2425, "2026-11-19")]);
-    expect(estimate?.monthlyIncomeCents).toBe(527264);
-    expect(estimate?.depositCount).toBe(3);
+    expect(estimate).toEqual({ monthlyIncomeCents: 527264, months: 1, depositCount: 3 });
+  });
+
+  it("reads a semi-monthly cadence too", () => {
+    const dates = ["2026-09-01", "2026-09-15", "2026-10-01", "2026-10-15", "2026-11-01", "2026-11-15"];
+    // 1212.50 twice a month is 2425/mo; the derived figure lands within a couple of percent.
+    expect(estimateMonthlyIncome(dates.map((date) => dated(1212.5, date)))).toEqual({
+      monthlyIncomeCents: 246057,
+      months: 2,
+      depositCount: 6,
+    });
   });
 
   it("keeps the full window when the bank shared it all", () => {
@@ -70,14 +74,17 @@ describe("income calc", () => {
   });
 
   it("gives no figure when the paychecks span less than a month of real observation", () => {
-    expect(estimateMonthlyIncome([dated(2425, "2026-11-05"), dated(2425, "2026-11-19")])).toBeNull();
-    // Two deposits days apart imply no pay cycle at all; the period they would imply multiplies the figure.
-    expect(estimateMonthlyIncome([dated(2425, "2026-11-16"), dated(2425, "2026-11-18")])).toBeNull();
+    const close = ["2026-11-05", "2026-11-12", "2026-11-19"].map((date) => dated(2425, date));
+    expect(estimateMonthlyIncome(close)).toBeNull();
   });
 
-  it("gives no figure from fewer than two deposits", () => {
+  it("gives no figure from a cadence guessed off a single gap", () => {
+    // Two deposits are one interval: a monthly paycheck pair and a paycheck plus a bonus look identical,
+    // and the period that single gap implies is what would double the figure.
+    expect(estimateMonthlyIncome([dated(2425, "2026-10-10"), dated(2425, "2026-11-09")])).toBeNull();
     expect(estimateMonthlyIncome([])).toBeNull();
     expect(estimateMonthlyIncome([wages(2400)])).toBeNull();
+    expect(estimateMonthlyIncome([wages(2400), wages(2400)])).toBeNull();
   });
 });
 

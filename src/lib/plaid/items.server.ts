@@ -82,7 +82,8 @@ export type CreatePlaidItemInput = {
 /**
  * A refusal, not a failure: this bank login is already held for someone else or for another purpose.
  * Carries the status the caller answers with, so it never falls into a route's "couldn't reach your
- * bank" catch-all the way a bare `Error` would.
+ * bank" catch-all the way a bare `Error` would. The message reaches the requester, so the foreign-owner
+ * case stays generic: that another PropLane account holds this login is not theirs to learn.
  */
 export class PlaidItemConflictError extends Error {
   readonly status: number;
@@ -104,7 +105,7 @@ export async function createPlaidItem(db: SupabaseClient, input: CreatePlaidItem
     .maybeSingle();
   if (readError) throw new Error(readError.message);
   if (existing && existing.owner_user_id !== input.ownerUserId) {
-    throw new PlaidItemConflictError("This bank connection belongs to another account.", 403);
+    throw new PlaidItemConflictError("This bank login can't be connected here.", 403);
   }
   // A row's purpose is fixed for its life: re-exchanging the same Plaid item under another purpose would
   // reclassify a manager's bank feed (and orphan the statements bound to it) while its cursor stayed behind.

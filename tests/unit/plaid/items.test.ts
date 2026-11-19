@@ -24,11 +24,14 @@ describe("plaid items", () => {
   it("refuses to take over an item another account holds", async () => {
     const { db } = createFakeDb();
     await createPlaidItem(db, { ownerUserId: "u1", purpose: "bank_feed", itemId: "i1", accessToken: "t" });
-    await expect(createPlaidItem(db, { ownerUserId: "u2", purpose: "bank_feed", itemId: "i1", accessToken: "t" })).rejects.toThrow(/another account/);
+    await expect(createPlaidItem(db, { ownerUserId: "u2", purpose: "bank_feed", itemId: "i1", accessToken: "t" })).rejects.toThrow(
+      /can't be connected here/,
+    );
     await createPlaidItem(db, { ownerUserId: "u1", purpose: "bank_feed", itemId: "i2", accessToken: "t" });
     const refusal = await createPlaidItem(db, { ownerUserId: "u2", purpose: "bank_feed", itemId: "i2", accessToken: "t" }).catch((e) => e);
     expect(refusal).toBeInstanceOf(PlaidItemConflictError);
     expect(refusal.status).toBe(403);
+    expect(refusal.message).not.toMatch(/account|owner|u1/i);
   });
 
   it("refuses to reclassify an item under another purpose and keeps its bank binding", async () => {
