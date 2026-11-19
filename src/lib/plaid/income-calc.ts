@@ -49,6 +49,16 @@ export function looksLikePayrollDeposit(txn: IncomeTransactionInput): boolean {
 
 export type IncomeEstimate = { monthlyIncomeCents: number; months: number; depositCount: number };
 
+/** Why there is no figure. `no_payroll_deposits` is "nothing in that account looked like pay";
+ * `not_enough_history` is "paychecks are there, but too few or too close together to divide by". The
+ * caller must never re-derive this by counting deposits itself: a new refusal branch here would
+ * silently fall into the wrong message. */
+export type IncomeEstimateRefusal = "no_payroll_deposits" | "not_enough_history";
+
+export type IncomeEstimateOutcome =
+  | { ok: true; estimate: IncomeEstimate }
+  | { ok: false; reason: IncomeEstimateRefusal; depositCount: number };
+
 function dayNumber(value: string | null | undefined): number | null {
   const text = (value ?? "").slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
@@ -87,7 +97,7 @@ export function depositCoverageMonths(
 }
 
 /**
- * Average monthly payroll-style deposits, or null when there is not enough to say.
+ * Average monthly payroll-style deposits, or the reason there is no figure.
  *
  * The divisor is the period the deposits actually earn over (`depositCoverageMonths`), never the window
  * we asked for: dividing five weeks of paychecks by three months would understate real income two- to
@@ -95,20 +105,25 @@ export function depositCoverageMonths(
  * than `INCOME_MIN_COVERAGE_DAYS` yield no figure at all. `months` is the whole-month label for the
  * history the bank shared, a fact the manager can hold the figure against; it is deliberately not the
  * divisor, which is a derived period and is used unrounded.
+ *
+ * A refusal says WHICH of the two it is, because "we found no paychecks" and "we found paychecks but too
+ * little history" are different answers to the applicant and only this function knows which applies.
  */
 export function estimateMonthlyIncome(
   transactions: readonly IncomeTransactionInput[],
   months: number = INCOME_LOOKBACK_MONTHS,
-): IncomeEstimate | null {
+): IncomeEstimateOutcome {
   const deposits = transactions.filter(looksLikePayrollDeposit);
-  if (deposits.length < INCOME_MIN_DEPOSITS || months <= 0) return null;
+  const depositCount = deposits.length;
+  if (depositCount === 0) return { ok: false, reason: "no_payroll_deposits", depositCount };
+  if (depositCount < INCOME_MIN_DEPOSITS || months <= 0) return { ok: false, reason: "not_enough_history", depositCount };
   const coverage = depositCoverageMonths(deposits, months);
-  if (coverage && "tooShort" in coverage) return null;
+  if (coverage && "tooShort" in coverage) return { ok: false, reason: "not_enough_history", depositCount };
   const divisor = coverage?.months ?? months;
-  if (!(divisor > 0)) return null;
+  if (!(divisor > 0)) return { ok: false, reason: "not_enough_history", depositCount };
   const totalCents = deposits.reduce((sum, txn) => sum + Math.round(Math.abs(txn.amount) * 100), 0);
   const monthlyIncomeCents = Math.round(totalCents / divisor);
-  if (monthlyIncomeCents <= 0) return null;
+  if (monthlyIncomeCents <= 0) return { ok: false, reason: "no_payroll_deposits", depositCount };
   const observed = coverage ? Math.max(1, Math.round(coverage.observedMonths)) : months;
-  return { monthlyIncomeCents, months: observed, depositCount: deposits.length };
+  return { ok: true, estimate: { monthlyIncomeCents, months: observed, depositCount } };
 }

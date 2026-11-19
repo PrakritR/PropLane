@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { CountryCode, Products, type PlaidApi, type Transaction } from "plaid";
-import { estimateMonthlyIncome, INCOME_LOOKBACK_MONTHS } from "@/lib/plaid/income-calc";
+import { estimateMonthlyIncome, INCOME_LOOKBACK_MONTHS, type IncomeEstimateRefusal } from "@/lib/plaid/income-calc";
 import { getPlaidClient, plaidEnabled, plaidFailure } from "@/lib/plaid/client.server";
 import { resolveApplicantScreeningSettings } from "@/lib/screening/applicant-screening-settings.server";
 import {
@@ -110,6 +110,16 @@ export type IncomeComputeResult =
   | { ok: false; status: number; error: string };
 
 /**
+ * One message per refusal reason. An applicant whose bank shared too little history is told that, not
+ * that no paychecks were found — they can try the account their pay actually lands in, and the manager
+ * asking why there is no figure gets the true answer. Skipping to pay stubs stays available either way.
+ */
+const INCOME_REFUSAL_MESSAGE: Record<IncomeEstimateRefusal, string> = {
+  no_payroll_deposits: "We couldn't find regular paychecks in that account.",
+  not_enough_history: "That account doesn't have enough paycheck history yet.",
+};
+
+/**
  * Exchange the Link public token, read 90 days of transactions, compute the figure, remove the Item. The Item is
  * removed in a `finally`: a failure at any step still leaves no access token behind.
  */
@@ -123,8 +133,9 @@ export async function computeIncomeFromPublicToken(
   const accessToken = exchanged.data.access_token;
   try {
     const transactions = await readTransactions(client, accessToken, now, wait);
-    const estimate = estimateMonthlyIncome(transactions, INCOME_LOOKBACK_MONTHS);
-    if (!estimate) return { ok: false, status: 422, error: "We couldn't find regular paychecks in that account." };
+    const outcome = estimateMonthlyIncome(transactions, INCOME_LOOKBACK_MONTHS);
+    if (!outcome.ok) return { ok: false, status: 422, error: INCOME_REFUSAL_MESSAGE[outcome.reason] };
+    const estimate = outcome.estimate;
     return {
       ok: true,
       verification: {

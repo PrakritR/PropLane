@@ -23,7 +23,7 @@ const wages = (amount: number, name = "ACME CORP PAYROLL"): IncomeTransactionInp
 describe("income calc", () => {
   it("averages payroll deposits over 3 months", () => {
     const estimate = estimateMonthlyIncome([wages(2425), wages(2425), wages(2425), wages(2425), wages(2425), wages(2425)]);
-    expect(estimate).toEqual({ monthlyIncomeCents: 485000, months: 3, depositCount: 6 });
+    expect(estimate).toEqual({ ok: true, estimate: { monthlyIncomeCents: 485000, months: 3, depositCount: 6 } });
   });
 
   it("recognises payroll by name when the category is missing", () => {
@@ -46,45 +46,52 @@ describe("income calc", () => {
     // Three monthly paychecks: the figure is one paycheck a month, whatever window was requested, and the
     // label is the history the bank really shared (61 days), never the derived 3-month earning period.
     expect(estimateMonthlyIncome([dated(2425, "2026-09-15"), dated(2425, "2026-10-15"), dated(2425, "2026-11-15")])).toEqual({
-      monthlyIncomeCents: 242500,
-      months: 2,
-      depositCount: 3,
+      ok: true,
+      estimate: { monthlyIncomeCents: 242500, months: 2, depositCount: 3 },
     });
   });
 
   it("reads a biweekly cadence as biweekly, not as the calendar span", () => {
     // Three biweekly paychecks over 28 days: 2425 x 26 / 12 is about 5254/mo.
     const estimate = estimateMonthlyIncome([dated(2425, "2026-10-22"), dated(2425, "2026-11-05"), dated(2425, "2026-11-19")]);
-    expect(estimate).toEqual({ monthlyIncomeCents: 527264, months: 1, depositCount: 3 });
+    expect(estimate).toEqual({ ok: true, estimate: { monthlyIncomeCents: 527264, months: 1, depositCount: 3 } });
   });
 
   it("reads a semi-monthly cadence too", () => {
     const dates = ["2026-09-01", "2026-09-15", "2026-10-01", "2026-10-15", "2026-11-01", "2026-11-15"];
     // 1212.50 twice a month is 2425/mo; the derived figure lands within a couple of percent.
     expect(estimateMonthlyIncome(dates.map((date) => dated(1212.5, date)))).toEqual({
-      monthlyIncomeCents: 246057,
-      months: 2,
-      depositCount: 6,
+      ok: true,
+      estimate: { monthlyIncomeCents: 246057, months: 2, depositCount: 6 },
     });
   });
 
   it("keeps the full window when the bank shared it all", () => {
     const estimate = estimateMonthlyIncome([dated(2425, "2026-08-20"), dated(2425, "2026-10-05"), dated(2425, "2026-11-18")]);
-    expect(estimate).toMatchObject({ months: 3, monthlyIncomeCents: 242500 });
+    expect(estimate).toMatchObject({ ok: true, estimate: { months: 3, monthlyIncomeCents: 242500 } });
   });
 
   it("gives no figure when the paychecks span less than a month of real observation", () => {
     const close = ["2026-11-05", "2026-11-12", "2026-11-19"].map((date) => dated(2425, date));
-    expect(estimateMonthlyIncome(close)).toBeNull();
+    expect(estimateMonthlyIncome(close)).toEqual({ ok: false, reason: "not_enough_history", depositCount: 3 });
   });
 
   it("gives no figure from a cadence guessed off a single gap", () => {
     // Two deposits are one interval: a monthly paycheck pair and a paycheck plus a bonus look identical,
     // and the period that single gap implies is what would double the figure.
-    expect(estimateMonthlyIncome([dated(2425, "2026-10-10"), dated(2425, "2026-11-09")])).toBeNull();
-    expect(estimateMonthlyIncome([])).toBeNull();
-    expect(estimateMonthlyIncome([wages(2400)])).toBeNull();
-    expect(estimateMonthlyIncome([wages(2400), wages(2400)])).toBeNull();
+    expect(estimateMonthlyIncome([dated(2425, "2026-10-10"), dated(2425, "2026-11-09")])).toEqual({
+      ok: false,
+      reason: "not_enough_history",
+      depositCount: 2,
+    });
+    expect(estimateMonthlyIncome([wages(2400), wages(2400)])).toMatchObject({ ok: false, reason: "not_enough_history" });
+  });
+
+  it("says paychecks were FOUND but the history is short, apart from finding none at all", () => {
+    // Paychecks are plainly there in both short cases above; only an account with none says so.
+    expect(estimateMonthlyIncome([])).toEqual({ ok: false, reason: "no_payroll_deposits", depositCount: 0 });
+    expect(estimateMonthlyIncome([{ amount: 12, name: "COFFEE" }])).toEqual({ ok: false, reason: "no_payroll_deposits", depositCount: 0 });
+    expect(estimateMonthlyIncome([wages(2400)])).toMatchObject({ ok: false, reason: "not_enough_history", depositCount: 1 });
   });
 });
 
@@ -128,8 +135,18 @@ describe("computeIncomeFromPublicToken", () => {
   it("retries a not-ready Item, and still removes the Item when there is no income", async () => {
     const client = fakePlaid([{ amount: 12, name: "COFFEE" }], { notReady: 2 });
     const result = await computeIncomeFromPublicToken({ publicToken: "p", now, wait }, client as never);
-    expect(result).toMatchObject({ ok: false, status: 422 });
+    expect(result).toMatchObject({ ok: false, status: 422, error: "We couldn't find regular paychecks in that account." });
     expect(client.transactionsGet).toHaveBeenCalledTimes(3);
+    expect(client.itemRemove).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells an applicant whose bank shared too little history exactly that, not that no pay was found", async () => {
+    const client = fakePlaid([
+      { ...wages(2400), date: "2026-10-10" },
+      { ...wages(2400), date: "2026-11-09" },
+    ]);
+    const result = await computeIncomeFromPublicToken({ publicToken: "p", now, wait }, client as never);
+    expect(result).toMatchObject({ ok: false, status: 422, error: "That account doesn't have enough paycheck history yet." });
     expect(client.itemRemove).toHaveBeenCalledTimes(1);
   });
 

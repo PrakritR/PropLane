@@ -111,7 +111,10 @@ group never waits on it.
   rounding the window up is what would report them at a third of it. `INCOME_MIN_DEPOSITS` is **three**, because two
   deposits are one gap: a cadence guessed from a single interval cannot tell a monthly paycheck pair from a paycheck plus
   a bonus. Fewer than three, or a span under `INCOME_MIN_COVERAGE_DAYS` of real observation, and there is no figure at
-  all — which costs the applicant nothing, since the check never blocks a submit. `months` in the manager's line is the
+  all — which costs the applicant nothing, since the check never blocks a submit. A refusal names WHICH of the two it is
+  (`IncomeEstimateRefusal`: `no_payroll_deposits` vs `not_enough_history`) and `INCOME_REFUSAL_MESSAGE` maps it to the
+  one message, so an applicant whose bank shared too little is never told no paychecks were found. Only
+  `estimateMonthlyIncome` knows which applies — never re-derive it by counting deposits at the call site. `months` in the manager's line is the
   whole-month label for the history the bank SHARED (`observedMonths`), a fact they can hold the figure against; the
   figure itself comes from the unrounded earning period, which is derived, not observed. Plaid's own Income products (`/credit/bank_income/get`) need separate product
   access, so they are not used; proven against the sandbox with a custom user.
