@@ -84,6 +84,9 @@ function scopedWrites(
   portal?: PurgeScope,
 ): WriteOp[] {
   if (portal === "vendor" && rule.table === "sms_relay_bindings") return [];
+  // A portal with no Plaid purposes of its own owns no item: write nothing rather than lean on
+  // PostgREST tolerating an empty IN list, which `assertNoDeleteErrors` would turn into a failed removal.
+  if (portal && rule.table === "plaid_items" && PLAID_PURPOSES_BY_SCOPE[portal].length === 0) return [];
   const ops: WriteOp[] = [];
   const restrict = scopeRule.restrict;
   const guard = <T extends { neq: (column: string, value: string) => T; eq: (column: string, value: string) => T; in: (column: string, values: string[]) => T }>(query: T): T => {

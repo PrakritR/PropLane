@@ -17,6 +17,7 @@ export function createFakeDb(seed: Record<string, Row[]> = {}) {
     let upsertOpts: { onConflict?: string; ignoreDuplicates?: boolean } = {};
     const filters: ((r: Row) => boolean)[] = [];
     let limitN = Infinity;
+    let rangeFrom = 0;
     let single = false;
     let maybe = false;
     let orderBy: { col: string; asc: boolean } | null = null;
@@ -58,7 +59,7 @@ export function createFakeDb(seed: Record<string, Row[]> = {}) {
           result = [...result].sort((a, b) => (String(a[col]) < String(b[col]) ? -1 : 1) * (asc ? 1 : -1));
         }
       }
-      result = result.slice(0, limitN);
+      result = rangeFrom > 0 || limitN !== Infinity ? result.slice(rangeFrom, rangeFrom + limitN) : result;
       if (single) return { data: result[0] ?? null, error: result[0] ? null : { message: "no rows" } };
       if (maybe) return { data: result[0] ?? null, error: null };
       return { data: result, error: null };
@@ -77,6 +78,8 @@ export function createFakeDb(seed: Record<string, Row[]> = {}) {
       lte: (c: string, v: string) => (filters.push((r) => String(r[c]) <= v), b),
       order: (col: string, o?: { ascending?: boolean }) => ((orderBy = { col, asc: o?.ascending !== false }), b),
       limit: (n: number) => ((limitN = n), b),
+      range: (from: number, to: number) => ((rangeFrom = from), (limitN = to - from + 1), b),
+      is: (c: string, v: unknown) => (filters.push((r) => (r[c] ?? null) === v), b),
       or: () => b,
       single: () => ((single = true), b),
       maybeSingle: () => ((maybe = true), b),

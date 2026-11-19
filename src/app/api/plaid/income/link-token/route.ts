@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { plaidFailure } from "@/lib/plaid/client.server";
+import { logPlaidFailure } from "@/lib/plaid/client.server";
 import { authorizeIncomeActor, createIncomeLinkToken, incomeCheckOffered } from "@/lib/plaid/income.server";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 
@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ linkToken: await createIncomeLinkToken(actor.userId) }, { headers: NO_STORE });
   } catch (error) {
-    console.warn("[plaid] income link token failed", plaidFailure(error).code);
+    logPlaidFailure("[plaid] income link token failed", error);
     return NextResponse.json({ error: "Couldn't reach your bank." }, { status: 502, headers: NO_STORE });
   }
 }

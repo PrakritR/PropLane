@@ -29,6 +29,9 @@ export function ApplicantChecksSettingsRows() {
   const reportSaveStatus = useReportSettingsSaveStatus();
   const { workspaceId, propertyId } = useSettingsPropertyScope();
   const [settings, setSettings] = useState<ApplicantScreeningSettings | null>(null);
+  // The Plaid income row is drawn only when the server says Plaid is configured: with the keys absent
+  // the toggle would flip a setting nothing can act on (docs/agents/plaid.md § Invariants).
+  const [plaidOn, setPlaidOn] = useState(false);
   const [busy, setBusy] = useState(false);
   // Account scope ("All workspaces", no listing) has nothing to store a per-listing choice on.
   const hasScope = Boolean(propertyId || workspaceId);
@@ -47,10 +50,11 @@ export function ApplicantChecksSettingsRows() {
     void (async () => {
       try {
         const res = await fetch(`/api/portal/applicant-screening-settings?${query()}`, { credentials: "include" });
-        const body = (await res.json().catch(() => ({}))) as { settings?: ApplicantScreeningSettings; error?: string };
+        const body = (await res.json().catch(() => ({}))) as { settings?: ApplicantScreeningSettings; plaidEnabled?: boolean; error?: string };
         if (cancelled) return;
         if (!res.ok || !body.settings) return showToast(body.error ?? "Could not load applicant checks.");
         setSettings(body.settings);
+        setPlaidOn(body.plaidEnabled === true);
       } catch {
         if (!cancelled) showToast("Network error loading applicant checks.");
       }
@@ -70,7 +74,7 @@ export function ApplicantChecksSettingsRows() {
         credentials: "include",
         body: JSON.stringify({ ...patch, ...(workspaceId ? { workspaceId } : {}), ...(propertyId ? { propertyId } : {}) }),
       });
-      const body = (await res.json().catch(() => ({}))) as { settings?: ApplicantScreeningSettings; error?: string };
+      const body = (await res.json().catch(() => ({}))) as { settings?: ApplicantScreeningSettings; plaidEnabled?: boolean; error?: string };
       if (!res.ok || !body.settings) {
         const message = body.error ?? "Could not save applicant checks.";
         showToast(message);
@@ -78,6 +82,7 @@ export function ApplicantChecksSettingsRows() {
         return;
       }
       setSettings(body.settings);
+      if (typeof body.plaidEnabled === "boolean") setPlaidOn(body.plaidEnabled);
       reportSaveStatus({ type: "success" });
     } catch {
       showToast("Network error saving applicant checks.");
@@ -120,15 +125,17 @@ export function ApplicantChecksSettingsRows() {
           />
         </PortalSettingsRow>
       ) : null}
-      <PortalSettingsRow label="Verify income with Plaid">
-        <PortalSettingsToggle
-          label="Verify income with Plaid"
-          checked={settings?.verifyIncomeWithPlaid === true}
-          disabled={!settings || busy}
-          dataAttr="settings-applicant-verify-income"
-          onChange={(next) => void save({ verifyIncomeWithPlaid: next })}
-        />
-      </PortalSettingsRow>
+      {plaidOn ? (
+        <PortalSettingsRow label="Verify income with Plaid">
+          <PortalSettingsToggle
+            label="Verify income with Plaid"
+            checked={settings?.verifyIncomeWithPlaid === true}
+            disabled={!settings || busy}
+            dataAttr="settings-applicant-verify-income"
+            onChange={(next) => void save({ verifyIncomeWithPlaid: next })}
+          />
+        </PortalSettingsRow>
+      ) : null}
     </PortalSettingsGroup>
   );
 }

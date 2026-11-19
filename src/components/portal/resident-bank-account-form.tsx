@@ -100,7 +100,7 @@ export function ResidentBankAccountForm({
   async function exchangeLinkedBank(result: PlaidLinkSuccess) {
     setError(null);
     try {
-      const response = await fetch("/api/plaid/exchange", {
+      const response = await fetch("/api/resident/plaid/exchange", {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ publicToken: result.publicToken, purpose: "resident_pay", accountId: result.accountId }),
       });
@@ -232,7 +232,12 @@ export function ResidentBankAccountForm({
               </Button>
             </>
           ) : (
-            <PlaidLinkLauncher purpose="resident_pay" onSuccess={exchangeLinkedBank} onError={setError}>
+            <PlaidLinkLauncher
+              purpose="resident_pay"
+              endpoint="/api/resident/plaid/link-token"
+              onSuccess={exchangeLinkedBank}
+              onError={setError}
+            >
               {({ start, busy }) => (
                 <Button type="button" loading={busy} onClick={() => start()} data-attr="resident-bank-plaid-link">
                   Log in to your bank

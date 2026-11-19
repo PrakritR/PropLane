@@ -85,13 +85,20 @@ export async function createPlaidItem(db: SupabaseClient, input: CreatePlaidItem
 
   const { data: existing, error: readError } = await db
     .from("plaid_items")
-    .select("id, owner_user_id")
+    .select("id, owner_user_id, purpose, bank_account_id")
     .eq("item_id", input.itemId)
     .maybeSingle();
   if (readError) throw new Error(readError.message);
   if (existing && existing.owner_user_id !== input.ownerUserId) throw new Error("This bank connection belongs to another account.");
+  // A row's purpose is fixed for its life: re-exchanging the same Plaid item under another purpose would
+  // reclassify a manager's bank feed (and orphan the statements bound to it) while its cursor stayed behind.
+  if (existing && existing.purpose && existing.purpose !== input.purpose) {
+    throw new Error("This bank connection is already linked for something else.");
+  }
 
   const id = existing?.id ? String(existing.id) : randomUUID();
+  // Reconnect (update mode) sends no bank account: keep the one the feed is already bound to.
+  const bankAccountId = input.bankAccountId ?? (existing?.bank_account_id ? String(existing.bank_account_id) : null);
   const fields = {
     owner_user_id: input.ownerUserId,
     workspace_id: input.workspaceId ?? null,
@@ -102,7 +109,7 @@ export async function createPlaidItem(db: SupabaseClient, input: CreatePlaidItem
     account_mask: maskLastFour(input.accountMask),
     account_name: input.accountName?.trim().slice(0, 120) || null,
     plaid_account_id: input.plaidAccountId ?? null,
-    bank_account_id: input.bankAccountId ?? null,
+    bank_account_id: bankAccountId,
     status: "active",
     last_error: null,
     updated_at: now,
@@ -201,6 +208,8 @@ export async function removePlaidItemsForOwner(
   purposes?: readonly PlaidPurpose[],
 ): Promise<void> {
   if (!ownerUserId) return;
+  // An explicit empty list means this portal owns no Plaid purpose: nothing to revoke.
+  if (purposes && purposes.length === 0) return;
   try {
     let query = db.from("plaid_items").select(ITEM_SELECT).eq("owner_user_id", ownerUserId);
     if (purposes) query = query.in("purpose", [...purposes]);

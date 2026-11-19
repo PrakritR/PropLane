@@ -7,6 +7,7 @@
 import { NextResponse } from "next/server";
 
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
+import { plaidEnabled } from "@/lib/plaid/client.server";
 import {
   assertSettingsScopeOwned,
   resolveSettingsScopeParams,
@@ -41,6 +42,8 @@ export async function GET(req: Request) {
       settings,
       source,
       managed,
+      // Plaid keys absent => the income-check control is not drawn at all (docs/agents/plaid.md § Invariants).
+      plaidEnabled: plaidEnabled(),
       scope: access.propertyId ? "property" : "workspace",
     });
   } catch (e) {
@@ -56,6 +59,9 @@ export async function PATCH(req: Request) {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     if (typeof body.idCheck !== "boolean" && typeof body.backgroundCheck !== "boolean" && typeof body.verifyIncomeWithPlaid !== "boolean" && body.idUnlock !== "clear" && body.idUnlock !== "order") {
       return NextResponse.json({ error: "Nothing to save." }, { status: 400 });
+    }
+    if (body.verifyIncomeWithPlaid === true && !plaidEnabled()) {
+      return NextResponse.json({ error: "Income verification is unavailable." }, { status: 400 });
     }
     const scope = resolveSettingsScopeParams(req.url, body);
     const access = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope, { module: "applications", level: "edit" });
@@ -81,7 +87,7 @@ export async function PATCH(req: Request) {
     } else if (workspaceId) {
       await saveWorkspaceNamespaceSettings(ctx.db, workspaceId, ownerUserId, APPLICANT_SCREENING_NAMESPACE, next);
     }
-    return NextResponse.json({ settings: next, source: propertyId ? "property" : "workspace", managed: current.managed });
+    return NextResponse.json({ settings: next, source: propertyId ? "property" : "workspace", managed: current.managed, plaidEnabled: plaidEnabled() });
   } catch (e) {
     if (e instanceof ForeignPropertyError) return foreign();
     return NextResponse.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 });

@@ -60,14 +60,15 @@ export function PlaidLinkLauncher({
   const [token, setToken] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const linkBodyKey = JSON.stringify(linkBody ?? {});
+  // `linkBody` is spread as given (no JSON round trip, which would drop a non-JSON value) and is a
+  // plain dependency: nothing depends on `start`'s identity, so a caller need not memoise it.
   const start = useCallback(async () => {
     setBusy(true);
     try {
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ purpose, ...(itemId ? { itemId } : {}), ...(JSON.parse(linkBodyKey) as Record<string, unknown>) }),
+        body: JSON.stringify({ purpose, ...(itemId ? { itemId } : {}), ...(linkBody ?? {}) }),
       });
       const data = (await res.json()) as { linkToken?: string; error?: string };
       if (!res.ok || !data.linkToken) throw new Error(data.error ?? "Couldn't reach your bank.");
@@ -76,7 +77,7 @@ export function PlaidLinkLauncher({
       setBusy(false);
       onError?.(e instanceof Error ? e.message : "Couldn't reach your bank.");
     }
-  }, [purpose, itemId, endpoint, linkBodyKey, onError]);
+  }, [purpose, itemId, endpoint, linkBody, onError]);
 
   return (
     <>

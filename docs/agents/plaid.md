@@ -1,17 +1,34 @@
 # Plaid
 
-Plaid links a bank login so PropLane can read it. Today one purpose is built:
-`bank_feed` (a manager's Financials > Bank rec). `resident_pay` and `income` are
-reserved values of `plaid_items.purpose`; adding one is a new entry in
-`PLAID_ENABLED_PURPOSES` plus a branch in `authorizePlaidPurpose`
-(`src/lib/plaid/access.server.ts`). **Stripe stays the money rail** — Plaid never
-moves money, and the owner/vendor payout bank stays on Stripe Financial Connections.
+Plaid links a bank login so PropLane can read it. All three values of
+`plaid_items.purpose` are built: `bank_feed` (a manager's Financials > Bank rec),
+`resident_pay` (§ Resident bank pay) and `income` (§ Income check). The first two
+go through `authorizePlaidPurpose` (`src/lib/plaid/access.server.ts`) and must be
+listed in `PLAID_ENABLED_PURPOSES`; `income` has its own gate
+(`authorizeIncomeActor`, any signed-in applicant) and is deliberately NOT in that
+list, so `/api/plaid/status?purpose=income` stays `enabled: false`.
+**Stripe stays the money rail** — Plaid never moves money, and the owner/vendor
+payout bank stays on Stripe Financial Connections.
 
 Code: `src/lib/plaid/` (`client.server.ts`, `items.server.ts`, `exchange.server.ts`,
-`transactions-sync.server.ts`, `webhook-verify.server.ts`, `webhook-events.server.ts`),
-routes `/api/plaid/{link-token,exchange,sync,status,webhook}` and `/api/cron/plaid-sync`,
-UI `plaid-link-button.tsx` + `pro-bank-reconciliation-panel.tsx`. Schema:
-`20261118120000_plaid_items.sql`.
+`link-routes.server.ts`, `transactions-sync.server.ts`, `statement-balances.server.ts`,
+`resident-pay.server.ts`, `stripe-processor.server.ts`, `income.server.ts`,
+`income-calc.ts`, `webhook-verify.server.ts`, `webhook-events.server.ts`), routes
+`/api/plaid/{link-token,exchange,sync,status,webhook}`,
+`/api/plaid/income/{link-token,verify}`, `/api/resident/plaid/{link-token,exchange}`,
+`/api/screening/income`, `/api/stripe/resident-plaid-bank` and `/api/cron/plaid-sync`,
+UI `plaid-link-button.tsx` + `pro-bank-reconciliation-panel.tsx` +
+`resident-bank-account-form.tsx` + `application-income-verify.tsx`. Schema:
+`20261118120000_plaid_items.sql`, `20261118130000_applicant_income_verifications.sql`,
+`20261118140000_bank_statement_source.sql`.
+
+**One path, one purpose where the lock cares.** The managed read-only allowlist
+(`MANAGED_READ_ONLY_ALLOWED_PATHS`) is a pure PATH policy, so the resident's own bank
+pay gets its own routes under the allowlisted `/api/resident/plaid/*`, pinned to
+`resident_pay` by `plaidLinkTokenRoute(req, { only })`. The generic `/api/plaid/*`
+routes can reach a manager's `bank_feed` connect and stay refused for a locked client;
+`/api/plaid/income` is allowlisted because it writes only rows keyed on the applicant's
+own user id.
 
 ## Resident bank pay (`resident_pay`)
 
@@ -46,9 +63,24 @@ micro-deposits stay as "Enter numbers instead"; phone-bound links and saved-bank
 - **Sync is idempotent and suggestion-only.** `/transactions/sync` by cursor; lines upsert on
   `manager_bank_statement_lines.plaid_transaction_id` into the open statement for that month.
   A modified transaction updates only a line nobody matched or cleared; a removed one deletes only
-  an unmatched, uncleared line on an unreconciled statement. Matching stays the manager's
-  (`suggest_bank_statement_matches`, then reconcile). A new month's statement starts at 0 / 0
-  balances; the manager still enters them.
+  an unmatched, uncleared line on an unreconciled statement. `added` counts rows the upsert really
+  inserted, never the attempt. Matching stays the manager's (`suggest_bank_statement_matches`, then
+  reconcile).
+- **The feed only writes balances onto statements it created.** `manager_bank_statements.source` is
+  the marker (`'plaid_feed'` when `statementForMonth` inserts the month, default `'manual'` for
+  everything the manager typed or imported, including every pre-existing row).
+  `fillFeedStatementBalances` walks back from the bank's current balance newest month first and stops
+  at the first statement that is reconciled, not `'plaid_feed'`, or holds a line with no
+  `plaid_transaction_id` — so a hand-made statement's typed opening / closing is never rewritten,
+  even when it holds no lines at all. The line read is paged at PostgREST's 1000-row cap: a truncated
+  read would under-count one month and, because each opening chains into the next closing, corrupt
+  every older one.
+- **A Plaid item's purpose is fixed for its life.** Re-exchanging the same `item_id` under another
+  purpose is refused (`createPlaidItem`), and a reconnect that names no bank account keeps the one
+  the feed is already bound to.
+- **Log through `logPlaidFailure`.** It prints `plaidFailure(error).code` for an error Plaid itself
+  answered with (a raw axios error carries the secret header) and the full error for anything else —
+  a Stripe or database failure would otherwise be flattened to `UNREACHABLE` with nothing to debug.
 - **Purge.** `plaid_items` is in `account-purge-manifest.ts`; a purge calls `/item/remove`
   best-effort first, and a single-portal removal drops only that portal's purposes.
 
@@ -63,8 +95,10 @@ group never waits on it.
   applicant. A guest (no session) never sees it and keeps the pay-stub path. Binding a guest to the held draft was judged too
   much: the held draft only exists after the form is finished, and the account is created after proof.
 - **Method.** Link with the Transactions product (90 days), then `/transactions/get` and `income-calc.ts`: payroll-style
-  deposits (Plaid `INCOME_WAGES`, or a payroll name; never a transfer, refund, peer payment or pending line) averaged over 3
-  months, at least two deposits or no figure. Plaid's own Income products (`/credit/bank_income/get`) need separate product
+  deposits (Plaid `INCOME_WAGES`, or a payroll name; never a transfer, refund, peer payment or pending line) averaged over the
+  history the bank actually shared (`coveredMonths`, capped at the 3 months asked for), at least two deposits or no figure, and
+  no figure at all under `INCOME_MIN_COVERAGE_DAYS` of history — the divisor is never a window the bank did not cover, and
+  `months` in the manager's line is the divisor used. Plaid's own Income products (`/credit/bank_income/get`) need separate product
   access, so they are not used; proven against the sandbox with a custom user.
 - **Server-owned.** `POST /api/plaid/income/verify` takes only the public token and the listing id (never a figure), computes
   on the server, stores one row per (applicant, listing) in `applicant_income_verifications` (service role only, a figure and
@@ -76,5 +110,6 @@ group never waits on it.
   font cannot draw it).
 - **FCRA.** No decline or ranking logic is tied to this figure. TODO: counsel to review whether a bank-derived income figure
   shown to a manager is a consumer report before any decision uses it.
-- Disabled Plaid hides the offer even with the setting on. Purge: `applicant_income_verifications` is classified in
+- Disabled Plaid hides the offer even with the setting on, AND hides the manager's own toggle: the settings route answers
+  `plaidEnabled` and `ApplicantChecksSettingsRows` draws the row only when it is true, while `PATCH` refuses turning it on. Purge: `applicant_income_verifications` is classified in
   `account-purge-manifest.ts` (resident scope).

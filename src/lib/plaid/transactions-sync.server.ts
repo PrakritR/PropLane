@@ -47,7 +47,12 @@ function monthBounds(date: string): { first: string; last: string } {
   return { first: `${y}-${mm}-01`, last: `${y}-${mm}-${String(last).padStart(2, "0")}` };
 }
 
-/** The open statement for this account and month, or a new empty one (balances stay the manager's). */
+/**
+ * The open statement for this account and month, or a new empty one the feed owns (`source: 'plaid_feed'`,
+ * the only marker that lets `fillFeedStatementBalances` derive its balances). An existing statement keeps
+ * whatever source it already has: a month the manager created or imported stays theirs even once feed lines
+ * land in it, so their typed opening / closing are never rewritten.
+ */
 async function statementForMonth(
   db: SupabaseClient,
   ownerId: string,
@@ -78,6 +83,7 @@ async function statementForMonth(
       statement_date: last,
       opening_balance_cents: 0,
       closing_balance_cents: 0,
+      source: "plaid_feed",
       updated_at: new Date().toISOString(),
     })
     .select("id")
@@ -162,7 +168,9 @@ export async function applyPlaidChanges(
       counts.skipped += 1;
       continue;
     }
-    const { error } = await db
+    // `ignoreDuplicates` returns no row when the line already existed (a concurrent sync inserted it
+    // between our read and this write), so count what was actually inserted, never the attempt.
+    const { data: inserted, error } = await db
       .from("manager_bank_statement_lines")
       .upsert(
         {
@@ -174,9 +182,11 @@ export async function applyPlaidChanges(
           plaid_transaction_id: line.plaidTransactionId,
         },
         { onConflict: "plaid_transaction_id", ignoreDuplicates: true },
-      );
+      )
+      .select("id");
     if (error) throw new Error(error.message);
-    counts.added += 1;
+    if ((inserted ?? []).length > 0) counts.added += 1;
+    else counts.skipped += 1;
   }
 
   const removedIds = [...new Set(changes.removed.map((r) => r.transaction_id))];

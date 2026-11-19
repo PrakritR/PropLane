@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { authorizePlaidPurpose } from "@/lib/plaid/access.server";
-import { getPlaidClient, plaidFailure } from "@/lib/plaid/client.server";
+import { getPlaidClient, logPlaidFailure } from "@/lib/plaid/client.server";
 import { payManualAchWithPlaidBank } from "@/lib/plaid/resident-pay.server";
 import { loadResidentManualAchAttemptForPaymentIntent } from "@/lib/resident-checkout-claim.server";
 import { answerResidentAchPayment } from "@/lib/resident-ach-payment.server";
@@ -57,7 +57,7 @@ export async function POST(req: Request) {
     if (message.includes("does not belong")) {
       return NextResponse.json({ error: "Bank payment is not yours." }, { status: 403, headers: NO_STORE });
     }
-    console.warn("[plaid] resident pay failed", plaidFailure(error).code);
+    logPlaidFailure("[plaid] resident pay failed", error);
     return NextResponse.json({ error: "Bank payment needs review." }, { status: 409, headers: NO_STORE });
   }
 }

@@ -37,9 +37,12 @@ export const MANAGED_READ_ONLY_ALLOWED_PATHS: readonly string[] = [
   "/api/earnings",
   "/api/owner/messages",
   "/api/portal/proplane-balance/withdraw",
-  // her other portals
+  // her other portals (the resident bank-pay Plaid link lives under /api/resident/plaid, pinned to
+  // that purpose; the generic /api/plaid/* routes, which can reach a manager's bank feed, stay refused)
   "/api/resident",
   "/api/vendor",
+  // her own applicant income check: writes only rows keyed on her own user id, never this workspace
+  "/api/plaid/income",
   // assistant chats and the confirm gate (every write tool is refused in scopeManagerTool)
   "/api/agent",
   // workspace switch (rename / delete / move are refused inside the route)

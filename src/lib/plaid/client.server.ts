@@ -74,3 +74,20 @@ export function plaidFailure(error: unknown): PlaidFailure {
   }
   return { code: "UNREACHABLE", type: "NETWORK", message: "Plaid could not be reached." };
 }
+
+/** True only for an error Plaid itself answered with (an axios error carrying Plaid's JSON error body). */
+export function isPlaidShapedError(error: unknown): boolean {
+  const data = (error as { response?: { data?: unknown } } | null)?.response?.data;
+  return Boolean(data && typeof data === "object" && typeof (data as { error_code?: unknown }).error_code === "string");
+}
+
+/**
+ * The one way a Plaid route logs a failure. A Plaid/axios error carries the request config (headers
+ * with the secret), so only its public code is logged. Anything else — Stripe, the database, a bug —
+ * is not Plaid-shaped and `plaidFailure` would flatten it to `UNREACHABLE`, leaving nothing to debug,
+ * so it is logged in full.
+ */
+export function logPlaidFailure(label: string, error: unknown): void {
+  if (isPlaidShapedError(error)) console.warn(label, plaidFailure(error).code);
+  else console.error(`${label} (not a Plaid error)`, error);
+}

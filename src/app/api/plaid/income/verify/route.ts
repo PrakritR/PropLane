@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { plaidFailure } from "@/lib/plaid/client.server";
+import { logPlaidFailure } from "@/lib/plaid/client.server";
 import {
   authorizeIncomeActor,
   computeIncomeFromPublicToken,
@@ -39,7 +39,7 @@ export async function POST(req: Request) {
       { headers: NO_STORE },
     );
   } catch (error) {
-    console.warn("[plaid] income verify failed", plaidFailure(error).code);
+    logPlaidFailure("[plaid] income verify failed", error);
     return NextResponse.json({ error: "Couldn't reach your bank." }, { status: 502, headers: NO_STORE });
   }
 }

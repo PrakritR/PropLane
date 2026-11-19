@@ -7,7 +7,11 @@ export type FeedStatement = {
   id: string;
   statementDate: string;
   reconciled: boolean;
-  /** Every line on it came from the bank feed (the manager never typed one in). */
+  /**
+   * The feed created this statement (`manager_bank_statements.source = 'plaid_feed'`) AND every line on it
+   * came from the bank feed. A statement the manager created or imported is never feed-owned, even when it
+   * holds no lines at all — their typed opening / closing is the number.
+   */
   feedOwned: boolean;
   lineSumCents: number;
   openingBalanceCents: number;
@@ -16,10 +20,41 @@ export type FeedStatement = {
 
 export type BalanceUpdate = { id: string; openingBalanceCents: number; closingBalanceCents: number };
 
+/** PostgREST's own max-rows cap: every bulk read here pages at it rather than trusting one response. */
+const LINE_PAGE_SIZE = 1000;
+
+type StatementLineRow = { statement_id: string; amount_cents: number | string; plaid_transaction_id: string | null };
+
+/**
+ * Every line on these statements, paged. A truncated read would under-count `lineSumCents` and, because
+ * each opening chains into the next closing, would corrupt every older statement — so the read either
+ * returns all of them or throws.
+ */
+async function readStatementLines(db: SupabaseClient, statementIds: readonly string[]): Promise<StatementLineRow[]> {
+  const out: StatementLineRow[] = [];
+  for (let i = 0; i < statementIds.length; i += 50) {
+    const chunk = statementIds.slice(i, i + 50);
+    for (let offset = 0; ; offset += LINE_PAGE_SIZE) {
+      const { data, error } = await db
+        .from("manager_bank_statement_lines")
+        .select("statement_id, amount_cents, plaid_transaction_id")
+        .in("statement_id", [...chunk])
+        .order("id", { ascending: true })
+        .range(offset, offset + LINE_PAGE_SIZE - 1);
+      if (error) throw new Error(error.message);
+      const page = (data ?? []) as StatementLineRow[];
+      out.push(...page);
+      if (page.length < LINE_PAGE_SIZE) break;
+    }
+  }
+  return out;
+}
+
 /**
  * Walk back from the bank's current balance, newest statement first: a month closes at the
  * running balance and opens at that minus its lines. Stops at the first statement the manager
- * owns (reconciled, or holding a line they typed), so their numbers are never overwritten.
+ * owns (reconciled, not created by the feed, or holding a line they typed), so their numbers
+ * are never overwritten.
  */
 export function deriveFeedBalances(statementsNewestFirst: readonly FeedStatement[], currentBalanceCents: number): BalanceUpdate[] {
   const updates: BalanceUpdate[] = [];
@@ -49,7 +84,7 @@ export async function fillFeedStatementBalances(
 
   const { data: statements, error } = await db
     .from("manager_bank_statements")
-    .select("id, statement_date, reconciled_at, opening_balance_cents, closing_balance_cents")
+    .select("id, statement_date, reconciled_at, opening_balance_cents, closing_balance_cents, source")
     .eq("manager_user_id", args.ownerUserId)
     .eq("bank_account_id", args.bankAccountId)
     .order("statement_date", { ascending: false })
@@ -61,17 +96,14 @@ export async function fillFeedStatementBalances(
     reconciled_at: string | null;
     opening_balance_cents: number | string;
     closing_balance_cents: number | string;
+    source: string | null;
   }[];
   if (rows.length === 0) return 0;
 
-  const { data: lines, error: lineError } = await db
-    .from("manager_bank_statement_lines")
-    .select("statement_id, amount_cents, plaid_transaction_id")
-    .in("statement_id", rows.map((r) => r.id));
-  if (lineError) throw new Error(lineError.message);
+  const lines = await readStatementLines(db, rows.map((r) => r.id));
   const sums = new Map<string, number>();
   const manual = new Set<string>();
-  for (const line of (lines ?? []) as { statement_id: string; amount_cents: number | string; plaid_transaction_id: string | null }[]) {
+  for (const line of lines) {
     sums.set(line.statement_id, (sums.get(line.statement_id) ?? 0) + Number(line.amount_cents));
     if (!line.plaid_transaction_id) manual.add(line.statement_id);
   }
@@ -83,7 +115,7 @@ export async function fillFeedStatementBalances(
       id: r.id,
       statementDate: r.statement_date,
       reconciled: Boolean(r.reconciled_at),
-      feedOwned: !manual.has(r.id),
+      feedOwned: r.source === "plaid_feed" && !manual.has(r.id),
       lineSumCents: sums.get(r.id) ?? 0,
       openingBalanceCents: Number(r.opening_balance_cents),
       closingBalanceCents: Number(r.closing_balance_cents),
@@ -96,6 +128,7 @@ export async function fillFeedStatementBalances(
       .update({ opening_balance_cents: u.openingBalanceCents, closing_balance_cents: u.closingBalanceCents, updated_at: new Date().toISOString() })
       .eq("id", u.id)
       .eq("manager_user_id", args.ownerUserId)
+      .eq("source", "plaid_feed")
       .is("reconciled_at", null);
     if (upError) throw new Error(upError.message);
   }

@@ -27,6 +27,18 @@ describe("plaid items", () => {
     await expect(createPlaidItem(db, { ownerUserId: "u2", purpose: "bank_feed", itemId: "i1", accessToken: "t" })).rejects.toThrow(/another account/);
   });
 
+  it("refuses to reclassify an item under another purpose and keeps its bank binding", async () => {
+    const { db, tables } = createFakeDb();
+    await createPlaidItem(db, { ownerUserId: "u1", purpose: "bank_feed", itemId: "i1", accessToken: "t", bankAccountId: "ba-1" });
+    await expect(createPlaidItem(db, { ownerUserId: "u1", purpose: "resident_pay", itemId: "i1", accessToken: "t" })).rejects.toThrow(
+      /already linked/,
+    );
+    // A reconnect names no bank account: the feed's binding survives.
+    await createPlaidItem(db, { ownerUserId: "u1", purpose: "bank_feed", itemId: "i1", accessToken: "t2" });
+    expect(tables.plaid_items).toHaveLength(1);
+    expect(tables.plaid_items![0]).toMatchObject({ purpose: "bank_feed", bank_account_id: "ba-1" });
+  });
+
   it("keeps only the last four of a mask", () => {
     expect(maskLastFour("0000-1234")).toBe("1234");
     expect(maskLastFour(null)).toBeNull();
