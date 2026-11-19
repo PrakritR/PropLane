@@ -12,6 +12,7 @@ import { GroupInviteCallout } from "@/components/marketing/group-invite-callout"
 import { GroupLeaderAppIdField } from "@/components/marketing/group-leader-app-id-field";
 import { ApplicationFeeInlinePayment } from "@/components/marketing/application-fee-inline-payment";
 import { ApplicationPhotoField, IncomeProofPhotos } from "@/components/marketing/application-photo-field";
+import { ApplicationIncomeVerify } from "@/components/marketing/application-income-verify";
 import { ListingAddressAutocomplete } from "@/components/portal/listing-address-autocomplete";
 import { SmsConsentCheckbox } from "@/components/marketing/sms-consent-checkbox";
 import {
@@ -1911,6 +1912,9 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
           <span className="text-sm font-medium text-foreground">I am not currently employed</span>
         </label>
         {errors._general ? <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errors._general}</p> : null}
+        {!p.guestApplicant && (mode === "public" || mode === "portal") && form.propertyId ? (
+          <ApplicationIncomeVerify propertyId={form.propertyId} />
+        ) : null}
         <div className="space-y-4" data-application-section="employment">
           {fields.map(renderEmploymentField)}
         </div>

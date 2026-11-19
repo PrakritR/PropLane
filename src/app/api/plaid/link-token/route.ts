@@ -33,7 +33,7 @@ export async function POST(req: Request) {
       language: "en",
       country_codes: [CountryCode.Us],
       // Update mode names the existing item and carries no products.
-      ...(accessToken ? { access_token: accessToken } : { products: [Products.Transactions] }),
+      ...(accessToken ? { access_token: accessToken } : { products: body.purpose === "resident_pay" ? [Products.Auth] : [Products.Transactions] }),
       webhook: plaidWebhookUrl(req),
     });
     return NextResponse.json({ linkToken: res.data.link_token }, { headers: NO_STORE });

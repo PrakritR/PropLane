@@ -8,7 +8,7 @@ export const PLAID_PURPOSES = ["bank_feed", "resident_pay", "income"] as const;
 export type PlaidPurpose = (typeof PLAID_PURPOSES)[number];
 
 /** Purposes whose product flow is built. The others plug in later without a schema change. */
-export const PLAID_ENABLED_PURPOSES: readonly PlaidPurpose[] = ["bank_feed"];
+export const PLAID_ENABLED_PURPOSES: readonly PlaidPurpose[] = ["bank_feed", "resident_pay"];
 
 export function isPlaidPurpose(value: unknown): value is PlaidPurpose {
   return typeof value === "string" && (PLAID_PURPOSES as readonly string[]).includes(value);

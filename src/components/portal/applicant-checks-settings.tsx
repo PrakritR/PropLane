@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { PortalSettingsGroup, PortalSettingsRow } from "@/components/portal/portal-settings-ui";
+import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { useSettingsPropertyScope } from "@/components/portal/settings-property-scope";
 import { useReportSettingsSaveStatus } from "@/components/portal/settings-save-status-context";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -120,6 +120,15 @@ export function ApplicantChecksSettingsRows() {
           />
         </PortalSettingsRow>
       ) : null}
+      <PortalSettingsRow label="Verify income with Plaid">
+        <PortalSettingsToggle
+          label="Verify income with Plaid"
+          checked={settings?.verifyIncomeWithPlaid === true}
+          disabled={!settings || busy}
+          dataAttr="settings-applicant-verify-income"
+          onChange={(next) => void save({ verifyIncomeWithPlaid: next })}
+        />
+      </PortalSettingsRow>
     </PortalSettingsGroup>
   );
 }

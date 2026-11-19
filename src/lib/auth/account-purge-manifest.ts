@@ -723,6 +723,12 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["owner_user_id"] },
   },
   {
+    // Plaid-verified applicant income (a figure only, no token): the applicant's own, so a resident removal drops it.
+    table: "applicant_income_verifications",
+    phase: 2,
+    resident: { ids: ["user_id"] },
+  },
+  {
     table: "manager_budgets",
     phase: 2,
     manager: { ids: ["manager_user_id"] },

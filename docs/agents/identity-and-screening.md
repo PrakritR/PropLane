@@ -15,7 +15,7 @@ Checkr has no ID-only product, so a listing with only "Verify ID" on still order
 
 ## Settings
 
-`applicantScreening` namespace (`{ idCheck, backgroundCheck, idUnlock }`), property override then workspace row then default: **both OFF for every workspace until the manager turns them on** (captain, Nov 12), `idUnlock` `clear`. Resolver `resolveApplicantScreeningSettings`; route `/api/portal/applicant-screening-settings`; UI is one multi-select **Before applying** (Verify ID, Background check: either, both or none) plus, with Verify ID on, an **Application opens once** dropdown (ID is verified | Check is ordered), in Settings > Automations > Screening, following the scope bar (a listing's own choice beats the workspace's). No settings migration.
+`applicantScreening` namespace (`{ idCheck, backgroundCheck, idUnlock, verifyIncomeWithPlaid }`; the last is the Plaid income offer, `plaid.md` § Income check), property override then workspace row then default: **both OFF for every workspace until the manager turns them on** (captain, Nov 12), `idUnlock` `clear`. Resolver `resolveApplicantScreeningSettings`; route `/api/portal/applicant-screening-settings`; UI is one multi-select **Before applying** (Verify ID, Background check: either, both or none) plus, with Verify ID on, an **Application opens once** dropdown (ID is verified | Check is ordered), in Settings > Automations > Screening, following the scope bar (a listing's own choice beats the workspace's). No settings migration.
 
 ## Provider switch
 

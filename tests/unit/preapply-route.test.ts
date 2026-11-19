@@ -29,7 +29,7 @@ import { evaluatePreApply, resolvePreApplyPlan } from "@/lib/screening/preapply"
 
 const env = { idEnabled: true, idProvider: "checkr" as const, backgroundConfigured: true };
 function resolved(settings: { idCheck: boolean; backgroundCheck: boolean }, check: unknown = null, orderAllowed = true) {
-  const plan = resolvePreApplyPlan({ settings: { ...settings, idUnlock: "clear" }, env });
+  const plan = resolvePreApplyPlan({ settings: { ...settings, idUnlock: "clear", verifyIncomeWithPlaid: false }, env });
   return { ok: true, view: { state: evaluatePreApply({ plan, check: check as never, personaVerified: false }), plan, record: null, orderAllowed } };
 }
 const post = (body: unknown) => POST(new Request("https://proplane.ai/api/screening/preapply/checkout", { method: "POST", body: JSON.stringify(body) }));
@@ -107,7 +107,7 @@ describe("POST /api/screening/preapply/checkout", () => {
     const covered = await post(good);
     expect(covered.status).toBe(409);
     expect(await covered.json()).toMatchObject({ code: "already_screened" });
-    const plan = resolvePreApplyPlan({ settings: { idCheck: true, backgroundCheck: false, idUnlock: "clear" }, env: { ...env, idProvider: null } });
+    const plan = resolvePreApplyPlan({ settings: { idCheck: true, backgroundCheck: false, idUnlock: "clear", verifyIncomeWithPlaid: false }, env: { ...env, idProvider: null } });
     h.view.mockResolvedValue({ ok: true, view: { state: evaluatePreApply({ plan, check: null, personaVerified: false }), plan, record: null, orderAllowed: false } });
     const unavailable = await post(good);
     expect(unavailable.status).toBe(503);

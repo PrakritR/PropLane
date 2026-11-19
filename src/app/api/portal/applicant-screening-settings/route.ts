@@ -54,7 +54,7 @@ export async function PATCH(req: Request) {
     const ctx = await requireManagerRouteUser();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-    if (typeof body.idCheck !== "boolean" && typeof body.backgroundCheck !== "boolean" && body.idUnlock !== "clear" && body.idUnlock !== "order") {
+    if (typeof body.idCheck !== "boolean" && typeof body.backgroundCheck !== "boolean" && typeof body.verifyIncomeWithPlaid !== "boolean" && body.idUnlock !== "clear" && body.idUnlock !== "order") {
       return NextResponse.json({ error: "Nothing to save." }, { status: 400 });
     }
     const scope = resolveSettingsScopeParams(req.url, body);
@@ -71,6 +71,8 @@ export async function PATCH(req: Request) {
         idCheck: typeof body.idCheck === "boolean" ? body.idCheck : current.settings.idCheck,
         backgroundCheck: typeof body.backgroundCheck === "boolean" ? body.backgroundCheck : current.settings.backgroundCheck,
         idUnlock: body.idUnlock === "clear" || body.idUnlock === "order" ? body.idUnlock : current.settings.idUnlock,
+        verifyIncomeWithPlaid:
+          typeof body.verifyIncomeWithPlaid === "boolean" ? body.verifyIncomeWithPlaid : current.settings.verifyIncomeWithPlaid,
       },
       current.settings,
     );

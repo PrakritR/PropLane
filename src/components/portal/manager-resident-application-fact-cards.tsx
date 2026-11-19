@@ -1,6 +1,7 @@
 "use client";
 
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import { incomeStatedVsVerifiedLine } from "@/lib/screening/income-verification";
 import {
   ManagerApplicationReadonlyReview,
   ReviewRow,
@@ -108,6 +109,7 @@ export function ManagerResidentApplicationFactCards({
           v={monthlyNum ? `$${(Number(monthlyNum) * 12).toLocaleString("en-US")}` : displayOrDash("")}
         />
         <ReviewRow k="Other income" v={displayOrDash(form.otherIncome)} />
+        {row.incomeVerification ? <ReviewRow k="Income" v={incomeStatedVsVerifiedLine(form.monthlyIncome, row.incomeVerification)} /> : null}
       </ReviewSection>
       <ReviewSection title="References" onEdit={() => onEditStep(7)} data-attr="resident-app-card-references">
         <ReviewRow
@@ -131,6 +133,7 @@ export function ManagerResidentApplicationFactCards({
       applicationId={row.id}
       assignedPropertyId={assignedPropertyId}
       assignedRoomChoice={assignedRoomChoice}
+      incomeVerification={row.incomeVerification}
       omitSections={[
         "group",
         "cosigner",

@@ -5,6 +5,7 @@ import { getBundleChoiceLabel, getPropertyById, getRoomChoiceLabel, isPropertyRe
 import { paymentAtSigningPriceLabel, utilitiesListingEstimateLabel } from "@/lib/rental-application/listing-fees-display";
 import { formatLeaseDateLabel } from "@/lib/rental-application/lease-dates";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
+import { incomeStatedVsVerifiedLine, type IncomeVerification } from "@/lib/screening/income-verification";
 import type { RentalCustomFieldAnswer, RentalWizardFormState } from "@/lib/rental-application/types";
 import {
   formatCustomFieldAnswerDisplay,
@@ -192,8 +193,11 @@ export function ManagerApplicationReadonlyReview({
   assignedRoomChoice,
   omitSections,
   embedded = false,
+  incomeVerification,
 }: {
   partial: Partial<RentalWizardFormState>;
+  /** Server-stamped Plaid income (`row.incomeVerification`): drawn as one plain glyph fact, never a pill. */
+  incomeVerification?: IncomeVerification | null;
   /** Axis application id — required to render a manager-question file/photos thumbnail; text-only fallback without it. */
   applicationId?: string;
   assignedPropertyId?: string;
@@ -338,6 +342,7 @@ export function ManagerApplicationReadonlyReview({
         <ReviewRow k="Monthly income" v={displayOrDash(form.monthlyIncome)} />
         <ReviewRow k="Annual income" v={displayOrDash(form.annualIncome)} />
         <ReviewRow k="Other income" v={displayOrDash(form.otherIncome)} />
+        {incomeVerification ? <ReviewRow k="Income" v={incomeStatedVsVerifiedLine(form.monthlyIncome, incomeVerification)} /> : null}
       </ReviewSection>
       ) : null}
       {!omit.has("references") ? (

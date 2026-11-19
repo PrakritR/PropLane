@@ -41,12 +41,18 @@ function OpenPlaidLink({
 export function PlaidLinkLauncher({
   purpose,
   itemId,
+  endpoint = "/api/plaid/link-token",
+  linkBody,
   onSuccess,
   onError,
   children,
 }: {
   purpose: "bank_feed" | "resident_pay" | "income";
   itemId?: string;
+  /** A purpose with its own link-token route (the applicant income check) names it here. */
+  endpoint?: string;
+  /** Extra fields for that route's body (the listing id). */
+  linkBody?: Record<string, unknown>;
   onSuccess: (result: PlaidLinkSuccess) => void | Promise<void>;
   onError?: (message: string) => void;
   children: (args: { start: () => Promise<void>; busy: boolean }) => ReactNode;
@@ -54,13 +60,14 @@ export function PlaidLinkLauncher({
   const [token, setToken] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const linkBodyKey = JSON.stringify(linkBody ?? {});
   const start = useCallback(async () => {
     setBusy(true);
     try {
-      const res = await fetch("/api/plaid/link-token", {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ purpose, ...(itemId ? { itemId } : {}) }),
+        body: JSON.stringify({ purpose, ...(itemId ? { itemId } : {}), ...(JSON.parse(linkBodyKey) as Record<string, unknown>) }),
       });
       const data = (await res.json()) as { linkToken?: string; error?: string };
       if (!res.ok || !data.linkToken) throw new Error(data.error ?? "Couldn't reach your bank.");
@@ -69,7 +76,7 @@ export function PlaidLinkLauncher({
       setBusy(false);
       onError?.(e instanceof Error ? e.message : "Couldn't reach your bank.");
     }
-  }, [purpose, itemId, onError]);
+  }, [purpose, itemId, endpoint, linkBodyKey, onError]);
 
   return (
     <>

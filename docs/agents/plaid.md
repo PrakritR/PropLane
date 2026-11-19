@@ -13,6 +13,19 @@ routes `/api/plaid/{link-token,exchange,sync,status,webhook}` and `/api/cron/pla
 UI `plaid-link-button.tsx` + `pro-bank-reconciliation-panel.tsx`. Schema:
 `20261118120000_plaid_items.sql`.
 
+## Resident bank pay (`resident_pay`)
+
+Resident Payments > pay with bank offers "Log in to your bank" (Link, products `auth`) before the typed
+numbers (`resident-bank-account-form.tsx`, kind `payment`, in-app only). `POST /api/stripe/resident-plaid-bank`
+runs the typed path's gate order (resident role via `authorizeResidentRole`, test-workspace gate, then Stripe),
+proves the PaymentIntent's attempt is the session resident's, mints a Stripe bank token
+(`stripe-processor.server.ts`), adds it to the resident's Customer as a verified `ba_` bank (reusing one with the
+same fingerprint), and confirms the existing manual-ACH PaymentIntent with the one-time debit mandate (the body
+must carry `authorized: true`). A `btok_` cannot go through SetupIntents, which is why it is a customer bank
+account (Stripe lists it as a `us_bank_account` PaymentMethod under the same id). Needs the Stripe integration
+enabled in the Plaid dashboard (Integrations > Stripe) or Plaid answers INVALID_PRODUCT. Typed numbers with
+micro-deposits stay as "Enter numbers instead"; phone-bound links and saved-bank setup never show Plaid.
+
 ## Invariants
 
 - **Disabled means hidden.** `plaidEnabled()` is false unless `PLAID_CLIENT_ID`, `PLAID_SECRET`
@@ -38,3 +51,30 @@ UI `plaid-link-button.tsx` + `pro-bank-reconciliation-panel.tsx`. Schema:
   balances; the manager still enters them.
 - **Purge.** `plaid_items` is in `account-purge-manifest.ts`; a purge calls `/item/remove`
   best-effort first, and a single-portal removal drops only that portal's purposes.
+
+## Income check (`income`)
+
+A per-listing setting, `verifyIncomeWithPlaid` in the `applicantScreening` namespace (default OFF; Settings > Automations >
+Screening, "Verify income with Plaid"). It only OFFERS the check: skipping is always allowed, it never blocks a submit and a
+group never waits on it.
+
+- **Offer.** The Work and income step draws "Verify income" (Link bank | Skip and upload pay stubs) only when
+  `GET /api/screening/income?propertyId=` answers `offered: true`: Plaid enabled, the listing's setting on, and a signed-in
+  applicant. A guest (no session) never sees it and keeps the pay-stub path. Binding a guest to the held draft was judged too
+  much: the held draft only exists after the form is finished, and the account is created after proof.
+- **Method.** Link with the Transactions product (90 days), then `/transactions/get` and `income-calc.ts`: payroll-style
+  deposits (Plaid `INCOME_WAGES`, or a payroll name; never a transfer, refund, peer payment or pending line) averaged over 3
+  months, at least two deposits or no figure. Plaid's own Income products (`/credit/bank_income/get`) need separate product
+  access, so they are not used; proven against the sandbox with a custom user.
+- **Server-owned.** `POST /api/plaid/income/verify` takes only the public token and the listing id (never a figure), computes
+  on the server, stores one row per (applicant, listing) in `applicant_income_verifications` (service role only, a figure and
+  the institution, never a token) and removes the Plaid Item before returning: no access token lingers. The signed-in
+  application write stamps `row.incomeVerification` from that row (fresh within 30 days) or the stored row, never from the body;
+  the guest upsert keeps only what is already stored.
+- **Manager.** One plain glyph fact, never a pill: `Income $4,800/mo stated · ✓ $4,850/mo verified (Plaid, 3 mo)`
+  (`incomeStatedVsVerifiedLine`) in the review, the fact cards, the HTML and the PDF (the PDF omits the check mark: its standard
+  font cannot draw it).
+- **FCRA.** No decline or ranking logic is tied to this figure. TODO: counsel to review whether a bank-derived income figure
+  shown to a manager is a consumer report before any decision uses it.
+- Disabled Plaid hides the offer even with the setting on. Purge: `applicant_income_verifications` is classified in
+  `account-purge-manifest.ts` (resident scope).

@@ -10,6 +10,7 @@ const settings = (over: Partial<ApplicantScreeningSettings> = {}): ApplicantScre
   idCheck: false,
   backgroundCheck: false,
   idUnlock: "clear",
+  verifyIncomeWithPlaid: false,
   ...over,
 });
 
@@ -43,7 +44,7 @@ describe("pre-apply plan: the manager's choice", () => {
   });
 
   it("both checks chosen are one Starter + ID order", () => {
-    const plan = resolvePreApplyPlan({ settings: { idCheck: true, backgroundCheck: true, idUnlock: "clear" }, env: checkrEnv });
+    const plan = resolvePreApplyPlan({ settings: { idCheck: true, backgroundCheck: true, idUnlock: "clear", verifyIncomeWithPlaid: false }, env: checkrEnv });
     expect(plan.verifyId.required && plan.backgroundCheck.required).toBe(true);
     expect(plan.order?.includeIdCheck).toBe(true);
     expect(plan.order?.quote.totalCents).toBe(2794);
@@ -136,7 +137,7 @@ describe("pre-apply progress: Checkr", () => {
   });
 
   it("'unlock after order' opens the form right after the order is placed", () => {
-    const earlyPlan = resolvePreApplyPlan({ settings: settings({ idCheck: true, backgroundCheck: true, idUnlock: "order" }), env: checkrEnv });
+    const earlyPlan = resolvePreApplyPlan({ settings: settings({ idCheck: true, backgroundCheck: true, idUnlock: "order", verifyIncomeWithPlaid: false }), env: checkrEnv });
     const state = evaluatePreApply({ plan: earlyPlan, check: withId("clear", { status: "pending" }), personaVerified: false });
     expect(state.satisfied).toBe(true);
   });
