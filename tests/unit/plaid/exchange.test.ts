@@ -55,4 +55,17 @@ describe("exchangePublicToken", () => {
     );
     expect(result).toMatchObject({ ok: false, status: 400 });
   });
+
+  it("makes the manager's operating account from the linked account when none was picked", async () => {
+    const { db } = createFakeDb();
+    const createItem = vi.fn(async (_db: unknown, input: Record<string, unknown>) => ({ id: "row-2", bank_account_id: input.bankAccountId }) as never);
+    const createBankAccount = vi.fn(async () => ({ id: "ba-new" }));
+    const result = await exchangePublicToken(
+      { db, client: client() as never, createItem: createItem as never, createBankAccount },
+      { ownerUserId: "user-1", purpose: "bank_feed", publicToken: "p", bankAccountId: null, preferredPlaidAccountId: null },
+    );
+    expect(result.ok).toBe(true);
+    expect(createBankAccount).toHaveBeenCalledWith(db, { managerUserId: "user-1", name: "First Platypus Bank Plaid Checking", accountType: "operating", lastFour: "0000" });
+    expect(createItem.mock.calls[0]![1].bankAccountId).toBe("ba-new");
+  });
 });

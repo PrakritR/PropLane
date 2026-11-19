@@ -100,6 +100,8 @@ export const ManagerBankReconciliationPanel = forwardRef<
   const [plaidEnabled, setPlaidEnabled] = useState(false);
   const [plaidItems, setPlaidItems] = useState<PlaidFeedItem[]>([]);
   const [plaidSyncing, setPlaidSyncing] = useState(false);
+  /** Bumped after a bank sync so statements reload for the CURRENT account (not a stale closure's). */
+  const [statementsVersion, setStatementsVersion] = useState(0);
 
   const loadPlaid = useCallback(async () => {
     try {
@@ -171,7 +173,7 @@ export const ManagerBankReconciliationPanel = forwardRef<
 
   useEffect(() => {
     void loadStatements();
-  }, [loadStatements]);
+  }, [loadStatements, statementsVersion]);
 
   const selectedStatement = useMemo(
     () => statements.find((s) => s.id === selectedStatementId) ?? null,
@@ -199,10 +201,15 @@ export const ManagerBankReconciliationPanel = forwardRef<
         accountId: result.accountId,
       }),
     });
-    const data = (await res.json()) as { item?: { id: string }; error?: string };
+    const data = (await res.json()) as { item?: { id: string; bankAccountId?: string | null }; error?: string };
     if (!res.ok || !data.item) {
       showToast(data.error ?? "Couldn't reach your bank.");
       return;
+    }
+    if (!selectedAccountId && data.item.bankAccountId) {
+      // The linked account became the manager's bank account: show it.
+      await loadAccounts();
+      setSelectedAccountId(data.item.bankAccountId);
     }
     await syncPlaid(data.item.id);
   }
@@ -223,7 +230,7 @@ export const ManagerBankReconciliationPanel = forwardRef<
     } finally {
       setPlaidSyncing(false);
       await loadPlaid();
-      await loadStatements();
+      setStatementsVersion((v) => v + 1);
     }
   }
 
@@ -357,7 +364,7 @@ export const ManagerBankReconciliationPanel = forwardRef<
             </Select>
           </div>
         ) : null}
-        {plaidEnabled && selectedAccountId ? (
+        {plaidEnabled && (selectedAccountId || (!loading && accounts.length === 0)) ? (
           <div className="flex min-h-9 min-w-0 flex-wrap items-center gap-2 text-sm" data-attr="bank-feed-status">
             {!plaidItem ? (
               <PlaidLinkLauncher purpose="bank_feed" onSuccess={connectBank} onError={showToast}>

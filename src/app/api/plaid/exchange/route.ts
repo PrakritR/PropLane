@@ -3,6 +3,7 @@ import { authorizePlaidPurpose } from "@/lib/plaid/access.server";
 import { getPlaidClient, isPlaidPurpose, plaidFailure } from "@/lib/plaid/client.server";
 import { createPlaidItem, maskLastFour } from "@/lib/plaid/items.server";
 import { exchangePublicToken } from "@/lib/plaid/exchange.server";
+import { createBankAccount } from "@/lib/manager-bank-reconciliation.server";
 
 export const runtime = "nodejs";
 
@@ -27,7 +28,7 @@ export async function POST(req: Request) {
     if (!actor.ok) return NextResponse.json({ error: actor.error }, { status: actor.status, headers: NO_STORE });
 
     const result = await exchangePublicToken(
-      { db: actor.db, client: getPlaidClient(), createItem: createPlaidItem },
+      { db: actor.db, client: getPlaidClient(), createItem: createPlaidItem, createBankAccount },
       {
         ownerUserId: actor.userId,
         purpose: body.purpose,
@@ -38,7 +39,7 @@ export async function POST(req: Request) {
     );
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status, headers: NO_STORE });
     return NextResponse.json(
-      { item: { id: result.item.id, institutionName: result.item.institution_name, accountMask: maskLastFour(result.item.account_mask), accountName: result.item.account_name } },
+      { item: { id: result.item.id, institutionName: result.item.institution_name, accountMask: maskLastFour(result.item.account_mask), accountName: result.item.account_name, bankAccountId: result.item.bank_account_id } },
       { headers: NO_STORE },
     );
   } catch (error) {

@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PlaidApi, RemovedTransaction, Transaction } from "plaid";
 import { getPlaidClient, plaidFailure } from "@/lib/plaid/client.server";
+import { fillFeedStatementBalances } from "@/lib/plaid/statement-balances.server";
 import {
   claimPlaidSync,
   readPlaidAccessToken,
@@ -228,6 +229,16 @@ export async function syncPlaidItem(db: SupabaseClient, item: PlaidItemRow, deps
       totals.modified += applied.modified;
       totals.removed += applied.removed;
       totals.skipped += applied.skipped;
+      try {
+        await fillFeedStatementBalances(db, client, {
+          accessToken,
+          plaidAccountId: item.plaid_account_id,
+          ownerUserId: item.owner_user_id,
+          bankAccountId: item.bank_account_id,
+        });
+      } catch {
+        /* balances are a convenience; the lines are what the sync owes */
+      }
       await updatePlaidItem(db, item.id, {
         transactions_cursor: cursor ?? null,
         status: "active",

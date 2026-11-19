@@ -9,6 +9,11 @@ export type ExchangeDeps = {
   db: SupabaseClient;
   client: Pick<PlaidApi, "itemPublicTokenExchange" | "accountsGet" | "institutionsGetById">;
   createItem: (db: SupabaseClient, input: CreatePlaidItemInput) => Promise<PlaidItemRow>;
+  /** Makes the manager's bank account from the linked account when none was picked first. */
+  createBankAccount?: (
+    db: SupabaseClient,
+    input: { managerUserId: string; name: string; accountType: "operating"; lastFour: string | null },
+  ) => Promise<{ id: string }>;
 };
 
 export type ExchangeInput = {
@@ -30,8 +35,10 @@ export type ExchangeResult =
  * numbers are never requested; only the last four digits (mask) are kept.
  */
 export async function exchangePublicToken(deps: ExchangeDeps, input: ExchangeInput): Promise<ExchangeResult> {
-  if (input.purpose === "bank_feed") {
-    if (!input.bankAccountId) return { ok: false, status: 400, error: "Choose a bank account first." };
+  if (input.purpose === "bank_feed" && !input.bankAccountId && !deps.createBankAccount) {
+    return { ok: false, status: 400, error: "Choose a bank account first." };
+  }
+  if (input.purpose === "bank_feed" && input.bankAccountId) {
     const { data: account, error } = await deps.db
       .from("manager_bank_accounts")
       .select("id")
@@ -64,6 +71,19 @@ export async function exchangePublicToken(deps: ExchangeDeps, input: ExchangeInp
     }
   }
 
+  let bankAccountId = input.purpose === "bank_feed" ? input.bankAccountId : null;
+  if (input.purpose === "bank_feed" && !bankAccountId) {
+    // No account picked yet (an empty Bank rec): the linked account becomes the manager's operating account.
+    const label = [institutionName, chosen.name ?? chosen.official_name].filter(Boolean).join(" ").trim() || "Bank account";
+    const created = await deps.createBankAccount!(deps.db, {
+      managerUserId: input.ownerUserId,
+      name: label,
+      accountType: "operating",
+      lastFour: chosen.mask ?? null,
+    });
+    bankAccountId = created.id;
+  }
+
   const item = await deps.createItem(deps.db, {
     ownerUserId: input.ownerUserId,
     purpose: input.purpose,
@@ -73,7 +93,7 @@ export async function exchangePublicToken(deps: ExchangeDeps, input: ExchangeInp
     accountMask: chosen.mask ?? null,
     accountName: chosen.name ?? chosen.official_name ?? null,
     plaidAccountId: chosen.account_id,
-    bankAccountId: input.purpose === "bank_feed" ? input.bankAccountId : null,
+    bankAccountId,
   });
   return { ok: true, item };
 }
