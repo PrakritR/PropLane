@@ -7,7 +7,11 @@ export type PlaidEnvName = "sandbox" | "production";
 export const PLAID_PURPOSES = ["bank_feed", "resident_pay", "income"] as const;
 export type PlaidPurpose = (typeof PLAID_PURPOSES)[number];
 
-/** Purposes whose product flow is built. The others plug in later without a schema change. */
+/**
+ * Purposes that keep a stored `plaid_items` connection and so pass `authorizePlaidPurpose`.
+ * `income` is built but deliberately absent: it stores no item (the Item is removed as soon as the
+ * figure is computed) and has its own gate, `authorizeIncomeActor` in `income.server.ts`.
+ */
 export const PLAID_ENABLED_PURPOSES: readonly PlaidPurpose[] = ["bank_feed", "resident_pay"];
 
 export function isPlaidPurpose(value: unknown): value is PlaidPurpose {

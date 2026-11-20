@@ -114,7 +114,12 @@ export function ResidentBankAccountForm({
   }
 
   async function payWithLinkedBank() {
-    if (!consent || !linked) return;
+    if (!consent || !linked || busy) return;
+    if (!Number.isSafeInteger(amountCents) || (amountCents ?? 0) <= 0) {
+      setError("Payment amount needs review.");
+      return;
+    }
+    setBusy(true);
     setError(null);
     try {
       const response = await fetch("/api/stripe/resident-plaid-bank", {
@@ -129,6 +134,8 @@ export function ResidentBankAccountForm({
       if (result.bankStatus === "paid") onCompleteRef.current?.();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Bank payment needs review.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -224,10 +231,10 @@ export function ResidentBankAccountForm({
               </p>
               <p className="text-sm">Verified</p>
               <label className="flex items-start gap-2 text-sm">
-                <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} required />
-                <span>{`I authorize PropLane to debit this bank account once for $${((amountCents ?? 0) / 100).toFixed(2)} for the charges shown. I can revoke authorization by contacting PropLane before the debit is processed.`}</span>
+                <input type="checkbox" checked={consent} disabled={busy} onChange={(event) => setConsent(event.target.checked)} required />
+                <span>{`I authorize PropLane to debit this bank account $${((amountCents ?? 0) / 100).toFixed(2)} for the charges shown, and to save it to my account for payments I approve, and for recurring autopay only if I separately enable it. I can revoke authorization by contacting PropLane.`}</span>
               </label>
-              <Button type="button" disabled={!consent} onClick={() => payWithLinkedBank()} data-attr="resident-bank-plaid-pay">
+              <Button type="button" disabled={busy || !consent} onClick={() => payWithLinkedBank()} data-attr="resident-bank-plaid-pay">
                 {`Pay $${((amountCents ?? 0) / 100).toFixed(2)}`}
               </Button>
             </>
@@ -246,7 +253,7 @@ export function ResidentBankAccountForm({
             </PlaidLinkLauncher>
           )}
           <div>
-            <Button type="button" variant="ghost" onClick={() => setTypedNumbers(true)} data-attr="resident-bank-enter-numbers">
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => setTypedNumbers(true)} data-attr="resident-bank-enter-numbers">
               Enter numbers instead
             </Button>
           </div>

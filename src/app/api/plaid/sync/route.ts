@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { authorizePlaidPurpose } from "@/lib/plaid/access.server";
+import { logPlaidFailure } from "@/lib/plaid/client.server";
 import { getPlaidItemForOwner, toPlaidItemView } from "@/lib/plaid/items.server";
 import { syncPlaidItem } from "@/lib/plaid/transactions-sync.server";
 
@@ -20,7 +21,8 @@ export async function POST(req: Request) {
     const result = await syncPlaidItem(actor.db, item);
     const fresh = await getPlaidItemForOwner(actor.db, actor.userId, body.itemId);
     return NextResponse.json({ result, item: fresh ? toPlaidItemView(fresh) : null }, { headers: NO_STORE });
-  } catch {
+  } catch (error) {
+    logPlaidFailure("[plaid] manager sync failed", error);
     return NextResponse.json({ error: "Couldn't reach your bank." }, { status: 502, headers: NO_STORE });
   }
 }

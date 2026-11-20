@@ -39,7 +39,10 @@ proves the PaymentIntent's attempt is the session resident's, mints a Stripe ban
 (`stripe-processor.server.ts`), adds it to the resident's Customer as a verified `ba_` bank (reusing one with the
 same fingerprint), and confirms the existing manual-ACH PaymentIntent with the one-time debit mandate (the body
 must carry `authorized: true`). A `btok_` cannot go through SetupIntents, which is why it is a customer bank
-account (Stripe lists it as a `us_bank_account` PaymentMethod under the same id). Needs the Stripe integration
+account (Stripe lists it as a `us_bank_account` PaymentMethod under the same id). Because that bank stays on the
+Customer — in the saved bank list, and selectable for autopay — the Plaid path's authorization says so: it covers
+this debit AND saving the account for payments the resident approves, with autopay only if they separately enable
+it. Never show one-time-only wording on a path that persists the bank. Needs the Stripe integration
 enabled in the Plaid dashboard (Integrations > Stripe) or Plaid answers INVALID_PRODUCT. Typed numbers with
 micro-deposits stay as "Enter numbers instead"; phone-bound links and saved-bank setup never show Plaid.
 

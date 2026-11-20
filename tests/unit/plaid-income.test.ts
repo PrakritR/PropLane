@@ -109,7 +109,8 @@ function fakePlaid(transactions: IncomeTransactionInput[], opts: { notReady?: nu
   let notReady = opts.notReady ?? 0;
   return {
     itemPublicTokenExchange: vi.fn(async () => ({ data: { access_token: "access-sandbox-secret", item_id: "item-1" } })),
-    accountsGet: vi.fn(),
+    accountsGet: vi.fn(async () => ({ data: { accounts: [], item: { institution_id: "ins_1" } } })),
+    institutionsGetById: vi.fn(async () => ({ data: { institution: { name: "First Platypus Bank" } } })),
     transactionsGet: vi.fn(async () => {
       if (notReady > 0) {
         notReady -= 1;
@@ -148,6 +149,18 @@ describe("computeIncomeFromPublicToken", () => {
     const result = await computeIncomeFromPublicToken({ publicToken: "p", now, wait }, client as never);
     expect(result).toMatchObject({ ok: false, status: 422, error: "That account doesn't have enough paycheck history yet." });
     expect(client.itemRemove).toHaveBeenCalledTimes(1);
+  });
+
+  it("stamps the bank the figure came from, and keeps the figure when that lookup fails", async () => {
+    const paychecks = [wages(2400), wages(2450), wages(2500), wages(2400), wages(2450), wages(2500)];
+    const client = fakePlaid(paychecks);
+    const named = await computeIncomeFromPublicToken({ publicToken: "p", now, wait }, client as never);
+    expect(named.ok && named.verification.institutionName).toBe("First Platypus Bank");
+
+    const blind = fakePlaid(paychecks);
+    blind.institutionsGetById.mockRejectedValue({ response: { data: { error_code: "INSTITUTION_NOT_FOUND" }, status: 400 } });
+    const anonymous = await computeIncomeFromPublicToken({ publicToken: "p", now, wait }, blind as never);
+    expect(anonymous).toMatchObject({ ok: true, verification: { monthlyIncomeCents: 490000, institutionName: null } });
   });
 
   it("removes the Item even when Plaid fails", async () => {

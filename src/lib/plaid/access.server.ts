@@ -16,8 +16,9 @@ export type PlaidActor =
   | { ok: false; status: number; error: string };
 
 /**
- * The one gate every Plaid route passes. The user is ALWAYS the session user; a purpose decides
- * which role and permission is also required. Resident pay and income plug in here later.
+ * The one gate every item-backed Plaid route passes. The user is ALWAYS the session user; a purpose
+ * decides which role and permission is also required. The applicant income check keeps no item and
+ * has its own gate (`authorizeIncomeActor`), so `income` is refused here.
  */
 export async function authorizePlaidPurpose(purpose: PlaidPurpose): Promise<PlaidActor> {
   if (!plaidEnabled()) return { ok: false, status: 404, error: "Not found." };

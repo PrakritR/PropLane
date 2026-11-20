@@ -70,10 +70,29 @@ export async function createIncomeLinkToken(userId: string, client: Pick<PlaidAp
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-type IncomeClient = Pick<PlaidApi, "itemPublicTokenExchange" | "transactionsGet" | "itemRemove" | "accountsGet">;
+type IncomeClient = Pick<
+  PlaidApi,
+  "itemPublicTokenExchange" | "transactionsGet" | "itemRemove" | "accountsGet" | "institutionsGetById"
+>;
 
 function isoDay(date: Date): string {
   return date.toISOString().slice(0, 10);
+}
+
+/**
+ * The bank the figure was read from, for the stored provenance of the verification. Best effort:
+ * the applicant's income figure is never lost to a failed institution lookup.
+ */
+async function readInstitutionName(client: IncomeClient, accessToken: string): Promise<string | null> {
+  try {
+    const accounts = await client.accountsGet({ access_token: accessToken });
+    const institutionId = accounts.data.item.institution_id;
+    if (!institutionId) return null;
+    const inst = await client.institutionsGetById({ institution_id: institutionId, country_codes: [CountryCode.Us] });
+    return inst.data.institution.name.trim().slice(0, 120) || null;
+  } catch {
+    return null;
+  }
 }
 
 async function readTransactions(client: IncomeClient, accessToken: string, now: Date, wait: (ms: number) => Promise<void>): Promise<Transaction[]> {
@@ -144,6 +163,7 @@ export async function computeIncomeFromPublicToken(
         months: estimate.months,
         depositCount: estimate.depositCount,
         verifiedAt: now.toISOString(),
+        institutionName: await readInstitutionName(client, accessToken),
       },
     };
   } finally {
