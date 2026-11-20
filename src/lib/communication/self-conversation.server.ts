@@ -12,6 +12,7 @@ export async function loadViewerSelfIdentity(
   db: SupabaseClient,
   user: { id: string; email?: string | null },
 ): Promise<ViewerSelfIdentity> {
+  // `user` is the inbox scope user (`resolveInboxScopeUser`), whose email is null unless `email_confirmed_at` is set.
   const base: ViewerSelfIdentity = { userId: user.id, confirmedEmail: user.email ?? null, verifiedPhone: null };
   try {
     const { data, error } = await db.from("profiles").select("phone, phone_verified_at").eq("id", user.id).maybeSingle();
