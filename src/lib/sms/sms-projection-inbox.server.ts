@@ -5,6 +5,8 @@ import { withSmsMedia } from "@/lib/one-number/sms-media-index.server";
 import { loadSharedLineConfig } from "@/lib/one-number/config.server";
 import { sharedLineWorkspaceIdOf } from "@/lib/one-number/line-label";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { emailForPhoneInWorkspace } from "@/lib/sms/phone-email-join";
+import { loadPhoneEmailEvidence } from "@/lib/sms/phone-email-join.server";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { communicationCandidateOwnerIds, conversationVisible, resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
@@ -238,6 +240,17 @@ async function loadPageContext(db: SupabaseClient, viewerId: string, summaries: 
     if (!applicationsByOwnerEmail.has(key)) applicationsByOwnerEmail.set(key, { property: String(row.property ?? ""), name: String(row.name ?? "") });
   }
   const directory = new Map<string, { name: string | null; email: string | null; savedName: string | null }>();
+  // One row per person: a text thread with no email of its own takes the email this SAME workspace's newest tour
+  // request or application ties to its phone, so it merges with that person's email thread (display only).
+  const needEmailPhones = summaries
+    .filter((summary) => {
+      if (!summary.phone) return false;
+      const profile = summary.counterpartyUserId ? profiles.get(summary.counterpartyUserId) : null;
+      const contact = contacts.get(managerSmsContactKey(summary.ownerManagerUserId, summary.phone, summary.counterpartyRole as Parameters<typeof managerSmsContactKey>[2]));
+      return !String(profile?.email ?? summary.metadata.email ?? contact?.contact_email ?? "").trim();
+    })
+    .map((summary) => summary.phone as string);
+  const phoneEvidence = needEmailPhones.length ? await loadPhoneEmailEvidence(db, owners, needEmailPhones) : [];
   const houseByOwnerAndAlias = new Map<string, string>();
   for (const [id, house] of houses) {
     for (const alias of [house.label.toLowerCase(), ...house.aliases]) {
@@ -249,7 +262,8 @@ async function loadPageContext(db: SupabaseClient, viewerId: string, summaries: 
   for (const summary of summaries) {
     const profile = summary.counterpartyUserId ? profiles.get(summary.counterpartyUserId) : null;
     const contact = summary.phone ? contacts.get(managerSmsContactKey(summary.ownerManagerUserId, summary.phone, summary.counterpartyRole as Parameters<typeof managerSmsContactKey>[2])) : null;
-    const email = String(profile?.email ?? summary.metadata.email ?? contact?.contact_email ?? "").trim().toLowerCase() || null;
+    const email = String(profile?.email ?? summary.metadata.email ?? contact?.contact_email ?? "").trim().toLowerCase() ||
+      emailForPhoneInWorkspace(phoneEvidence, summary.ownerManagerUserId, summary.phone) || null;
     const application = email ? applicationsByOwnerEmail.get(`${summary.ownerManagerUserId}\0${email}`) : null;
     directory.set(summary.id, {
       name: String(

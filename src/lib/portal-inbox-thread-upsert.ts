@@ -83,6 +83,7 @@ export const SERVER_OWNED_CONVERSATION_KEYS = [
   "counterparty",
   "smsOnly",
   "identityFlag",
+  "isViewerSelf",
 ] as const;
 
 export function withoutServerOwnedConversationKeys(row: Record<string, unknown>): Record<string, unknown> {
