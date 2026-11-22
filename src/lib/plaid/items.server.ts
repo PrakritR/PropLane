@@ -11,7 +11,6 @@ export type PlaidItemStatus = "active" | "login_required" | "error" | "revoked";
 export type PlaidItemRow = {
   id: string;
   owner_user_id: string;
-  workspace_id: string | null;
   purpose: PlaidPurpose;
   item_id: string;
   access_token_enc: string;
@@ -38,8 +37,11 @@ export type PlaidItemView = {
   lastSyncedAt: string | null;
 };
 
-const ITEM_SELECT =
-  "id, owner_user_id, workspace_id, purpose, item_id, access_token_enc, institution_name, account_mask, account_name, plaid_account_id, bank_account_id, transactions_cursor, status, last_error, last_synced_at";
+/** The one column list for a `PlaidItemRow`, so a reader can never select a different shape than the type. */
+export const PLAID_ITEM_SELECT =
+  "id, owner_user_id, purpose, item_id, access_token_enc, institution_name, account_mask, account_name, plaid_account_id, bank_account_id, transactions_cursor, status, last_error, last_synced_at";
+
+const ITEM_SELECT = PLAID_ITEM_SELECT;
 
 /** AAD binds the ciphertext to its owner and row: a copied token fails closed anywhere else. */
 function tokenContext(ownerId: string, rowId: string) {
@@ -69,7 +71,6 @@ export type CreatePlaidItemInput = {
   /** Always the session user, never a request body field. */
   ownerUserId: string;
   purpose: PlaidPurpose;
-  workspaceId?: string | null;
   itemId: string;
   accessToken: string;
   institutionName?: string | null;
@@ -116,9 +117,29 @@ export async function createPlaidItem(db: SupabaseClient, input: CreatePlaidItem
   const id = existing?.id ? String(existing.id) : randomUUID();
   // Reconnect (update mode) sends no bank account: keep the one the feed is already bound to.
   const bankAccountId = input.bankAccountId ?? (existing?.bank_account_id ? String(existing.bank_account_id) : null);
+
+  // One live bank feed per bank account. Plaid mints a FRESH `item_id` for every Link session, so a second
+  // "Connect bank" on the same account is a new row the dedupe above cannot see — and both items would then
+  // sync the same real transactions under their own (different) Plaid transaction ids, double-posting every
+  // line and doubling the balances derived from them. A connection that needs attention is reconnected in
+  // update mode, which keeps its `item_id` and lands on the row above.
+  if (input.purpose === "bank_feed" && bankAccountId) {
+    const { data: live, error: liveError } = await db
+      .from("plaid_items")
+      .select("id")
+      .eq("bank_account_id", bankAccountId)
+      .eq("purpose", "bank_feed")
+      .neq("status", "revoked")
+      .neq("id", id)
+      .limit(1);
+    if (liveError) throw new Error(liveError.message);
+    if ((live ?? []).length > 0) {
+      throw new PlaidItemConflictError("This bank account is already connected. Reconnect that connection instead.", 409);
+    }
+  }
+
   const fields = {
     owner_user_id: input.ownerUserId,
-    workspace_id: input.workspaceId ?? null,
     purpose: input.purpose,
     item_id: input.itemId,
     access_token_enc: encryptSensitiveValue(input.accessToken, tokenContext(input.ownerUserId, id)),
@@ -135,6 +156,12 @@ export async function createPlaidItem(db: SupabaseClient, input: CreatePlaidItem
     ? db.from("plaid_items").update(fields).eq("id", id).eq("owner_user_id", input.ownerUserId)
     : db.from("plaid_items").insert({ id, ...fields });
   const { data, error } = await query.select(ITEM_SELECT).single();
+  // The database holds the same two invariants as unique indexes (`item_id`, and one live bank feed per
+  // bank account), so a race that slips past the reads above is still refused — as the refusal it is,
+  // never as a 502 "couldn't reach your bank".
+  if (error && String((error as { code?: unknown }).code ?? "") === "23505") {
+    throw new PlaidItemConflictError("This bank account is already connected. Reload the page to see it.", 409);
+  }
   if (error || !data) throw new Error(error?.message ?? "Could not save the bank connection.");
   return data as unknown as PlaidItemRow;
 }

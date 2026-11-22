@@ -52,13 +52,17 @@ function monthBounds(date: string): { first: string; last: string } {
  * the only marker that lets `fillFeedStatementBalances` derive its balances). An existing statement keeps
  * whatever source it already has: a month the manager created or imported stays theirs even once feed lines
  * land in it, so their typed opening / closing are never rewritten.
+ *
+ * A month whose every statement is already reconciled gets ANOTHER feed-owned statement rather than no
+ * statement at all: the cursor advances once a batch is applied, so a bank item that posts late into a
+ * closed month would otherwise be dropped for good. The reconciled statement is never touched.
  */
 async function statementForMonth(
   db: SupabaseClient,
   ownerId: string,
   bankAccountId: string,
   date: string,
-): Promise<{ id: string; reconciled: boolean }> {
+): Promise<{ id: string }> {
   const { first, last } = monthBounds(date);
   const { data, error } = await db
     .from("manager_bank_statements")
@@ -72,8 +76,7 @@ async function statementForMonth(
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as { id: string; reconciled_at: string | null }[];
   const open = rows.find((r) => !r.reconciled_at);
-  if (open) return { id: open.id, reconciled: false };
-  if (rows.length > 0) return { id: rows[0]!.id, reconciled: true };
+  if (open) return { id: open.id };
 
   const { data: created, error: createError } = await db
     .from("manager_bank_statements")
@@ -89,7 +92,7 @@ async function statementForMonth(
     .select("id")
     .single();
   if (createError || !created) throw new Error(createError?.message ?? "Statement create failed.");
-  return { id: String(created.id), reconciled: false };
+  return { id: String(created.id) };
 }
 
 type ExistingLine = {
@@ -106,12 +109,20 @@ function isLocked(line: ExistingLine): boolean {
   return line.cleared || Boolean(line.matched_ledger_entry_id) || Boolean(line.matched_expense_entry_id) || Boolean(st?.reconciled_at);
 }
 
-async function loadExisting(db: SupabaseClient, ids: string[]): Promise<Map<string, ExistingLine>> {
+/**
+ * The lines these Plaid transaction ids already own, scoped through their statement to ONE owner. Plaid's
+ * transaction ids are globally unique, but the update and delete below name rows by id alone, so the scope
+ * is what keeps a collision (or an id replayed from another owner's item) from rewriting someone else's
+ * statement: an inner join on `manager_bank_statements.manager_user_id` means a foreign line is simply not
+ * found, and the sync inserts its own instead.
+ */
+async function loadExisting(db: SupabaseClient, ownerId: string, ids: string[]): Promise<Map<string, ExistingLine>> {
   const found = new Map<string, ExistingLine>();
   for (let i = 0; i < ids.length; i += 100) {
     const { data, error } = await db
       .from("manager_bank_statement_lines")
-      .select("id, plaid_transaction_id, cleared, matched_ledger_entry_id, matched_expense_entry_id, manager_bank_statements(reconciled_at)")
+      .select("id, plaid_transaction_id, cleared, matched_ledger_entry_id, matched_expense_entry_id, manager_bank_statements!inner(reconciled_at, manager_user_id)")
+      .eq("manager_bank_statements.manager_user_id", ownerId)
       .in("plaid_transaction_id", ids.slice(i, i + 100));
     if (error) throw new Error(error.message);
     for (const row of (data ?? []) as unknown as ExistingLine[]) found.set(row.plaid_transaction_id, row);
@@ -139,8 +150,8 @@ export async function applyPlaidChanges(
   const byId = new Map<string, Transaction>();
   for (const t of posted) byId.set(t.transaction_id, t);
 
-  const existing = await loadExisting(db, [...byId.keys()]);
-  const statementCache = new Map<string, { id: string; reconciled: boolean }>();
+  const existing = await loadExisting(db, item.owner_user_id, [...byId.keys()]);
+  const statementCache = new Map<string, { id: string }>();
 
   for (const txn of byId.values()) {
     const line = plaidTransactionToLine(txn);
@@ -163,10 +174,6 @@ export async function applyPlaidChanges(
     if (!statement) {
       statement = await statementForMonth(db, item.owner_user_id, item.bank_account_id, line.lineDate);
       statementCache.set(monthKey, statement);
-    }
-    if (statement.reconciled) {
-      counts.skipped += 1;
-      continue;
     }
     // `ignoreDuplicates` returns no row when the line already existed (a concurrent sync inserted it
     // between our read and this write), so count what was actually inserted, never the attempt.
@@ -191,7 +198,7 @@ export async function applyPlaidChanges(
 
   const removedIds = [...new Set(changes.removed.map((r) => r.transaction_id))];
   if (removedIds.length > 0) {
-    const existingRemoved = await loadExisting(db, removedIds);
+    const existingRemoved = await loadExisting(db, item.owner_user_id, removedIds);
     const deletable = [...existingRemoved.values()].filter((l) => !isLocked(l)).map((l) => l.id);
     counts.skipped += existingRemoved.size - deletable.length;
     for (let i = 0; i < deletable.length; i += 100) {
@@ -207,7 +214,16 @@ export async function applyPlaidChanges(
 export async function syncPlaidItem(db: SupabaseClient, item: PlaidItemRow, deps: SyncDeps = {}): Promise<PlaidSyncResult> {
   const empty = { added: 0, modified: 0, removed: 0, skipped: 0 };
   if (item.purpose !== "bank_feed" || !item.bank_account_id || item.status === "revoked") return { status: "skipped", ...empty };
-  if (!(await claimPlaidSync(db, item.id))) return { status: "busy", ...empty };
+  // The claim runs before the try/finally that owns the release, so its own failure is answered here:
+  // a throw from this line would escape the whole function and, in the cron's loop, take every item
+  // after this one down with it.
+  let claimed = false;
+  try {
+    claimed = await claimPlaidSync(db, item.id);
+  } catch (error) {
+    return { status: "error", ...empty, errorCode: plaidFailure(error).code };
+  }
+  if (!claimed) return { status: "busy", ...empty };
 
   try {
     const client = deps.client ?? getPlaidClient();

@@ -8,6 +8,7 @@ import { createPlaidItem, getPlaidItemForOwner, maskLastFour, readPlaidAccessTok
 import { exchangePublicToken } from "@/lib/plaid/exchange.server";
 import { plaidWebhookUrl } from "@/lib/plaid/webhook-url";
 import { createBankAccount } from "@/lib/manager-bank-reconciliation.server";
+import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 
 /**
  * The Link token / exchange pair, shared by the generic `/api/plaid/*` routes and the purpose-pinned
@@ -22,6 +23,18 @@ import { createBankAccount } from "@/lib/manager-bank-reconciliation.server";
 export type PlaidRouteOptions = { only?: PlaidPurpose };
 
 const NO_STORE = { "Cache-Control": "no-store" };
+
+/**
+ * The same ceiling the income routes carry. Link token minting and the exchange are each an outbound
+ * Plaid call per request, so an authenticated caller is still a caller: ten per ten minutes per user
+ * and IP. A refusal that cannot be counted (`unavailable`) is a refusal.
+ */
+const PLAID_LINK_LIMIT = { max: 10, windowMs: 10 * 60_000 };
+
+async function withinLinkLimit(req: Request, scope: string, userId: string): Promise<boolean> {
+  const limit = await rateLimit(`plaid-${scope}:${userId}:${clientIpFrom(req)}`, PLAID_LINK_LIMIT.max, PLAID_LINK_LIMIT.windowMs);
+  return limit.ok;
+}
 
 function readPurpose(value: unknown, options: PlaidRouteOptions): PlaidPurpose | null {
   if (!isPlaidPurpose(value)) return null;
@@ -40,6 +53,9 @@ export async function plaidLinkTokenRoute(req: Request, options: PlaidRouteOptio
     if (!purpose) return NextResponse.json({ error: "Unknown purpose." }, { status: 400, headers: NO_STORE });
     const actor = await authorizePlaidPurpose(purpose);
     if (!actor.ok) return NextResponse.json({ error: actor.error }, { status: actor.status, headers: NO_STORE });
+    if (!(await withinLinkLimit(req, "link-token", actor.userId))) {
+      return NextResponse.json({ error: "Try again in a few minutes." }, { status: 429, headers: NO_STORE });
+    }
 
     let accessToken: string | undefined;
     if (typeof body.itemId === "string" && body.itemId) {
@@ -82,6 +98,9 @@ export async function plaidExchangeRoute(req: Request, options: PlaidRouteOption
     if (!publicToken || !purpose) return NextResponse.json({ error: "Invalid request." }, { status: 400, headers: NO_STORE });
     const actor = await authorizePlaidPurpose(purpose);
     if (!actor.ok) return NextResponse.json({ error: actor.error }, { status: actor.status, headers: NO_STORE });
+    if (!(await withinLinkLimit(req, "exchange", actor.userId))) {
+      return NextResponse.json({ error: "Try again in a few minutes." }, { status: 429, headers: NO_STORE });
+    }
 
     const result = await exchangePublicToken(
       { db: actor.db, client: getPlaidClient(), createItem: createPlaidItem, createBankAccount },

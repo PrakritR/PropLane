@@ -46,6 +46,24 @@ describe("plaid items", () => {
     expect(tables.plaid_items![0]).toMatchObject({ purpose: "bank_feed", bank_account_id: "ba-1" });
   });
 
+  it("refuses a second live bank feed on one bank account, and lets a revoked one be replaced", async () => {
+    const { db, tables } = createFakeDb();
+    await createPlaidItem(db, { ownerUserId: "u1", purpose: "bank_feed", itemId: "i1", accessToken: "t", bankAccountId: "ba-1" });
+    // A second Link session mints a fresh item_id, so the item_id dedupe cannot see it.
+    const refusal = await createPlaidItem(db, { ownerUserId: "u1", purpose: "bank_feed", itemId: "i2", accessToken: "t", bankAccountId: "ba-1" }).catch((e) => e);
+    expect(refusal).toBeInstanceOf(PlaidItemConflictError);
+    expect(refusal.status).toBe(409);
+    expect(refusal.message).toMatch(/already connected/);
+    expect(tables.plaid_items).toHaveLength(1);
+    // A reconnect of the SAME item still lands on its own row.
+    await createPlaidItem(db, { ownerUserId: "u1", purpose: "bank_feed", itemId: "i1", accessToken: "t2" });
+    expect(tables.plaid_items).toHaveLength(1);
+    // Once the bank revokes it, the account can be linked again.
+    tables.plaid_items![0]!.status = "revoked";
+    await createPlaidItem(db, { ownerUserId: "u1", purpose: "bank_feed", itemId: "i3", accessToken: "t", bankAccountId: "ba-1" });
+    expect(tables.plaid_items).toHaveLength(2);
+  });
+
   it("keeps only the last four of a mask", () => {
     expect(maskLastFour("0000-1234")).toBe("1234");
     expect(maskLastFour(null)).toBeNull();

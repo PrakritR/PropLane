@@ -4,7 +4,6 @@
 create table if not exists public.plaid_items (
   id uuid primary key default gen_random_uuid(),
   owner_user_id uuid not null references auth.users (id) on delete cascade,
-  workspace_id uuid,
   purpose text not null check (purpose in ('bank_feed', 'resident_pay', 'income')),
   item_id text not null,
   access_token_enc text not null,
@@ -25,6 +24,14 @@ create table if not exists public.plaid_items (
 create unique index if not exists plaid_items_item_id_key on public.plaid_items (item_id);
 create index if not exists plaid_items_owner_purpose_idx on public.plaid_items (owner_user_id, purpose);
 create index if not exists plaid_items_bank_account_idx on public.plaid_items (bank_account_id) where bank_account_id is not null;
+
+-- One LIVE bank feed per bank account. Plaid mints a fresh item_id per Link session, so a second
+-- "Connect bank" on an account that already has one would insert a second item, and both would post
+-- the same real transactions under their own transaction ids: every line twice, and every balance
+-- derived from the line sums wrong. A revoked item is excluded so the account can be linked again.
+create unique index if not exists plaid_items_one_live_bank_feed_key
+  on public.plaid_items (bank_account_id)
+  where bank_account_id is not null and purpose = 'bank_feed' and status <> 'revoked';
 
 alter table public.plaid_items enable row level security;
 revoke all on public.plaid_items from public, anon, authenticated;

@@ -41,8 +41,8 @@ describe("applyPlaidChanges", () => {
   it("removes only lines that are not matched, cleared or reconciled", async () => {
     const { db, tables } = createFakeDb({
       manager_bank_statements: [
-        { id: "s-open", reconciled_at: null },
-        { id: "s-done", reconciled_at: "2026-11-01" },
+        { id: "s-open", manager_user_id: "u1", reconciled_at: null },
+        { id: "s-done", manager_user_id: "u1", reconciled_at: "2026-11-01" },
       ],
       manager_bank_statement_lines: [
         { id: "l1", statement_id: "s-open", plaid_transaction_id: "free", cleared: false, matched_ledger_entry_id: null, matched_expense_entry_id: null },
@@ -56,9 +56,46 @@ describe("applyPlaidChanges", () => {
     expect(tables.manager_bank_statement_lines!.map((l) => l.id).sort()).toEqual(["l2", "l3", "l4"]);
   });
 
+  it("never drops a transaction that posts into a fully reconciled month", async () => {
+    const { db, tables } = createFakeDb({
+      manager_bank_statements: [
+        { id: "s-closed", manager_user_id: "u1", bank_account_id: "ba-1", statement_date: "2026-10-31", reconciled_at: "2026-11-02", source: "manual" },
+      ],
+    });
+    const result = await applyPlaidChanges(db, item, { added: [txn("late", "2026-10-28", 44)], modified: [], removed: [] });
+    expect(result).toMatchObject({ added: 1, skipped: 0 });
+    const line = tables.manager_bank_statement_lines![0]!;
+    expect(line.plaid_transaction_id).toBe("late");
+    // Its own feed-owned statement for that month; the reconciled one is untouched.
+    expect(line.statement_id).not.toBe("s-closed");
+    const created = tables.manager_bank_statements!.find((s) => s.id === line.statement_id)!;
+    expect(created).toMatchObject({ source: "plaid_feed", statement_date: "2026-10-31" });
+    expect(created.reconciled_at ?? null).toBeNull();
+    expect(tables.manager_bank_statements!.find((s) => s.id === "s-closed")).toMatchObject({ reconciled_at: "2026-11-02" });
+    // And a second pass reuses that open statement instead of making another.
+    await applyPlaidChanges(db, item, { added: [txn("late2", "2026-10-27", 5)], modified: [], removed: [] });
+    expect(tables.manager_bank_statements).toHaveLength(2);
+  });
+
+  it("leaves another owner's line alone when a transaction id collides", async () => {
+    const { db, tables } = createFakeDb({
+      manager_bank_statements: [
+        { id: "s-mine", manager_user_id: "u1", bank_account_id: "ba-1", statement_date: "2026-11-30", reconciled_at: null, source: "plaid_feed" },
+        { id: "s-theirs", manager_user_id: "u2", bank_account_id: "ba-9", statement_date: "2026-11-30", reconciled_at: null, source: "plaid_feed" },
+      ],
+      manager_bank_statement_lines: [
+        { id: "l-theirs", statement_id: "s-theirs", plaid_transaction_id: "shared", amount_cents: -100, description: "Theirs", cleared: false, matched_ledger_entry_id: null, matched_expense_entry_id: null },
+      ],
+    });
+    await applyPlaidChanges(db, item, { added: [txn("shared", "2026-11-14", 9)], modified: [], removed: [] });
+    expect(tables.manager_bank_statement_lines!.find((l) => l.id === "l-theirs")).toMatchObject({ amount_cents: -100, description: "Theirs" });
+    await applyPlaidChanges(db, item, { added: [], modified: [], removed: [{ transaction_id: "shared" }] });
+    expect(tables.manager_bank_statement_lines!.some((l) => l.id === "l-theirs")).toBe(true);
+  });
+
   it("does not rewrite a matched line when Plaid modifies it", async () => {
     const { db, tables } = createFakeDb({
-      manager_bank_statements: [{ id: "s", reconciled_at: null }],
+      manager_bank_statements: [{ id: "s", manager_user_id: "u1", reconciled_at: null }],
       manager_bank_statement_lines: [{ id: "l", statement_id: "s", plaid_transaction_id: "t", amount_cents: -100, cleared: false, matched_ledger_entry_id: "le", matched_expense_entry_id: null }],
     });
     const r = await applyPlaidChanges(db, item, { added: [], modified: [txn("t", "2026-11-14", 9)], removed: [] });

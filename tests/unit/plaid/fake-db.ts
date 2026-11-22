@@ -53,7 +53,8 @@ export function createFakeDb(seed: Record<string, Row[]> = {}) {
         result = rows.filter((r) => filters.every((f) => f(r)));
         tables[table] = rows.filter((r) => !result.includes(r));
       } else {
-        result = rows.filter((r) => filters.every((f) => f(r))).map(decorate);
+        // Decorate first: a filter may name an embedded column (`manager_bank_statements.manager_user_id`).
+        result = rows.map(decorate).filter((r) => filters.every((f) => f(r)));
         if (orderBy) {
           const { col, asc } = orderBy;
           result = [...result].sort((a, b) => (String(a[col]) < String(b[col]) ? -1 : 1) * (asc ? 1 : -1));
@@ -65,14 +66,23 @@ export function createFakeDb(seed: Record<string, Row[]> = {}) {
       return { data: result, error: null };
     };
 
+    /** `col`, or `embedded.col` for a filter on a joined table (PostgREST's embedded filter). */
+    const valueAt = (row: Row, col: string): unknown => {
+      if (!col.includes(".")) return row[col];
+      const [head, ...rest] = col.split(".");
+      const nested = row[head!];
+      const one = Array.isArray(nested) ? nested[0] : nested;
+      return one && typeof one === "object" ? (one as Row)[rest.join(".")] : undefined;
+    };
+
     const b: Record<string, unknown> = {
       select: () => b,
       insert: (p: Row) => ((mode = "insert"), (payload = p), b),
       upsert: (p: Row, o: typeof upsertOpts) => ((mode = "upsert"), (payload = p), (upsertOpts = o), b),
       update: (p: Row) => ((mode = "update"), (payload = p), b),
       delete: () => ((mode = "delete"), b),
-      eq: (c: string, v: unknown) => (filters.push((r) => r[c] === v), b),
-      neq: (c: string, v: unknown) => (filters.push((r) => r[c] !== v), b),
+      eq: (c: string, v: unknown) => (filters.push((r) => valueAt(r, c) === v), b),
+      neq: (c: string, v: unknown) => (filters.push((r) => valueAt(r, c) !== v), b),
       in: (c: string, vs: unknown[]) => (filters.push((r) => vs.includes(r[c])), b),
       gte: (c: string, v: string) => (filters.push((r) => String(r[c]) >= v), b),
       lte: (c: string, v: string) => (filters.push((r) => String(r[c]) <= v), b),

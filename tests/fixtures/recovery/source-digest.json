@@ -1,5 +1,5 @@
 {
-  "sha256": "25df65164618f776c897f127fc490c780d99f1fb5f14256568d050d4a3b132ed",
+  "sha256": "538170eb1a87dac485482585d13581ad9b68bda8617aca467a4a9d088f272c9a",
   "selection": "SQL migrations containing account_recovery_, resident_move_in_forms, CREATE/DROP/ALTER TABLE and admin_team_atomic_revoke; plus purge manifest and recovery policy",
   "missing_dev_catalog": [
     "applicant_preapply_checks",
@@ -12,9 +12,9 @@
     "scheduled_inbox_channel_deliveries"
   ],
   "reviewed_change": {
-    "date": "2026-11-19",
-    "reason": "Plaid round: 20261118120000 adds plaid_items (one linked bank login per purpose; the access token encrypted with the owner and row id in the AAD, service-role only, RLS on) and manager_bank_statement_lines.plaid_transaction_id; 20261118130000 adds applicant_income_verifications (one server-computed income figure per applicant and listing, no token kept); 20261118140000 adds manager_bank_statements.source (manual | plaid_feed, default manual) with its check constraint. Both new tables are classified in account-purge-manifest.ts and the account-deletion order; the mover classification (20261112230000) keeps plaid_items, because its token decrypts only for its own owner and it points at the kept manager_bank_accounts. Neither table is in the historical dev hook catalog, which is unchanged. Follow-up: 20261118150000 re-applies managed_move_classification() (same body as 20261112230000, now with plaid_items keep) for databases that already ran 20261112230000; it replaces a function and changes no table, so the dev hook catalog is unchanged.",
-    "selected_source_paths": 358,
-    "previous_sha256": "386c49ad0a2dd6a06535272211573e65e9654267d32f3c211a4f21f32a2277dd"
+    "date": "2026-11-22",
+    "reason": "Plaid round: 20261118120000 adds plaid_items (one linked bank login per purpose; the access token encrypted with the owner and row id in the AAD, service-role only, RLS on) and manager_bank_statement_lines.plaid_transaction_id; 20261118130000 adds applicant_income_verifications (one server-computed income figure per applicant and listing, no token kept); 20261118140000 adds manager_bank_statements.source (manual | plaid_feed, default manual) with its check constraint. Both new tables are classified in account-purge-manifest.ts and the account-deletion order; the mover classification (20261112230000) keeps plaid_items, because its token decrypts only for its own owner and it points at the kept manager_bank_accounts. Neither table is in the historical dev hook catalog, which is unchanged. Follow-up: 20261118150000 re-applies managed_move_classification() (same body as 20261112230000, now with plaid_items keep) for databases that already ran 20261112230000; it replaces a function and changes no table, so the dev hook catalog is unchanged. Review round: 20261118120000 is amended in place (no workspace_id, which was never written or read: a Plaid item is owner-keyed like the manager_bank_accounts it points at, and the mover classifies it that way; plus the partial unique index plaid_items_one_live_bank_feed_key, one live bank feed per bank account, so a second Link session cannot double-post every statement line) and 20261121120000_plaid_items_one_live_feed.sql carries both steps idempotently for databases that already ran it. No table is added or removed and the dev hook catalog is unchanged; the selected path count rises by one because the new follow-up migration is itself in the selection.",
+    "selected_source_paths": 359,
+    "previous_sha256": "25df65164618f776c897f127fc490c780d99f1fb5f14256568d050d4a3b132ed"
   }
 }

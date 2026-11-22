@@ -20,7 +20,8 @@ Code: `src/lib/plaid/` (`client.server.ts`, `items.server.ts`, `exchange.server.
 UI `plaid-link-button.tsx` + `pro-bank-reconciliation-panel.tsx` +
 `resident-bank-account-form.tsx` + `application-income-verify.tsx`. Schema:
 `20261118120000_plaid_items.sql`, `20261118130000_applicant_income_verifications.sql`,
-`20261118140000_bank_statement_source.sql`.
+`20261118140000_bank_statement_source.sql`,
+`20261121120000_plaid_items_one_live_feed.sql`.
 
 **One path, one purpose where the lock cares.** The managed read-only allowlist
 (`MANAGED_READ_ONLY_ALLOWED_PATHS`) is a pure PATH policy, so the resident's own bank
@@ -63,6 +64,20 @@ micro-deposits stay as "Enter numbers instead"; phone-bound links and saved-bank
   from `/webhook_verification_key/get`, `iat` within 5 minutes, `request_body_sha256` equals the
   SHA-256 of the raw body. Anything else is a 401 that does nothing. URL: `PLAID_WEBHOOK_URL`, else
   the canonical origin on a production runtime; with neither, the daily cron covers it.
+- **One live bank feed per bank account.** Plaid mints a FRESH `item_id` for every Link session, so the
+  `item_id` dedupe cannot see a second "Connect bank" on an account that already has a feed — and two items
+  post the same real transactions under their own transaction ids, doubling every line and every balance
+  derived from the line sums. `createPlaidItem` refuses it (409, "already connected"; Reconnect runs in
+  update mode and keeps the `item_id`), and the partial unique index
+  `plaid_items_one_live_bank_feed_key` holds the same invariant for the double-click, so a race answers
+  that refusal and never a 502. A `revoked` item is excluded: the account can be linked again.
+- **A line is never dropped to keep a closed month closed.** `statementForMonth` opens ANOTHER feed-owned
+  statement for a month whose every statement is already reconciled, because the cursor advances once a
+  batch is applied and Plaid never re-delivers it — a late-posting item would be lost for good. The
+  reconciled statement itself is never written.
+- **A statement line is found through its own owner.** `loadExisting` inner-joins
+  `manager_bank_statements` on `manager_user_id`, so the update and delete that name rows by id can only
+  ever reach this owner's lines: a collided or replayed Plaid transaction id is simply not found.
 - **Sync is idempotent and suggestion-only.** `/transactions/sync` by cursor; lines upsert on
   `manager_bank_statement_lines.plaid_transaction_id` into the open statement for that month.
   A modified transaction updates only a line nobody matched or cleared; a removed one deletes only
@@ -93,6 +108,17 @@ micro-deposits stay as "Enter numbers instead"; phone-bound links and saved-bank
   is reduced to its public code plus the transport code, status and message. Only an error that never
   went through the client (Stripe, the database, a bug) is logged whole, which is what keeps it
   debuggable after `plaidFailure` would have flattened it to `UNREACHABLE`.
+- **A Plaid item is owner-keyed, with no workspace of its own.** The token's AAD binds it to the owner, it
+  points at `manager_bank_accounts` (itself `keep` on `manager_user_id` in the managed mover), and the
+  mover classifies `plaid_items` the same way. There is deliberately no `workspace_id` column to scope a
+  bank feed by (`20261121120000_plaid_items_one_live_feed.sql` drops the unused one).
+- **Every Plaid route is rate limited.** Link token, exchange and the manager's own Retry carry the same
+  ceiling as the income routes (`plaid-link-token` / `plaid-exchange` 10, `plaid-sync` 20, per user + IP
+  per ten minutes): each is an outbound Plaid call, and being signed in is not a budget.
+- **One failing item is its own failure.** `syncPlaidItem` answers a claim it could not take as a result,
+  never a throw, and `/api/cron/plaid-sync` guards each item — a single unreadable row never costs every
+  connection behind it that day's transactions (the webhook is the only other trigger, and a deployment
+  without `PLAID_WEBHOOK_URL` has none).
 - **Purge.** `plaid_items` is in `account-purge-manifest.ts`; a purge calls `/item/remove`
   best-effort first, and a single-portal removal drops only that portal's purposes.
 

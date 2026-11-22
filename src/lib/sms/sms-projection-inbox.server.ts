@@ -6,7 +6,7 @@ import { loadSharedLineConfig } from "@/lib/one-number/config.server";
 import { sharedLineWorkspaceIdOf } from "@/lib/one-number/line-label";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { emailForPhoneInWorkspace } from "@/lib/sms/phone-email-join";
-import { loadPhoneEmailEvidence } from "@/lib/sms/phone-email-join.server";
+import { createPhoneEmailEvidenceCache, loadPhoneEmailEvidence, type PhoneEmailEvidenceCache } from "@/lib/sms/phone-email-join.server";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { communicationCandidateOwnerIds, conversationVisible, resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
@@ -149,7 +149,12 @@ async function loadPersonConversationKeys(db: SupabaseClient, ids: string[]): Pr
   return out;
 }
 
-async function loadPageContext(db: SupabaseClient, viewerId: string, summaries: SmsProjectionSummary[]): Promise<Context> {
+async function loadPageContext(
+  db: SupabaseClient,
+  viewerId: string,
+  summaries: SmsProjectionSummary[],
+  evidenceCache?: PhoneEmailEvidenceCache,
+): Promise<Context> {
   const aliases = new Map<string, string[]>();
   const ids = summaries.map((summary) => summary.id);
   const owners = [...new Set(summaries.map((summary) => summary.ownerManagerUserId))];
@@ -250,7 +255,7 @@ async function loadPageContext(db: SupabaseClient, viewerId: string, summaries: 
       return !String(profile?.email ?? summary.metadata.email ?? contact?.contact_email ?? "").trim();
     })
     .map((summary) => summary.phone as string);
-  const phoneEvidence = needEmailPhones.length ? await loadPhoneEmailEvidence(db, owners, needEmailPhones) : [];
+  const phoneEvidence = needEmailPhones.length ? await loadPhoneEmailEvidence(db, owners, needEmailPhones, evidenceCache) : [];
   const houseByOwnerAndAlias = new Map<string, string>();
   for (const [id, house] of houses) {
     for (const alias of [house.label.toLowerCase(), ...house.aliases]) {
@@ -368,6 +373,9 @@ export async function fetchManagerSmsProjectionPage(db: SupabaseClient, viewerId
   const managedOwner = await loadManagedOwnerIdentity(db, scope.activeWorkspaceId);
   let cursor = before;
   let hasMore = false;
+  // One cache for every page this request walks: the phone/email evidence is owner-scoped, so ten
+  // scan iterations would otherwise repeat the same two reads ten times.
+  const evidenceCache = createPhoneEmailEvidenceCache();
   // Each request inspects at most ten indexed summary pages. An owner with
   // many hidden threads can yield an empty page with a continuation cursor;
   // the client must not treat that as the end of history.
@@ -377,7 +385,7 @@ export async function fetchManagerSmsProjectionPage(db: SupabaseClient, viewerId
     ));
     const candidates = pages.flatMap((page) => page.items).sort(tupleBefore).slice(0, PAGE_SIZE);
     if (!candidates.length) { hasMore = false; break; }
-    const context = await loadPageContext(db, viewerId, candidates);
+    const context = await loadPageContext(db, viewerId, candidates, evidenceCache);
     let processed = 0;
     for (const summary of candidates) {
       processed += 1;
