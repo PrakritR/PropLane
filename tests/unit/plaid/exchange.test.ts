@@ -70,6 +70,36 @@ describe("exchangePublicToken", () => {
     expect(result.ok === false && result.error).toMatch(/already connected/);
   });
 
+  it("leaves no empty bank account behind when the item is refused", async () => {
+    const { db, tables } = createFakeDb();
+    const createBankAccount = vi.fn(async () => {
+      tables.manager_bank_accounts!.push({ id: "ba-new", manager_user_id: "user-1" });
+      return { id: "ba-new" };
+    });
+    const createItem = vi.fn(async () => {
+      throw new PlaidItemConflictError("This bank login can't be connected here.", 403);
+    });
+    const result = await exchangePublicToken(
+      { db, client: client() as never, createItem: createItem as never, createBankAccount },
+      { ownerUserId: "user-1", purpose: "bank_feed", publicToken: "p", bankAccountId: null, preferredPlaidAccountId: null },
+    );
+    expect(result).toMatchObject({ ok: false, status: 403 });
+    expect(tables.manager_bank_accounts).toHaveLength(0);
+  });
+
+  it("keeps the bank account the manager picked themselves when the item is refused", async () => {
+    const { db, tables } = createFakeDb({ manager_bank_accounts: [{ id: "ba-1", manager_user_id: "user-1" }] });
+    const createItem = vi.fn(async () => {
+      throw new PlaidItemConflictError("This bank account is already connected. Reconnect that connection instead.", 409);
+    });
+    const result = await exchangePublicToken(
+      { db, client: client() as never, createItem: createItem as never },
+      { ownerUserId: "user-1", purpose: "bank_feed", publicToken: "p", bankAccountId: "ba-1", preferredPlaidAccountId: null },
+    );
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    expect(tables.manager_bank_accounts).toHaveLength(1);
+  });
+
   it("makes the manager's operating account from the linked account when none was picked", async () => {
     const { db } = createFakeDb();
     const createItem = vi.fn(async (_db: unknown, input: Record<string, unknown>) => ({ id: "row-2", bank_account_id: input.bankAccountId }) as never);

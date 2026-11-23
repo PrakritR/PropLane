@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PlaidApi, RemovedTransaction, Transaction } from "plaid";
-import { getPlaidClient, plaidFailure } from "@/lib/plaid/client.server";
+import { getPlaidClient, logPlaidFailure, plaidFailure } from "@/lib/plaid/client.server";
 import { fillFeedStatementBalances } from "@/lib/plaid/statement-balances.server";
 import {
   claimPlaidSync,
@@ -114,7 +114,11 @@ function isLocked(line: ExistingLine): boolean {
  * transaction ids are globally unique, but the update and delete below name rows by id alone, so the scope
  * is what keeps a collision (or an id replayed from another owner's item) from rewriting someone else's
  * statement: an inner join on `manager_bank_statements.manager_user_id` means a foreign line is simply not
- * found, and the sync inserts its own instead.
+ * found, and nothing here touches it.
+ *
+ * Not finding it is not the same as being able to insert it: `plaid_transaction_id` is unique across the
+ * WHOLE table, so an id another owner already holds makes this sync's insert a no-op. That transaction is
+ * counted as skipped and reported by `logConflictedInserts`, never silently dropped.
  */
 async function loadExisting(db: SupabaseClient, ownerId: string, ids: string[]): Promise<Map<string, ExistingLine>> {
   const found = new Map<string, ExistingLine>();
@@ -152,6 +156,7 @@ export async function applyPlaidChanges(
 
   const existing = await loadExisting(db, item.owner_user_id, [...byId.keys()]);
   const statementCache = new Map<string, { id: string }>();
+  let conflicted = 0;
 
   for (const txn of byId.values()) {
     const line = plaidTransactionToLine(txn);
@@ -193,8 +198,12 @@ export async function applyPlaidChanges(
       .select("id");
     if (error) throw new Error(error.message);
     if ((inserted ?? []).length > 0) counts.added += 1;
-    else counts.skipped += 1;
+    else {
+      counts.skipped += 1;
+      conflicted += 1;
+    }
   }
+  logConflictedInserts(item.owner_user_id, conflicted);
 
   const removedIds = [...new Set(changes.removed.map((r) => r.transaction_id))];
   if (removedIds.length > 0) {
@@ -208,6 +217,15 @@ export async function applyPlaidChanges(
     counts.removed += deletable.length;
   }
   return counts;
+}
+
+/**
+ * A line this owner does not already hold, which the unique `plaid_transaction_id` still refused: either a
+ * concurrent sync of this same item won the race (harmless) or another owner's item holds that id, in which
+ * case the transaction is dropped for good while the cursor moves on. One line per batch, so neither is silent.
+ */
+function logConflictedInserts(ownerUserId: string, conflicted: number): void {
+  if (conflicted > 0) console.warn("[plaid] feed lines refused by an existing transaction id", { ownerUserId, conflicted });
 }
 
 /** Pull every page of changes since the stored cursor, apply them, then advance the cursor. */
@@ -262,8 +280,11 @@ export async function syncPlaidItem(db: SupabaseClient, item: PlaidItemRow, deps
           ownerUserId: item.owner_user_id,
           bankAccountId: item.bank_account_id,
         });
-      } catch {
-        /* balances are a convenience; the lines are what the sync owes */
+      } catch (error) {
+        // Balances are a convenience; the lines are what the sync owes. But a statement the feed just created
+        // opens and closes at zero until this fills it, so a silent failure reads as a whole month out of
+        // balance with nothing to explain it.
+        logPlaidFailure("[plaid] statement balances failed", error);
       }
       await updatePlaidItem(db, item.id, {
         transactions_cursor: cursor ?? null,

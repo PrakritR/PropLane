@@ -72,6 +72,8 @@ export async function exchangePublicToken(deps: ExchangeDeps, input: ExchangeInp
   }
 
   let bankAccountId = input.purpose === "bank_feed" ? input.bankAccountId : null;
+  /** The account this exchange made itself, so a refused item never leaves an empty one behind. */
+  let createdBankAccountId: string | null = null;
   if (input.purpose === "bank_feed" && !bankAccountId) {
     // No account picked yet (an empty Bank rec): the linked account becomes the manager's operating account.
     const label = [institutionName, chosen.name ?? chosen.official_name].filter(Boolean).join(" ").trim() || "Bank account";
@@ -82,6 +84,7 @@ export async function exchangePublicToken(deps: ExchangeDeps, input: ExchangeInp
       lastFour: chosen.mask ?? null,
     });
     bankAccountId = created.id;
+    createdBankAccountId = created.id;
   }
 
   try {
@@ -98,7 +101,26 @@ export async function exchangePublicToken(deps: ExchangeDeps, input: ExchangeInp
     });
     return { ok: true, item };
   } catch (error) {
+    // The item is what the account was made for. A refusal (a foreign owner, a purpose change, the race the
+    // unique index catches) is retried by the manager, so an account left behind here becomes one more empty
+    // row per attempt. It was created moments ago by this request alone and nothing else can reference it yet.
+    await rollBackCreatedBankAccount(deps, input.ownerUserId, createdBankAccountId);
     if (error instanceof PlaidItemConflictError) return { ok: false, status: error.status, error: error.message };
     throw error;
+  }
+}
+
+/** Best effort: a rollback that fails must not replace the refusal the caller has to report. */
+async function rollBackCreatedBankAccount(deps: ExchangeDeps, ownerUserId: string, bankAccountId: string | null): Promise<void> {
+  if (!bankAccountId) return;
+  try {
+    const { error } = await deps.db
+      .from("manager_bank_accounts")
+      .delete()
+      .eq("id", bankAccountId)
+      .eq("manager_user_id", ownerUserId);
+    if (error) throw new Error(error.message);
+  } catch (cleanupError) {
+    console.warn("[plaid] bank account rollback failed", cleanupError instanceof Error ? cleanupError.message.slice(0, 300) : "unknown");
   }
 }

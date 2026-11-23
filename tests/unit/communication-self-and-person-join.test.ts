@@ -135,11 +135,11 @@ describe("one row per person: phone joins email within one workspace", () => {
   const OWNER_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   const evidence: PhoneEmailEvidence[] = [
     { ownerUserId: OWNER_A, phone: "+16505129140", email: "mihika@example.com", atMs: 1 },
-    { ownerUserId: OWNER_A, phone: "(650) 512-9140", email: "newer@example.com", atMs: 2 },
+    { ownerUserId: OWNER_A, phone: "(650) 512-9140", email: "Mihika@Example.com ", atMs: 2 },
   ];
 
-  it("takes the newest email the same workspace ties to the phone", () => {
-    expect(emailForPhoneInWorkspace(evidence, OWNER_A, "+1 650 512 9140")).toBe("newer@example.com");
+  it("takes the email the same workspace ties to the phone, however it was written", () => {
+    expect(emailForPhoneInWorkspace(evidence, OWNER_A, "+1 650 512 9140")).toBe("mihika@example.com");
   });
 
   it("never joins across workspaces", () => {
@@ -147,12 +147,22 @@ describe("one row per person: phone joins email within one workspace", () => {
     expect(emailForPhoneInWorkspace(evidence, OWNER_A, "+16505550000")).toBeNull();
   });
 
+  it("joins nothing when one workspace ties the phone to two different people", () => {
+    const shared: PhoneEmailEvidence[] = [
+      ...evidence,
+      { ownerUserId: OWNER_A, phone: "+16505129140", email: "housemate@example.com", atMs: 3 },
+    ];
+    expect(emailForPhoneInWorkspace(shared, OWNER_A, "+16505129140")).toBeNull();
+    // Newest-first evidence is refused the same way: the guard is the pair, not the order.
+    expect(emailForPhoneInWorkspace([...shared].reverse(), OWNER_A, "+16505129140")).toBeNull();
+  });
+
   function smsRow(residentEmail: string | null): ManagerSmsResidentConversation {
     return { residentUserId: null, residentEmail, name: "+1 (650) 512-9140", phone: "+16505129140", propertyLabel: null, conversationKey: "k1" } as ManagerSmsResidentConversation;
   }
 
   it("the joined text row and the email row become one list row; an unjoined one stays two", () => {
-    const email = thread({ id: "mail-1", from: "Mihika Sridhar", email: "newer@example.com" });
+    const email = thread({ id: "mail-1", from: "Mihika Sridhar", email: "mihika@example.com" });
     const emailItem = {
       key: unifiedInboxKey("email", email.id), channel: "email" as const, threadId: email.id, name: "Mihika Sridhar",
       preview: "", time: "", sortMs: 2, unread: false, personKey: emailThreadPersonKey(email),

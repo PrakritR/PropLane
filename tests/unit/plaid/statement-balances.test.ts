@@ -67,6 +67,20 @@ describe("fillFeedStatementBalances", () => {
     expect(tables.manager_bank_statements![0]).toMatchObject({ opening_balance_cents: 500, closing_balance_cents: 900 });
   });
 
+  it("reads no lines at all when the newest statement is not the feed's to rewrite", async () => {
+    const { db } = createFakeDb({
+      manager_bank_statements: [
+        statement("s2", { statement_date: "2026-11-30", reconciled_at: "2026-12-01T00:00:00.000Z", source: "plaid_feed" }),
+        statement("s1", { statement_date: "2026-10-31", source: "plaid_feed" }),
+      ],
+      manager_bank_statement_lines: [{ id: "l1", statement_id: "s1", amount_cents: -10_000, plaid_transaction_id: "t1" }],
+    });
+    const read: string[] = [];
+    const spied = { from: (table: string) => (read.push(table), (db as unknown as { from: (t: string) => unknown }).from(table)) } as never;
+    expect(await fillFeedStatementBalances(spied, accountsGet(1000), args)).toBe(0);
+    expect(read).not.toContain("manager_bank_statement_lines");
+  });
+
   it("never rewrites a hand-made statement that feed lines later landed in", async () => {
     const { db, tables } = createFakeDb({
       manager_bank_statements: [statement("s1", { opening_balance_cents: 500, closing_balance_cents: 900 })],

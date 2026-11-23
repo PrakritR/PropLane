@@ -112,9 +112,10 @@ micro-deposits stay as "Enter numbers instead"; phone-bound links and saved-bank
   points at `manager_bank_accounts` (itself `keep` on `manager_user_id` in the managed mover), and the
   mover classifies `plaid_items` the same way. There is deliberately no `workspace_id` column to scope a
   bank feed by (`20261121120000_plaid_items_one_live_feed.sql` drops the unused one).
-- **Every Plaid route is rate limited.** Link token, exchange and the manager's own Retry carry the same
-  ceiling as the income routes (`plaid-link-token` / `plaid-exchange` 10, `plaid-sync` 20, per user + IP
-  per ten minutes): each is an outbound Plaid call, and being signed in is not a budget.
+- **Every Plaid route is rate limited.** Link token, exchange, the resident's bank pay and the manager's own
+  Retry carry the same ceiling as the income routes (`plaid-link-token` / `plaid-exchange` /
+  `plaid-resident-pay` 10, `plaid-sync` 20, per user + IP per ten minutes): each is an outbound Plaid call,
+  and being signed in is not a budget.
 - **One failing item is its own failure.** `syncPlaidItem` answers a claim it could not take as a result,
   never a throw, and `/api/cron/plaid-sync` guards each item — a single unreadable row never costs every
   connection behind it that day's transactions (the webhook is the only other trigger, and a deployment

@@ -23,12 +23,25 @@ export function createPhoneEmailEvidenceCache(): PhoneEmailEvidenceCache {
   return new Map();
 }
 
+/**
+ * A read that answers with an error yields no evidence at all, which looks exactly like a workspace that
+ * never paired a phone with an email — so the join would be dead in production with nothing to see. PostgREST
+ * reports a bad filter, a missing column or a withheld grant in `error` rather than by throwing, so both are
+ * logged here; the caller still carries on with whatever evidence it did get.
+ */
+function noteEvidenceReadFailure(label: string, error: unknown): void {
+  const code = String((error as { code?: unknown } | null)?.code ?? "");
+  const message = String((error as { message?: unknown } | null)?.message ?? error ?? "").slice(0, 300);
+  console.warn(`[inbox] phone/email evidence read failed: ${label}`, code || "UNKNOWN", message);
+}
+
 /** Every phone↔email pairing these owners' own records carry. Read-only, best effort. */
 async function readOwnerEvidence(db: SupabaseClient, owners: string[]): Promise<PhoneEmailEvidence[]> {
   const ownerSet = new Set(owners);
   const out: PhoneEmailEvidence[] = [];
   try {
-    const { data } = await db.from("portal_schedule_records").select("row_data").eq("id", INQUIRIES_RECORD_ID).maybeSingle();
+    const { data, error } = await db.from("portal_schedule_records").select("row_data").eq("id", INQUIRIES_RECORD_ID).maybeSingle();
+    if (error) noteEvidenceReadFailure("tour inquiries", error);
     for (const row of inquiryRowsFromRecord(data?.row_data)) {
       const phone = normalizeE164(text(row.phone));
       const email = text(row.email).toLowerCase();
@@ -38,19 +51,21 @@ async function readOwnerEvidence(db: SupabaseClient, owners: string[]): Promise<
       const atMs = Date.parse(text(row.createdAt)) || 0;
       out.push({ ownerUserId: host, phone, email, atMs });
     }
-  } catch {
+  } catch (error) {
     /* fewer merges, not fewer conversations */
+    noteEvidenceReadFailure("tour inquiries", error);
   }
   try {
     // Only the three fields the pairing needs: `row_data` holds a whole application and is never worth
     // the egress here. The `or` keeps rows that name no phone at all out of the response entirely.
-    const { data } = await db.from("manager_application_records")
+    const { data, error } = await db.from("manager_application_records")
       .select("manager_user_id,resident_email,updated_at,phone:row_data->>phone,applicant_phone:row_data->>applicantPhone")
       .in("manager_user_id", [...ownerSet])
       .not("resident_email", "is", null)
       .or("row_data->>phone.not.is.null,row_data->>applicantPhone.not.is.null")
       .order("updated_at", { ascending: false })
       .limit(1000);
+    if (error) noteEvidenceReadFailure("applications", error);
     for (const record of (data ?? []) as unknown as {
       manager_user_id: string;
       resident_email: string | null;
@@ -63,8 +78,9 @@ async function readOwnerEvidence(db: SupabaseClient, owners: string[]): Promise<
       if (!phone || !email.includes("@")) continue;
       out.push({ ownerUserId: String(record.manager_user_id), phone, email, atMs: Date.parse(String(record.updated_at ?? "")) || 0 });
     }
-  } catch {
+  } catch (error) {
     /* as above */
+    noteEvidenceReadFailure("applications", error);
   }
   return out;
 }

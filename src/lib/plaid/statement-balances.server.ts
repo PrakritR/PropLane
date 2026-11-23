@@ -100,7 +100,17 @@ export async function fillFeedStatementBalances(
   }[];
   if (rows.length === 0) return 0;
 
-  const lines = await readStatementLines(db, rows.map((r) => r.id));
+  // `deriveFeedBalances` walks newest first and stops at the first statement the manager owns, so only the
+  // leading run of unreconciled feed statements can ever be rewritten. Reading the rest of a year's lines
+  // on every webhook delivery and every cron run would be egress spent on sums that are then discarded.
+  const candidates: typeof rows = [];
+  for (const row of rows) {
+    if (row.reconciled_at || row.source !== "plaid_feed") break;
+    candidates.push(row);
+  }
+  if (candidates.length === 0) return 0;
+
+  const lines = await readStatementLines(db, candidates.map((r) => r.id));
   const sums = new Map<string, number>();
   const manual = new Set<string>();
   for (const line of lines) {
@@ -111,7 +121,7 @@ export async function fillFeedStatementBalances(
   // Depository: `current` is the money in the account; a positive Plaid balance is a positive book balance.
   const currentCents = Math.round(current * 100);
   const updates = deriveFeedBalances(
-    rows.map((r) => ({
+    candidates.map((r) => ({
       id: r.id,
       statementDate: r.statement_date,
       reconciled: Boolean(r.reconciled_at),

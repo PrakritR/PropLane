@@ -6,10 +6,18 @@ import { loadResidentManualAchAttemptForPaymentIntent } from "@/lib/resident-che
 import { answerResidentAchPayment } from "@/lib/resident-ach-payment.server";
 import { getStripe } from "@/lib/stripe";
 import { ensureResidentStripeCustomerId } from "@/lib/stripe-resident-customer";
+import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
 const NO_STORE = { "Cache-Control": "no-store" };
+
+/**
+ * The ceiling every other Plaid route carries. One request is an outbound Plaid processor-token call plus
+ * several Stripe reads, and a confirm that keeps failing never reaches the PaymentIntent status guard that
+ * would otherwise stop a loop: ten per ten minutes per user and IP. A refusal that cannot be counted is a refusal.
+ */
+const PAY_LIMIT = { max: 10, windowMs: 10 * 60_000 };
 
 /**
  * Pay a resident's manual-ACH PaymentIntent from the bank they linked with Plaid. Gate order is
@@ -28,6 +36,8 @@ export async function POST(req: Request) {
     }
     const actor = await authorizePlaidPurpose("resident_pay");
     if (!actor.ok) return NextResponse.json({ error: actor.error }, { status: actor.status, headers: NO_STORE });
+    const limit = await rateLimit(`plaid-resident-pay:${actor.userId}:${clientIpFrom(req)}`, PAY_LIMIT.max, PAY_LIMIT.windowMs);
+    if (!limit.ok) return NextResponse.json({ error: "Try again in a few minutes." }, { status: 429, headers: NO_STORE });
 
     const { data: profile, error } = await actor.db.from("profiles")
       .select("full_name").eq("id", actor.userId).maybeSingle();
