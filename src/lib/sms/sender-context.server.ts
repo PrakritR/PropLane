@@ -7,6 +7,7 @@ import { holdsAdminRole, listServiceWorkspaceRefs } from "@/lib/sms/service-mana
 import {
   decideSenderContext,
   resolveSenderTarget,
+  sameTarget,
   type SenderContext,
   type SenderDecision,
   type SenderHome,
@@ -266,13 +267,13 @@ export async function resolveSenderContext(
     const resolved = resolveSenderTarget(contexts, decision.target);
     if (!resolved) return { kind: "unchanged" };
     await clear(db, questionKey(args.fromPhone));
-    // Switch words and the answer to our question are the sender's own pick; a turn we routed for them (the notice,
-    // the number, a home they named) is not, and must not outrank the number on their next text. A turn the pick
-    // itself routed carries the ORIGINAL moment forward: the window runs from the pick, not from the last text.
+    // Switch words and the answer to our question are the sender's own pick. Any other turn that lands on the context
+    // that pick NAMED is still inside the one request they opened, so it carries the ORIGINAL moment forward - the
+    // window runs from the pick, never from the last text. A turn on a different context ends the pick.
     const explicitAt =
       decision.source === "switch" || decision.source === "answer"
         ? Date.now()
-        : decision.source === "sticky"
+        : sameTarget(sticky?.target ?? null, decision.target)
           ? sticky?.explicitAt ?? null
           : null;
     await writeRow(db, stickyKey(args.fromPhone), { key: decision.target.key, workspaceId: decision.target.workspaceId ?? null, explicitAt });

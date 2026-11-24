@@ -15,6 +15,6 @@
     "date": "2026-11-24",
     "reason": "20261123130000_sms_inbound_reply_conversation_owner.sql adds the nullable columns sms_inbound_receipts.reply_owner_user_id and reply_workspace_id and adds a 12-argument prepare_sms_inbound_reply overload beside the existing 10-argument one (which it leaves in place, so an inbound reply still works between db:push and the deploy) that stores them (a retried resident reply must be re-sent to the conversation it was prepared for, not the owner of the work number it arrived on). No table is added or removed, no trigger or recovery hook is touched, and sms_inbound_receipts stays classified as before in account-purge-manifest.ts. The selected path count rises by one because the migration's ALTER TABLE puts it in the selection.",
     "selected_source_paths": 361,
-    "previous_sha256": "7ddb937404a6651f1a0ba982da11dc2faebbd408831d310146a08f5b5759714f"
+    "previous_sha256": "4f23a072be1117dfaf23a7278a80efff8b3d8ca5155622af9b43c3ecb0183dcc"
   }
 }

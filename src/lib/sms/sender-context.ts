@@ -107,7 +107,8 @@ export type SenderContextInput = {
 
 type Role = "manager" | "resident" | "admin";
 
-const sameTarget = (a: SenderTarget | null, b: SenderTarget | null): boolean =>
+/** The same choice: same context key, and the same admin workspace (or none) narrowed inside it. */
+export const sameTarget = (a: SenderTarget | null, b: SenderTarget | null): boolean =>
   Boolean(a && b && a.key === b.key && (a.workspaceId ?? null) === (b.workspaceId ?? null));
 
 /** The context a target names, with the admin workspace it narrows to; null when the sender no longer holds it. */

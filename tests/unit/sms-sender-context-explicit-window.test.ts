@@ -36,6 +36,9 @@ const hours = (n: number) => n * 60 * 60 * 1000;
 
 type Stored = { pending_candidates: Record<string, unknown>; pending_asked_at: string };
 
+/** The one house the manager workspace runs, as `loadSenderHomes` projects it out of the jsonb. */
+const HOUSES = [{ id: "h-elm", manager_user_id: "u1", workspace_id: "ws-mine", pd_address: "12 Elm St, Louisville, KY", pd_title: "Elm house" }];
+
 /** Only what this module persists: the two `sms_line_sessions` rows, plus an empty houses read. */
 function fakeDb(rows: Map<string, Stored>) {
   return {
@@ -62,7 +65,7 @@ function fakeDb(rows: Map<string, Stored>) {
       };
       q.then = (onFulfilled?: (value: unknown) => unknown, onRejected?: (reason: unknown) => unknown) => {
         if (deleting) rows.delete(key);
-        const answer = { data: table === "sms_line_sessions" ? null : [], error: null };
+        const answer = { data: table === "manager_property_records" ? HOUSES : table === "sms_line_sessions" ? null : [], error: null };
         return Promise.resolve(answer).then(onFulfilled, onRejected);
       };
       return q;
@@ -106,6 +109,52 @@ describe("an explicit sender-context pick on a workspace's own work number", () 
 
     vi.setSystemTime(T0 + hours(13));
     expect(await text(db, "the sink is still leaking", "SM3")).toMatchObject({
+      kind: "run",
+      source: "number",
+      resolved: { context: { key: "manager:ws-mine" } },
+    });
+  });
+
+  // Oracle: docs/agents/one-number.md § Who is the sender texting as, item 5 - the pick and the texts that follow it
+  // are ONE request. Naming the very home the pick is about is the most ordinary way to continue that request, so the
+  // plausible wrong behaviour this rejects is the pick ending one message early: the third text would then run the
+  // MANAGER registry for the number's workspace and be billed there, tagged "Manager ..." mid-conversation.
+  it("survives a turn routed another way that lands on the same context", async () => {
+    const rows = new Map<string, Stored>();
+    const db = fakeDb(rows);
+
+    expect(await text(db, "switch to resident", "SM1")).toMatchObject({ kind: "reply" });
+
+    vi.setSystemTime(T0 + 60_000);
+    expect(await text(db, "the disposal at 88 Pine St is jammed", "SM2")).toMatchObject({
+      kind: "run",
+      source: "named",
+      resolved: { context: { key: "resident:ws-res" } },
+    });
+
+    vi.setSystemTime(T0 + 120_000);
+    expect(await text(db, "it's making a grinding noise", "SM3")).toMatchObject({
+      kind: "run",
+      source: "sticky",
+      resolved: { context: { key: "resident:ws-res" } },
+    });
+  });
+
+  it("ends when a turn lands on a different context: the number decides the next plain text", async () => {
+    const rows = new Map<string, Stored>();
+    const db = fakeDb(rows);
+
+    expect(await text(db, "switch to resident", "SM1")).toMatchObject({ kind: "reply" });
+
+    vi.setSystemTime(T0 + 60_000);
+    expect(await text(db, "status on 12 Elm St", "SM2")).toMatchObject({
+      kind: "run",
+      source: "named",
+      resolved: { context: { key: "manager:ws-mine" } },
+    });
+
+    vi.setSystemTime(T0 + 120_000);
+    expect(await text(db, "and what did we collect this month", "SM3")).toMatchObject({
       kind: "run",
       source: "number",
       resolved: { context: { key: "manager:ws-mine" } },
