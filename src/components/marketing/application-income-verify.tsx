@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { PlaidLinkLauncher, type PlaidLinkSuccess } from "@/components/portal/plaid-link-button";
-import { incomeVerifiedLine } from "@/lib/screening/income-verification";
+import { incomeVerifiedLine, type incomeVerifiedPayload } from "@/lib/screening/income-verification";
 
-type Verified = { monthlyIncomeCents: number; months: number; depositCount: number; historyDays?: number | null };
+type Verified = ReturnType<typeof incomeVerifiedPayload>;
 
 /**
  * The applicant's "Verify income" offer on the Work and income step. It draws nothing unless the server says this
@@ -61,7 +61,7 @@ export function ApplicationIncomeVerify({ propertyId }: { propertyId: string }) 
       <p className="text-sm font-semibold text-foreground">Verify income</p>
       {verified ? (
         <p className="text-sm font-medium text-foreground" data-attr="application-income-verified">
-          {incomeVerifiedLine({ source: "plaid", verifiedAt: "", ...verified })}
+          {incomeVerifiedLine({ source: "plaid", ...verified })}
         </p>
       ) : skipped ? null : (
         <div className="flex flex-wrap items-center gap-2">

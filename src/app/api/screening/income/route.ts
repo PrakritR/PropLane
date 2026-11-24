@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authorizeIncomeActor, incomeCheckOffered, loadIncomeVerification } from "@/lib/plaid/income.server";
 import { plaidEnabled } from "@/lib/plaid/client.server";
+import { incomeVerifiedPayload } from "@/lib/screening/income-verification";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,8 @@ const NO_STORE = { "Cache-Control": "no-store" };
  * Does this listing offer the Plaid income check to the signed-in applicant, and do they already have a verified
  * figure? Disabled Plaid, a guest (no session) and a listing whose setting is off all answer `offered: false`, so the
  * screen draws nothing. The figure here is read back for display only; it is stamped onto the application by the write.
+ * It carries the whole basis the applicant's line renders, the same shape the verify POST answers with: a narrower
+ * projection is how that line came to read "(undefined deposits)" on a reload.
  */
 export async function GET(req: Request) {
   const none = NextResponse.json({ offered: false, verified: null }, { headers: NO_STORE });
@@ -22,7 +25,7 @@ export async function GET(req: Request) {
     if (!(await incomeCheckOffered(actor.db, propertyId))) return none;
     const verified = await loadIncomeVerification(actor.db, actor.userId, propertyId);
     return NextResponse.json(
-      { offered: true, verified: verified ? { monthlyIncomeCents: verified.monthlyIncomeCents, months: verified.months } : null },
+      { offered: true, verified: verified ? incomeVerifiedPayload(verified) : null },
       { headers: NO_STORE },
     );
   } catch {

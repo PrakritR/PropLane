@@ -22,7 +22,7 @@ const verified = { source: "plaid" as const, monthlyIncomeCents: 485000, months:
 describe("manager income fact", () => {
   it("the HTML builder draws stated vs verified as one fact", () => {
     const html = buildApplicationHtml(row({ incomeVerification: verified }));
-    expect(html).toContain("$4,800/mo stated · ✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits)");
+    expect(html).toContain("$4,800/mo stated · ✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · as of Nov 17");
   });
 
   it("the HTML builder draws no income fact without a verification", () => {

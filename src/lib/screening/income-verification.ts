@@ -4,6 +4,7 @@
  * never supplies it. See docs/agents/plaid.md § Income check.
  */
 import { INCOME_SHORT_HISTORY_SLACK_DAYS, INCOME_WINDOW_DAYS } from "@/lib/plaid/income-calc";
+import { formatPacificDate } from "@/lib/pacific-time";
 
 export type IncomeVerification = {
   source: "plaid";
@@ -48,19 +49,52 @@ export function formatIncomeDollars(cents: number): string {
 
 /**
  * The manager's glyph fact, with the basis of the figure in it:
- * `✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits)`, and
+ * `✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · as of Nov 3`, and
  * `· only 45 days of bank history` when the provider returned materially less than the window — so a figure
- * drawn from a new account reads as one instead of looking like a full quarter of pay. Never a pill.
+ * drawn from a new account reads as one instead of looking like a full quarter of pay. The as-of date is
+ * there because a stored figure is reused for up to `INCOME_VERIFICATION_MAX_AGE_DAYS`: without it, a check
+ * run a month ago reads as the last 90 days ending today. Never a pill.
+ *
+ * Every clause is omitted when its fact is missing rather than rendered empty: a row stored before a basis
+ * field existed, or a projection that dropped one, must never put the word "undefined" on an applicant's
+ * screen. The surfaces that render this line (review row, fact cards, HTML, PDF, the applicant's own view)
+ * all come through here, so that holds for all of them at once.
  */
 export function incomeVerifiedLine(verification: IncomeVerification, options: { glyph?: boolean } = {}): string {
-  const deposits = `${verification.depositCount} deposit${verification.depositCount === 1 ? "" : "s"}`;
+  const count = verification.depositCount;
+  const deposits =
+    typeof count === "number" && Number.isFinite(count) && count > 0 ? ` (${count} deposit${count === 1 ? "" : "s"})` : "";
   const history = verification.historyDays;
   const short =
     typeof history === "number" && history > 0 && history < INCOME_WINDOW_DAYS - INCOME_SHORT_HISTORY_SLACK_DAYS
       ? ` · only ${history} days of bank history`
       : "";
-  const fact = `${formatIncomeDollars(verification.monthlyIncomeCents)}/mo avg of payroll deposits, last ${INCOME_WINDOW_DAYS} days (${deposits})${short}`;
+  const verifiedAt = Date.parse(verification.verifiedAt ?? "");
+  const asOf = Number.isFinite(verifiedAt)
+    ? ` · as of ${formatPacificDate(verifiedAt, { month: "short", day: "numeric" })}`
+    : "";
+  const fact = `${formatIncomeDollars(verification.monthlyIncomeCents)}/mo avg of payroll deposits, last ${INCOME_WINDOW_DAYS} days${deposits}${short}${asOf}`;
   return options.glyph === false ? fact : `✓ ${fact}`;
+}
+
+/**
+ * What a route sends the applicant's own "Verify income" line: the figure AND every basis clause the line draws.
+ * One shape for both the verify POST and the read-back GET, so neither can answer with less than the line needs.
+ */
+export function incomeVerifiedPayload(verification: IncomeVerification): {
+  monthlyIncomeCents: number;
+  months: number;
+  depositCount: number;
+  historyDays: number | null;
+  verifiedAt: string;
+} {
+  return {
+    monthlyIncomeCents: verification.monthlyIncomeCents,
+    months: verification.months,
+    depositCount: verification.depositCount,
+    historyDays: verification.historyDays ?? null,
+    verifiedAt: verification.verifiedAt,
+  };
 }
 
 /** A single plain amount the applicant typed (`4800`, `4,800`, `$4,800.50`), in cents. Null for anything else. */
@@ -75,7 +109,7 @@ function statedAmountCents(stated: string): number | null {
 
 /**
  * The value of an "Income" fact: `$4,800/mo stated · ✓ $4,850/mo avg of payroll deposits, last 90 days (6
- * deposits)`, or only the verified half
+ * deposits) · as of Nov 3`, or only the verified half
  * when nothing was stated.
  *
  * `stated` is the applicant's own free-text answer. Only a single plain amount is read as money; anything else

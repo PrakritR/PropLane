@@ -29,7 +29,7 @@ describe("manager application review: the income fact", () => {
         omitSections={["group", "cosigner", "placement", "housing", "property", "personal", "address", "references", "additional", "custom", "consent"]}
       />,
     );
-    const value = screen.getByText("$4,800/mo stated · ✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits)");
+    const value = screen.getByText("$4,800/mo stated · ✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · as of Nov 17");
     // The row is a <dt>/<dd> pair of the Employment card, and nothing in its chain is a rounded chip.
     expect(value.closest("dd")).not.toBeNull();
     expect(value.closest("dd")!.previousElementSibling?.textContent).toBe("Income");
