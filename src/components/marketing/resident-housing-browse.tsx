@@ -660,7 +660,7 @@ export function ResidentHousingBrowse({
     placeKindOptions,
   };
 
-  const homesLabel = loading ? "" : `${cards.length} home${cards.length === 1 ? "" : "s"}`;
+  const homesLabel = loading || error ? "" : `${cards.length} home${cards.length === 1 ? "" : "s"}`;
   const searchInput = (
     <>
       <Search className="h-4 w-4" strokeWidth={2} aria-hidden />
@@ -749,13 +749,13 @@ export function ResidentHousingBrowse({
             setPetsOnly,
             onApplyChatFilters: applyChatFilters,
           }}
-          countLabel={loading ? "Show homes" : `Show ${cards.length} home${cards.length === 1 ? "" : "s"}`}
+          countLabel={loading || error ? "Show homes" : `Show ${cards.length} home${cards.length === 1 ? "" : "s"}`}
           onClear={clearFilters}
           canClear={activeFilterCount > 0}
         />
       ) : null}
 
-      {error && listings.length === 0 ? (
+      {error ? (
         <div className="ps-bempty" role="alert">
           <p className="ps-h3">Homes did not load.</p>
           <button type="button" className="ps-btn ps-btn-line" onClick={retry} data-attr="resident-browse-retry">

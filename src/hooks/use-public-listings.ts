@@ -29,6 +29,8 @@ export function usePublicListings() {
   const [attempt, setAttempt] = useState(0);
   const retry = useCallback(() => {
     setLoading(true);
+    setError(false);
+    setOccupancyReady(false);
     setAttempt((n) => n + 1);
   }, []);
 
@@ -47,7 +49,7 @@ export function usePublicListings() {
     });
 
     void Promise.all([
-      loadPublicExtraListingsFromServer(),
+      loadPublicExtraListingsFromServer({ requireFresh: true }),
       syncPublicApprovedApplicationsFromServer({ force: true }),
     ])
       .then(([loaded]) => {

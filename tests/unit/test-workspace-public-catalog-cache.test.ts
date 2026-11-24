@@ -170,6 +170,53 @@ describe("catalog scope transitions before classification", () => {
   });
 });
 
+describe("fresh catalog failures", () => {
+  it("shares the request while allowing fresh readers to distinguish an outage from cached data", async () => {
+    cachePublicExtraListings([listing("cached")], { silent: true });
+    const deferred = deferredResponse();
+    const fetcher = vi.fn().mockReturnValue(deferred.promise);
+    vi.stubGlobal("fetch", fetcher);
+    const background = loadPublicExtraListingsFromServer();
+    const fresh = loadPublicExtraListingsFromServer({ requireFresh: true });
+    const rejected = expect(fresh).rejects.toThrow("Homes did not load.");
+    deferred.resolve(jsonResponse({ error: "unavailable" }, 503));
+    await rejected;
+    expect((await background).map((row) => row.id)).toEqual(["cached"]);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears a failed request so Retry can fetch a successful empty catalog", async () => {
+    const fetcher = vi.fn().mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce(jsonResponse({ listings: [] }));
+    vi.stubGlobal("fetch", fetcher);
+    await expect(loadPublicExtraListingsFromServer({ requireFresh: true })).rejects.toThrow("offline");
+    await expect(loadPublicExtraListingsFromServer({ requireFresh: true })).resolves.toEqual([]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("a denied fresh catalog clears public fallback and reports failure", async () => {
+    cachePublicExtraListings([listing("public")], { silent: true });
+    setPortalSessionViewer("resident-a");
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ testWorkspaceAccess: "denied" }, 404)));
+    await expect(loadPublicExtraListingsFromServer({ requireFresh: true })).rejects.toThrow("Homes did not load.");
+    expect(readExtraListingsPublic()).toEqual([]);
+  });
+
+  it("aborts a hung catalog after 12 seconds instead of waiting for a gateway timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      })));
+      const rejected = expect(loadPublicExtraListingsFromServer({ requireFresh: true })).rejects.toThrow("That took too long.");
+      await vi.advanceTimersByTimeAsync(12_000);
+      await rejected;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("resident own-property hydration isolation", () => {
   it("does not coalesce across logout/login or publish late rows/events", async () => {
     setPortalSessionViewer("resident-a");

@@ -1,5 +1,5 @@
 import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
-import { fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
+import { fetchWithTimeout, PORTAL_READ_TIMEOUT_MS } from "@/lib/auth/fetch-with-timeout";
 import { composePropertyTitle } from "@/lib/property-title";
 import { onPortalSessionViewerChange, portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import {
@@ -678,18 +678,19 @@ function cachePrivateTestWorkspaceListings(
   catalogScope = { kind: "private", workspaceId, listings: [...byId.values()] };
 }
 
-export async function loadPublicExtraListingsFromServer(): Promise<MockProperty[]> {
+export async function loadPublicExtraListingsFromServer(opts?: { requireFresh?: boolean }): Promise<MockProperty[]> {
   const identity = publicCatalogRequestIdentity();
-  const inFlight = publicListingsInFlight.get(identity.key);
-  if (inFlight) {
-    const result = await inFlight;
-    return isCurrentPublicCatalogRequest(identity) ? result : [];
-  }
-  const request = fetchPublicExtraListings(identity);
+  const request = publicListingsInFlight.get(identity.key) ?? fetchPublicExtraListings(identity);
   publicListingsInFlight.set(identity.key, request);
   try {
     const result = await request;
     return isCurrentPublicCatalogRequest(identity) ? result : [];
+  } catch (error) {
+    if (!isCurrentPublicCatalogRequest(identity)) return [];
+    // Background hydrators retain their scoped cache. A screen that promises a
+    // fresh catalog must distinguish an outage from a successful empty result.
+    if (opts?.requireFresh) throw error;
+    return readExtraListingsPublic();
   } finally {
     if (publicListingsInFlight.get(identity.key) === request) publicListingsInFlight.delete(identity.key);
   }
@@ -698,7 +699,7 @@ export async function loadPublicExtraListingsFromServer(): Promise<MockProperty[
 async function fetchPublicExtraListings(identity: CatalogRequestIdentity): Promise<MockProperty[]> {
   try {
     // The route chooses public CDN caching or private no-store after classification.
-    const res = await fetch("/api/property-records/public");
+    const res = await fetchWithTimeout("/api/property-records/public", {}, PORTAL_READ_TIMEOUT_MS);
     const contentType = res.headers.get("content-type") ?? "";
     const body = contentType.includes("application/json")
       ? await res.json() as { listings?: MockProperty[]; testWorkspaceId?: string; testWorkspaceAccess?: "denied" }
@@ -708,11 +709,11 @@ async function fetchPublicExtraListings(identity: CatalogRequestIdentity): Promi
       if (body.testWorkspaceAccess === "denied" || res.status === 401 || res.status === 403) {
         catalogScope = { kind: "denied" };
       }
-      return readExtraListingsPublic();
+      throw new Error("Homes did not load.");
     }
     // A successful JSON catalog is the normal/private classification contract.
     // A malformed success must not turn an unresolved identity into normal mode.
-    if (!Array.isArray(body.listings)) return readExtraListingsPublic();
+    if (!Array.isArray(body.listings)) throw new Error("Homes did not load.");
     const listings = body.listings.map((listing) =>
       listing.adminPublishLive === true ? listing : { ...listing, adminPublishLive: true as const },
     );
@@ -727,9 +728,9 @@ async function fetchPublicExtraListings(identity: CatalogRequestIdentity): Promi
       window.dispatchEvent(new Event(PROPERTY_PIPELINE_EVENT));
     }
     return listings;
-  } catch {
+  } catch (error) {
     if (!isCurrentPublicCatalogRequest(identity)) return [];
-    return readExtraListingsPublic();
+    throw error;
   }
 }
 
