@@ -964,14 +964,14 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         return twimlOk();
       }
       const delivered = await deliverManagerSmsReply({
-        managerUserId: managerId,
+        managerUserId: replay.receipt.replyOwnerUserId ?? managerId,
         actorUserId: managerInbound.actorUserId,
         toPhone: fromPhone,
         text: replay.receipt.replyBody,
         workNumber: normalizeE164(toPhone) ?? toPhone,
         inboundMessageSid: messageSid,
         traceId: replay.receipt.turnTraceId,
-        workspaceId: workspaceId ?? null,
+        workspaceId: replay.receipt.replyWorkspaceId ?? workspaceId ?? null,
         bubbles: feel.bubbleReplies,
         inboundText: body,
       });
@@ -1160,6 +1160,9 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     // A PropLane Service sender (staff seat or admin) texts about ONE managed workspace, picked below. The pick comes
     // first so the text is then routed exactly as a self-serve manager's text to their work number is.
     let serviceTarget: { workspace: ServiceWorkspaceRef; seat: ServiceSeat | null; readOnly?: boolean } | null = null;
+    // Set when the SENDER chose a workspace other than the number's: that workspace owns the record, sends the reply
+    // and pays for it (AGENTS.md § SMS / phone: outbound from the work number of the workspace the message is about).
+    let senderWorkspace: { ownerUserId: string; workspaceId: string } | null = null;
     // Set when this text only answered "Is this about A or B?": the request that question interrupted runs in its place.
     let serviceReplayed = false;
     const answerServiceQuestion = async (reply: string): Promise<NextResponse> => {
@@ -1388,6 +1391,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         }
         if (!target) throw new Error("sender context: no target");
         serviceTarget = target;
+        senderWorkspace = { ownerUserId: target.workspace.ownerUserId, workspaceId: target.workspace.id };
         const routedBody = senderRun.body;
         const teamBody = stripTeamAddress(routedBody);
         teamRoute = teamBody
@@ -1432,8 +1436,10 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     const agentBody = teamRoute.text;
     // After an answered "Which home?" the agent runs the ORIGINAL request; the answer itself is what gets recorded.
     const recordedBody = serviceReplayed ? body : agentBody;
+    const turnOwnerId = senderWorkspace?.ownerUserId ?? managerId;
+    const turnWorkspaceId = senderWorkspace?.workspaceId ?? workspaceId ?? null;
     await projectClassifiedInbound(db, {
-      managerUserId: managerId,
+      managerUserId: turnOwnerId,
       role: "manager",
       counterpartyUserId: managerInbound.actorUserId,
       fromPhone,
@@ -1441,7 +1447,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       messageSid,
       body: recordedBody,
       occurredAt,
-      workspaceId: workspaceId ?? null,
+      workspaceId: turnWorkspaceId,
     }).catch((error) => console.error("manager inbound projection failed", error instanceof Error ? error.message : "unknown"));
     let managerIdentity: Awaited<ReturnType<typeof resolveManagerSmsAgentContext>>;
     if ((serviceManager || senderRun) && serviceTarget) {
@@ -1505,7 +1511,6 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       return twimlOk();
     }
     const managerTurnText = managerDebounce?.proceed ? managerDebounce.body : agentBody;
-    const ackOwnerId = managerInbound.workNumberOwnerId;
     const ackActorId = managerInbound.actorUserId;
     let managerFirstBubbleAt: number | null = null;
     if (managerIdentity.ok) void intentOf(managerTurnText);
@@ -1522,7 +1527,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
           onSlowWork: feel.workAck
             ? async () => {
                 await deliverManagerSmsReply({
-                  managerUserId: ackOwnerId,
+                  managerUserId: turnOwnerId,
                   actorUserId: ackActorId,
                   toPhone: fromPhone,
                   text: WORK_ACK_TEXT,
@@ -1586,20 +1591,22 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         pendingActionId: turn.pendingActionId,
         turnTraceId: turn.traceId,
         replyBody: stripLongDashes(turn.reply),
+        replyOwnerUserId: turnOwnerId,
+        replyWorkspaceId: turnWorkspaceId,
       });
       if (!prepared) {
         await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
         return NextResponse.json({ error: "Reply preparation failed." }, { status: 503 });
       }
       const delivered = await deliverManagerSmsReply({
-        managerUserId: managerInbound.workNumberOwnerId,
+        managerUserId: turnOwnerId,
         actorUserId: managerInbound.actorUserId,
         toPhone: fromPhone,
         text: stripLongDashes(turn.reply),
         workNumber,
         inboundMessageSid: messageSid,
         traceId: turn.traceId,
-        workspaceId: workspaceId ?? null,
+        workspaceId: turnWorkspaceId,
         bubbles: feel.bubbleReplies,
         inboundText: managerTurnText,
       });
@@ -1615,8 +1622,8 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
           pendingActionId: turn.pendingActionId ?? null,
           turnTraceId: turn.traceId ?? null,
           replyBody: stripLongDashes(turn.reply),
-          replyOwnerUserId: managerId,
-          replyWorkspaceId: workspaceId ?? null,
+          replyOwnerUserId: turnOwnerId,
+          replyWorkspaceId: turnWorkspaceId,
           outboxId: null,
         },
         delivered,

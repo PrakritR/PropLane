@@ -32,8 +32,11 @@ export type DigestHome = {
 
 export type OpenRoomsDigest = {
   lines: string[];
+  /** Open rooms across the homes whose lines are returned - the same population as `homeCount`. */
   openRoomCount: number;
   homeCount: number;
+  /** Homes with open rooms that the cap left out, so "and N more homes" is never a guess. */
+  moreHomes: number;
   photoOffer: string;
 };
 
@@ -80,15 +83,19 @@ export function roomPhrase(room: DigestRoom): string {
 export function buildOpenRoomsDigest(homes: DigestHome[], max = OPEN_ROOMS_DIGEST_MAX_HOMES): OpenRoomsDigest {
   const lines: string[] = [];
   let openRoomCount = 0;
+  let moreHomes = 0;
   for (const home of homes) {
     const open = home.rooms.filter(isOpenRoom);
     if (open.length === 0 || !home.listingUrl) continue;
+    if (lines.length >= max) {
+      moreHomes += 1;
+      continue;
+    }
     openRoomCount += open.length;
-    if (lines.length >= max) continue;
     const place = home.address?.trim() || home.title?.trim() || "A home";
     const where = home.neighborhood?.trim() ? `${place}, ${home.neighborhood.trim()}` : place;
     const pet = home.petFriendly === true ? " Pets welcome." : "";
     lines.push(`${where}: ${open.map(roomPhrase).join("; ")}.${pet} ${home.listingUrl}`);
   }
-  return { lines, openRoomCount, homeCount: lines.length, photoOffer: PHOTO_OFFER };
+  return { lines, openRoomCount, homeCount: lines.length, moreHomes, photoOffer: PHOTO_OFFER };
 }

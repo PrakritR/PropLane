@@ -24,7 +24,7 @@
  */
 
 import { shortTermStayNightCount, shortTermStayCanBePriced, shortTermStayTotalAmount, shortTermStayTierNote } from "@/lib/short-term-stay-pricing";
-import { DEFAULT_CUSTOM_LEASE_SURCHARGE, parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
+import { parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import {
   feeAppliesToResidentSlot,
@@ -388,7 +388,7 @@ export function buildListingQuote(
     if (fee.presetId === "security_deposit") continue;
     // The custom-dates surcharge is decided by the lease dates alone (added below), never by the row merely existing,
     // so a calendar-aligned lease is not quoted it and a dated one is not quoted it twice.
-    if (!isStay && startKind === "std" && fee.presetId === "custom_lease_surcharge") continue;
+    if (!isStay && startKind !== "m2m" && fee.presetId === "custom_lease_surcharge") continue;
     // The stay type's own move-in replaces the house move-in row (long-term or short-term), never a second line.
     if (placementFees.moveInOverridesHouse && (fee.presetId === "move_in_fee" || fee.presetId === "short_term_move_in")) continue;
     if (fee.presetId === "holding_deposit") {
@@ -417,13 +417,20 @@ export function buildListingQuote(
   }
 
   // A lease that starts or ends off the calendar month carries the custom-dates surcharge ($100/month unless
-  // the manager priced it). `startKind: "cst"` (a caller that already knows) adds it below; this covers the
-  // applicant, whose dates alone decide it. One predicate, one amount: custom-lease-billing.
+  // the manager priced or removed the row). `startKind: "cst"` is a caller that already knows the dates are
+  // custom; `"std"` lets the dates decide. Either way ONE predicate and ONE amount: custom-lease-billing.
   let customLeaseSurcharge = 0;
-  if (!isStay && startKind === "std" && shouldBillCustomLeaseSurcharge(
-    { leaseStart: options.leaseStart ?? undefined, leaseEnd: options.leaseEnd ?? undefined, leaseTerm }, sub,
-  )) {
-    const amount = customLeaseSurchargeAmount(sub);
+  const billsCustomLease = !isStay && (
+    startKind === "cst"
+    || (startKind === "std" && shouldBillCustomLeaseSurcharge(
+      { leaseStart: options.leaseStart ?? undefined, leaseEnd: options.leaseEnd ?? undefined, leaseTerm }, sub,
+    ))
+  );
+  if (billsCustomLease) {
+    // The arrangement row's own typed amount is the most specific setting the manager made (exactly as its
+    // month-to-month surcharge is); with none, the listing's row decides - removed bills nothing, blank the default.
+    const rowAmount = String(arrangementRow?.customStartSurcharge ?? "").trim();
+    const amount = rowAmount ? parseMoneyAmount(rowAmount) : customLeaseSurchargeAmount(sub);
     if (amount > 0) {
       customLeaseSurcharge = amount;
       (foldMonthlyIntoRent ? folded : recurring).push({
@@ -436,11 +443,6 @@ export function buildListingQuote(
   let monthlyRent = baseMonthlyRent + foldedTotal;
   if (!isStay && startKind === "m2m" && arrangementRow?.monthToMonthSurcharge && !foldMonthlyIntoRent) {
     monthlyRent += parseMoneyAmount(arrangementRow.monthToMonthSurcharge);
-  }
-  if (!isStay && startKind === "cst") {
-    monthlyRent += String(arrangementRow?.customStartSurcharge ?? "").trim()
-      ? parseMoneyAmount(arrangementRow!.customStartSurcharge!)
-      : DEFAULT_CUSTOM_LEASE_SURCHARGE;
   }
   const recurringTotal = recurring.reduce(
     (sum, f) => sum + listingFeeMonthlyEquivalent(f.amount, f.cadence ?? "monthly"),

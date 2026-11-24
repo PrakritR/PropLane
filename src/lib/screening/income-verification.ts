@@ -49,10 +49,23 @@ export function incomeVerifiedLine(verification: IncomeVerification, options: { 
   return options.glyph === false ? fact : `✓ ${fact}`;
 }
 
+/** A single plain amount the applicant typed (`4800`, `4,800`, `$4,800.50`), in cents. Null for anything else. */
+function statedAmountCents(stated: string): number | null {
+  const match = /^\$?\s*(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?$/.exec(stated);
+  if (!match) return null;
+  const dollars = Number.parseInt(match[1]!.replace(/,/g, ""), 10);
+  const cents = Number.parseInt((match[2] ?? "0").padEnd(2, "0"), 10);
+  if (!Number.isFinite(dollars) || dollars <= 0) return null;
+  return dollars * 100 + cents;
+}
+
 /**
  * The value of an "Income" fact: `$4,800/mo stated · ✓ $4,850/mo verified (Plaid, 3 mo)`, or only the verified half
  * when nothing was stated.
- * `stated` is the applicant's own answer (free text such as "4,800" or "$4800").
+ *
+ * `stated` is the applicant's own free-text answer. Only a single plain amount is read as money; anything else
+ * ("4,800 - 5,200", "4.8k", "varies") is quoted back as the applicant wrote it, because concatenating its digits
+ * would show the manager a figure nobody stated.
  */
 export function incomeStatedVsVerifiedLine(
   stated: string | null | undefined,
@@ -60,9 +73,11 @@ export function incomeStatedVsVerifiedLine(
   /** `glyph: false` for the PDF, whose standard font cannot draw the check mark. */
   options: { glyph?: boolean } = {},
 ): string {
-  const digits = (stated ?? "").replace(/[^0-9.]/g, "");
-  const n = digits ? Number.parseFloat(digits) : NaN;
+  const raw = (stated ?? "").trim();
   const verified = incomeVerifiedLine(verification, options);
-  if (!Number.isFinite(n) || n <= 0) return verified;
-  return `${formatIncomeDollars(Math.round(n * 100))}/mo stated · ${verified}`;
+  if (!raw) return verified;
+  const cents = statedAmountCents(raw);
+  return cents === null
+    ? `${raw} stated · ${verified}`
+    : `${formatIncomeDollars(cents)}/mo stated · ${verified}`;
 }

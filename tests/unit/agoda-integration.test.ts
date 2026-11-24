@@ -37,18 +37,27 @@ describe("Agoda row", () => {
 });
 
 describe("export fetch stamp by platform", () => {
-  it("recognises each connection's own fetcher only", () => {
+  it("recognises each connection's own fetcher by name only", () => {
     expect(isChannelFetcher("Airbnb Calendar", "airbnb")).toBe(true);
     expect(isChannelFetcher("Mozilla/5.0 (Macintosh) AppleWebKit Chrome/120 Safari/537", "ical", "Agoda")).toBe(false);
-    expect(isChannelFetcher("Java/17.0.2", "ical", "Agoda")).toBe(true);
-    expect(isChannelFetcher("Java/17.0.2", "ical", "Houfy")).toBe(false);
+    expect(isChannelFetcher("Agoda-Calendar-Sync/1.0", "ical", "Agoda")).toBe(true);
+    expect(isChannelFetcher("Agoda-Calendar-Sync/1.0", "ical", "Houfy")).toBe(false);
     expect(isChannelFetcher("Booking.com Calendar Sync", "booking_com")).toBe(true);
+  });
+
+  // "Agoda last fetched" is the ONLY input to Synced / Not pulling, so a stranger's fetch must not say Agoda was here:
+  // curl, an uptime probe or a link checker leaves the row reading "has not fetched PropLane yet".
+  it("no unnamed fetcher counts as the channel", () => {
+    for (const ua of ["curl/8.4.0", "Java/17.0.2", "Better Uptime Bot", "", null]) {
+      expect(isChannelFetcher(ua, "ical", "Agoda"), String(ua)).toBe(false);
+      expect(shouldStampExportFetch({ userAgent: ua, provider: "ical", label: "Agoda", lastFetchedAt: null, now }), String(ua)).toBe(false);
+    }
   });
 
   it("throttles to 15 minutes", () => {
     expect(EXPORT_FETCH_STAMP_THROTTLE_MS).toBe(15 * 60_000);
-    expect(shouldStampExportFetch({ userAgent: "Java/17", provider: "ical", label: "Agoda", lastFetchedAt: hoursAgo(0.1), now })).toBe(false);
-    expect(shouldStampExportFetch({ userAgent: "Java/17", provider: "ical", label: "Agoda", lastFetchedAt: hoursAgo(0.3), now })).toBe(true);
+    expect(shouldStampExportFetch({ userAgent: "Agoda/1.0", provider: "ical", label: "Agoda", lastFetchedAt: hoursAgo(0.1), now })).toBe(false);
+    expect(shouldStampExportFetch({ userAgent: "Agoda/1.0", provider: "ical", label: "Agoda", lastFetchedAt: hoursAgo(0.3), now })).toBe(true);
   });
 });
 

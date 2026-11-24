@@ -141,6 +141,7 @@ export async function upsertManagerCharges(
     ).catch(() => undefined);
   }
 
+  const ledgerFailures: string[] = [];
   for (const c of normalizedCharges) {
     if (!c.id) continue;
     const chargeId = String(c.id);
@@ -158,11 +159,12 @@ export async function upsertManagerCharges(
     }
     // The ledger is write-through, so an unchanged row still runs it: that is how a line a previous run failed to
     // write is healed (the sync compares before it writes, so nothing changes = no write). Per row, so one failure
-    // cannot cost the rest of the batch its ledger line.
+    // cannot cost the rest of the batch its ledger line - and the batch still reports it below, never silently.
     try {
       await syncLedgerChargeEntry(db, c as HouseholdCharge);
     } catch (error) {
       console.error("household charge ledger sync failed", chargeId, error instanceof Error ? error.message : "unknown");
+      ledgerFailures.push(chargeId);
     }
     if (!changed) continue;
     await emitHouseholdChargeTransition(db, {
@@ -171,5 +173,8 @@ export async function upsertManagerCharges(
       charge: { ...(c as HouseholdCharge), managerUserId: managerId },
       transitionId: `${chargeId}:${nextStatus}:${now}`,
     }).catch(() => undefined);
+  }
+  if (ledgerFailures.length > 0) {
+    throw new Error(`Ledger sync failed for ${ledgerFailures.length} charge(s): ${ledgerFailures.join(", ")}`);
   }
 }

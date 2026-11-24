@@ -102,6 +102,12 @@ describe("display line", () => {
     expect(incomeStatedVsVerifiedLine("4,800", v)).toBe("$4,800/mo stated · ✓ $4,850/mo verified (Plaid, 3 mo)");
     expect(incomeStatedVsVerifiedLine("", v)).toBe("✓ $4,850/mo verified (Plaid, 3 mo)");
     expect(incomeStatedVsVerifiedLine("$4800", v, { glyph: false })).toBe("$4,800/mo stated · $4,850/mo verified (Plaid, 3 mo)");
+    // An applicant's free text is quoted as they wrote it: stripping the punctuation out of "4,800 - 5,200" used to
+    // read it as $48,005,200/mo, a figure nobody stated, and "4.8k" as $5/mo.
+    expect(incomeStatedVsVerifiedLine("4,800 - 5,200", v)).toBe("4,800 - 5,200 stated · ✓ $4,850/mo verified (Plaid, 3 mo)");
+    expect(incomeStatedVsVerifiedLine("4.8k", v)).toBe("4.8k stated · ✓ $4,850/mo verified (Plaid, 3 mo)");
+    expect(incomeStatedVsVerifiedLine("varies", v)).toBe("varies stated · ✓ $4,850/mo verified (Plaid, 3 mo)");
+    expect(incomeStatedVsVerifiedLine("$4,800.50", v)).toBe("$4,801/mo stated · ✓ $4,850/mo verified (Plaid, 3 mo)");
   });
 });
 

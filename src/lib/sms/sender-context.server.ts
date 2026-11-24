@@ -110,21 +110,48 @@ export async function loadSenderHomes(db: SupabaseClient, contexts: readonly Sen
     ...new Set(contexts.flatMap((c) => (c.kind === "manager" ? [c.ownerUserId] : c.kind === "admin" ? c.workspaces.map((w) => w.ownerUserId) : []))),
   ];
   if (owners.length === 0) return homes;
+  // Only the naming facts, projected out of the jsonb: these rows carry whole listing submissions and this read runs
+  // on nearly every inbound text from a multi-context sender (AGENTS.md § Performance & egress).
   const { data, error } = await db
     .from("manager_property_records")
-    .select("id, manager_user_id, workspace_id, row_data, property_data")
+    .select(
+      [
+        "id",
+        "manager_user_id",
+        "workspace_id",
+        "pd_status:property_data->>status",
+        "rd_status:row_data->>status",
+        "pd_address:property_data->>address",
+        "rd_address:row_data->>address",
+        "pd_street:property_data->>streetAddress",
+        "rd_street:row_data->>streetAddress",
+        "pd_title:property_data->>title",
+        "rd_title:row_data->>title",
+        "pd_building:property_data->>buildingName",
+        "rd_building:row_data->>buildingName",
+        "pd_hood:property_data->>neighborhood",
+        "rd_hood:row_data->>neighborhood",
+      ].join(","),
+    )
     .in("manager_user_id", owners)
     .limit(3000);
   if (error) throw new Error("homes unreadable");
-  for (const rec of (data ?? []) as Row[]) {
+  for (const rec of (data ?? []) as unknown as Row[]) {
     const ws = str(rec.workspace_id) || defaultOf.get(str(rec.manager_user_id)) || "";
     const target = byWorkspace.get(ws);
     if (!target) continue;
-    const src = Object.keys(obj(rec.property_data)).length ? obj(rec.property_data) : obj(rec.row_data);
-    if (str(src.status) === "draft" || str(obj(rec.row_data).status) === "draft") continue;
-    const address = str(src.address) || str(src.streetAddress) || str(src.title);
+    if (str(rec.pd_status) === "draft" || str(rec.rd_status) === "draft") continue;
+    const pick = (pd: unknown, rd: unknown): string => str(pd) || str(rd);
+    const address = pick(rec.pd_address, rec.rd_address) || pick(rec.pd_street, rec.rd_street) || pick(rec.pd_title, rec.rd_title);
     if (!address) continue;
-    homes.push({ id: str(rec.id), address, title: str(src.title), buildingName: str(src.buildingName), neighborhood: str(src.neighborhood), target });
+    homes.push({
+      id: str(rec.id),
+      address,
+      title: pick(rec.pd_title, rec.rd_title),
+      buildingName: pick(rec.pd_building, rec.rd_building),
+      neighborhood: pick(rec.pd_hood, rec.rd_hood),
+      target,
+    });
   }
   return homes;
 }

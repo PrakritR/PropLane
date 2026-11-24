@@ -1,6 +1,7 @@
-// A multi-role sender ("resident: when is my rent due" from a phone that is also a manager and an admin) is answered
-// as a RESIDENT of that house: the text is recorded in the resident conversation with that house's manager, the reply
-// is delivered as that same resident conversation, and the raw inbound copy is kept until the answer is out.
+// Whichever context a multi-role sender answers as OWNS the turn: "resident: when is my rent due" from a phone that is
+// also a manager and an admin is recorded in the resident conversation with that house's manager, the reply is
+// delivered as that same conversation, and the raw inbound copy is kept until the answer is out. The same holds when
+// the sender answers as another workspace's manager (last describe) - the number they texted owns neither.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const LINE_OWNER = "owner-line";
@@ -18,6 +19,8 @@ const m = vi.hoisted(() => ({
   finish: vi.fn(async () => true),
   prepare: vi.fn(async () => true),
   replay: vi.fn(async () => ({ ok: true, receipt: null })),
+  managerTurn: vi.fn(),
+  buildServiceCtx: vi.fn(),
 }));
 
 vi.mock("@/lib/sms/manager-sms-access.server", () => ({ resolveManagerSmsInboundIdentity: m.managerIdentity }));
@@ -29,7 +32,7 @@ vi.mock("@/lib/agent/resident-sms-agent.server", () => ({
 }));
 vi.mock("@/lib/agent/manager-sms-agent.server", () => ({
   deliverManagerSmsReply: m.deliverManager,
-  runManagerSmsAgentTurn: vi.fn(),
+  runManagerSmsAgentTurn: m.managerTurn,
 }));
 vi.mock("@/lib/sms/project-manager-sms-event.server", () => ({ projectManagerSmsEvent: m.project }));
 vi.mock("@/lib/sms/inbound-replay.server", () => ({
@@ -43,7 +46,7 @@ vi.mock("@/lib/sms/service-manager-inbound.server", () => ({
   listServiceWorkspaceRefs: vi.fn(async () => []),
   listServiceWorkspacesFor: vi.fn(async () => []),
   pickServiceWorkspaceForText: vi.fn(async () => ({ kind: "none" })),
-  buildServiceManagerAgentContext: vi.fn(async () => ({ ok: false, reason: "no_houses" })),
+  buildServiceManagerAgentContext: m.buildServiceCtx,
 }));
 vi.mock("@/lib/sms/manager-conversation-consent.server", () => ({ ensureManagerInboundReplyConsent: vi.fn(async () => "allowed") }));
 vi.mock("@/lib/manager-sms-commands/index.server", () => ({ handleManagerSmsCommand: vi.fn(async () => ({ handled: false })) }));
@@ -89,7 +92,10 @@ function fakeDb(ops: string[]) {
         {},
         {
           get(_t, prop: string) {
-            if (prop === "then") return (resolve: (v: unknown) => void) => resolve({ data: null, error: null });
+            // A query is awaited, and a few writes attach their own handlers (`.then(undefined, onError)`).
+            if (prop === "then") {
+              return (onFulfilled?: (v: unknown) => unknown) => Promise.resolve({ data: null, error: null }).then(onFulfilled);
+            }
             if (prop === "maybeSingle") {
               return async () => ({ data: table === "sms_inbound_receipts" ? envelope : null, error: null });
             }
@@ -148,6 +154,8 @@ beforeEach(() => {
   m.residentTurn.mockResolvedValue({ reply: "Rent is due on the 1st.", sessionId: "s1", traceId: "tr1" });
   m.deliverResident.mockResolvedValue({ ok: true });
   m.deliverManager.mockResolvedValue({ ok: true });
+  m.buildServiceCtx.mockResolvedValue({ ok: false, reason: "no_houses" });
+  m.managerTurn.mockResolvedValue(null);
 });
 
 describe("a multi-role sender texting as a resident", () => {
@@ -247,5 +255,90 @@ describe("a retry of that text (the prepared reply is replayed)", () => {
     const res = await runClaimedInbound(fakeDb([]), claim());
     expect(res.status).toBe(200);
     expect(m.deliverResident.mock.calls[0]![0]).toMatchObject({ ownerManagerUserId: LINE_OWNER, workspaceId: "ws-line" });
+  });
+});
+
+describe("a multi-role sender texting as another workspace's manager", () => {
+  const OWNER_B = "owner-b";
+  const senderRunsWorkspaceB = {
+    kind: "run",
+    body: "what is the balance on 123 Main",
+    tag: "Manager · Bee Homes:",
+    source: "switch",
+    resolved: {
+      context: {
+        kind: "manager",
+        key: "manager:ws-b",
+        workspaceId: "ws-b",
+        ownerUserId: OWNER_B,
+        name: "Bee Homes",
+        isDefault: false,
+        isService: false,
+        basis: "seat",
+        viewerSeat: false,
+      },
+      workspace: null,
+    },
+  };
+
+  beforeEach(() => {
+    m.sender.mockResolvedValue(senderRunsWorkspaceB);
+    m.buildServiceCtx.mockResolvedValue({
+      ok: true,
+      ctx: { userId: SENDER, landlordId: OWNER_B, workspace: { id: "ws-b", propertyIds: ["prop-b1"] }, managerSmsAccess: { mode: "owner", workspacePropertyIds: ["prop-b1"] } },
+    });
+    m.managerTurn.mockResolvedValue({ reply: "123 Main is $400 behind.", sessionId: "s2", traceId: "tr2" });
+  });
+
+  // AGENTS.md § SMS / phone: "Outbound from the work number of the workspace the message is about, never another
+  // workspace's". The answer is B's rent roll, so A's Communication must not hold it and A's wallet must not pay.
+  it("records and delivers under the workspace that answered, not the owner of the number texted", async () => {
+    const res = await runClaimedInbound(fakeDb([]), claim());
+    expect(res.status).toBe(200);
+    expect(m.project.mock.calls.map((call) => call[1] as Record<string, unknown>)).toEqual([
+      expect.objectContaining({
+        ownerManagerUserId: OWNER_B,
+        counterpartyRole: "manager",
+        counterpartyUserId: SENDER,
+        direction: "inbound",
+        workspaceId: "ws-b",
+      }),
+    ]);
+    expect(m.deliverManager).toHaveBeenCalledTimes(1);
+    expect(m.deliverManager.mock.calls[0]![0]).toMatchObject({
+      managerUserId: OWNER_B,
+      actorUserId: SENDER,
+      workspaceId: "ws-b",
+      text: "Manager · Bee Homes: 123 Main is $400 behind.",
+    });
+    expect(m.prepare.mock.calls[0]![1]).toMatchObject({
+      routeKind: "manager_agent",
+      replyOwnerUserId: OWNER_B,
+      replyWorkspaceId: "ws-b",
+    });
+  });
+
+  it("replays the prepared reply to that same workspace, never under the line's owner", async () => {
+    m.replay.mockResolvedValue({
+      ok: true,
+      receipt: {
+        status: "processing",
+        routeKind: "manager_agent",
+        counterpartyUserId: SENDER,
+        agentSessionId: "s2",
+        inboundAgentMessageId: null,
+        assistantAgentMessageId: null,
+        pendingActionId: null,
+        turnTraceId: "tr2",
+        replyBody: "Manager · Bee Homes: 123 Main is $400 behind.",
+        replyOwnerUserId: OWNER_B,
+        replyWorkspaceId: "ws-b",
+        outboxId: null,
+      },
+    });
+    const res = await runClaimedInbound(fakeDb([]), claim());
+    expect(res.status).toBe(200);
+    expect(m.managerTurn).not.toHaveBeenCalled();
+    expect(m.deliverManager.mock.calls[0]![0]).toMatchObject({ managerUserId: OWNER_B, workspaceId: "ws-b" });
   });
 });

@@ -33,6 +33,7 @@ describe("open rooms digest", () => {
     const digest = buildOpenRoomsDigest([{ title: "X", listingUrl: URL5257, rooms: [{ name: "R", monthlyRent: 1, currentAvailabilityVerified: false }] }]);
     expect(digest.lines).toEqual([]);
     expect(digest.openRoomCount).toBe(0);
+    expect(digest.moreHomes).toBe(0);
   });
 
   it("never lists a home without its link and caps the homes", () => {
@@ -44,6 +45,23 @@ describe("open rooms digest", () => {
     const digest = buildOpenRoomsDigest(homes, 3);
     expect(digest.lines).toHaveLength(3);
     expect(digest.lines.some((l) => l.startsWith("H0"))).toBe(false);
+  });
+
+  // The reply quotes these two numbers together ("N open rooms across M homes"), so they must describe the same
+  // homes: the cut homes are counted separately instead of inflating the room total.
+  it("counts rooms only over the homes it prints, and says how many homes the cap left out", () => {
+    const homes = Array.from({ length: 5 }, (_, i) => ({
+      title: `H${i}`,
+      listingUrl: `https://example.test/rent/listings/h${i}`,
+      rooms: [
+        { name: "A", monthlyRent: 700, currentAvailabilityVerified: true, freeNow: true },
+        { name: "B", monthlyRent: 800, currentAvailabilityVerified: true, freeNow: true },
+      ],
+    }));
+    const digest = buildOpenRoomsDigest(homes, 2);
+    expect(digest.homeCount).toBe(2);
+    expect(digest.openRoomCount).toBe(4);
+    expect(digest.moreHomes).toBe(3);
   });
 
   it("prices a daily room per night and keeps an unverified room closed", () => {

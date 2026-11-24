@@ -178,12 +178,18 @@ describe("the receipt and the overlay read the same fees", () => {
     expect(short.signingLines.find((l) => l.key === "arrangement_lease_fee")?.amount).toBe(40);
   });
 
-  it("the receipt adds the start surcharge to the monthly rent only for that start", () => {
+  it("the receipt carries each start's own surcharge, and only for that start", () => {
     const std = buildListingQuote(priced, { roomId: "room-7", leaseTerm: "Long-term", arrangementCount: 1 });
     const m2m = buildListingQuote(priced, { roomId: "room-7", leaseTerm: "Long-term", arrangementCount: 1, startKind: "m2m" });
     expect(m2m.monthlyRent - std.monthlyRent).toBe(25);
+    // The custom-dates surcharge has ONE owner, so a custom start reads it the way the applicant's dated quote
+    // does: the room's own $60 as a monthly fee line, never a silent bump inside the rent figure.
     const cst = buildListingQuote(priced, { roomId: "room-7", leaseTerm: "Long-term", arrangementCount: 1, startKind: "cst" });
-    expect(cst.monthlyRent - std.monthlyRent).toBe(60);
+    expect(cst.customLeaseSurcharge).toBe(60);
+    expect(cst.monthlyRent).toBe(std.monthlyRent);
+    expect(cst.monthlyFees.map((f) => f.label)).toContain("Custom lease surcharge");
+    expect(cst.monthlyTotal - std.monthlyTotal).toBe(60);
+    expect(std.monthlyFees.map((f) => f.label)).not.toContain("Custom lease surcharge");
   });
 
   it("the overlay hands the room's surcharges and Lease fee to everything that reads the listing", () => {
