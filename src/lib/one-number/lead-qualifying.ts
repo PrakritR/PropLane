@@ -22,6 +22,12 @@ export type LeadOffer = {
   roomId: string;
   /** "5259 Brooklyn" - a house, never a person. */
   label: string;
+  /**
+   * The home's canonical public path, built from the listing's own address when the row was in hand
+   * (`offerFromRow`). Absent on an offer stored before it: the id URL is used, which redirects to the canonical
+   * one. Never derived from `label`, which may be a neighbourhood or "this house".
+   */
+  listingPath?: string;
   rent: number | null;
   availability: string;
   /** The room's own name ("Room 3"), when the offer came from a room. */

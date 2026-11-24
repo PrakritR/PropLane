@@ -69,6 +69,20 @@ describe("custom-dates surcharge on the applicant quote", () => {
     const q = quote(listing(), "2027-01-15", "", "Month-to-Month");
     expect(q.customLeaseSurcharge).toBeUndefined();
   });
+
+  // `recurringMonthlyFeesForLease` never bills this surcharge on a month-to-month lease, so no month-to-month
+  // receipt may show it either - a quoted line nothing charges is $100/mo the applicant is never billed.
+  it("shows no surcharge line on a month-to-month start, even with the row priced", () => {
+    const m2m = buildListingQuote(listing("100"), {
+      roomId: "room-1",
+      leaseTerm: "Month-to-Month",
+      leaseStart: "2027-01-15",
+      startKind: "m2m",
+    });
+    expect(m2m.customLeaseSurcharge).toBeUndefined();
+    expect(m2m.monthlyFees.map((f) => f.label)).not.toContain("Custom lease surcharge");
+    expect(m2m.monthlyTotal).toBe(1000);
+  });
 });
 
 describe("partial months on the applicant quote", () => {

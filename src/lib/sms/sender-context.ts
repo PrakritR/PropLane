@@ -20,10 +20,14 @@ import { serviceWorkspaceLabel } from "@/lib/service/service-label";
  *   2. "switch" / "menu" shows the menu
  *   3. explicit words: "manager:" "resident:" "admin:" prefixes, "as manager", "switch to <workspace or home>"; sticky
  *   4. a text that names a home resolves to the workspace that holds it, among the sender's own contexts
- *   5. a reply to a text we just sent about a workspace inherits that workspace (newer than the last pick)
- *   6. the last pick, for 12 hours
- *   7. the number they texted, when it is a workspace's own work number
+ *   5. the number they texted, when it is a workspace's OWN work number: that workspace owns the text
+ *   6. a reply to a text we just sent about a workspace inherits that workspace (newer than the last pick)
+ *   7. the last pick, for 12 hours
  *   8. ONE question listing only the roles they hold; the text waits for the answer
+ *
+ * 6 and 7 are reached only on the shared PropLane line, where no number names a workspace: a text to a workspace's own
+ * dedicated number is about that workspace unless the sender says otherwise (1-4), so neither an unrelated notice from
+ * another workspace nor a stale pick can route it - and bill it - elsewhere.
  */
 
 export const SENDER_STICKY_TTL_MS = 12 * 60 * 60 * 1000;
@@ -339,7 +343,10 @@ export async function decideSenderContext(input: SenderContextInput): Promise<Se
   const byName = await named(body, contexts, input.loadHomes, new Set(contexts.map((c) => c.key)));
   if (byName.kind === "one") return run(byName.target, body, "named");
 
-  // 5. a reply to a text we sent about one workspace, newer than the last pick
+  // 5. the work number they texted, when it is a workspace's own
+  if (valid(input.numberDefault)) return run(input.numberDefault, body, "number");
+
+  // 6. a reply to a text we sent about one workspace, newer than the last pick
   const notice = await input.loadNotice().catch(() => null);
   if (notice && now - notice.at <= SENDER_STICKY_TTL_MS && (!sticky || notice.at > sticky.at)) {
     const targets: SenderTarget[] = [];
@@ -351,11 +358,8 @@ export async function decideSenderContext(input: SenderContextInput): Promise<Se
     if (targets.length === 1) return run(targets[0]!, body, "notice");
   }
 
-  // 6. the last pick
+  // 7. the last pick
   if (sticky) return run(sticky.target, body, "sticky");
-
-  // 7. the work number they texted
-  if (valid(input.numberDefault)) return run(input.numberDefault, body, "number");
 
   // 8. one question; the text waits
   return ask({ body, messageSid: input.messageSid });

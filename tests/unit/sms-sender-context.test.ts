@@ -167,6 +167,45 @@ describe("sender context: one decision per text", () => {
     expect(picked).toMatchObject({ kind: "reply", sticky: { key: "admin" } });
   });
 
+  // A text to a workspace's OWN work number is about that workspace: it is the one whose conversation records it and
+  // whose wallet pays. An unrelated notice from the house they RENT (their landlord's rent reminder) must not move the
+  // turn to that landlord's workspace, and neither must a stale pick.
+  it("the workspace whose own number was texted outranks an unrelated notice and the last pick", async () => {
+    const landlordNotice = { workspaceId: "ws-res", at: NOW - 60_000 };
+    const onOwnNumber = await decideSenderContext(base({
+      body: "how many open rooms do I have?",
+      numberDefault: { key: "manager:ws-mine" },
+      loadNotice: async () => landlordNotice,
+    }));
+    expect(onOwnNumber).toMatchObject({ kind: "run", source: "number", target: { key: "manager:ws-mine" } });
+
+    const stickyElsewhere = await decideSenderContext(base({
+      body: "how many open rooms do I have?",
+      numberDefault: { key: "manager:ws-mine" },
+      sticky: { target: { key: "resident:ws-res" }, at: NOW - 60_000 },
+    }));
+    expect(stickyElsewhere).toMatchObject({ kind: "run", source: "number", target: { key: "manager:ws-mine" } });
+
+    // On the shared PropLane line no number names a workspace, so the notice still decides.
+    const onSharedLine = await decideSenderContext(base({
+      body: "how many open rooms do I have?",
+      numberDefault: null,
+      loadNotice: async () => landlordNotice,
+    }));
+    expect(onSharedLine).toMatchObject({ kind: "run", source: "notice", target: { key: "resident:ws-res" } });
+  });
+
+  it("an explicit switch, a named home and an answered question still outrank the number", async () => {
+    const onOwn = { numberDefault: { key: "manager:ws-mine" } as const };
+    expect(await decideSenderContext(base({ ...onOwn, body: "resident: when is my rent due" })))
+      .toMatchObject({ kind: "run", source: "switch", target: { key: "resident:ws-res" }, body: "when is my rent due" });
+    expect(await decideSenderContext(base({ ...onOwn, body: "status on 88 Pine St" })))
+      .toMatchObject({ kind: "run", source: "named", target: { key: "resident:ws-res" } });
+    const pending = { options: [{ key: "manager:ws-mine" }, { key: "resident:ws-res" }], body: "rent status", messageSid: "SM1", at: NOW - 1000 };
+    expect(await decideSenderContext(base({ ...onOwn, body: "2", pending })))
+      .toMatchObject({ kind: "run", source: "answer", target: { key: "resident:ws-res" }, body: "rent status" });
+  });
+
   it("a reply to a notice inherits the notice's workspace when it is newer than the last pick", async () => {
     const notice = { workspaceId: "ws-vin", at: NOW - 60_000 };
     const fresh = await decideSenderContext(base({ body: "ok what should we do", loadNotice: async () => notice, sticky: { target: { key: "manager:ws-mine" }, at: NOW - hours(3) } }));

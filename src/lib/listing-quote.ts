@@ -388,7 +388,7 @@ export function buildListingQuote(
     if (fee.presetId === "security_deposit") continue;
     // The custom-dates surcharge is decided by the lease dates alone (added below), never by the row merely existing,
     // so a calendar-aligned lease is not quoted it and a dated one is not quoted it twice.
-    if (!isStay && startKind !== "m2m" && fee.presetId === "custom_lease_surcharge") continue;
+    if (!isStay && fee.presetId === "custom_lease_surcharge") continue;
     // The stay type's own move-in replaces the house move-in row (long-term or short-term), never a second line.
     if (placementFees.moveInOverridesHouse && (fee.presetId === "move_in_fee" || fee.presetId === "short_term_move_in")) continue;
     if (fee.presetId === "holding_deposit") {

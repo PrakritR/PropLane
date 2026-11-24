@@ -42,7 +42,10 @@ describe("export fetch stamp by platform", () => {
     expect(isChannelFetcher("Mozilla/5.0 (Macintosh) AppleWebKit Chrome/120 Safari/537", "ical", "Agoda")).toBe(false);
     expect(isChannelFetcher("Agoda-Calendar-Sync/1.0", "ical", "Agoda")).toBe(true);
     expect(isChannelFetcher("Agoda-Calendar-Sync/1.0", "ical", "Houfy")).toBe(false);
-    expect(isChannelFetcher("Booking.com Calendar Sync", "booking_com")).toBe(true);
+    // Only the two rows that surface a last-fetch state are recognised: a provider whose row shows none is
+    // never stamped, so no stored fact exists that nothing reads.
+    expect(isChannelFetcher("Booking.com Calendar Sync", "booking_com")).toBe(false);
+    expect(isChannelFetcher("Vrbo Calendar", "vrbo")).toBe(false);
   });
 
   // "Agoda last fetched" is the ONLY input to Synced / Not pulling, so a stranger's fetch must not say Agoda was here:

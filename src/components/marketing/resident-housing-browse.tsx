@@ -120,7 +120,7 @@ function HousingBrowseCard({ card }: { card: PropertyBrowseCard }) {
   return (
     <article className="ps-card-soft ps-bcard">
       <Link
-        href={listingPublicPathFor({ id: card.propertyId, address: card.headlineAddress })}
+        href={listingPublicPathFor({ id: card.propertyId, address: card.fullAddress })}
         data-attr="resident-browse-listing-card"
         className="ps-bcard-link"
       >

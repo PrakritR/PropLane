@@ -130,6 +130,7 @@ export async function POST(req: Request) {
         key: room.key,
         propertyId: room.propertyId,
         headlineAddress: room.headlineAddress,
+        fullAddress: room.fullAddress,
         neighborhood: room.neighborhood,
         priceLabel: room.priceLabel,
         bathroomHint: room.bathroomHint,

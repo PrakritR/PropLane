@@ -8,7 +8,8 @@ vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.f
 vi.mock("server-only", () => ({}));
 
 import { publicListingProjection } from "@/lib/public-listings.server";
-import { buildOfferBubbles, buildOfferText, countFittingRooms, firstOfferPhoto, listingsInArea, matchOffers, matchRooms, offerFromRow, parseOfferPick } from "@/lib/one-number/lead-match";
+import { buildOfferBubbles, buildOfferText, countFittingRooms, firstOfferPhoto, listingsInArea, matchOffers, matchRooms, offerFromRow, offerListingPath, parseOfferPick } from "@/lib/one-number/lead-match";
+import { listingIdToken } from "@/lib/listing-slug";
 import type { LineListing, LineTier } from "@/lib/one-number/line-tier";
 import type { LeadOffer, LeadProfile } from "@/lib/one-number/lead-qualifying";
 
@@ -88,6 +89,29 @@ describe("the offer text", () => {
     const text = buildOfferText(offers, "https://proplane.ai");
     for (const secret of ["mgr-a", "mail.proplane.app", "+12065550100", "Lockbox", "001000", "welcome-home"]) expect(text).not.toContain(secret);
     expect(JSON.stringify(offers)).not.toMatch(/mgr-|mail\.proplane|lockbox/i);
+  });
+
+  // The slug module's rule (listing-slug.ts, pinned by listing-slug.test.ts): a listing with no street address gets
+  // `listing-<id token>`. The offer's `label` is a display line that falls back to the neighbourhood, so it must never
+  // build the URL - a prospect would get `/rent/listings/ballard-<token>`, a readable name for a house that is not it.
+  it("links the listing's own address, never the offer's display label", () => {
+    const noStreet = publicListingProjection(
+      storedListing("l-nostreet", { manager: "mgr-a", neighborhood: "Ballard", beds: 3, rent: 800, street: "", name: "Ballard Flats" }),
+    );
+    const rows = matchRooms([noStreet], profile({ area: "Ballard", budgetMax: 900 }), TODAY);
+    const labelled = rows.map((r, i) => offerFromRow(r, i + 1));
+    expect(labelled[0]!.label).toBe("Ballard");
+    const canonical = `https://proplane.ai/rent/listings/listing-${listingIdToken("l-nostreet")}`;
+    const text = buildOfferText(labelled, "https://proplane.ai");
+    expect(text).toContain(canonical);
+    expect(text).not.toContain("/rent/listings/ballard-");
+    const bubbles = buildOfferBubbles(labelled, rows, "https://proplane.ai");
+    expect(bubbles[0]!.body).toContain(canonical);
+  });
+
+  it("an offer stored before the path was carried falls back to the id URL, which redirects", () => {
+    expect(offerListingPath({ propertyId: "l-uw-a" })).toBe("/rent/listings/l-uw-a");
+    expect(offerListingPath({ propertyId: "l-uw-a", listingPath: "  " })).toBe("/rent/listings/l-uw-a");
   });
 
   it("is plain GSM-7", () => {
