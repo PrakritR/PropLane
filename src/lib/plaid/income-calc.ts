@@ -20,23 +20,23 @@ export type IncomeTransactionInput = {
 
 export const INCOME_LOOKBACK_MONTHS = 3;
 /**
- * Three, not two, and three deposits ON THE CADENCE: the divisor is the pay cycle read off the gaps between
- * them, and two deposits give exactly one gap — a guess that cannot tell a monthly paycheck pair from a
- * paycheck plus a bonus or a severance (`looksLikePayrollDeposit` admits both). An off-cycle deposit is set
+ * Three, not two, and three deposits ON ONE PAYER'S CADENCE: the divisor is the pay cycle read off the gaps
+ * between them, and two deposits give exactly one gap — a guess that cannot tell a monthly paycheck pair from
+ * a paycheck plus a bonus or a severance (`looksLikePayrollDeposit` admits both). An off-cycle deposit is set
  * aside before the count is taken, so a pair plus a bonus is still a pair, and is still "no figure" — which
  * costs an applicant nothing: the check never blocks a submit.
  */
 export const INCOME_MIN_DEPOSITS = 3;
 /**
- * The payroll deposits must span at least this many days of real observation. Deposits a few days apart
- * say nothing about a pay cycle, and dividing by the period they imply would multiply the figure.
+ * A payer's deposits must span at least this many days of real observation. Deposits a few days apart say
+ * nothing about a pay cycle, and dividing by the period they imply would multiply the figure.
  */
 export const INCOME_MIN_COVERAGE_DAYS = 28;
 const DAYS_PER_MONTH = 30.44;
-/** How far from the median amount a deposit may sit and still be read as pay rather than as something extra. */
+/** How far from its stream's median amount a deposit may sit and still be read as pay rather than something extra. */
 const OFF_CYCLE_AMOUNT_SHARE = 0.25;
 
-type DepositDay = { txn: IncomeTransactionInput; day: number; cents: number };
+type DepositDay = { payer: string; day: number; cents: number };
 
 const PAYROLL_NAME = /\b(payroll|direct\s*dep(?:osit)?|dir\s*dep|salary|paychec?k|wages|gusto|adp|paycom|paylocity|paychex|rippling|trinet|justworks|workday)\b/i;
 const NOT_INCOME_NAME = /\b(transfer|xfer|refund|reversal|venmo|zelle|cash\s*app|paypal|apple\s*cash|loan|credit\s*card|autopay|deposit\s*return)\b/i;
@@ -79,47 +79,54 @@ function median(values: readonly number[]): number {
 }
 
 /**
- * Which deposits are the PAY, and the period they earn over. Three numbers, and only one of them is a fact.
- *
- * Pay sits on the cadence in BOTH amount and time, so an off-cycle deposit — a bonus, a correction run, a
- * final check — is set aside by whichever of the two it fails, wherever it sits in the history:
- *
- *   1. its amount is more than a quarter away from the MEDIAN amount (a $5,000 bonus among $2,425 paychecks);
- *   2. it lands less than half a median cadence after the deposit before it, and of that pair the one further
- *      from the median amount is the extra (a $3,000 bonus the day before, or the day after, a paycheck).
- *
- * Neither test may privilege a position: a $8,000 bonus dated the day BEFORE the first paycheck used to
- * become the anchor the rest were measured against and swallow that paycheck, reading $7,588/mo on $5,272 of
- * real pay — the mirror of the $3,000-bonus case ($8,089/mo on the same pay) a mean cadence produced. Counted
- * as pay, an extra deposit moves the figure twice: it adds to it AND shrinks the period it is spread over.
- *
- * `months` is the period the REGULAR deposits earn over, the divisor, and it is the observed period alone —
- * the window asked for never widens or narrows it: deposits spanning `span` days on a cycle of `cycle` are
- * together a cycle's worth of earnings beyond the last one, so the period is `span + cycle`. That is
- * unbiased for regular pay in either direction — five weekly paychecks over 28 days earn over 35 days, not
- * over the three months the bank was asked for, and three paychecks 45 days apart earn over 135 days, not
- * over those same three months. It is never rounded: rounding it down inflates the figure.
- *
- * `observedMonths` is the history the bank actually shared, the span of EVERY payroll deposit. That is what
- * the manager is shown, so the label names observed history and never an inferred period.
- *
- * `{ tooShort: true }` when fewer than `INCOME_MIN_DEPOSITS` deposits are left on the cadence, or they span
- * less than `INCOME_MIN_COVERAGE_DAYS` of real observation. `null` when the deposits are not all dated, in
- * which case the caller keeps the requested window.
+ * WHO paid, as a key: Plaid's counterparty when it names one, else the description without the reference
+ * numbers that differ run to run ("GUSTO DIRECT DEP 4412" and "GUSTO DIRECT DEP 4581" are one payer).
  */
-export function depositCoverageMonths(
-  deposits: readonly IncomeTransactionInput[],
-): { months: number; observedMonths: number; regular: readonly IncomeTransactionInput[] } | { tooShort: true } | null {
-  const dated = deposits
-    .map((txn) => ({ txn, day: dayNumber(txn.date), cents: Math.round(Math.abs(txn.amount) * 100) }))
-    .filter((entry): entry is DepositDay => entry.day !== null);
-  if (dated.length < INCOME_MIN_DEPOSITS || dated.length !== deposits.length) return null;
-  const sorted = [...dated].sort((a, b) => a.day - b.day);
-  const gapsOf = (entries: readonly DepositDay[]) => entries.slice(1).map((entry, i) => entry.day - entries[i]!.day);
+function payerKey(txn: IncomeTransactionInput): string {
+  const label = (txn.merchant_name ?? "").trim() || (txn.name ?? "").trim();
+  return label
+    .toLowerCase()
+    .replace(/[0-9]+/g, " ")
+    .replace(/[^a-z ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const gapsOf = (entries: readonly DepositDay[]) => entries.slice(1).map((entry, i) => entry.day - entries[i]!.day);
+
+/**
+ * One payer's pay: the deposits that sit on ITS cadence, and the period they earn over. `null` when this payer
+ * is not a pay stream — fewer than `INCOME_MIN_DEPOSITS` on a cadence, or a span under
+ * `INCOME_MIN_COVERAGE_DAYS` of real observation.
+ *
+ * A stream is the unit because an applicant can hold two jobs, and ONE amount band across both drops the
+ * larger of them: a $5,000 salary beside a more numerous $500 weekly side payroll read as $2,174/mo on
+ * $7,167 of real pay. Each payer is read on its own and the rates are added, so neither one hides the other.
+ *
+ * Within the stream, pay sits on the cadence in BOTH amount and time, so an off-cycle deposit — a bonus, a
+ * correction run, a final check — is set aside by whichever of the two it fails, wherever it sits:
+ *
+ *   1. its amount is more than a quarter away from the stream's MEDIAN amount (a $5,000 bonus among $2,425
+ *      paychecks), or
+ *   2. it lands less than half a median cadence after the deposit before it, and of that pair the one
+ *      further from the median amount is the extra (a $3,000 bonus the day before, or after, a paycheck).
+ *
+ * Neither test may privilege a position: a bonus dated the day BEFORE the first paycheck once became the
+ * anchor the rest were measured against, reading $7,588/mo on $5,272 of real pay. Counted as pay, an extra
+ * deposit moves the figure twice: it adds to it AND shrinks the period it is spread over.
+ *
+ * The period is `span + cycle`: deposits spanning `span` days on a cycle of `cycle` are together a cycle's
+ * worth of earnings beyond the last one. It is the observed period alone — the window asked for never widens
+ * or narrows it (five weekly paychecks over 28 days earn over 35 days, not over the three months the bank was
+ * asked for; three paychecks 45 days apart earn over 135) — and it is never rounded, which would inflate it.
+ */
+function streamPayRate(stream: readonly DepositDay[]): { months: number; cents: number; regular: DepositDay[] } | null {
+  if (stream.length < INCOME_MIN_DEPOSITS) return null;
+  const sorted = [...stream].sort((a, b) => a.day - b.day);
   const typicalCents = median(sorted.map((entry) => entry.cents));
   const offTypical = (entry: DepositDay) => Math.abs(entry.cents - typicalCents);
   const sized = sorted.filter((entry) => offTypical(entry) <= typicalCents * OFF_CYCLE_AMOUNT_SHARE);
-  if (sized.length < INCOME_MIN_DEPOSITS) return { tooShort: true };
+  if (sized.length < INCOME_MIN_DEPOSITS) return null;
   const offCycleUnder = median(gapsOf(sized)) / 2;
   const regular: DepositDay[] = [];
   for (const entry of sized) {
@@ -127,28 +134,25 @@ export function depositCoverageMonths(
     if (!previous || entry.day - previous.day >= offCycleUnder) regular.push(entry);
     else if (offTypical(entry) < offTypical(previous)) regular[regular.length - 1] = entry;
   }
-  if (regular.length < INCOME_MIN_DEPOSITS) return { tooShort: true };
+  if (regular.length < INCOME_MIN_DEPOSITS) return null;
   const spanDays = regular[regular.length - 1]!.day - regular[0]!.day;
-  if (spanDays < INCOME_MIN_COVERAGE_DAYS) return { tooShort: true };
+  if (spanDays < INCOME_MIN_COVERAGE_DAYS) return null;
   const cycleDays = median(gapsOf(regular));
   return {
     months: (spanDays + cycleDays) / DAYS_PER_MONTH,
-    observedMonths: (sorted[sorted.length - 1]!.day - sorted[0]!.day) / DAYS_PER_MONTH,
-    regular: regular.map((entry) => entry.txn),
+    cents: regular.reduce((sum, entry) => sum + entry.cents, 0),
+    regular,
   };
 }
 
 /**
  * Average monthly payroll-style deposits, or the reason there is no figure.
  *
- * Both halves come from `depositCoverageMonths`: the deposits that sit on the cadence in amount and in time
- * are the figure, and the period THEY earn over is the divisor, never the window we asked for (dividing five
- * weeks of weekly paychecks by three months reports a third of a real income; dividing three paychecks 45
- * days apart by those same three months reports half again more than arrives). An off-cycle deposit is in
- * neither half - a bonus is money that arrived, not a monthly rate. Fewer than `INCOME_MIN_DEPOSITS` left on
- * the cadence, or a span under `INCOME_MIN_COVERAGE_DAYS`, yields no figure at all. `months` is the whole-month label for the
- * history the bank shared, a fact the manager can hold the figure against; it is deliberately not the
- * divisor, which is a derived period used unrounded.
+ * The figure is the sum of each PAYER's own rate (`streamPayRate`), so two jobs add up and neither hides the
+ * other; a payer that is not a pay stream, and an off-cycle deposit inside one, are in neither the sum nor
+ * the count - a bonus is money that arrived, not a monthly rate. No pay stream at all yields no figure.
+ * `months` is the whole-month label for the history the bank shared, a fact the manager can hold the figure
+ * against; it is deliberately not a divisor, which is per stream, derived and used unrounded.
  *
  * A refusal says WHICH of the two it is, because "we found no paychecks" and "we found paychecks but too
  * little history" are different answers to the applicant and only this function knows which applies.
@@ -161,14 +165,29 @@ export function estimateMonthlyIncome(
   const depositCount = deposits.length;
   if (depositCount === 0) return { ok: false, reason: "no_payroll_deposits", depositCount };
   if (depositCount < INCOME_MIN_DEPOSITS || months <= 0) return { ok: false, reason: "not_enough_history", depositCount };
-  const coverage = depositCoverageMonths(deposits);
-  if (coverage && "tooShort" in coverage) return { ok: false, reason: "not_enough_history", depositCount };
-  const divisor = coverage?.months ?? months;
-  if (!(divisor > 0)) return { ok: false, reason: "not_enough_history", depositCount };
-  const counted = coverage ? coverage.regular : deposits;
-  const totalCents = counted.reduce((sum, txn) => sum + Math.round(Math.abs(txn.amount) * 100), 0);
-  const monthlyIncomeCents = Math.round(totalCents / divisor);
+  const dated = deposits
+    .map((txn) => ({ payer: payerKey(txn), day: dayNumber(txn.date), cents: Math.round(Math.abs(txn.amount) * 100) }))
+    .filter((entry): entry is DepositDay => entry.day !== null);
+  if (dated.length !== deposits.length) {
+    const totalCents = deposits.reduce((sum, txn) => sum + Math.round(Math.abs(txn.amount) * 100), 0);
+    const windowed = Math.round(totalCents / months);
+    if (windowed <= 0) return { ok: false, reason: "no_payroll_deposits", depositCount };
+    return { ok: true, estimate: { monthlyIncomeCents: windowed, months, depositCount } };
+  }
+  const streams = new Map<string, DepositDay[]>();
+  for (const entry of dated) streams.set(entry.payer, [...(streams.get(entry.payer) ?? []), entry]);
+  const rates = [...streams.values()].map(streamPayRate).filter((rate): rate is NonNullable<typeof rate> => rate !== null);
+  if (rates.length === 0) return { ok: false, reason: "not_enough_history", depositCount };
+  const monthlyIncomeCents = Math.round(rates.reduce((sum, rate) => sum + rate.cents / rate.months, 0));
   if (monthlyIncomeCents <= 0) return { ok: false, reason: "no_payroll_deposits", depositCount };
-  const observed = coverage ? Math.max(1, Math.round(coverage.observedMonths)) : months;
-  return { ok: true, estimate: { monthlyIncomeCents, months: observed, depositCount: counted.length } };
+  const days = dated.map((entry) => entry.day);
+  const observedMonths = (Math.max(...days) - Math.min(...days)) / DAYS_PER_MONTH;
+  return {
+    ok: true,
+    estimate: {
+      monthlyIncomeCents,
+      months: Math.max(1, Math.round(observedMonths)),
+      depositCount: rates.reduce((count, rate) => count + rate.regular.length, 0),
+    },
+  };
 }

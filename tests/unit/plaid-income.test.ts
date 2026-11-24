@@ -118,6 +118,39 @@ describe("income calc", () => {
     expect(within1Percent(figureOf(estimateMonthlyIncome(pay)), monthlyFromCycle(2425, 14))).toBe(true);
   });
 
+  // Two jobs add up. Oracle: each payer's own rate from the calendar — $5,000 a month plus $500 a week is
+  // 5000 + 500 x (365.25/7)/12 = $7,167/mo. Plausible wrong behaviour this rejects: one amount band across both
+  // payers, which dropped all three $5,000 salary deposits as outliers of the more numerous $500 stream and
+  // reported $2,174/mo — a 70% understatement shown to the manager as verified.
+  it("adds up two payrolls instead of reading only the more numerous one", () => {
+    const salary = ["2026-09-01", "2026-10-01", "2026-11-01"].map((date) => dated(5000, date));
+    const weekly = [
+      "2026-08-26", "2026-09-02", "2026-09-09", "2026-09-16", "2026-09-23", "2026-09-30", "2026-10-07",
+      "2026-10-14", "2026-10-21", "2026-10-28", "2026-11-04", "2026-11-11", "2026-11-18",
+    ].map((date) => ({ ...wages(500, "SIDE GIG PAYROLL"), date }));
+    const estimate = estimateMonthlyIncome([...salary, ...weekly]);
+    expect(within1Percent(figureOf(estimate), 5000 + monthlyFromCycle(500, 7))).toBe(true);
+    expect(estimate.ok && estimate.estimate.depositCount).toBe(16);
+    // Each payroll on its own reads its own rate, and the two together read their sum.
+    expect(within1Percent(figureOf(estimateMonthlyIncome(salary)), monthlyFromCycle(5000, 30.5))).toBe(true);
+    expect(within1Percent(figureOf(estimateMonthlyIncome(weekly)), monthlyFromCycle(500, 7))).toBe(true);
+  });
+
+  // The in-stream tests still carry the bonus cases when the bonus arrives under the SAME payer name, so the
+  // figure does not rely on a payer string differing.
+  it("sets aside a bonus paid under the paycheck's own payer name", () => {
+    const pay = ["2026-10-01", "2026-10-15", "2026-10-29", "2026-11-12"].map((date) => dated(2425, date));
+    const sameName = (amount: number, date: string) => dated(amount, date);
+    for (const [where, rows] of Object.entries({
+      "the day after": [...pay, sameName(3000, "2026-11-13")],
+      "the day before": [...pay, sameName(3000, "2026-10-14")],
+      "before the first paycheck": [sameName(8000, "2026-09-30"), ...pay],
+      "alone mid-cycle": [...pay, sameName(5000, "2026-10-08")],
+    })) {
+      expect(within1Percent(figureOf(estimateMonthlyIncome(rows)), monthlyFromCycle(2425, 14)), where).toBe(true);
+    }
+  });
+
   it("gives no figure when only a pair of paychecks survives the off-cycle test", () => {
     // Two monthly paychecks plus a $5,000 deposit the next day: the pair is one gap, which cannot tell a cadence
     // from a paycheck plus a bonus (`INCOME_MIN_DEPOSITS`). The mean-gap divisor reported $5,892/mo on $2,000 pay.
