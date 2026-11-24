@@ -1,7 +1,8 @@
 /**
  * Step 1 Continue shows validation errors instantly: the room-occupancy refresh
- * ("Checking rooms…") runs only after the step validates. And the lease length is
- * one labeled "Lease length" list holding Month-to-month and Custom dates as options.
+ * ("Checking rooms…") runs only after the step validates. The one labeled "Lease length"
+ * list and its options are driven through the real step in
+ * `apply-lease-term-options-from-listing.test.tsx`.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -9,7 +10,6 @@ import { describe, expect, it } from "vitest";
 
 const read = (rel: string) => readFileSync(path.join(process.cwd(), rel), "utf8");
 const WIZARD = read("src/components/marketing/rental-application-wizard.tsx");
-const STEPS = read("src/components/marketing/rental-wizard-steps.tsx");
 
 describe("step 1 Continue", () => {
   it("validates (and returns on errors) before the occupancy refresh", () => {
@@ -27,12 +27,5 @@ describe("step 1 Continue", () => {
     const fn = WIZARD.slice(WIZARD.indexOf("const validateStepNow = (): boolean =>")).split("if (!validateStepNow()) return;")[0];
     expect(fn).toContain("countValidationErrors(e) > 0");
     expect(fn).toContain("scrollToFirstWizardFieldError");
-  });
-});
-
-describe("lease length control", () => {
-  it("is one labeled Lease length list: fixed lengths, Custom dates and Month-to-month are options, never bare checkboxes", () => {
-    expect(STEPS).toContain('<Label htmlFor="longTermLength" required>Lease length</Label>');
-    expect(STEPS).not.toContain('data-wizard-field="longTermOptions"');
   });
 });

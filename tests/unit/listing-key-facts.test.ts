@@ -127,6 +127,23 @@ describe("deriveListingKeyFacts", () => {
     expect(facts.find((f) => f.id === "availability")).toBeUndefined();
   });
 
+  // The two facts are drawn side by side, so the label can never out-count the value: 4709A declares 3.5 baths and
+  // lists four bathroom entries, each used by one room.
+  it("never claims more private baths than the declared total", () => {
+    const facts = deriveListingKeyFacts(
+      rich({
+        bathrooms: [
+          bathroom("Bath 1", ["Room 1"]),
+          bathroom("Bath 2", ["Room 2"]),
+          bathroom("Bath 3", ["Room 3"]),
+          bathroom("Half bath", ["Primary"]),
+        ],
+      }),
+      { beds: 4, baths: 3.5, petFriendly: false },
+    );
+    expect(facts.find((f) => f.id === "baths")).toEqual({ id: "baths", value: "3.5 baths", label: "3 private" });
+  });
+
   it("does not count the builder's fallback bathroom row", () => {
     const facts = deriveListingKeyFacts(rich({ bathrooms: [bathroom("b-fallback", [])] }), { beds: 4, baths: 0, petFriendly: false });
     expect(facts.find((f) => f.id === "baths")).toBeUndefined();

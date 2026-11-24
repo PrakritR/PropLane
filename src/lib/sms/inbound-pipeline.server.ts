@@ -978,15 +978,18 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       return finishPreparedDelivery(replay.receipt, delivered);
     }
     if (replay.receipt.routeKind === "resident_agent" && replay.receipt.counterpartyUserId) {
+      // The resident conversation this reply was prepared for, not the owner of the number it arrived on: a
+      // multi-role sender is answered as a resident of ANOTHER manager's workspace, and resending it under this
+      // line's owner would write (and bill) that conversation in the wrong workspace.
       const delivered = await deliverResidentSmsReply({
-        ownerManagerUserId: managerId,
+        ownerManagerUserId: replay.receipt.replyOwnerUserId ?? managerId,
         residentUserId: replay.receipt.counterpartyUserId,
         toPhone: fromPhone,
         text: replay.receipt.replyBody,
         workNumber: normalizeE164(toPhone) ?? toPhone,
         inboundMessageSid: messageSid,
         traceId: replay.receipt.turnTraceId,
-        workspaceId: workspaceId ?? null,
+        workspaceId: replay.receipt.replyWorkspaceId ?? workspaceId ?? null,
         bubbles: feel.bubbleReplies,
         inboundText: body,
       });
@@ -1210,7 +1213,8 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     if (senderRun && senderRun.resolved.context.kind === "resident") {
       // The resident registry, never the manager's: the same context + turn a resident's own text gets, scoped to the
       // landlord of THAT residency (re-checked inside `resolveResidentSmsAgentContext`: verified phone, resident role,
-      // this landlord is one of their managers). The reply leaves on the line they texted.
+      // this landlord is one of their managers). The reply leaves on that workspace's own work line, which is what
+      // the delivery owner decides - never the number the text happened to arrive on.
       const residency = senderRun.resolved.context;
       const residentContext = await resolveResidentSmsAgentContext(db, { fromPhone, ownerManagerUserId: residency.ownerUserId });
       if (!residentContext.ok) return answerServiceQuestion("I could not open your resident account just now. Try again in a minute.");
@@ -1253,6 +1257,8 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         pendingActionId: residentTurn.pendingActionId,
         turnTraceId: residentTurn.traceId,
         replyBody: residentReply,
+        replyOwnerUserId: residency.ownerUserId,
+        replyWorkspaceId: residency.workspaceId,
       });
       if (!preparedResident) {
         await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
@@ -1270,9 +1276,9 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         bubbles: feel.bubbleReplies,
         inboundText: senderRun.body,
       });
-      // The raw inbound copy goes only once the answer is out, the same as the dispatch path: a failed send leaves it
-      // for the retry.
-      if (residentDelivered.ok) {
+      // The raw inbound copy goes once the answer is durable - sent, or accepted by the outbox that owns delivery,
+      // which is exactly when `finishPreparedDelivery` completes the claim. Anything retryable leaves the row.
+      if (residentDelivered.ok || residentDelivered.durablyAccepted || residentDelivered.outboxId) {
         await db.from("inbound_sms_log").delete().eq("message_sid", messageSid).eq("manager_user_id", managerId);
       }
       return finishPreparedDelivery(
@@ -1286,6 +1292,8 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
           pendingActionId: residentTurn.pendingActionId ?? null,
           turnTraceId: residentTurn.traceId ?? null,
           replyBody: residentReply,
+          replyOwnerUserId: residency.ownerUserId,
+          replyWorkspaceId: residency.workspaceId,
           outboxId: null,
         },
         residentDelivered,
@@ -1607,6 +1615,8 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
           pendingActionId: turn.pendingActionId ?? null,
           turnTraceId: turn.traceId ?? null,
           replyBody: stripLongDashes(turn.reply),
+          replyOwnerUserId: managerId,
+          replyWorkspaceId: workspaceId ?? null,
           outboxId: null,
         },
         delivered,
@@ -2025,6 +2035,8 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         pendingActionId: turn.pendingActionId,
         turnTraceId: turn.traceId,
         replyBody: stripLongDashes(turn.reply),
+        replyOwnerUserId: managerId,
+        replyWorkspaceId: workspaceId ?? null,
       });
       if (!prepared) {
         await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
@@ -2054,6 +2066,8 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
           pendingActionId: turn.pendingActionId ?? null,
           turnTraceId: turn.traceId ?? null,
           replyBody: stripLongDashes(turn.reply),
+          replyOwnerUserId: managerId,
+          replyWorkspaceId: workspaceId ?? null,
           outboxId: null,
         },
         delivered,

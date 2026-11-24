@@ -5,7 +5,7 @@ import { runConfirmedPendingAction } from "@/lib/tools/confirm-gate.server";
 import { CONFIRM_TOUR_INQUIRY_TOOL } from "@/lib/tour-proposal.server";
 import { track } from "@/lib/analytics/posthog";
 import { scoreActionApproval } from "@/lib/observability/langfuse";
-import { INQUIRIES_RECORD_ID, inquiryRowsFromRecord } from "@/lib/tour-inquiry-create.server";
+import { INQUIRY_EVENT_RECORD_TYPE, inquiryPayloadFromRow } from "@/lib/tour-inquiry-create.server";
 import { tourInquirySummaryForProposal } from "@/lib/manager-tour-proposal-rows";
 
 export const runtime = "nodejs";
@@ -27,12 +27,19 @@ export async function GET() {
   });
   // The proposal card is the manager's own request, so the contact + house facts of THAT inquiry travel with it: a row
   // built from the preview alone has no email or phone (the Tours list then showed "Prospect" / "Property" and the confirm
-  // message had no recipient). Read by the proposal's own inquiry id, from the manager's own queue only.
+  // message had no recipient). Read from the manager's OWN per-inquiry rows (`loadManagerTourBlocks` reads the same ones),
+  // never the platform-wide inquiry blob: that single row carries every workspace's prospects.
   const inquiryById = new Map<string, Record<string, unknown>>();
   try {
-    const { data } = await ctx.db.from("portal_schedule_records").select("row_data").eq("id", INQUIRIES_RECORD_ID).maybeSingle();
-    for (const row of inquiryRowsFromRecord(data?.row_data)) {
-      if (typeof row.id === "string") inquiryById.set(row.id, row);
+    const { data } = await ctx.db
+      .from("portal_schedule_records")
+      .select("row_data")
+      .eq("record_type", INQUIRY_EVENT_RECORD_TYPE)
+      .eq("manager_user_id", ctx.userId)
+      .limit(500);
+    for (const row of (data ?? []) as { row_data?: unknown }[]) {
+      const payload = inquiryPayloadFromRow(row.row_data);
+      if (payload && typeof payload.id === "string") inquiryById.set(payload.id, payload);
     }
   } catch {
     /* the preview fields still render the row */

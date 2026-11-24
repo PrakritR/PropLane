@@ -102,7 +102,12 @@ export function deriveListingKeyFacts(
   // counting the bathroom entries would say 4 and contradict the listing's own text.
   const bathCount = property.baths > 0 ? property.baths : bathrooms.length;
   if (bathCount > 0) {
-    const privateCount = bathrooms.filter((b) => b.modal.usedByRoomNames.length === 1).length;
+    // The label can never claim more private baths than the house has: with 3.5 declared and four single-room
+    // entries, "4 private" would contradict the value right beside it.
+    const privateCount = Math.min(
+      bathrooms.filter((b) => b.modal.usedByRoomNames.length === 1).length,
+      Math.floor(bathCount),
+    );
     facts.push({
       id: "baths",
       value: `${bathCount} bath${bathCount === 1 ? "" : "s"}`,

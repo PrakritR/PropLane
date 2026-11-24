@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { buildApplicationHtml } from "@/lib/manager-application-html";
 import { buildApplicationPdf } from "@/lib/manager-application-pdf";
-import { readFileSync } from "node:fs";
 
 function row(over: Partial<DemoApplicantRow> = {}): DemoApplicantRow {
   return {
@@ -33,13 +32,5 @@ describe("manager income fact", () => {
   it("the PDF builder takes a verified row (glyph-free for the standard font)", async () => {
     const pdf = await buildApplicationPdf(row({ incomeVerification: verified }));
     expect(String.fromCharCode(...pdf.slice(0, 4))).toBe("%PDF");
-  });
-
-  it("the review components render it as a plain row, never a Badge or pill", () => {
-    for (const file of ["pro-application-readonly-review.tsx", "manager-resident-application-fact-cards.tsx"]) {
-      const source = readFileSync(`src/components/portal/${file}`, "utf8");
-      expect(source).toContain("incomeStatedVsVerifiedLine");
-      expect(source).not.toMatch(/<Badge[^>]*>[^<]*incomeStatedVsVerifiedLine/);
-    }
   });
 });

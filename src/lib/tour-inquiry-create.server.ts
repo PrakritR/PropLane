@@ -80,6 +80,15 @@ export function inquiryRowsFromRecord(rowData: unknown): Record<string, unknown>
   return Array.isArray(payload) ? payload.filter(isObject) : [];
 }
 
+/**
+ * The one inquiry carried by a per-manager `partner_inquiry_request` row (one row per requested window, written
+ * beside the platform-wide list). Null when the row holds anything else.
+ */
+export function inquiryPayloadFromRow(rowData: unknown): Record<string, unknown> | null {
+  if (!isObject(rowData)) return null;
+  return isObject(rowData.payload) ? rowData.payload : null;
+}
+
 export function requestedWindowsFromRow(row: Record<string, unknown>): RequestedWindow[] {
   const windows = Array.isArray(row.requestedWindows) ? row.requestedWindows : [];
   const normalized = windows

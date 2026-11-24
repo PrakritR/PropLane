@@ -1,5 +1,5 @@
 {
-  "sha256": "7ddb937404a6651f1a0ba982da11dc2faebbd408831d310146a08f5b5759714f",
+  "sha256": "4f23a072be1117dfaf23a7278a80efff8b3d8ca5155622af9b43c3ecb0183dcc",
   "selection": "SQL migrations containing account_recovery_, resident_move_in_forms, CREATE/DROP/ALTER TABLE and admin_team_atomic_revoke; plus purge manifest and recovery policy",
   "missing_dev_catalog": [
     "applicant_preapply_checks",
@@ -12,9 +12,9 @@
     "scheduled_inbox_channel_deliveries"
   ],
   "reviewed_change": {
-    "date": "2026-11-23",
-    "reason": "20261123120000_plaid_items_last_sync_attempt.sql adds the nullable column plaid_items.last_sync_attempt_at and the partial index plaid_items_cron_catchup_idx (bank-feed cron fairness). No table is added or removed, no trigger or recovery hook is touched, and plaid_items stays classified as before in account-purge-manifest.ts and the mover; the dev hook catalog is unchanged. The selected path count rises by one because the migration's ALTER TABLE puts it in the selection.",
-    "selected_source_paths": 360,
-    "previous_sha256": "538170eb1a87dac485482585d13581ad9b68bda8617aca467a4a9d088f272c9a"
+    "date": "2026-11-24",
+    "reason": "20261123130000_sms_inbound_reply_conversation_owner.sql adds the nullable columns sms_inbound_receipts.reply_owner_user_id and reply_workspace_id and replaces prepare_sms_inbound_reply with a 12-argument signature that stores them (a retried resident reply must be re-sent to the conversation it was prepared for, not the owner of the work number it arrived on). No table is added or removed, no trigger or recovery hook is touched, and sms_inbound_receipts stays classified as before in account-purge-manifest.ts. The selected path count rises by one because the migration's ALTER TABLE puts it in the selection.",
+    "selected_source_paths": 361,
+    "previous_sha256": "7ddb937404a6651f1a0ba982da11dc2faebbd408831d310146a08f5b5759714f"
   }
 }

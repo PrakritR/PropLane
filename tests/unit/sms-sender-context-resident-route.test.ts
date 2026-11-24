@@ -17,6 +17,7 @@ const m = vi.hoisted(() => ({
   project: vi.fn(),
   finish: vi.fn(async () => true),
   prepare: vi.fn(async () => true),
+  replay: vi.fn(async () => ({ ok: true, receipt: null })),
 }));
 
 vi.mock("@/lib/sms/manager-sms-access.server", () => ({ resolveManagerSmsInboundIdentity: m.managerIdentity }));
@@ -34,7 +35,7 @@ vi.mock("@/lib/sms/project-manager-sms-event.server", () => ({ projectManagerSms
 vi.mock("@/lib/sms/inbound-replay.server", () => ({
   attachInboundOutbox: vi.fn(async () => true),
   finishInboundClaim: m.finish,
-  loadInboundReplay: vi.fn(async () => ({ ok: true, receipt: null })),
+  loadInboundReplay: m.replay,
   prepareInboundReply: m.prepare,
 }));
 vi.mock("@/lib/sms/service-manager-inbound.server", () => ({
@@ -118,6 +119,7 @@ beforeEach(() => {
   m.finish.mockResolvedValue(true);
   m.prepare.mockResolvedValue(true);
   m.project.mockResolvedValue(true);
+  m.replay.mockResolvedValue({ ok: true, receipt: null });
   m.managerIdentity.mockResolvedValue({
     workNumberOwnerId: LINE_OWNER,
     actorUserId: SENDER,
@@ -189,10 +191,61 @@ describe("a multi-role sender texting as a resident", () => {
     expect(m.finish).toHaveBeenCalledWith(expect.anything(), "SM1", "w1", "retryable");
   });
 
-  it("drops the raw inbound row only once the answer is delivered", async () => {
+  it("drops the raw inbound row once the outbox owns delivery, even before the provider reports it sent", async () => {
+    m.deliverResident.mockResolvedValue({ ok: false, durablyAccepted: true, outboxId: "ob-1", error: "queued" });
     const ops: string[] = [];
     const res = await runClaimedInbound(fakeDb(ops), claim());
+    // The claim completes on a durable outbox, so nothing will retry: leaving the row would strand the text in the
+    // line owner's legacy SMS list forever.
     expect(res.status).toBe(200);
     expect(ops).toContain("inbound_sms_log.delete");
+  });
+
+  it("keeps the raw inbound row when the send is retryable", async () => {
+    m.deliverResident.mockResolvedValue({ ok: false, error: "enqueue_failed" });
+    const ops: string[] = [];
+    const res = await runClaimedInbound(fakeDb(ops), claim());
+    expect(res.status).toBe(503);
+    expect(ops).not.toContain("inbound_sms_log.delete");
+  });
+});
+
+describe("a retry of that text (the prepared reply is replayed)", () => {
+  const receipt = {
+    status: "processing" as const,
+    routeKind: "resident_agent" as const,
+    counterpartyUserId: SENDER,
+    agentSessionId: "s1",
+    inboundAgentMessageId: null,
+    assistantAgentMessageId: null,
+    pendingActionId: null,
+    turnTraceId: "tr1",
+    replyBody: "Resident · 88 Pine St: Rent is due on the 1st.",
+    replyOwnerUserId: HOUSE_MANAGER,
+    replyWorkspaceId: "ws-res",
+    outboxId: null,
+  };
+
+  it("re-sends it to the conversation it was prepared for, not the owner of the number it arrived on", async () => {
+    m.replay.mockResolvedValue({ ok: true, receipt });
+    const res = await runClaimedInbound(fakeDb([]), claim());
+    expect(res.status).toBe(200);
+    // Never rerun the turn, and never under the line owner: that would write (and bill) the resident conversation
+    // in workspace A while the house is run by B.
+    expect(m.residentTurn).not.toHaveBeenCalled();
+    expect(m.deliverResident).toHaveBeenCalledTimes(1);
+    expect(m.deliverResident.mock.calls[0]![0]).toMatchObject({
+      ownerManagerUserId: HOUSE_MANAGER,
+      residentUserId: SENDER,
+      workspaceId: "ws-res",
+      text: receipt.replyBody,
+    });
+  });
+
+  it("falls back to the work number's owner only for a receipt stored before the conversation was recorded", async () => {
+    m.replay.mockResolvedValue({ ok: true, receipt: { ...receipt, replyOwnerUserId: null, replyWorkspaceId: null } });
+    const res = await runClaimedInbound(fakeDb([]), claim());
+    expect(res.status).toBe(200);
+    expect(m.deliverResident.mock.calls[0]![0]).toMatchObject({ ownerManagerUserId: LINE_OWNER, workspaceId: "ws-line" });
   });
 });
