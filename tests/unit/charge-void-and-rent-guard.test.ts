@@ -92,7 +92,6 @@ describe("void a paid charge", () => {
     const result = await voidPaidCharge(makeDb(), { chargeId: charge.id, actorUserId: OWNER, reason: "Entered twice", now: "2026-11-14T10:00:00.000Z" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.providerPayment).toBe(false);
 
     const row = tables.portal_household_charge_records[0]!;
     expect(row.status).toBe("void");

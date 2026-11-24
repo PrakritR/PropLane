@@ -3795,27 +3795,27 @@ export async function recordHouseholdChargeOfflinePayment(
 }
 
 /**
- * Void a PAID charge (owner only, server-enforced). Never refunds: `providerPayment` tells the caller a real card or
- * bank payment sits behind it, so the UI can say the refund is a separate step.
+ * Void a PAID charge (owner only, server-enforced). Never refunds, and never reaches a charge a provider captured
+ * money for: the server refuses that one (409) and the money goes back through Refund instead.
  */
 export async function voidHouseholdCharge(
   chargeId: string,
   reason: string,
-): Promise<{ ok: true; providerPayment: boolean } | { ok: false; error: string }> {
+): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!isBrowser() || isDemoModeActive() || householdWritesForbidden()) return { ok: false, error: "Voiding is not available here." };
   try {
     const response = await fetch(adminOversightUrl("/api/portal-household-charges"), {
       method: "POST", headers: { "Content-Type": "application/json" }, signal: householdWriteSignal(),
       body: JSON.stringify({ action: "voidCharge", id: chargeId, reason: reason.trim() }),
     });
-    const result = (await response.json().catch(() => ({}))) as { charge?: HouseholdCharge; providerPayment?: boolean; error?: string };
+    const result = (await response.json().catch(() => ({}))) as { charge?: HouseholdCharge; error?: string };
     if (!response.ok || !result.charge || result.charge.id !== chargeId) return { ok: false, error: result.error || "Could not void this charge." };
     const confirmed = result.charge;
     memoryCharges = readAll().map((row) => (row.id === chargeId ? confirmed : row));
     persistHouseholdStateToSession();
     householdChargesLastSyncedAt = Date.now();
     emit();
-    return { ok: true, providerPayment: Boolean(result.providerPayment) };
+    return { ok: true };
   } catch {
     return { ok: false, error: "Could not void this charge." };
   }

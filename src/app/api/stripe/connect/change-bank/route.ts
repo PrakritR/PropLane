@@ -6,6 +6,7 @@ import {
   stripePayoutContextError,
 } from "@/lib/auth/manager-stripe-payout-access.server";
 import { resolveAppOrigin } from "@/lib/app-url";
+import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { activeWorkspaceIdFromCookie } from "@/lib/managed-finance/payout-setup.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -47,6 +48,8 @@ export async function POST(req: Request) {
     }
     const access = await assertCoManagerBankAccountAccess(service, user.id, payout.payoutOwnerUserId, "edit");
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    const limit = await rateLimit(`connect-change-bank:${user.id}:${clientIpFrom(req)}`, 10, 10 * 60_000);
+    if (!limit.ok) return NextResponse.json({ error: "Try again in a few minutes." }, { status: 429 });
 
     let stripe;
     try {

@@ -7,7 +7,7 @@ export const VOID_REASON_MIN = 3;
 export const VOID_REASON_MAX = 300;
 
 export type VoidChargeResult =
-  | { ok: true; charge: HouseholdCharge; alreadyVoid: boolean; providerPayment: boolean }
+  | { ok: true; charge: HouseholdCharge; alreadyVoid: boolean }
   | { ok: false; status: number; error: string };
 
 /** A real card/bank payment sits behind the charge (Stripe session, not a hand-recorded receipt). */
@@ -79,7 +79,7 @@ export async function voidPaidCharge(
   if (existing.status === "void") {
     // Repair a half-finished void the way it was made: receipts are reversed only for a void that reversed them.
     await voidLedgerEntriesForCharge(db, current, current.voidedAt ?? now, { reverseReceipt: current.voidReceiptReversed === true });
-    return { ok: true, charge: current, alreadyVoid: true, providerPayment: false };
+    return { ok: true, charge: current, alreadyVoid: true };
   }
   if (existing.status !== "paid") {
     return { ok: false, status: 409, error: "Only a paid charge can be voided. Delete or edit an unpaid one." };
@@ -87,7 +87,6 @@ export async function voidPaidCharge(
   if (await chargeCapturedProviderMoney(db, current)) {
     return { ok: false, status: 409, error: VOID_PROVIDER_PAYMENT_ERROR };
   }
-  const providerPayment = false;
 
   // Audit first: if it cannot be written the charge does not move.
   const { error: auditError } = await db.from("audit_log").insert({
@@ -96,7 +95,7 @@ export async function voidPaidCharge(
     action: "charge_voided",
     tool_name: "portal_household_charges",
     input_summary: { chargeId: id, kind: current.kind, amountLabel: current.amountLabel, reason },
-    result_summary: { outcome: "voided", providerPayment, refunded: false, receiptReversed: true },
+    result_summary: { outcome: "voided", refunded: false, receiptReversed: true },
     dedupe_key: `charge-void:${id}`,
   });
   if (auditError && auditError.code !== "23505") {
@@ -124,5 +123,5 @@ export async function voidPaidCharge(
 
   await voidLedgerEntriesForCharge(db, voided, now, { reverseReceipt: true });
   await cancelFuturePaymentRemindersForCharge(db, ownerId, id).catch(() => undefined);
-  return { ok: true, charge: voided, alreadyVoid: false, providerPayment };
+  return { ok: true, charge: voided, alreadyVoid: false };
 }

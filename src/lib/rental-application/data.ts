@@ -396,6 +396,9 @@ export function explainRoomChoiceConflict(
         leaseEnd: options.leaseEnd,
         leaseTerm: options.leaseTerm,
         excludeApplicationId: options.excludeApplicationId,
+        // The same filter the pickers render with: a room the manager closed is not in the dropdown, so it can
+        // never be the advice either.
+        listingOnly: true,
       })
         .filter((o) => o.value !== roomChoiceValue)
         .map((o) => o.label.split(" · ")[0]!.trim())
