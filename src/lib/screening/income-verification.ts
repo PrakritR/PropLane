@@ -3,13 +3,16 @@
  * linked bank (`lib/plaid/income.server.ts`) and stamped onto the application by the signed-in write; the browser
  * never supplies it. See docs/agents/plaid.md § Income check.
  */
+import { INCOME_SHORT_HISTORY_SLACK_DAYS, INCOME_WINDOW_DAYS } from "@/lib/plaid/income-calc";
 
 export type IncomeVerification = {
   source: "plaid";
-  /** Average monthly payroll-style deposits over `months`, in cents. */
+  /** The payroll deposits of the last `INCOME_WINDOW_DAYS`, divided by `months`. An average, never a pay rate. */
   monthlyIncomeCents: number;
   months: number;
   depositCount: number;
+  /** Days of bank history the provider returned. Absent on a row stored before it was recorded. */
+  historyDays?: number | null;
   /** ISO timestamp the figure was computed. */
   verifiedAt: string;
   institutionName?: string | null;
@@ -43,9 +46,20 @@ export function formatIncomeDollars(cents: number): string {
   return `$${Math.round(cents / 100).toLocaleString("en-US")}`;
 }
 
-/** The manager's glyph fact: `✓ $4,850/mo verified (Plaid, 3 mo)`. Never a pill. */
+/**
+ * The manager's glyph fact, with the basis of the figure in it:
+ * `✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits)`, and
+ * `· only 45 days of bank history` when the provider returned materially less than the window — so a figure
+ * drawn from a new account reads as one instead of looking like a full quarter of pay. Never a pill.
+ */
 export function incomeVerifiedLine(verification: IncomeVerification, options: { glyph?: boolean } = {}): string {
-  const fact = `${formatIncomeDollars(verification.monthlyIncomeCents)}/mo verified (Plaid, ${verification.months} mo)`;
+  const deposits = `${verification.depositCount} deposit${verification.depositCount === 1 ? "" : "s"}`;
+  const history = verification.historyDays;
+  const short =
+    typeof history === "number" && history > 0 && history < INCOME_WINDOW_DAYS - INCOME_SHORT_HISTORY_SLACK_DAYS
+      ? ` · only ${history} days of bank history`
+      : "";
+  const fact = `${formatIncomeDollars(verification.monthlyIncomeCents)}/mo avg of payroll deposits, last ${INCOME_WINDOW_DAYS} days (${deposits})${short}`;
   return options.glyph === false ? fact : `✓ ${fact}`;
 }
 
@@ -60,7 +74,8 @@ function statedAmountCents(stated: string): number | null {
 }
 
 /**
- * The value of an "Income" fact: `$4,800/mo stated · ✓ $4,850/mo verified (Plaid, 3 mo)`, or only the verified half
+ * The value of an "Income" fact: `$4,800/mo stated · ✓ $4,850/mo avg of payroll deposits, last 90 days (6
+ * deposits)`, or only the verified half
  * when nothing was stated.
  *
  * `stated` is the applicant's own free-text answer. Only a single plain amount is read as money; anything else

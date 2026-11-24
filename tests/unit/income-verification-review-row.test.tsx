@@ -16,6 +16,7 @@ const verified: IncomeVerification = {
   monthlyIncomeCents: 485000,
   months: 3,
   depositCount: 6,
+  historyDays: 90,
   verifiedAt: "2026-11-18T00:00:00.000Z",
 };
 
@@ -28,7 +29,7 @@ describe("manager application review: the income fact", () => {
         omitSections={["group", "cosigner", "placement", "housing", "property", "personal", "address", "references", "additional", "custom", "consent"]}
       />,
     );
-    const value = screen.getByText("$4,800/mo stated · ✓ $4,850/mo verified (Plaid, 3 mo)");
+    const value = screen.getByText("$4,800/mo stated · ✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits)");
     // The row is a <dt>/<dd> pair of the Employment card, and nothing in its chain is a rounded chip.
     expect(value.closest("dd")).not.toBeNull();
     expect(value.closest("dd")!.previousElementSibling?.textContent).toBe("Income");
@@ -43,7 +44,7 @@ describe("manager application review: the income fact", () => {
         omitSections={["group", "cosigner", "placement", "housing", "property", "personal", "address", "references", "additional", "custom", "consent"]}
       />,
     );
-    expect(screen.queryByText(/verified \(Plaid/)).toBeNull();
+    expect(screen.queryByText(/avg of payroll deposits/)).toBeNull();
     expect(screen.queryByText("Income")).toBeNull();
   });
 });

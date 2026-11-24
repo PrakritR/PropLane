@@ -17,16 +17,16 @@ function row(over: Partial<DemoApplicantRow> = {}): DemoApplicantRow {
     ...over,
   };
 }
-const verified = { source: "plaid" as const, monthlyIncomeCents: 485000, months: 3, depositCount: 6, verifiedAt: "2026-11-18T00:00:00.000Z" };
+const verified = { source: "plaid" as const, monthlyIncomeCents: 485000, months: 3, depositCount: 6, historyDays: 90, verifiedAt: "2026-11-18T00:00:00.000Z" };
 
 describe("manager income fact", () => {
   it("the HTML builder draws stated vs verified as one fact", () => {
     const html = buildApplicationHtml(row({ incomeVerification: verified }));
-    expect(html).toContain("$4,800/mo stated · ✓ $4,850/mo verified (Plaid, 3 mo)");
+    expect(html).toContain("$4,800/mo stated · ✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits)");
   });
 
   it("the HTML builder draws no income fact without a verification", () => {
-    expect(buildApplicationHtml(row())).not.toContain("verified (Plaid");
+    expect(buildApplicationHtml(row())).not.toContain("avg of payroll deposits");
   });
 
   it("the PDF builder takes a verified row (glyph-free for the standard font)", async () => {

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { PlaidLinkLauncher, type PlaidLinkSuccess } from "@/components/portal/plaid-link-button";
 import { incomeVerifiedLine } from "@/lib/screening/income-verification";
 
-type Verified = { monthlyIncomeCents: number; months: number };
+type Verified = { monthlyIncomeCents: number; months: number; depositCount: number; historyDays?: number | null };
 
 /**
  * The applicant's "Verify income" offer on the Work and income step. It draws nothing unless the server says this
@@ -61,7 +61,7 @@ export function ApplicationIncomeVerify({ propertyId }: { propertyId: string }) 
       <p className="text-sm font-semibold text-foreground">Verify income</p>
       {verified ? (
         <p className="text-sm font-medium text-foreground" data-attr="application-income-verified">
-          {incomeVerifiedLine({ source: "plaid", verifiedAt: "", depositCount: 0, ...verified })}
+          {incomeVerifiedLine({ source: "plaid", verifiedAt: "", ...verified })}
         </p>
       ) : skipped ? null : (
         <div className="flex flex-wrap items-center gap-2">

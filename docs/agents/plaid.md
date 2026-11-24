@@ -139,43 +139,34 @@ group never waits on it.
   `GET /api/screening/income?propertyId=` answers `offered: true`: Plaid enabled, the listing's setting on, and a signed-in
   applicant. A guest (no session) never sees it and keeps the pay-stub path. Binding a guest to the held draft was judged too
   much: the held draft only exists after the form is finished, and the account is created after proof.
-- **Method.** Link with the Transactions product (90 days), then `/transactions/get` and `income-calc.ts`: payroll-style
-  deposits (Plaid `INCOME_WAGES`, or a payroll name; never a transfer, refund, peer payment or pending line) divided by the
-  period THOSE DEPOSITS earn over — never the window asked for, neither capped nor floored by it. The unit is the
-  **payer** (`payerKey`: Plaid's counterparty, else the description with reference numbers stripped), because an
-  applicant can hold two jobs and one amount band across both drops the larger — a $5,000 salary beside a more numerous
-  $500 weekly side payroll read as $2,174/mo on $7,167 of real pay. `streamPayRate` reads each payer on its own —
-  the deposits that sit on ITS cadence, over `their span + one median cycle`, unrounded — and the figure is the SUM of
-  those rates, so neither job hides the other. Inside a stream a deposit is OFF-CYCLE — a bonus, a correction run, a
-  final check — when its amount is more than a quarter away from that stream's **median** amount, or when it lands less
-  than half a **median** gap after the deposit before it, in which case the one of that pair further from the median
-  amount is the extra. Neither test privileges a position: a bonus dated the day BEFORE the first paycheck is set aside
-  exactly like one dated the day after, and either one left as the anchor read $7,588/mo on $5,272 of real pay. A payer
-  with no cadence of its own (fewer than three deposits on one, too short a span) adds nothing to the figure, and when
-  no payer has one there is no figure at all. An off-cycle deposit is in neither
-  half: money that arrived once is not a monthly rate, and counted as pay it would move the figure twice, adding to it
-  while shortening the period it is spread over (a $3,000 bonus the day after a biweekly paycheck read as $8,089/mo on
-  $5,254 of real pay under the old mean-gap cycle). `INCOME_MIN_DEPOSITS` is counted AFTER that — two paychecks plus a
-  bonus is still a pair, so still no figure. For regular pay the result is unbiased in both directions: five weekly
-  paychecks over 28 days earn over 35 days (the 52/12 rate), seven biweekly ones over 84 days earn over 98 (the 26/12
-  rate), and three paychecks 45 days apart earn over 135 days — one every 45 days, not one a month. Dividing by the window
-  instead would report a weekly earner whose bank shared one month at a third of their income, and that 45-day earner at
-  half again more than arrives. `INCOME_MIN_DEPOSITS` is **three** deposits left on ONE payer's cadence, because two
-  deposits are one gap: a cadence guessed from a single interval cannot tell a monthly paycheck pair from a paycheck plus
-  a bonus. Fewer than three, or a span under `INCOME_MIN_COVERAGE_DAYS` of real observation, and there is no figure at
-  all — which costs the applicant nothing, since the check never blocks a submit. A refusal names WHICH of the two it is
-  (`IncomeEstimateRefusal`: `no_payroll_deposits` vs `not_enough_history`) and `INCOME_REFUSAL_MESSAGE` maps it to the
-  one message, so an applicant whose bank shared too little is never told no paychecks were found. Only
-  `estimateMonthlyIncome` knows which applies — never re-derive it by counting deposits at the call site. `months` in the manager's line is the
-  whole-month label for the history the bank SHARED (`observedMonths`), a fact they can hold the figure against; the
-  figure itself comes from the unrounded earning period, which is derived from the cadence, not observed. Plaid's own Income products (`/credit/bank_income/get`) need separate product
+- **Method.** Link with the Transactions product (90 days), then `/transactions/get` and `income-calc.ts`: the figure is
+  the **observed 90-day average of payroll deposits** — every payroll-style deposit (Plaid `INCOME_WAGES`, or a payroll
+  name; never a transfer, refund, peer payment or pending line) dated inside the window, summed and divided by the
+  `INCOME_LOOKBACK_MONTHS` the window covers. Nothing is inferred: no pay cycle read off the gaps, no amount band, no
+  per-payer streams, no scaling of a short history. A bonus, a variable hourly week and the final checks of a job just
+  left all count, because they are money that arrived and a window average claims nothing about them repeating. That is
+  a deliberate retreat from estimating a pay RATE, which was wrong in both directions on ordinary histories (a $3,000
+  bonus read as $8,089/mo on $5,254 of pay; a mid-window job change read as two salaries at once, $10,545 on $5,272; an
+  hourly worker's variable paychecks read 29% low) and needed a new heuristic for every repair. A deposit with no usable
+  date is ignored rather than guessed at. `INCOME_MIN_DEPOSITS` is **three** deposits IN THE WINDOW — one or two are a
+  single pay run, not a month of pay — and fewer means no figure at all, which costs the applicant nothing since the
+  check never blocks a submit. A refusal names WHICH of the two it is (`IncomeEstimateRefusal`:
+  `no_payroll_deposits` vs `not_enough_history`) and `INCOME_REFUSAL_MESSAGE` maps it to the one message, so an
+  applicant whose bank shared too little is never told no paychecks were found. Only `estimateMonthlyIncome` knows which
+  applies — never re-derive it by counting deposits at the call site.
+- **The basis is shown with the figure.** `historyDays` records how much bank history the provider actually returned
+  (stored nullable on `applicant_income_verifications`), and `incomeVerifiedLine` renders the whole basis in one plain
+  fact: `✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits)`, plus
+  `· only 45 days of bank history` when the history falls more than `INCOME_SHORT_HISTORY_SLACK_DAYS` short of the
+  window — a week of slack, because a quiet first week is not a new account. A 45-day-old account therefore reads as
+  one instead of looking like a full quarter of pay. Plaid's own Income products (`/credit/bank_income/get`) need separate product
   access, so they are not used; proven against the sandbox with a custom user.
 - **Server-owned.** `POST /api/plaid/income/verify` takes only the public token and the listing id (never a figure), computes
   on the server, stores one row per (applicant, listing) in `applicant_income_verifications` (service role only, a figure and
   the institution, never a token) and removes the Plaid Item before returning: no access token lingers. The signed-in
   application write stamps `row.incomeVerification` from that row (fresh within 30 days) or the stored row, never from the body;
   the guest upsert keeps only what is already stored.
-- **Manager.** One plain glyph fact, never a pill: `Income $4,800/mo stated · ✓ $4,850/mo verified (Plaid, 3 mo)`
+- **Manager.** One plain glyph fact, never a pill: `Income $4,800/mo stated · ✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits)`
   (`incomeStatedVsVerifiedLine`) in the review, the fact cards, the HTML and the PDF (the PDF omits the check mark: its standard
   font cannot draw it).
 - **FCRA.** No decline or ranking logic is tied to this figure. TODO: counsel to review whether a bank-derived income figure

@@ -152,7 +152,7 @@ export async function computeIncomeFromPublicToken(
   const accessToken = exchanged.data.access_token;
   try {
     const transactions = await readTransactions(client, accessToken, now, wait);
-    const outcome = estimateMonthlyIncome(transactions, INCOME_LOOKBACK_MONTHS);
+    const outcome = estimateMonthlyIncome(transactions, INCOME_LOOKBACK_MONTHS, now);
     if (!outcome.ok) return { ok: false, status: 422, error: INCOME_REFUSAL_MESSAGE[outcome.reason] };
     const estimate = outcome.estimate;
     return {
@@ -162,6 +162,7 @@ export async function computeIncomeFromPublicToken(
         monthlyIncomeCents: estimate.monthlyIncomeCents,
         months: estimate.months,
         depositCount: estimate.depositCount,
+        historyDays: estimate.historyDays,
         verifiedAt: now.toISOString(),
         institutionName: await readInstitutionName(client, accessToken),
       },
@@ -187,6 +188,7 @@ export async function saveIncomeVerification(
       monthly_income_cents: v.monthlyIncomeCents,
       months: v.months,
       deposit_count: v.depositCount,
+      history_days: v.historyDays ?? null,
       institution_name: v.institutionName ?? null,
       verified_at: v.verifiedAt,
     },
@@ -206,7 +208,7 @@ export async function loadIncomeVerification(
   if (!userId || !id) return null;
   const { data, error } = await db
     .from("applicant_income_verifications")
-    .select("monthly_income_cents, months, deposit_count, institution_name, verified_at")
+    .select("monthly_income_cents, months, deposit_count, history_days, institution_name, verified_at")
     .eq("user_id", userId)
     .eq("property_id", id)
     .maybeSingle();
@@ -216,6 +218,7 @@ export async function loadIncomeVerification(
     monthlyIncomeCents: Number(data.monthly_income_cents),
     months: Number(data.months),
     depositCount: Number(data.deposit_count ?? 0),
+    historyDays: typeof data.history_days === "number" ? data.history_days : null,
     verifiedAt: new Date(String(data.verified_at)).toISOString(),
     institutionName: typeof data.institution_name === "string" ? data.institution_name : null,
   };

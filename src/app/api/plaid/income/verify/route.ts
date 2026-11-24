@@ -35,7 +35,14 @@ export async function POST(req: Request) {
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status, headers: NO_STORE });
     await saveIncomeVerification(actor.db, { userId: actor.userId, propertyId, verification: result.verification });
     return NextResponse.json(
-      { verified: { monthlyIncomeCents: result.verification.monthlyIncomeCents, months: result.verification.months } },
+      {
+        verified: {
+          monthlyIncomeCents: result.verification.monthlyIncomeCents,
+          months: result.verification.months,
+          depositCount: result.verification.depositCount,
+          historyDays: result.verification.historyDays ?? null,
+        },
+      },
       { headers: NO_STORE },
     );
   } catch (error) {

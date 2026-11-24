@@ -29,7 +29,7 @@ beforeEach(() => {
   h.save.mockReset().mockResolvedValue(undefined);
   h.compute.mockReset().mockResolvedValue({
     ok: true,
-    verification: { source: "plaid", monthlyIncomeCents: 485000, months: 3, depositCount: 6, verifiedAt: "2026-11-18T00:00:00.000Z" },
+    verification: { source: "plaid", monthlyIncomeCents: 485000, months: 3, depositCount: 6, historyDays: 90, verifiedAt: "2026-11-18T00:00:00.000Z" },
   });
 });
 
@@ -37,7 +37,8 @@ describe("POST /api/plaid/income/verify", () => {
   it("stores the SERVER figure and ignores any income the client sends", async () => {
     const res = await verify(post({ publicToken: "public-x", propertyId: "prop-1", monthlyIncomeCents: 999999900, monthlyIncome: "99999", verification: { monthlyIncomeCents: 1 }, userId: "someone-else" }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ verified: { monthlyIncomeCents: 485000, months: 3 } });
+    // The applicant sees the same basis the manager does: the window, the deposit count and the bank history.
+    expect(await res.json()).toEqual({ verified: { monthlyIncomeCents: 485000, months: 3, depositCount: 6, historyDays: 90 } });
     expect(h.compute).toHaveBeenCalledWith({ publicToken: "public-x" });
     expect(h.save).toHaveBeenCalledTimes(1);
     expect(h.save.mock.calls[0][1]).toMatchObject({ userId: "user-1", propertyId: "prop-1", verification: { monthlyIncomeCents: 485000 } });
