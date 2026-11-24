@@ -72,11 +72,12 @@ export function explainRoomDateConflict(input: {
   const hits = sorted.filter((w) => overlaps(w, input.leaseStart, input.leaseEnd));
   if (hits.length === 0) return null;
 
-  // Merge touching/overlapping hits so "Dec 12–13" is one range, not two.
+  // Merge touching/overlapping hits so "Dec 12–13" is one range, not two. An open start is -Infinity: it always
+  // touches whatever came before it, so two open-start windows are one conflict, never "booked through X and through Y".
   const conflicts: { start: Date | null; end: Date | null }[] = [];
   for (const w of hits) {
     const last = conflicts[conflicts.length - 1];
-    if (last && last.end && w.start && dayNumber(w.start) <= dayNumber(last.end) + 1) {
+    if (last && last.end && (w.start ? dayNumber(w.start) : -Infinity) <= dayNumber(last.end) + 1) {
       if (!w.end) last.end = null;
       else if (dayNumber(w.end) > dayNumber(last.end)) last.end = w.end;
     } else if (last && !last.end) {
@@ -90,7 +91,8 @@ export function explainRoomDateConflict(input: {
   let latestEndBeforeConflict: Date | null = null;
   if (first.start) {
     const candidate = addDays(first.start, -1);
-    if (dayNumber(candidate) >= dayNumber(input.leaseStart)) latestEndBeforeConflict = startOfDay(candidate);
+    // Strictly after the start: a lease that ends the day it begins is not a lease the flow would take.
+    if (dayNumber(candidate) > dayNumber(input.leaseStart)) latestEndBeforeConflict = startOfDay(candidate);
   }
 
   // "A start on <date> or later" is only offered when the applicant's WHOLE term fits from that day: a free day

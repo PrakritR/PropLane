@@ -205,7 +205,9 @@ const targetOf = (value: unknown): SenderTarget | null => {
 async function loadSticky(db: SupabaseClient, phone: string): Promise<SenderSticky | null> {
   const row = await readRow(db, stickyKey(phone));
   const target = row ? targetOf(row.data) : null;
-  return row && target ? { target, at: row.at, explicit: row.data.explicit === true } : null;
+  if (!row || !target) return null;
+  const explicitAt = row.data.explicitAt;
+  return { target, at: row.at, explicitAt: typeof explicitAt === "number" && Number.isFinite(explicitAt) ? explicitAt : undefined };
 }
 
 async function loadPending(db: SupabaseClient, phone: string): Promise<SenderPending | null> {
@@ -257,7 +259,7 @@ export async function resolveSenderContext(
       // The only replies that carry a pick are the ones the sender asked for (a bare switch, the menu's answer), so
       // the pick is theirs: it holds for its window even on a workspace's own work number.
       if (decision.sticky) {
-        await writeRow(db, stickyKey(args.fromPhone), { key: decision.sticky.key, workspaceId: decision.sticky.workspaceId ?? null, explicit: true });
+        await writeRow(db, stickyKey(args.fromPhone), { key: decision.sticky.key, workspaceId: decision.sticky.workspaceId ?? null, explicitAt: Date.now() });
       }
       return { kind: "reply", text: decision.text };
     }
@@ -265,12 +267,15 @@ export async function resolveSenderContext(
     if (!resolved) return { kind: "unchanged" };
     await clear(db, questionKey(args.fromPhone));
     // Switch words and the answer to our question are the sender's own pick; a turn we routed for them (the notice,
-    // the number, a home they named) is not, and must not outrank the number on their next text.
-    const explicit =
-      decision.source === "switch" ||
-      decision.source === "answer" ||
-      (decision.source === "sticky" && sticky?.explicit === true);
-    await writeRow(db, stickyKey(args.fromPhone), { key: decision.target.key, workspaceId: decision.target.workspaceId ?? null, explicit });
+    // the number, a home they named) is not, and must not outrank the number on their next text. A turn the pick
+    // itself routed carries the ORIGINAL moment forward: the window runs from the pick, not from the last text.
+    const explicitAt =
+      decision.source === "switch" || decision.source === "answer"
+        ? Date.now()
+        : decision.source === "sticky"
+          ? sticky?.explicitAt ?? null
+          : null;
+    await writeRow(db, stickyKey(args.fromPhone), { key: decision.target.key, workspaceId: decision.target.workspaceId ?? null, explicitAt });
     return { kind: "run", body: decision.body, tag: decision.tag, resolved, source: decision.source };
   } catch (error) {
     console.error("sender context unresolved", error instanceof Error ? error.name : "unknown");

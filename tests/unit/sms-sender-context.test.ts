@@ -213,7 +213,7 @@ describe("sender context: one decision per text", () => {
     const picked = await decideSenderContext(base({ ...onOwn, body: "switch to 88 Pine St" }));
     expect(picked).toMatchObject({ kind: "reply", sticky: { key: "resident:ws-res" } });
 
-    const explicitPick = { target: { key: "resident:ws-res" }, at: NOW - 60_000, explicit: true };
+    const explicitPick = { target: { key: "resident:ws-res" }, at: NOW - 60_000, explicitAt: NOW - 60_000 };
     expect(await decideSenderContext(base({ ...onOwn, body: "my sink leaks", sticky: explicitPick })))
       .toMatchObject({ kind: "run", source: "sticky", target: { key: "resident:ws-res" }, tag: null });
 
@@ -221,8 +221,9 @@ describe("sender context: one decision per text", () => {
     expect(await decideSenderContext(base({ ...onOwn, body: "my sink leaks", sticky: inferredPick })))
       .toMatchObject({ kind: "run", source: "number", target: { key: "manager:ws-mine" } });
 
-    // Past its 12 hours an explicit pick is gone like any other.
-    const stale = { target: { key: "resident:ws-res" }, at: NOW - hours(13), explicit: true };
+    // 12 hours after the PICK, not after the last text it routed: a sender who keeps texting all day does not make
+    // their pick permanent, so the workspace's own number owns the text again.
+    const stale = { target: { key: "resident:ws-res" }, at: NOW - 60_000, explicitAt: NOW - hours(13) };
     expect(await decideSenderContext(base({ ...onOwn, body: "my sink leaks", sticky: stale })))
       .toMatchObject({ kind: "run", source: "number", target: { key: "manager:ws-mine" } });
   });

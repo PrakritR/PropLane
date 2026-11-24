@@ -79,6 +79,40 @@ describe("explainRoomDateConflict", () => {
     expect(r.message).toContain("a lease ending Dec 11, 2026");
   });
 
+  // Oracle: a lease ends after it starts - the lease flow refuses a term that ends the day it begins, so offering one
+  // as "the nearest dates that work" is advice the applicant cannot take. A plausible wrong behaviour this rejects is
+  // the inclusive comparison, which offered "a lease ending Dec 1, 2026" for a Dec 1 start.
+  it("offers no end date when the only one that fits would end the day the lease begins", () => {
+    const r = explainRoomDateConflict({
+      roomName: "Room 7",
+      windows: [{ start: d("2026-12-02"), end: d("2026-12-20") }],
+      leaseStart: d("2026-12-01"),
+      leaseEnd: d("2027-06-01"),
+    })!;
+    expect(r.latestEndBeforeConflict).toBeNull();
+    expect(r.message).not.toContain("a lease ending");
+    expect(r.message).toContain("a start on Dec 21, 2026 or later");
+  });
+
+  // Oracle: the conflicts list is the room's unavailability as ONE set of ranges; two windows that both run from
+  // before the request are the same stretch of held days, so the message says it once ("booked through Dec 20, 2026"),
+  // never "booked through Dec 5 and through Dec 20".
+  it("merges two open-start windows into one conflict", () => {
+    const r = explainRoomDateConflict({
+      roomName: "Room 7",
+      windows: [
+        { start: null, end: d("2026-12-05") },
+        { start: null, end: d("2026-12-20") },
+      ],
+      leaseStart: d("2026-12-01"),
+      leaseEnd: d("2027-06-01"),
+    })!;
+    expect(r.conflicts).toHaveLength(1);
+    expect(r.conflicts[0]).toEqual({ start: null, end: d("2026-12-20") });
+    expect(r.message).toContain("Room 7 is booked through Dec 20, 2026.");
+    expect(r.nextStartAfterConflict).toEqual(d("2026-12-21"));
+  });
+
   it("formats ranges across months and years", () => {
     expect(conflictRangeLabel(d("2026-12-30"), d("2027-01-02"))).toBe("Dec 30, 2026 – Jan 2, 2027");
     expect(conflictRangeLabel(d("2026-12-12"), d("2026-12-12"))).toBe("Dec 12, 2026");

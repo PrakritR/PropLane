@@ -12,13 +12,12 @@ alter table public.sms_inbound_receipts
   add column if not exists reply_owner_user_id uuid references auth.users (id) on delete set null,
   add column if not exists reply_workspace_id uuid;
 
--- The RPC gains the two arguments. Dropping the old signature first keeps exactly ONE overload: a defaulted
--- 12-argument function alongside the 10-argument one would make every existing 10-key call ambiguous.
-drop function if exists public.prepare_sms_inbound_reply(
-  text, text, text, uuid, uuid, uuid, uuid, uuid, text, text
-);
-
-create function public.prepare_sms_inbound_reply(
+-- The RPC gains the two arguments as a SECOND overload, added beside the 10-argument one, which stays exactly as it
+-- is: schema is applied (`npm run db:push`) separately from the deploy, so between the two every inbound reply still
+-- comes from code that sends the 10 old keys. Neither signature defaults an argument, so a named call resolves by its
+-- key set alone - 10 keys reach the old function, 12 the new one - and the old overload is dropped in a later
+-- migration once this code is live.
+create or replace function public.prepare_sms_inbound_reply(
   p_message_sid text,
   p_worker_id text,
   p_route_kind text,

@@ -20,7 +20,7 @@ import { serviceWorkspaceLabel } from "@/lib/service/service-label";
  *   2. "switch" / "menu" shows the menu
  *   3. explicit words: "manager:" "resident:" "admin:" prefixes, "as manager", "switch to <workspace or home>"; sticky
  *   4. a text that names a home resolves to the workspace that holds it, among the sender's own contexts
- *   5. a pick the sender MADE explicitly (a bare "switch to X", the menu's answer, a role word), for 12 hours
+ *   5. a pick the sender MADE explicitly (a bare "switch to X", the menu's answer, a role word), for 12 hours from it
  *   6. the number they texted, when it is a workspace's OWN work number: that workspace owns the text
  *   7. a reply to a text we just sent about a workspace inherits that workspace (newer than the last pick)
  *   8. the last pick we INFERRED, for 12 hours
@@ -29,7 +29,8 @@ import { serviceWorkspaceLabel } from "@/lib/service/service-label";
  * 7 and 8 are reached only on the shared PropLane line, where no number names a workspace: a text to a workspace's own
  * dedicated number is about that workspace unless the sender said otherwise (1-5), so neither an unrelated notice from
  * another workspace nor a context we merely inferred can route it - and bill it - elsewhere. An explicit pick does
- * outrank the number: "switch to resident" then "my sink leaks" is one request, not two.
+ * outrank the number: "switch to resident" then "my sink leaks" is one request, not two. Its 12 hours run from the
+ * pick itself, so texting all day never makes it permanent.
  */
 
 export const SENDER_STICKY_TTL_MS = 12 * 60 * 60 * 1000;
@@ -63,8 +64,11 @@ export type SenderPending = { options: SenderTarget[]; body: string; messageSid:
 export type SenderSticky = {
   target: SenderTarget;
   at: number;
-  /** The sender said it (a switch word, the menu answer), rather than us inferring it from a notice or a routed turn. */
-  explicit?: boolean;
+  /**
+   * When the sender SAID it (a switch word, the menu answer), rather than us inferring it from a notice or a routed
+   * turn. The explicit window runs from that moment and is never renewed by a later text it routed.
+   */
+  explicitAt?: number;
 };
 
 export type SenderDecision =
@@ -351,7 +355,7 @@ export async function decideSenderContext(input: SenderContextInput): Promise<Se
   if (byName.kind === "one") return run(byName.target, body, "named");
 
   // 5. an explicit pick the sender made, which the number they texted does not undo
-  if (sticky?.explicit) return run(sticky.target, body, "sticky");
+  if (sticky?.explicitAt !== undefined && now - sticky.explicitAt <= SENDER_STICKY_TTL_MS) return run(sticky.target, body, "sticky");
 
   // 6. the work number they texted, when it is a workspace's own
   if (valid(input.numberDefault)) return run(input.numberDefault, body, "number");

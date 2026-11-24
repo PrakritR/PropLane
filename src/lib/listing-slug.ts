@@ -11,7 +11,8 @@ export { LISTING_PATH_PREFIX, listingPublicPath } from "@/lib/listing-public-pat
  * The slug is DERIVED from the listing's current street address plus a stable token of its id, never stored: no database
  * id changes, an address edit moves only the readable part, and the old id URL keeps working through a permanent
  * redirect. Resolution reads the trailing id token, so a rename never breaks a link; a slug minted before the token
- * existed (the bare street line, `4709a-8th-ave-ne`) still resolves by that base when exactly one listing owns it.
+ * existed (the one form it was published under: `4709a-8th-ave-ne`, or `4709a-8th-ave-ne-<id tail>` when another
+ * listing shared that street line) still resolves when exactly one listing owns it.
  * This module is pure; the one server read that maps a slug back to an id is `src/lib/seo/listing-slugs.server.ts`.
  */
 
@@ -96,8 +97,9 @@ export type ListingSlugIndex = {
   /** id token -> property id (a token shared by two ids is left out of both maps). */
   tokenToId: ReadonlyMap<string, string>;
   /**
-   * Legacy slug (minted before the id token) -> property id: the bare street line, and the `<street>-<id tail>` form
-   * the old scheme gave every listing in a group that shared a street line. A key two listings share is left out.
+   * Legacy slug (minted before the id token) -> property id: the bare street line for a listing that owned it alone,
+   * or the `<street>-<id tail>` form the old scheme gave each listing in a group that shared one. A key two listings
+   * share is left out.
    */
   baseSlugToId: ReadonlyMap<string, string>;
 };
@@ -111,6 +113,7 @@ export const EMPTY_LISTING_SLUG_INDEX: ListingSlugIndex = { idToSlug: new Map(),
  */
 export function buildListingSlugIndex(listings: readonly SlugListing[]): ListingSlugIndex {
   const byToken = new Map<string, SlugListing[]>();
+  const baseHolders = new Map<string, number>();
   const seenIds = new Set<string>();
   for (const listing of listings) {
     const id = listing.id?.trim();
@@ -120,6 +123,8 @@ export function buildListingSlugIndex(listings: readonly SlugListing[]): Listing
     const group = byToken.get(token);
     if (group) group.push(listing);
     else byToken.set(token, [listing]);
+    const base = listingSlugFor(listing);
+    if (base) baseHolders.set(base, (baseHolders.get(base) ?? 0) + 1);
   }
   const idToSlug = new Map<string, string>();
   const tokenToId = new Map<string, string>();
@@ -132,16 +137,15 @@ export function buildListingSlugIndex(listings: readonly SlugListing[]): Listing
     tokenToId.set(token, id);
     const base = listingSlugFor(listing);
     if (base) {
-      const own = (key: string) => baseSlugOwners.set(key, [...(baseSlugOwners.get(key) ?? []), id]);
-      own(base);
-      const suffix = slugifyAddress(id.slice(-LEGACY_COLLISION_SUFFIX_LENGTH));
-      if (suffix) own(`${base}-${suffix}`);
+      const suffix = (baseHolders.get(base) ?? 1) > 1 ? slugifyAddress(id.slice(-LEGACY_COLLISION_SUFFIX_LENGTH)) : "";
+      const published = suffix ? `${base}-${suffix}` : base;
+      baseSlugOwners.set(published, [...(baseSlugOwners.get(published) ?? []), id]);
     }
   }
-  // The slug scheme before the id token published the bare street line for a listing that owned it alone, and
-  // `<street>-<last six characters of the id>` for each listing in a group that shared one. Both went out through the
-  // sitemap, texts, emails and syndicated posts, so both resolve. A key two listings share names neither: such a link
-  // keeps the not-found state.
+  // The slug scheme before the id token published ONE form per listing: the bare street line when it owned that line
+  // alone, and `<street>-<last six characters of the id>` for each listing in a group that shared one. Whichever form
+  // a listing had went out through the sitemap, texts, emails and syndicated posts, so that form resolves. A key two
+  // listings share names neither: such a link keeps the not-found state.
   const baseSlugToId = new Map<string, string>();
   for (const [base, owners] of baseSlugOwners) if (owners.length === 1) baseSlugToId.set(base, owners[0]!);
   return { idToSlug, tokenToId, baseSlugToId };
@@ -157,9 +161,8 @@ export type ListingParamResolution =
 
 /**
  * What a `/rent/listings/<param>` request is. An exact record id wins (old links keep working and redirect to the
- * canonical path); otherwise the trailing id token picks the listing, whatever the title part says; failing that, a
- * legacy slug published before the token (the bare street line, or that street line plus the id's own tail) picks the
- * one listing that owns it.
+ * canonical path); otherwise the trailing id token picks the listing, whatever the title part says; failing that, the
+ * legacy slug the listing was published under before the token picks the one listing that owns it.
  */
 export function resolveListingParam(index: ListingSlugIndex, param: string): ListingParamResolution {
   const value = param.trim();
