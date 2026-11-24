@@ -1,5 +1,6 @@
 // The Unassigned-leads agent end to end over a fake database: first reply, qualifying order, fair housing,
 // matching public rooms, assignment to exactly one workspace, webhook retries and the admin queue helpers.
+import { listingUrlRe } from "./listing-url-matcher";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MockProperty } from "@/data/types";
 import { LEAD_CONSTRAINTS, leadFakeDb, type LeadFakeDb } from "../helpers/lead-fake-db";
@@ -237,7 +238,7 @@ describe("a question about what is open is answered with the open homes first", 
       expect(bodies[0]!.startsWith("Hi, this is PropLane")).toBe(false);
       const all = bodies.join("\n");
       expect(all).toContain("from $900/mo");
-      expect(all).toContain("https://proplane.ai/rent/listings/prop-uw-a");
+      expect(all).toMatch(listingUrlRe("https://proplane.ai", "prop-uw-a"));
       expect(all).toContain("https://proplane.ai/rent/tours-contact?propertyId=prop-uw-a");
       expect(all).toMatch(/tap Apply/);
       expect(turn.reply).not.toBe("What is your monthly budget for rent?");
@@ -320,7 +321,7 @@ describe("a follow-up question after the overview", () => {
       expect(turn.reply).not.toContain(NO_MATCH_TEXT);
       expect(turn.reply).toContain(OFFER_DETAILS_HEADER);
       expect(turn.reply).toContain("$800/mo");
-      expect(turn.reply).toContain("https://proplane.ai/rent/listings/prop-ballard");
+      expect(turn.reply).toMatch(listingUrlRe("https://proplane.ai", "prop-ballard"));
       expect(turn.reply).toMatch(/to pick one, or TOUR to see it\.$/);
       // The sentence is not stored as an area, and the homes already offered still stand.
       expect(profile(fake)).toMatchObject({ stage: "offered", asked: "pick" });
@@ -335,7 +336,7 @@ describe("a follow-up question after the overview", () => {
     await say(fake, "Is there availability");
     const turn = await say(fake, "do you have anything in Ballard?");
     expect(profile(fake).area).toContain("Ballard");
-    expect(turn.reply).toContain("https://proplane.ai/rent/listings/prop-ballard");
+    expect(turn.reply).toMatch(listingUrlRe("https://proplane.ai", "prop-ballard"));
     expect(turn.reply).not.toContain("prop-uw-a");
     expect(profile(fake)).toMatchObject({ stage: "offered", asked: "pick" });
   });
@@ -345,10 +346,10 @@ describe("matching public rooms", () => {
   it("offers rooms across every workspace that fit, with price, availability and a public link", async () => {
     const fake = seed();
     const turn = await toOffered(fake);
-    expect(turn.reply).toContain("1) 4000 15th Ave NE, $900/mo, available now: https://proplane.ai/rent/listings/prop-uw-a");
+    expect(turn.reply).toMatch(new RegExp(`1\\) 4000 15th Ave NE, \\$900/mo, available now: ${listingUrlRe("https://proplane.ai", "prop-uw-a").source}`));
     expect(turn.reply).toContain("$900/mo");
-    expect(turn.reply).toContain("https://proplane.ai/rent/listings/prop-uw-a");
-    expect(turn.reply).toContain("https://proplane.ai/rent/listings/prop-uw-d");
+    expect(turn.reply).toMatch(listingUrlRe("https://proplane.ai", "prop-uw-a"));
+    expect(turn.reply).toMatch(listingUrlRe("https://proplane.ai", "prop-uw-d"));
     expect(turn.reply).not.toContain("prop-uw-over");
     expect(turn.reply).not.toContain("prop-ballard");
     expect(turn.reply).toMatch(/Reply 1 or 2 to pick one, or TOUR to see it\.$/);
@@ -390,7 +391,7 @@ describe("matching public rooms", () => {
     const retry = await say(fake, "ok");
     // "ok" is an acknowledgement, never an area: the same rooms come back.
     expect(retry.reply).toContain("These rooms fit:");
-    expect(retry.reply).toContain("prop-uw-d");
+    expect(retry.reply).toMatch(listingUrlRe("https://proplane.ai", "prop-uw-d"));
     expect(profile(fake).area).toBe("University District");
   });
 

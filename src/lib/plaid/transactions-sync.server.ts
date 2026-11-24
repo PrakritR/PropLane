@@ -6,6 +6,7 @@ import { getPlaidClient, logPlaidFailure, plaidFailure } from "@/lib/plaid/clien
 import { fillFeedStatementBalances } from "@/lib/plaid/statement-balances.server";
 import {
   claimPlaidSync,
+  isRelinkAfterRevoke,
   readPlaidAccessToken,
   releasePlaidSync,
   updatePlaidItem,
@@ -97,6 +98,8 @@ async function statementForMonth(
 
 type ExistingLine = {
   id: string;
+  statement_id: string;
+  line_date: string;
   plaid_transaction_id: string;
   cleared: boolean;
   matched_ledger_entry_id: string | null;
@@ -125,13 +128,55 @@ async function loadExisting(db: SupabaseClient, ownerId: string, ids: string[]):
   for (let i = 0; i < ids.length; i += 100) {
     const { data, error } = await db
       .from("manager_bank_statement_lines")
-      .select("id, plaid_transaction_id, cleared, matched_ledger_entry_id, matched_expense_entry_id, manager_bank_statements!inner(reconciled_at, manager_user_id)")
+      .select("id, statement_id, line_date, plaid_transaction_id, cleared, matched_ledger_entry_id, matched_expense_entry_id, manager_bank_statements!inner(reconciled_at, manager_user_id)")
       .eq("manager_bank_statements.manager_user_id", ownerId)
       .in("plaid_transaction_id", ids.slice(i, i + 100));
     if (error) throw new Error(error.message);
     for (const row of (data ?? []) as unknown as ExistingLine[]) found.set(row.plaid_transaction_id, row);
   }
   return found;
+}
+
+/** The identity of a statement line apart from its Plaid id: date, signed cents and a normalized description. */
+export function feedLineContentKey(line: { lineDate: string; amountCents: number; description: string }): string {
+  const text = line.description.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return `${line.lineDate.slice(0, 10)}|${line.amountCents}|${text}`;
+}
+
+/**
+ * After a relink, the feed lines this account already holds (under the revoked Item's transaction ids), as a
+ * multiset of content keys over the incoming date span. Each incoming line consumes at most one, so two real
+ * same-day same-amount purchases still land twice when two were already there twice.
+ */
+async function loadRelinkBaseline(
+  db: SupabaseClient,
+  ownerId: string,
+  bankAccountId: string,
+  fromDate: string,
+  toDate: string,
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await db
+      .from("manager_bank_statement_lines")
+      .select("id, line_date, amount_cents, description, plaid_transaction_id, manager_bank_statements!inner(manager_user_id, bank_account_id)")
+      .eq("manager_bank_statements.manager_user_id", ownerId)
+      .eq("manager_bank_statements.bank_account_id", bankAccountId)
+      .gte("line_date", fromDate)
+      .lte("line_date", toDate)
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as unknown as { line_date: string; amount_cents: number; description: string; plaid_transaction_id: string | null }[];
+    for (const r of rows) {
+      if (!r.plaid_transaction_id) continue;
+      const key = feedLineContentKey({ lineDate: String(r.line_date), amountCents: Number(r.amount_cents), description: String(r.description ?? "") });
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    if (rows.length < pageSize) break;
+  }
+  return counts;
 }
 
 /**
@@ -142,7 +187,8 @@ async function loadExisting(db: SupabaseClient, ownerId: string, ids: string[]):
  */
 export async function applyPlaidChanges(
   db: SupabaseClient,
-  item: Pick<PlaidItemRow, "owner_user_id" | "bank_account_id" | "plaid_account_id">,
+  item: Pick<PlaidItemRow, "owner_user_id" | "bank_account_id" | "plaid_account_id"> &
+    Partial<Pick<PlaidItemRow, "id" | "account_mask" | "institution_name">>,
   changes: { added: Transaction[]; modified: Transaction[]; removed: Pick<RemovedTransaction, "transaction_id">[] },
 ): Promise<{ added: number; modified: number; removed: number; skipped: number }> {
   const counts = { added: 0, modified: 0, removed: 0, skipped: 0 };
@@ -157,6 +203,13 @@ export async function applyPlaidChanges(
   const existing = await loadExisting(db, item.owner_user_id, [...byId.keys()]);
   const statementCache = new Map<string, { id: string }>();
   let conflicted = 0;
+  // Relink after a revoke: dedupe replayed history against the lines the old Item already posted.
+  let relinkBaseline: Map<string, number> | null = null;
+  const incoming = [...byId.values()].filter((t) => !existing.has(t.transaction_id));
+  if (incoming.length > 0 && (await isRelinkAfterRevoke(db, item))) {
+    const dates = incoming.map((t) => t.date.slice(0, 10)).sort();
+    relinkBaseline = await loadRelinkBaseline(db, item.owner_user_id, item.bank_account_id, dates[0]!, dates[dates.length - 1]!);
+  }
 
   for (const txn of byId.values()) {
     const line = plaidTransactionToLine(txn);
@@ -166,13 +219,31 @@ export async function applyPlaidChanges(
         counts.skipped += 1;
         continue;
       }
-      const { error } = await db
-        .from("manager_bank_statement_lines")
-        .update({ line_date: line.lineDate, description: line.description, amount_cents: line.amountCents })
-        .eq("id", current.id);
+      // A modified transaction can post in another month; the line follows it. `statementForMonth` never
+      // returns a reconciled statement (it opens a feed-owned one instead), the same as the insert path.
+      const patch: Record<string, unknown> = { line_date: line.lineDate, description: line.description, amount_cents: line.amountCents };
+      if (String(current.line_date ?? "").slice(0, 7) !== line.lineDate.slice(0, 7)) {
+        const monthKey = line.lineDate.slice(0, 7);
+        let target = statementCache.get(monthKey);
+        if (!target) {
+          target = await statementForMonth(db, item.owner_user_id, item.bank_account_id, line.lineDate);
+          statementCache.set(monthKey, target);
+        }
+        patch.statement_id = target.id;
+      }
+      const { error } = await db.from("manager_bank_statement_lines").update(patch).eq("id", current.id);
       if (error) throw new Error(error.message);
       counts.modified += 1;
       continue;
+    }
+    if (relinkBaseline) {
+      const key = feedLineContentKey(line);
+      const left = relinkBaseline.get(key) ?? 0;
+      if (left > 0) {
+        relinkBaseline.set(key, left - 1);
+        counts.skipped += 1;
+        continue;
+      }
     }
     const monthKey = line.lineDate.slice(0, 7);
     let statement = statementCache.get(monthKey);
@@ -296,6 +367,7 @@ export async function syncPlaidItem(db: SupabaseClient, item: PlaidItemRow, deps
     }
     return { status: "error", ...totals, errorCode: "MUTATION_DURING_PAGINATION" };
   } catch (error) {
+    logPlaidFailure("[plaid] sync failed", error);
     const failure = plaidFailure(error);
     const loginRequired = failure.code === "ITEM_LOGIN_REQUIRED";
     try {

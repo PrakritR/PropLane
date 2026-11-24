@@ -23,14 +23,19 @@ const block = wizard.split("const soleListingTerm =")[1]?.slice(0, 700) ?? "";
 
 describe("lease term prefill from the listing", () => {
   it("only prefills when the listing offers exactly one term", () => {
-    expect(block).toContain("onlyOfferedStoredTerm(listingOfferedLeaseTerms(pid))");
+    expect(block).toContain("onlyOfferedStoredTerm(offeredListingTerms)");
+    expect(wizard).toContain("const offeredListingTerms = listingOfferedLeaseTerms(pid)");
     expect(onlyOfferedStoredTerm(["Long-term"])).toBe("Long-term");
     expect(onlyOfferedStoredTerm(["Long-term", "Short-Term Stay"])).toBeNull();
   });
 
   it("never overwrites an answer the applicant already gave", () => {
-    // `prev.leaseTerm || soleListingTerm` — the existing value always wins.
-    expect(block).toContain("prev.leaseTerm || soleListingTerm");
+    // `prev.leaseTerm || soleListingTerm || primaryListingTerm` — the existing value always wins.
+    expect(block).toContain("prev.leaseTerm || soleListingTerm || primaryListingTerm");
+  });
+
+  it("opens on the listing's primary long-term lease when it offers both sides, never a nightly short stay", () => {
+    expect(block).toContain('defaultStoredTermForKind("long", offeredListingTerms)');
   });
 
   it("leaves the short-term link path on its own term", () => {

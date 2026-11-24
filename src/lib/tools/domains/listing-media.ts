@@ -9,6 +9,14 @@ import {
   listingMediaInventoryFromSubmission,
   normalizeListingPhotoUrl,
 } from "@/lib/listing-media-placement.server";
+import { ingestListingPhoto } from "@/lib/listing-photo-ingest.server";
+import {
+  loadSenderRecentImages,
+  loadSuggestionFiles,
+  mediaOwnerOfRow,
+  verifiedPhoneOfActor,
+} from "@/lib/listing-photo-suggestions.server";
+import { linkClaimedMedia, type SmsMediaFileRow } from "@/lib/one-number/inbound-media.server";
 import {
   normalizeManagerListingSubmissionV1,
   type ManagerListingSubmissionV1,
@@ -233,5 +241,143 @@ export const applyListingPhotosTool = defineWriteTool({
       reply: `Placed ${applied.length} photo${applied.length === 1 ? "" : "s"} on the listing (${lines.join(", ")}). The wizard will refresh with the new images.`,
       resultSummary: { propertyId: rec.id, applied: applied.length, skipped: skipped.length },
     };
+  },
+});
+
+type PlaceTarget = "house" | "room" | "bathroom" | "shared_space";
+
+/** Where the photos go, resolved against the listing's own inventory (a named slot that is not there is refused). */
+function resolvePlace(sub: ManagerListingSubmissionV1, target: PlaceTarget, targetId: string | undefined): string {
+  if (target === "house") return "House gallery";
+  const inv = listingMediaInventoryFromSubmission(sub);
+  const pool = target === "room" ? inv.rooms : target === "bathroom" ? inv.bathrooms : inv.sharedSpaces;
+  const hit = pool.find((item) => item.id === targetId);
+  if (!hit) throw new Error("Name which room, bathroom or shared space these photos are for.");
+  return hit.label;
+}
+
+/**
+ * Shared preview for the two SMS photo tools: "Add 3 photos to 5257 Brooklyn \u00b7 Room 7" (the existing pending-action
+ * confirm turns it into a YES). Throws the user-facing reason when there is nothing to place.
+ */
+function placePreview(ctx: AgentContext, rec: RawPropertyRecord, kind: string, files: SmsMediaFileRow[], target: PlaceTarget, targetId: string | undefined) {
+  void ctx;
+  const sub = listingSubmissionFromRecord(rec);
+  if (!sub) throw new Error("This property has no listing submission to update.");
+  const place = resolvePlace(sub, target, targetId);
+  const src = asObject(rec.property_data) ?? asObject(rec.row_data);
+  const title = str(src, "buildingName") ?? str(src, "address") ?? rec.id;
+  return {
+    kind,
+    title: "Add photos to a listing",
+    summary: `Add ${files.length} photo${files.length === 1 ? "" : "s"} to ${title} \u00b7 ${place}.`,
+    fields: [{ label: "Listing", value: title }, { label: "Where", value: place }, { label: "Photos", value: String(files.length) }],
+    confirmLabel: "Add photos",
+  };
+}
+
+/**
+ * Shared handler core: copy each file to the public listing-photos bucket (`ingestListingPhoto`) and place the copies
+ * through `apply_listing_photos`, the one placement path. Only rows the caller's tool selected server-side are passed in.
+ */
+async function placeFilesOnListing(
+  ctx: AgentContext,
+  rec: RawPropertyRecord,
+  files: SmsMediaFileRow[],
+  target: PlaceTarget,
+  targetId: string | undefined,
+  link: { ids: string[]; linkedId: string; claim: "unlinked" | "suggested" },
+) {
+  const placements: Array<z.infer<typeof placementSchema>> = [];
+  let unreadable = 0;
+  for (const row of files) {
+    const out = await ingestListingPhoto(ctx.db, {
+      ownerUserId: ctx.landlordId,
+      propertyId: rec.id,
+      mediaRow: row,
+      mediaOwnerUserId: mediaOwnerOfRow(row) ?? ctx.landlordId,
+    });
+    if (!out.ok) {
+      unreadable += 1;
+      continue;
+    }
+    placements.push({ photoUrl: out.publicUrl, target, ...(target !== "house" && targetId ? { targetId } : {}) });
+  }
+  if (placements.length === 0) throw new Error("None of those photos could be read.");
+  const applied = (await applyListingPhotosTool.handler(ctx, { propertyId: rec.id, placements })) as { reply: string; resultSummary?: { applied?: number } };
+  if (link.claim === "unlinked") {
+    await linkClaimedMedia(ctx.db, { ids: link.ids, linkedType: "listing", linkedId: link.linkedId });
+  } else {
+    await ctx.db.from("sms_media_files").update({ linked_id: link.linkedId }).in("id", link.ids).eq("linked_type", "listing");
+  }
+  return { reply: unreadable ? `${applied.reply} ${unreadable} photo(s) could not be read.` : applied.reply, resultSummary: applied.resultSummary };
+}
+
+const placeTargetSchema = {
+  propertyId: z.string().min(1),
+  target: z.enum(["house", "room", "bathroom", "shared_space"]).default("house"),
+  targetId: z.string().optional().describe("Required for room, bathroom and shared_space (ids from get_listing_media_inventory)."),
+};
+
+/**
+ * The manager's one step for photos a RESIDENT texted in (`suggest_listing_photos`): the suggestion's own images (found by
+ * its id under this manager's bucket path, never a URL from the model) are placed through the shared core.
+ */
+export const placeResidentSuggestedPhotosTool = defineWriteTool({
+  name: "place_resident_suggested_photos",
+  description:
+    "Place the photos a resident texted for a listing (a 'Resident sent listing photos' notice carries the suggestion id) onto one of the manager's listings. Pass the suggestion id, the propertyId, and where they go: house gallery, or a room / bathroom / shared space with its targetId from get_listing_media_inventory. Ask one short question if the house or room is unclear.",
+  inputSchema: z
+    .object({
+      suggestionId: z.string().regex(/^[a-f0-9]{6,32}$/).describe("The id in the resident's photo notice."),
+      ...placeTargetSchema,
+    })
+    .strict(),
+  preview: async (ctx, input) => {
+    const rec = await loadOwnedPropertyRecord(ctx, input.propertyId);
+    if (!rec) throw new Error("No listing with that id was found for this account.");
+    const files = await loadSuggestionFiles(ctx.db, { managerUserId: ctx.landlordId, suggestionId: input.suggestionId });
+    if (files.length === 0) throw new Error("No photos were found for that suggestion on this account.");
+    return placePreview(ctx, rec, "place_resident_suggested_photos", files, input.target ?? "house", input.targetId);
+  },
+  handler: async (ctx, input) => {
+    const rec = await loadOwnedPropertyRecord(ctx, input.propertyId);
+    if (!rec) throw new Error("No listing with that id was found.");
+    const files = await loadSuggestionFiles(ctx.db, { managerUserId: ctx.landlordId, suggestionId: input.suggestionId });
+    if (files.length === 0) throw new Error("No photos were found for that suggestion on this account.");
+    return placeFilesOnListing(ctx, rec, files, input.target ?? "house", input.targetId, { ids: files.map((f) => f.id), linkedId: rec.id, claim: "suggested" });
+  },
+});
+
+/**
+ * "This is 5257 room 7" / "post these to 4709A kitchen": the manager (or PropLane staff seat) texted photos and names
+ * where they go. The photos are the ones THIS actor's own verified phone sent in the last 30 minutes, found server-side
+ * (`sms_media_files.sender_phone_key`), never a URL or path from the model. The listing must be one the actor's scope owns.
+ */
+export const placeMyTextedPhotosTool = defineWriteTool({
+  name: "place_my_texted_photos",
+  description:
+    "Place the photos the user themself just texted (last 30 minutes) onto one of their listings: \"this is 5257 room 7\", \"post these to 4709A kitchen\". Resolve the house with list_properties and the room, bathroom or shared space (kitchen, living room) with get_listing_media_inventory, then pass propertyId, target and targetId. Never pass a photo URL: the photos are found for you. Ask one short question if the house or room is unclear.",
+  inputSchema: z.object(placeTargetSchema).strict(),
+  preview: async (ctx, input) => {
+    const rec = await loadOwnedPropertyRecord(ctx, input.propertyId);
+    if (!rec) throw new Error("No listing with that id was found for this account.");
+    const phone = await verifiedPhoneOfActor(ctx.db, ctx.userId);
+    const files = phone ? await loadSenderRecentImages(ctx.db, { senderPhoneE164: phone }) : [];
+    if (files.length === 0) throw new Error("I do not see photos from you in the last half hour. Text the photos again, then tell me the house.");
+    return placePreview(ctx, rec, "place_my_texted_photos", files, input.target ?? "house", input.targetId);
+  },
+  handler: async (ctx, input) => {
+    const rec = await loadOwnedPropertyRecord(ctx, input.propertyId);
+    if (!rec) throw new Error("No listing with that id was found.");
+    const phone = await verifiedPhoneOfActor(ctx.db, ctx.userId);
+    const files = phone ? await loadSenderRecentImages(ctx.db, { senderPhoneE164: phone }) : [];
+    if (files.length === 0) throw new Error("No recent photos from you were found; nothing was added.");
+    const target = input.target ?? "house";
+    return placeFilesOnListing(ctx, rec, files, target, input.targetId, {
+      ids: files.map((f) => f.id),
+      linkedId: target === "room" && input.targetId ? `${rec.id}:${input.targetId}` : rec.id,
+      claim: "unlinked",
+    });
   },
 });

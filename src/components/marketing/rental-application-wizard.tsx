@@ -43,10 +43,12 @@ import {
   isRoomApprovedConflict,
   isRoomPendingConflict,
   listingOfferedLeaseTerms,
+  listingRoomMayPreselect,
   LISTING_ROOM_CHOICE_SEP,
   parseRoomChoiceValue,
 } from "@/lib/rental-application/data";
 import { onlyOfferedStoredTerm } from "@/lib/rental-application/applicant-lease-term";
+import { defaultStoredTermForKind, leaseKindsOffered } from "@/lib/rental-application/lease-choice";
 import { roomResidentPriceForSlot } from "@/lib/room-pricing";
 import {
   SHORT_TERM_LEASE_TERM,
@@ -1467,7 +1469,8 @@ function RentalApplicationWizardInner({
         if (lr && !entireHome) {
           const composite = `${pid}${LISTING_ROOM_CHOICE_SEP}${lr}`;
           const hit = opts.find((o) => o.value === composite);
-          if (hit) room1 = hit.value;
+          // A room the listing shows as leased, closed or opening months out is never put on the form for them.
+          if (hit && listingRoomMayPreselect(hit.value)) room1 = hit.value;
         }
         // The applicant's own saved pick for THIS property stays: a link's room never overwrites it on reload.
         if (prev.propertyId.trim() === pid && prev.roomChoice1.trim()) room1 = "";
@@ -1496,10 +1499,14 @@ function RentalApplicationWizardInner({
         // the only option (AXI-153). Only ever fills a BLANK field — an answer
         // already given, or a term the listing no longer offers, is left alone
         // for validation to surface rather than silently rewritten.
-        const soleListingTerm = onlyOfferedStoredTerm(listingOfferedLeaseTerms(pid)) ?? "";
+        const offeredListingTerms = listingOfferedLeaseTerms(pid);
+        const soleListingTerm = onlyOfferedStoredTerm(offeredListingTerms) ?? "";
+        // A listing that offers both sides opens on its primary one, the long-term lease; the applicant switches to a
+        // short stay deliberately, never lands on a nightly rate they did not ask for.
+        const primaryListingTerm = leaseKindsOffered(offeredListingTerms).long ? defaultStoredTermForKind("long", offeredListingTerms) : "";
         const leaseTerm = shortTermFromLink
           ? (prev.leaseTerm || SHORT_TERM_LEASE_TERM)
-          : prev.leaseTerm || soleListingTerm;
+          : prev.leaseTerm || soleListingTerm || primaryListingTerm;
         const next = {
           ...base,
           propertyId: pid,

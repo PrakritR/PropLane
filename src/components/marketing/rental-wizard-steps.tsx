@@ -37,6 +37,7 @@ import {
   isRoomPendingConflict,
   listingLongTermLengths,
   listingOfferedLeaseTerms,
+  listingRoomAvailabilityLabel,
   roomSelectOptionsWithNone,
 } from "@/lib/rental-application/data";
 import { addMonthsToDateString } from "@/lib/rental-application/long-term-length";
@@ -371,6 +372,12 @@ function ApplicantPaysCard({ quote, title = "What you pay" }: { quote: ListingQu
           </b>
         </div>
       )}
+      {!quote.isStay && quote.customLeaseSurcharge ? (
+        <div className="flex items-baseline justify-between gap-3 pt-3" data-attr="apply-custom-lease-surcharge">
+          <span className="text-[13px] text-foreground">Custom lease dates surcharge</span>
+          <b className="shrink-0 text-[13px] font-extrabold tabular-nums text-foreground">+{formatQuoteMoney(quote.customLeaseSurcharge)}/mo</b>
+        </div>
+      ) : null}
       {quote.applicationFees.length > 0 ? (
         <>
           <p className="mt-3 text-[12px] font-extrabold uppercase tracking-[0.04em] text-foreground">Application fee</p>
@@ -395,6 +402,13 @@ export function applicantRoomOptionLabel(label: string, value: string, form: Ren
   const pricing = resolveStayPricing({ room, submission: sub, application: { rentalType: "short_term", leaseTerm: form.leaseTerm, residentSlot: parsed.residentSlot } });
   const rate = pricing.dailyRate ? `${formatQuoteMoney(pricing.dailyRate)}/night` : pricing.weeklyRate ? `${formatQuoteMoney(pricing.weeklyRate)}/week` : "Stay rate not set";
   return label.replace(/\$[\d,.]+\s*\/(?:mo|month|day|night|wk|week)/g, rate);
+}
+
+/** A room option as the picker prints it: the quote-aware label plus the listing's own availability wording. */
+function applicantRoomPickerLabel(label: string, value: string, form: RentalWizardFormState, sub: Parameters<typeof applicantListingQuote>[0]): string {
+  const base = applicantRoomOptionLabel(label, value, form, sub);
+  const availability = listingRoomAvailabilityLabel(value);
+  return availability ? `${base} · ${availability}` : base;
 }
 
 /** Which side of the toggle a top-level lease type is. Only the two parent-less ids reach here. */
@@ -541,41 +555,26 @@ function LeaseTypeAndDates(props: LeaseTypeAndDatesProps) {
           </div>
           {askLongTermChoice ? (
             <div className="space-y-2" data-wizard-field="longTermLength">
-              {fixedLengthOptions.length > 0 ? (
-                <>
-                  <Label htmlFor="longTermLength" required>Length</Label>
-                  <Select
-                    id="longTermLength"
-                    value={fixedLengthOptions.some((option) => option.value === lengthValue) ? lengthValue : ""}
-                    onChange={(e) => pickLength(e.target.value)}
-                    className={errors.leaseEnd && !needsMoveOut ? "border-red-400 ring-2 ring-red-100" : ""}
-                  >
-                    <option value="">Pick a length…</option>
-                    {fixedLengthOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </Select>
-                </>
-              ) : null}
-              {longTermChecks.length > 0 ? (
-                <div className={fixedLengthOptions.length > 0 ? "space-y-2 pl-4" : "space-y-2"} data-wizard-field="longTermOptions">
-                  {fixedLengthOptions.length === 0 ? <Label required>Lease length</Label> : null}
-                  {longTermChecks.map((check) => (
-                    <label key={check.value} className="flex cursor-pointer items-center gap-2.5 text-sm text-foreground">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 shrink-0 rounded border-border accent-primary"
-                        checked={lengthValue === check.value}
-                        onChange={(e) => pickLength(e.target.checked ? check.value : "")}
-                        data-attr={`rental-wizard-long-term-${check.value}`}
-                      />
-                      {check.label}
-                    </label>
-                  ))}
-                </div>
-              ) : null}
+              <Label htmlFor="longTermLength" required>Lease length</Label>
+              <Select
+                id="longTermLength"
+                value={fixedLengthOptions.some((option) => option.value === lengthValue) || longTermChecks.some((check) => check.value === lengthValue) ? lengthValue : ""}
+                onChange={(e) => pickLength(e.target.value)}
+                className={errors.leaseEnd && !needsMoveOut ? "border-red-400 ring-2 ring-red-100" : ""}
+                data-attr="rental-wizard-lease-length"
+              >
+                <option value="">{fixedLengthOptions.length > 0 ? "Pick a length…" : "Long-term (set a move-out date)"}</option>
+                {fixedLengthOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+                {longTermChecks.map((check) => (
+                  <option key={check.value} value={check.value}>
+                    {check.label}
+                  </option>
+                ))}
+              </Select>
               {!needsMoveOut ? <FieldError msg={errors.leaseEnd ? "Pick a lease length." : undefined} /> : null}
             </div>
           ) : null}
@@ -940,6 +939,8 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
     const availableRooms = roomSelectOptionsWithNone(form.propertyId, {
       includeUnnamed: true,
       includeUnavailable: !datesPicked,
+      // Whatever the dates, never a room the public listing shows as leased or not available.
+      listingOnly: true,
       // Availability is judged against the dates the applicant actually asked
       // for, not against today. `isRoomChoiceAvailable` compares the requested
       // window with the occupancy of the residents already in the house, so a
@@ -964,6 +965,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
     const firstChoiceRooms = firstChoiceRoomOptions(form.propertyId, {
       includeUnnamed: true,
       includeUnavailable: !datesPicked,
+      listingOnly: true,
       leaseStart: form.leaseStart,
       leaseEnd: form.leaseEnd,
       leaseTerm: form.leaseTerm,
@@ -1184,7 +1186,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
               <option value="">{form.propertyId ? "Select a room" : "Select a property first"}</option>
               {firstChoiceRooms.map((o) => (
                 <option key={o.value} value={o.value} disabled={o.disabled}>
-                  {applicantRoomOptionLabel(o.label, o.value, form, selectedProperty?.listingSubmission)}
+                  {applicantRoomPickerLabel(o.label, o.value, form, selectedProperty?.listingSubmission)}
                 </option>
               ))}
             </Select>
@@ -1205,7 +1207,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
               <option value="">{form.propertyId ? "Select a unit" : "Select a property first"}</option>
               {rooms.map((o) => (
                 <option key={o.value} value={o.value}>
-                  {applicantRoomOptionLabel(o.label, o.value, form, selectedProperty?.listingSubmission)}
+                  {applicantRoomPickerLabel(o.label, o.value, form, selectedProperty?.listingSubmission)}
                 </option>
               ))}
             </Select>
@@ -1527,7 +1529,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
         case "fullLegalName":
           return gate(<><Label htmlFor="fullLegalName" required={field.required}>{field.label}</Label><Input id="fullLegalName" value={form.fullLegalName} onChange={(e) => patch({ fullLegalName: e.target.value })} placeholder="First and last name" autoComplete="name" className={errors.fullLegalName ? "border-red-400 ring-2 ring-red-100" : ""} /><FieldError msg={errors.fullLegalName} /></>);
         case "dateOfBirth":
-          return gate(<><Label htmlFor="dateOfBirth" required={field.required}>{field.label}</Label><DateField id="dateOfBirth" value={form.dateOfBirth} onChange={(next) => patch({ dateOfBirth: next })} className={errors.dateOfBirth ? "border-red-400 ring-2 ring-red-100" : ""} /><FieldError msg={errors.dateOfBirth} /></>);
+          return gate(<><Label htmlFor="dateOfBirth" required={field.required}>{field.label.trim() === "Date of birth" ? "Date of birth (for screening)" : field.label}</Label><DateField id="dateOfBirth" value={form.dateOfBirth} onChange={(next) => patch({ dateOfBirth: next })} className={errors.dateOfBirth ? "border-red-400 ring-2 ring-red-100" : ""} /><FieldError msg={errors.dateOfBirth} /></>);
         case "ssn":
           return gate(<><Label htmlFor="ssn" required={field.required}>{field.label}</Label><Input id="ssn" inputMode="numeric" autoComplete="off" value={form.ssn} onChange={(e) => p.setSsn(e.target.value)} placeholder="###-##-####" className={errors.ssn ? "border-red-400 ring-2 ring-red-100" : ""} /><FieldError msg={errors.ssn} /></>);
         case "driversLicense":
@@ -2230,7 +2232,12 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
                         <ReviewRow k="Stay rate" v={`${formatQuoteMoney(reviewQuote.nightlyRate)}/night`} />
                       ) : null
                     ) : (
-                      <ReviewRow k="Then each month" v={formatQuoteMoney(reviewQuote.monthlyTotal)} />
+                      <>
+                        {reviewQuote.customLeaseSurcharge ? (
+                          <ReviewRow k="Custom lease dates surcharge" v={`+${formatQuoteMoney(reviewQuote.customLeaseSurcharge)}/mo`} />
+                        ) : null}
+                        <ReviewRow k="Then each month" v={formatQuoteMoney(reviewQuote.monthlyTotal)} />
+                      </>
                     )}
                   </>
                 );

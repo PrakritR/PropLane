@@ -157,7 +157,7 @@ function buildListingElement(
   const state = stateFromZip(property.zip);
   const rent = monthlyRentDollarsForSyndication(sub);
   const photoTags = photos.map((url) => `<ListingPhoto source="${escapeXmlAttr(url)}"/>`).join("");
-  const listingUrl = buildManagerListingUrl(origin, property.id);
+  const listingUrl = buildManagerListingUrl(origin, property.id, property);
 
   const body = [
     el("name", property.title || sub.buildingName),

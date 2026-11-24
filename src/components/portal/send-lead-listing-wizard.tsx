@@ -128,7 +128,7 @@ export function SendLeadListingWizard({
       return buildManagerBrowseUrl(origin, propertyIds, { workspaceName: activeWorkspaceScope()?.name });
     }
     if (!singlePropertyId) return "";
-    return buildManagerListingUrl(origin, singlePropertyId);
+    return buildManagerListingUrl(origin, singlePropertyId, getPropertyById(singlePropertyId));
   }, [propertyIds, isMultiListing, singlePropertyId]);
 
   const propertyTitle = useMemo(() => {

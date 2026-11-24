@@ -7,7 +7,13 @@ export const PLANNED_EVENTS_RECORD_ID = "axis_admin_planned_events_v1";
 export const PARTNER_INQUIRIES_RECORD_ID = "axis_admin_partner_inquiries_v1";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
-export type ScheduleRecordUser = { id: string; role: string; roles?: string[] };
+export type ScheduleRecordUser = {
+  id: string;
+  role: string;
+  roles?: string[];
+  /** Houses of the PropLane-managed workspace this viewer is service staff of (server-derived from membership). */
+  serviceScope?: { propertyIds: string[] } | null;
+};
 type ScheduleRecord = Record<string, unknown>;
 type ScheduleItem = Record<string, unknown>;
 
@@ -145,12 +151,16 @@ export async function projectScheduleRecordsForViewer(
       : Promise.resolve(null),
   ]);
 
+  const staffHouses = new Set(user.serviceScope?.propertyIds ?? []);
   const maySeeItem = (item: ScheduleItem, pendingInquiry = false): "full" | "busy" | null => {
     if (admin) return "full";
     if (!manager) return null;
     const managerUserId = itemManagerUserId(item);
     if (managerUserId === user.id) return "full";
     const propertyId = itemPropertyId(item);
+    // Service staff run the managed workspace they hold a seat in: a tour request filed on one of its houses is
+    // theirs to read and answer, whoever the request was filed under. Derived from membership, never the request.
+    if (propertyId && staffHouses.has(propertyId)) return "full";
     const owner = propertyId ? owners.get(propertyId) ?? "" : "";
     if (owner === user.id) return "full";
     if (!propertyId || !owner) return null;

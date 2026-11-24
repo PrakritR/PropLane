@@ -13,16 +13,35 @@ export type PlaidWebhookVerdict = { ok: true } | { ok: false; reason: string };
 
 const keyCache = new Map<string, { key: PlaidVerificationKey; at: number }>();
 
-/** Fetch (and cache for an hour) the verification key Plaid names by `kid`. */
+/** A `kid` Plaid did not know (or could not be asked about) is remembered briefly so a flood of random kids cannot drive /webhook_verification_key/get. */
+const missCache = new Map<string, number>();
+export const PLAID_KEY_MISS_TTL_MS = 60 * 1000;
+const MISS_CACHE_MAX = 500;
+
+/** Test hook: forget every cached key and miss. */
+export function resetPlaidKeyCaches(): void {
+  keyCache.clear();
+  missCache.clear();
+}
+
+/** Fetch (and cache for an hour) the verification key Plaid names by `kid`; a failed lookup is cached for a minute. */
 export const fetchPlaidVerificationKey: PlaidKeyFetcher = async (kid) => {
   const hit = keyCache.get(kid);
   if (hit && Date.now() - hit.at < 60 * 60 * 1000) return hit.key;
+  const missedAt = missCache.get(kid);
+  if (missedAt !== undefined && Date.now() - missedAt < PLAID_KEY_MISS_TTL_MS) return null;
   try {
     const res = await getPlaidClient().webhookVerificationKeyGet({ key_id: kid });
     const key = res.data.key as unknown as PlaidVerificationKey;
     keyCache.set(kid, { key, at: Date.now() });
     return key;
   } catch {
+    if (missCache.size >= MISS_CACHE_MAX) {
+      const now = Date.now();
+      for (const [k, at] of missCache) if (now - at >= PLAID_KEY_MISS_TTL_MS) missCache.delete(k);
+      if (missCache.size >= MISS_CACHE_MAX) missCache.delete(missCache.keys().next().value as string);
+    }
+    missCache.set(kid, Date.now());
     return null;
   }
 };

@@ -1,3 +1,4 @@
+import { listingPublicPathFor } from "@/lib/listing-slug";
 import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import type { MockProperty } from "@/data/types";
@@ -268,7 +269,7 @@ export function resolveAdminPropertyRowPreview(row: AdminPropertyRow): MockPrope
 export function publicListingHrefForPropertyRow(row: AdminPropertyRow): string | null {
   const id = row.listingId;
   if (!id || id.startsWith("preview-") || id.startsWith("demo-")) return null;
-  return `/rent/listings/${id}`;
+  return listingPublicPathFor({ id, address: row.address });
 }
 
 export function mockToAdminRow(prop: MockProperty, listingId: string): AdminPropertyRow {

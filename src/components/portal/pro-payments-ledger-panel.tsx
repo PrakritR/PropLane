@@ -1424,7 +1424,7 @@ export function ManagerPaymentsLedgerPanel({
             {roomLabel ? <RecordFactRow label="Room" value={roomLabel} /> : null}
             <RecordFactRow label="Charge" value={row.chargeTitle} />
             {charge?.paidNote ? <RecordFactRow label="Note" value={charge.paidNote} /> : null}
-            {row.voided ? <RecordFactRow label="Void" value={`${row.voidReason ?? "Voided"} (was ${row.voidedLineAmount ?? ""}; no money was refunded)`} /> : null}
+            {row.voided ? <RecordFactRow label="Void" value={`${row.voidReason ?? "Voided"} (was ${row.voidedLineAmount ?? ""}; reversed in the books, no money moved)`} /> : null}
             {row.holdLabel && !row.voided ? <RecordFactRow label="Hold" value={row.holdLabel} /> : null}
             {row.notes ? <RecordFactRow label="Details" value={row.notes} /> : null}
             {row.residentChargeMessages?.map((message) => <RecordFactRow key={message.id} label={formatPacificDateTime(message.sentAt)} value={message.body} />)}
@@ -2444,25 +2444,26 @@ export function ManagerPaymentsLedgerPanel({
         onClose={() => setVoidRow(null)}
         primaryAction={{
           label: voidBusy ? "Voiding…" : "Void charge",
+          disabled: voidBusy || Boolean(voidRow && hasProviderRefundSource(voidRow)),
           onClick: async () => {
             const target = voidRow;
             if (!target?.householdChargeId || voidBusy) return;
             if (voidReason.trim().length < 3) { showToast("Give a reason for voiding."); return; }
-            const providerPayment = hasProviderRefundSource(target);
+            if (hasProviderRefundSource(target)) { showToast("A real card or bank payment is behind this charge. Use Refund instead."); return; }
             setVoidBusy(true);
             const result = await voidHouseholdCharge(target.householdChargeId, voidReason);
             setVoidBusy(false);
             if (!result.ok) { showToast(result.error); return; }
             setVoidRow(null);
             onRowsChanged?.();
-            showToast(providerPayment ? "Charge voided. The card payment was not refunded: use Refund separately." : "Charge voided.");
+            showToast("Charge voided.");
           },
         }}
       >
         <div className="space-y-3" data-attr="void-charge-dialog">
           {voidRow && hasProviderRefundSource(voidRow) ? (
             <p className="text-sm font-medium text-foreground" data-attr="void-charge-no-refund">
-              A real card or bank payment is behind this charge. Voiding does not refund it; use Refund for the money.
+              A real card or bank payment is behind this charge, so it cannot be voided. Use Refund to return the money.
             </p>
           ) : null}
           <label className="block text-sm" data-attr="void-charge-reason">

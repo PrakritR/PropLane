@@ -14,6 +14,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HouseholdCharge } from "@/lib/household-charges";
+import { jsonEqual } from "@/lib/write-skip";
 import {
   cancelFuturePaymentRemindersForCharge,
   restoreFuturePaymentRemindersForCharge,
@@ -42,6 +43,31 @@ export type UpsertManagerChargesOptions = {
   trustRowManagerUserId?: boolean;
 };
 
+/** True when the stored row already holds exactly what an upsert would write (every column but `updated_at`). */
+export function householdChargeRowUnchanged(
+  stored: Record<string, unknown> | undefined,
+  next: {
+    manager_user_id: unknown;
+    resident_user_id: unknown;
+    resident_email: unknown;
+    property_id: unknown;
+    kind: unknown;
+    status: unknown;
+    row_data: unknown;
+  },
+): boolean {
+  if (!stored) return false;
+  return (
+    stored.manager_user_id === next.manager_user_id &&
+    stored.resident_user_id === next.resident_user_id &&
+    stored.resident_email === next.resident_email &&
+    stored.property_id === next.property_id &&
+    stored.kind === next.kind &&
+    stored.status === next.status &&
+    jsonEqual(stored.row_data, next.row_data)
+  );
+}
+
 /**
  * Upsert household charge rows for a manager. `managerUserId` MUST come from
  * the authenticated context (route session / AgentContext), never from client
@@ -69,13 +95,15 @@ export async function upsertManagerCharges(
 
   const chargeIds = normalizedCharges.filter((c) => c.id).map((c) => String(c.id));
   const previousStatusById = new Map<string, string | null>();
+  const storedById = new Map<string, Record<string, unknown>>();
   if (chargeIds.length > 0) {
     const { data: existingRows } = await db
       .from("portal_household_charge_records")
-      .select("id, status")
+      .select("id, status, manager_user_id, resident_user_id, resident_email, property_id, kind, row_data")
       .in("id", chargeIds);
     for (const row of existingRows ?? []) {
       previousStatusById.set(String(row.id), typeof row.status === "string" ? row.status : null);
+      storedById.set(String(row.id), row as Record<string, unknown>);
     }
   }
 
@@ -97,7 +125,15 @@ export async function upsertManagerCharges(
     }));
   if (rows.length === 0) return;
 
-  const { error } = await db.from("portal_household_charge_records").upsert(rows, { onConflict: "id" });
+  // A mirror that re-sends an unchanged charge must not rewrite the row (164 ms update on production, plus a
+  // ledger resync and a transition event stamped with a fresh `now`). Only changed or new rows continue.
+  const changedIds = new Set(
+    rows.filter((row) => !householdChargeRowUnchanged(storedById.get(row.id), row)).map((row) => row.id),
+  );
+  if (changedIds.size === 0) return;
+  const changedRows = rows.filter((row) => changedIds.has(row.id));
+
+  const { error } = await db.from("portal_household_charge_records").upsert(changedRows, { onConflict: "id" });
   if (error) throw new Error(error.message);
   await reconcileDuplicateHouseholdChargeRecords(
     db,
@@ -107,6 +143,7 @@ export async function upsertManagerCharges(
   for (const c of normalizedCharges) {
     if (!c.id) continue;
     const chargeId = String(c.id);
+    if (!changedIds.has(chargeId)) continue;
     const nextStatus = typeof c.status === "string" ? c.status : null;
     if (!nextStatus) continue;
     const managerId = resolveManagerId(c);

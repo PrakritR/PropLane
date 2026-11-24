@@ -20,6 +20,8 @@ export async function GET(req: Request) {
     .eq("purpose", "bank_feed")
     .in("status", ["active", "error"])
     .not("bank_account_id", "is", null)
+    // Least recently ATTEMPTED first (success or failure), so items that keep failing rotate fairly.
+    .order("last_sync_attempt_at", { ascending: true, nullsFirst: true })
     .order("last_synced_at", { ascending: true, nullsFirst: true })
     .limit(200);
   if (error) return NextResponse.json({ error: "Could not list items." }, { status: 503, headers: { "Cache-Control": "no-store" } });

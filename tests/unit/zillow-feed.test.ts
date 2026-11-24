@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { listingUrlRe } from "./listing-url-matcher";
 import { buildZillowRentalFeedXml } from "@/lib/listing-syndication/zillow-feed";
 import type { MockProperty } from "@/data/types";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -114,7 +115,7 @@ describe("buildZillowRentalFeedXml", () => {
     expect(xml).toContain("<numFullBaths>2</numFullBaths>");
     expect(xml).toContain("<squareFeet>1200</squareFeet>");
     expect(xml).toContain('<ListingPhoto source="https://cdn.proplane.test/photo1.jpg"/>');
-    expect(xml).toContain("<listingUrl>https://prop-lane.space/rent/listings/prop-1</listingUrl>");
+    expect(xml).toMatch(new RegExp(`<listingUrl>${listingUrlRe("https://prop-lane.space", "prop-1").source}</listingUrl>`));
   });
 
   it("never emits houseVideoDataUrl even when the projected submission carries one", () => {

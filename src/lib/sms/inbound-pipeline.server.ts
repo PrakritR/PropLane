@@ -38,6 +38,7 @@ import {
   type ServiceWorkspaceRef,
 } from "@/lib/sms/service-manager-inbound.server";
 import { startsWithAssistantAddress, stripAssistantAddress } from "@/lib/sms/team-chat-routing";
+import { resolveSenderContext, type SenderContextOutcome } from "@/lib/sms/sender-context.server";
 import {
   deliverManagerSmsReply,
   runManagerSmsAgentTurn,
@@ -1155,7 +1156,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     let teamRoute: Awaited<ReturnType<typeof routeManagerInboundText>>;
     // A PropLane Service sender (staff seat or admin) texts about ONE managed workspace, picked below. The pick comes
     // first so the text is then routed exactly as a self-serve manager's text to their work number is.
-    let serviceTarget: { workspace: ServiceWorkspaceRef; seat: ServiceSeat | null } | null = null;
+    let serviceTarget: { workspace: ServiceWorkspaceRef; seat: ServiceSeat | null; readOnly?: boolean } | null = null;
     // Set when this text only answered "Is this about A or B?": the request that question interrupted runs in its place.
     let serviceReplayed = false;
     const answerServiceQuestion = async (reply: string): Promise<NextResponse> => {
@@ -1174,8 +1175,107 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       }
       return twimlOk();
     };
+    // Which hat is this verified sender wearing? A sender with several contexts (their own workspaces, PropLane-managed ones
+    // they staff, a home they rent, admin) is routed by switch words, a named home, the workspace of the notice they are
+    // answering, their last pick, or ONE question (`sender-context.ts`). A one-context sender is `unchanged`. Never throws.
+    let senderRun: Extract<SenderContextOutcome, { kind: "run" }> | null = null;
+    const addressedForContext = startsWithAssistantAddress(body) ? stripAssistantAddress(body) : body;
+    if (stripTeamAddress(body) === null) {
+      const sender = await resolveSenderContext(db, {
+        actorUserId: managerInbound.actorUserId,
+        fromPhone,
+        body: addressedForContext,
+        messageSid,
+        numberWorkspaceId: onPropLaneLine ? null : (workspaceId ?? null),
+      });
+      if (sender.kind === "reply") {
+        // The text (or the menu request) is kept in their Assistant thread; the answer to our question replays it.
+        await projectClassifiedInbound(db, {
+          managerUserId: managerId,
+          role: "manager",
+          counterpartyUserId: managerInbound.actorUserId,
+          fromPhone,
+          toPhone,
+          messageSid,
+          body: addressedForContext,
+          occurredAt,
+          workspaceId: workspaceId ?? null,
+        }).catch((error) => console.error("manager inbound projection failed", error instanceof Error ? error.message : "unknown"));
+        return answerServiceQuestion(sender.text);
+      }
+      if (sender.kind === "run") senderRun = sender;
+    }
+    // The PropLane line's own picker still decides an admin who named no workspace; every other pick is made above.
+    const senderOwnPath = Boolean(senderRun && !(senderRun.resolved.context.kind === "admin" && !senderRun.resolved.workspace && serviceManager));
+    if (senderRun && senderRun.resolved.context.kind === "resident") {
+      // The resident registry, never the manager's: the same context + turn a resident's own text gets, scoped to the
+      // landlord of THAT residency (re-checked inside `resolveResidentSmsAgentContext`: verified phone, resident role,
+      // this landlord is one of their managers). The reply leaves on the line they texted.
+      const residency = senderRun.resolved.context;
+      const residentContext = await resolveResidentSmsAgentContext(db, { fromPhone, ownerManagerUserId: residency.ownerUserId });
+      if (!residentContext.ok) return answerServiceQuestion("I could not open your resident account just now. Try again in a minute.");
+      const residentTurn = await runResidentSmsAgentTurn(db, {
+        ctx: residentContext.ctx,
+        ownerManagerUserId: residency.ownerUserId,
+        residentPhoneE164: normalizeE164(fromPhone) ?? fromPhone,
+        inboundText: senderRun.body,
+        inboundMessageSid: messageSid,
+      }).catch((error: unknown) => {
+        console.error("sender-context resident turn failed", error instanceof Error ? error.name : "unknown");
+        return null;
+      });
+      await db.from("inbound_sms_log").delete().eq("message_sid", messageSid).eq("manager_user_id", managerId);
+      if (!residentTurn?.reply) {
+        await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+        return NextResponse.json({ error: "Resident assistant turn unavailable." }, { status: 503 });
+      }
+      const residentReply = stripLongDashes(`${senderRun.tag ? `${senderRun.tag} ` : ""}${residentTurn.reply}`);
+      const preparedResident = await prepareInboundReply(db, {
+        messageSid,
+        workerId: inboundWorkerId,
+        routeKind: "manager_agent",
+        counterpartyUserId: managerInbound.actorUserId,
+        agentSessionId: residentTurn.sessionId,
+        inboundAgentMessageId: residentTurn.inboundMessageId,
+        assistantAgentMessageId: residentTurn.assistantMessageId,
+        pendingActionId: residentTurn.pendingActionId,
+        turnTraceId: residentTurn.traceId,
+        replyBody: residentReply,
+      });
+      if (!preparedResident) {
+        await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+        return NextResponse.json({ error: "Reply preparation failed." }, { status: 503 });
+      }
+      const residentDelivered = await deliverManagerSmsReply({
+        managerUserId: managerInbound.workNumberOwnerId,
+        actorUserId: managerInbound.actorUserId,
+        toPhone: fromPhone,
+        text: residentReply,
+        workNumber,
+        inboundMessageSid: messageSid,
+        traceId: residentTurn.traceId,
+        workspaceId: workspaceId ?? null,
+        bubbles: feel.bubbleReplies,
+        inboundText: senderRun.body,
+      });
+      return finishPreparedDelivery(
+        {
+          status: "processing",
+          routeKind: "manager_agent",
+          counterpartyUserId: managerInbound.actorUserId,
+          agentSessionId: residentTurn.sessionId,
+          inboundAgentMessageId: residentTurn.inboundMessageId ?? null,
+          assistantAgentMessageId: residentTurn.assistantMessageId ?? null,
+          pendingActionId: residentTurn.pendingActionId ?? null,
+          turnTraceId: residentTurn.traceId ?? null,
+          replyBody: residentReply,
+          outboxId: null,
+        },
+        residentDelivered,
+      );
+    }
     try {
-      if (serviceManager) {
+      if (serviceManager && !senderOwnPath) {
         // Which PropLane Service workspace is this about? A name in the text, the last pick, or one short question. An admin
         // picks among every service workspace; a seat holder among the workspaces they hold a seat on.
         const workspaces = await listServiceWorkspacesFor(db, serviceManager).catch(() => null);
@@ -1236,6 +1336,44 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
               messageSid: picked.replay?.messageSid ?? messageSid,
             })
           : { kind: "agent", text: startsWithAssistantAddress(routedBody) ? stripAssistantAddress(routedBody) : routedBody };
+      } else if (senderRun && senderOwnPath && senderRun.resolved.context.kind !== "resident") {
+        // A context the sender chose (or we resolved) other than the number's own: manager of a workspace of theirs, a
+        // seat, or admin over PropLane-managed workspaces. The text is then routed exactly as that workspace's own
+        // manager's text is (its Team chat grant gates, then the manager registry for THAT workspace).
+        const { context, workspace: adminWorkspace } = senderRun.resolved;
+        let target: { workspace: ServiceWorkspaceRef; seat: ServiceSeat | null; readOnly?: boolean } | null = null;
+        if (context.kind === "manager") {
+          const ref: ServiceWorkspaceRef = { id: context.workspaceId, name: context.name, ownerUserId: context.ownerUserId, isDefault: context.isDefault };
+          // An owner's workspace is theirs only when they ARE its owner (never a body-supplied id); a seat is re-derived.
+          if (context.basis === "owner" && context.ownerUserId !== managerInbound.actorUserId) throw new Error("sender context: not the owner");
+          target = { workspace: ref, seat: context.basis === "seat" ? { workspace: ref, viewerRole: context.viewerSeat } : null };
+        } else if (context.kind === "admin") {
+          // Admin by text reads and never writes, except on the PropLane line where the coded confirmation guards a write.
+          const readOnly = !onPropLaneLine;
+          let chosen = adminWorkspace;
+          if (!chosen) {
+            const pick = await pickServiceWorkspaceForText(db, { fromPhone, body: addressedForContext, originalBody: body, messageSid, workspaces: context.workspaces });
+            if (pick.kind !== "chosen") {
+              return answerServiceQuestion(pick.kind === "ask" ? pick.question : "There are no PropLane Service workspaces yet.");
+            }
+            chosen = pick.workspace;
+            if (pick.replay) senderRun = { ...senderRun, body: pick.replay.body };
+          }
+          target = { workspace: chosen, seat: null, readOnly };
+        }
+        if (!target) throw new Error("sender context: no target");
+        serviceTarget = target;
+        const routedBody = senderRun.body;
+        const teamBody = stripTeamAddress(routedBody);
+        teamRoute = teamBody
+          ? await routeManagerInboundText(db, {
+              ownerManagerUserId: target.workspace.ownerUserId,
+              workspaceId: target.workspace.id,
+              actorUserId: managerInbound.actorUserId,
+              body: teamBody,
+              messageSid,
+            })
+          : { kind: "agent", text: startsWithAssistantAddress(routedBody) ? stripAssistantAddress(routedBody) : routedBody };
       } else {
         teamRoute = await routeManagerInboundText(db, {
           ownerManagerUserId: managerInbound.workNumberOwnerId,
@@ -1281,12 +1419,14 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       workspaceId: workspaceId ?? null,
     }).catch((error) => console.error("manager inbound projection failed", error instanceof Error ? error.message : "unknown"));
     let managerIdentity: Awaited<ReturnType<typeof resolveManagerSmsAgentContext>>;
-    if (serviceManager && serviceTarget) {
+    if ((serviceManager || senderRun) && serviceTarget) {
       const built = await buildServiceManagerAgentContext(db, { serviceOwnerId: managerInbound.actorUserId, workspace: serviceTarget.workspace, seat: serviceTarget.seat });
       if (!built.ok && built.reason === "no_houses") {
         return answerServiceQuestion(`I do not see any houses assigned to you in ${serviceTarget.workspace.name}.`);
       }
-      managerIdentity = built;
+      managerIdentity = built.ok && serviceTarget.readOnly && built.ctx.managerSmsAccess
+        ? { ok: true, ctx: { ...built.ctx, managerSmsAccess: { ...built.ctx.managerSmsAccess, readOnly: true as const } } }
+        : built;
     } else {
       managerIdentity = await resolveManagerSmsAgentContext(db, {
         managerUserId: managerInbound.workNumberOwnerId,
@@ -1304,7 +1444,9 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
           ownerUserId: managerInbound.actorUserId,
           // A platform admin texting the PropLane line talks to THEIR OWN Assistant (their default workspace's chat),
           // not to a chat in the service owner's workspace the line happens to belong to.
-          workspaceId: serviceManager?.basis === "admin" ? null : (workspaceId ?? null),
+          workspaceId: senderRun
+            ? (senderRun.resolved.context.kind === "manager" ? senderRun.resolved.context.workspaceId : null)
+            : serviceManager?.basis === "admin" ? null : (workspaceId ?? null),
           messageId: `sms_in_${messageSid}`,
           author: "manager",
           body: recordedBody,
@@ -1406,6 +1548,8 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     // end-to-end harness).
     let managerClaimFinished = false;
     if (turn?.reply) {
+      // The context was chosen or changed on this text: say which one answered ("Manager · 1. Ambika:").
+      if (senderRun?.tag) turn.reply = `${senderRun.tag} ${turn.reply}`;
       const prepared = await prepareInboundReply(db, {
         messageSid,
         workerId: inboundWorkerId,

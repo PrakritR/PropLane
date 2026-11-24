@@ -230,7 +230,9 @@ export async function claimPlaidSync(db: SupabaseClient, id: string, holdSeconds
   const until = new Date(now.getTime() + holdSeconds * 1000).toISOString();
   const { data, error } = await db
     .from("plaid_items")
-    .update({ sync_lock_until: until })
+    // The claim IS the attempt: stamped whether the sync then succeeds or fails, so the cron's catch-up
+    // can rotate a persistently failing item behind the others instead of retrying it first every day.
+    .update({ sync_lock_until: until, last_sync_attempt_at: now.toISOString() })
     .eq("id", id)
     .or(`sync_lock_until.is.null,sync_lock_until.lt.${now.toISOString()}`)
     .select("id");
@@ -268,4 +270,30 @@ export async function removePlaidItemsForOwner(
   } catch {
     /* Plaid disabled or unreadable: the manifest still deletes the rows. */
   }
+}
+
+/**
+ * True when this bank account was fed by an Item that has since been revoked, and that Item was the same
+ * institution and account mask as `item`. That is a relink: Plaid mints fresh transaction ids for the new
+ * Item and replays history, so the lines it brings may already sit in the statements under the old ids.
+ * Unknown mask/institution (not supplied) answers false: nothing is deduped on a guess.
+ */
+export async function isRelinkAfterRevoke(
+  db: SupabaseClient,
+  item: { id?: string; owner_user_id: string; bank_account_id: string | null; account_mask?: string | null; institution_name?: string | null },
+): Promise<boolean> {
+  if (!item.bank_account_id || item.account_mask === undefined || item.institution_name === undefined) return false;
+  const { data, error } = await db
+    .from("plaid_items")
+    .select("id, account_mask, institution_name")
+    .eq("owner_user_id", item.owner_user_id)
+    .eq("bank_account_id", item.bank_account_id)
+    .eq("purpose", "bank_feed")
+    .eq("status", "revoked")
+    .limit(20);
+  if (error) throw new Error(error.message);
+  const norm = (v: unknown) => String(v ?? "").trim().toLowerCase();
+  return ((data ?? []) as { id: string; account_mask: string | null; institution_name: string | null }[]).some(
+    (r) => r.id !== item.id && norm(r.account_mask) === norm(item.account_mask) && norm(r.institution_name) === norm(item.institution_name),
+  );
 }

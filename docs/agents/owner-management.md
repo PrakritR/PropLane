@@ -176,6 +176,22 @@ Listed, not built: document vault with expiry reminders, maintenance history wit
 rent / vacancy recommendations from market data, annual inspection link, owner card-on-file expense collection, per-owner payout
 schedule and instant payouts, trust-account adoption (see below), tour-host / cleaning fee triggers beyond the generic vendor-charge API, autopay-specific tests.
 
+## Changing the bank an owner is paid to
+
+Settings > Balance & payouts > Payout method has a **Change bank** icon action (`PortalPayoutMethodCard`) that asks
+`POST /api/stripe/connect/change-bank` (`planBankChange`, `src/lib/stripe-connect-bank-change.ts`). The owner and the
+account come from the session; PropLane staff in a managed workspace resolve to no account and instead get **Send link
+to change bank** (the existing owner setup email). An application-collected account (`stripe_dashboard.type: "none"`)
+answers `in_app` and the card opens PropLane's own add-bank sheet. A **legacy Express account** (Stripe collects
+requirements) cannot use any embedded component (`createAccountSession` refuses it, `CONNECT_ACCOUNT_NOT_EMBEDDABLE`) -
+that refusal, shown nowhere, was the "Stripe onboarding errors out" on Ambika - so it goes to Stripe's hosted page: the
+Express dashboard login link, else an Account Link (`account_update`; `account_onboarding` while details are not
+submitted). Return and refresh URLs are built on `resolveAppOrigin(req)` (canonical origin, localhost on localhost) and
+land on `/portal/profile?tab=payments&bank=returned|refresh`; the card re-reads the external account (bank name + last 4
+only) on return and shows a real message for any failure, never a blank. Payout schedule: accounts are created weekly
+(Mondays) unless `MANUAL_PAYOUT_POLICY_ENABLED` is on (withdraw-only, default OFF); the card shows the schedule, with a
+Manual row when the account is manual. Nothing here changes a schedule.
+
 ## Legal and compliance flag (read before any production use)
 
 **Holding owners' rent is regulated.** Washington RCW 18.85 (real estate brokerage and property management licensing) and

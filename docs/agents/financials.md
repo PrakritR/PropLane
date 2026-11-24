@@ -173,21 +173,22 @@ and the budget is NOT released) or `review`. The deposit disposition keeps its o
 or all 12 reviewed migrations, and nothing else
 (`scripts/identity-deposit-release-manifest.mjs`).
 
-**Voiding a PAID charge is the undo that moves no money** (`voidPaidCharge`,
+**Voiding a PAID charge is the undo for a charge recorded in error, and it moves no money** (`voidPaidCharge`,
 `src/lib/household-charge-void.server.ts`; `action: "voidCharge"` on
-`/api/portal-household-charges`). Owner only — the signed-in user must BE the row's
-`manager_user_id` (the workspace owner, or the service owner on a managed workspace), never a
-co-manager, a Property owner seat or a resident — and a 3-300 character reason is required. It
-never deletes and never refunds: the row stays at `status: "void"` with `voidedAt` / `voidedBy` /
-`voidReason`, one `audit_log` `charge_voided` row is written FIRST (nothing moves if it cannot
-be), and the books get a balanced reversal plus the removal of the charge's own `entry_type =
-"charge"` ledger line (`voidLedgerEntriesForCharge`). Refused: anything not `paid`, a
-`security_deposit` (return it through Return deposit), and a charge that already carries a
-refund. Idempotent — voiding a void charge re-runs only the ledger step, so a half-finished void
-repairs. `void` is sticky everywhere after that: the full-list mirror will not take a `void` row
-back to `pending`, and `buildRentDueSummary` skips it like `cancelled`. A real card/bank payment
-behind the charge is reported as `providerPayment` so the UI can say the money is still with the
-resident's payment, not returned.
+`/api/portal-household-charges`; ⋯ menu on the row and the record header action). Owner only — the signed-in
+user must BE the row's `manager_user_id` (the workspace owner, or the service owner on a managed workspace), never a
+co-manager, a Property owner seat or a resident — and a 3-300 character reason is required. It never deletes and
+never refunds: the row stays at `status: "void"` with `voidedAt` / `voidedBy` / `voidReason` / `voidReceiptReversed`,
+one `audit_log` `charge_voided` row is written FIRST (nothing moves if it cannot be), and the books get balanced
+REVERSING journals for the charge and for its hand-recorded receipt (the originals stay), plus removal of that
+charge's `charge` and `payment` `ledger_entries` lines (`voidLedgerEntriesForCharge`), so "paid" and "received" both
+drop and a duplicate month reads once. Refused: anything not `paid`, a `security_deposit` (Return deposit), a charge
+that already carries a refund, and **any charge Stripe captured money for** (`chargeCapturedProviderMoney`: a
+Checkout session without a hand-recorded method, or a ledger payment line carrying a Stripe session/charge id; an
+unreadable ledger counts as captured) - 409, "use Refund"; Void never leaves cash and the books out of step. Idempotent —
+voiding a void charge re-runs only the ledger step (and reverses the receipt only for a void that did:
+`voidReceiptReversed`), so a half-finished void repairs. `void` is sticky everywhere after that: the full-list mirror
+will not take a `void` row back to `pending`, and `buildRentDueSummary` skips it like `cancelled`.
 
 **Deleting a charge deletes its ledger line — and only that line.**
 `deleteLedgerEntriesForCharge` (`ledger-sync.ts`) removes the `entry_type = "charge"`
@@ -530,7 +531,7 @@ deletion (`ACCOUNT_PURGE_RETAINED`). Migration
   counted `stuck`, not `failed`, so it reads as needing a human.
 - **Notifications** ride the action-event spine (`domain: "vendor_banking"`, `vendor-banking/events.server.ts`, filed under the vendor's Payments topic): payout paid / failed / returned, bank removed, bank needs verification, account restricted, refund sent (vendor) / received (manager), dispute opened / closed, money held with no bank. Idempotent on a deterministic event id; never throws into a money path. Vendor-only moments are sent as the vendor's latest paying manager.
 
-**Withdraw-only manager payouts (`MANUAL_PAYOUT_POLICY_ENABLED`, `src/lib/manual-payout-policy-flag.ts`)** is a separate, **default OFF** flag whose own doc comment is the contract. On, a new manager Connect account is created on manual payouts and the hourly `/api/cron/manual-payout-policy` job converts the existing ones in bounded, resumable batches (`ensureManualPayoutPolicy` is withdraw-only: it never touches a bank destination, skips test workspaces, and re-running it leaves an already-manual account alone), and both schedule routes (`/api/stripe/payouts/schedule`, `/api/vendor/payouts/schedule`) answer **422** "Payouts are withdrawal-only." to anything but `manual`. Off keeps today's split - vendors on manual, managers on weekly Friday deposits.
+**Withdraw-only manager payouts (`MANUAL_PAYOUT_POLICY_ENABLED`, `src/lib/manual-payout-policy-flag.ts`)** is a separate, **default OFF** flag whose own doc comment is the contract. On, a new manager Connect account is created on manual payouts and the hourly `/api/cron/manual-payout-policy` job converts the existing ones in bounded, resumable batches (`ensureManualPayoutPolicy` is withdraw-only: it never touches a bank destination, skips test workspaces, and re-running it leaves an already-manual account alone), and both schedule routes (`/api/stripe/payouts/schedule`, `/api/vendor/payouts/schedule`) answer **422** "Payouts are withdrawal-only." to anything but `manual`. Off keeps today's split - vendors on manual, managers on weekly Monday deposits (`DEFAULT_AUTOMATIC_PAYOUT_SCHEDULE`).
 
 # Financials Phase 5: AP bills, budgets, owner statements
 

@@ -93,6 +93,27 @@ describe("applyPlaidChanges", () => {
     expect(tables.manager_bank_statement_lines!.some((l) => l.id === "l-theirs")).toBe(true);
   });
 
+  it("moves a modified line to the statement for its new month, never into a reconciled one", async () => {
+    const { db, tables } = createFakeDb({
+      manager_bank_statements: [
+        { id: "s-oct", manager_user_id: "u1", bank_account_id: "ba-1", statement_date: "2026-10-31", reconciled_at: null, source: "plaid_feed" },
+        { id: "s-nov-done", manager_user_id: "u1", bank_account_id: "ba-1", statement_date: "2026-11-30", reconciled_at: "2026-12-01", source: "manual" },
+      ],
+      manager_bank_statement_lines: [
+        { id: "l", statement_id: "s-oct", line_date: "2026-10-31", plaid_transaction_id: "t", amount_cents: -100, cleared: false, matched_ledger_entry_id: null, matched_expense_entry_id: null },
+      ],
+    });
+    await applyPlaidChanges(db, item, { added: [], modified: [txn("t", "2026-11-02", 9)], removed: [] });
+    const line = tables.manager_bank_statement_lines![0]!;
+    expect(line).toMatchObject({ line_date: "2026-11-02", amount_cents: -900 });
+    expect(line.statement_id).not.toBe("s-oct");
+    expect(line.statement_id).not.toBe("s-nov-done");
+    expect(tables.manager_bank_statements!.find((s) => s.id === line.statement_id)).toMatchObject({ statement_date: "2026-11-30", source: "plaid_feed" });
+    // Same month: stays put.
+    await applyPlaidChanges(db, item, { added: [], modified: [txn("t", "2026-11-05", 9)], removed: [] });
+    expect(tables.manager_bank_statements).toHaveLength(3);
+  });
+
   it("does not rewrite a matched line when Plaid modifies it", async () => {
     const { db, tables } = createFakeDb({
       manager_bank_statements: [{ id: "s", manager_user_id: "u1", reconciled_at: null }],
@@ -138,5 +159,68 @@ describe("syncPlaidItem", () => {
     expect(result.status).toBe("error");
     expect(tables.plaid_items![0]).toMatchObject({ status: "error" });
     expect(tables.plaid_items![0]!.transactions_cursor ?? null).toBeNull();
+  });
+});
+
+describe("relink after revoke", () => {
+  const relinked = { ...item, id: "p2", institution_name: "Chase", account_mask: "1234" };
+  const seed = () =>
+    createFakeDb({
+      plaid_items: [{ id: "p1", owner_user_id: "u1", bank_account_id: "ba-1", purpose: "bank_feed", status: "revoked", institution_name: "Chase", account_mask: "1234" }],
+      manager_bank_statements: [{ id: "s-nov", manager_user_id: "u1", bank_account_id: "ba-1", statement_date: "2026-11-30", reconciled_at: null, source: "plaid_feed" }],
+      manager_bank_statement_lines: [
+        { id: "old1", statement_id: "s-nov", line_date: "2026-11-02", amount_cents: -1000, description: "Txn a", plaid_transaction_id: "old-a", cleared: false },
+        { id: "old2", statement_id: "s-nov", line_date: "2026-11-03", amount_cents: -500, description: "Coffee  Shop", plaid_transaction_id: "old-b", cleared: false },
+      ],
+    });
+
+  it("does not double-post history the revoked Item already posted", async () => {
+    const { db, tables } = seed();
+    const result = await applyPlaidChanges(db, relinked, {
+      added: [txn("new-a", "2026-11-02", 10, { name: "TXN A" }), txn("new-b", "2026-11-03", 5, { name: "coffee shop" }), txn("new-c", "2026-11-04", 7)],
+      modified: [],
+      removed: [],
+    });
+    expect(result).toMatchObject({ added: 1, skipped: 2 });
+    expect(tables.manager_bank_statement_lines).toHaveLength(3);
+    expect(tables.manager_bank_statement_lines!.some((l) => l.plaid_transaction_id === "new-c")).toBe(true);
+  });
+
+  it("matches each old line once, so a genuine second identical purchase still lands", async () => {
+    const { db, tables } = seed();
+    const result = await applyPlaidChanges(db, relinked, {
+      added: [txn("new-a1", "2026-11-02", 10, { name: "Txn a" }), txn("new-a2", "2026-11-02", 10, { name: "Txn a" })],
+      modified: [],
+      removed: [],
+    });
+    expect(result).toMatchObject({ added: 1, skipped: 1 });
+    expect(tables.manager_bank_statement_lines).toHaveLength(3);
+  });
+
+  it("dedupes nothing when no revoked Item shares the institution and mask", async () => {
+    const { db } = seed();
+    const result = await applyPlaidChanges(db, { ...relinked, account_mask: "9999" }, { added: [txn("n", "2026-11-02", 10, { name: "Txn a" })], modified: [], removed: [] });
+    expect(result.added).toBe(1);
+  });
+});
+
+describe("syncPlaidItem bookkeeping", () => {
+  it("stamps the attempt on success and on failure, and logs a secret-safe failure", async () => {
+    const fake = createFakeDb();
+    const row = await createPlaidItem(fake.db, { ownerUserId: "u1", purpose: "bank_feed", itemId: "i1", accessToken: "access-x", plaidAccountId: "acc-1", bankAccountId: "ba-1" });
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn2 = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const failing = vi.fn().mockRejectedValue(Object.assign(new Error("boom access-x"), { config: { headers: { secret: "S3CRET" } } }));
+    await syncPlaidItem(fake.db, row, { client: { transactionsSync: failing } as never });
+    expect(typeof fake.tables.plaid_items![0]!.last_sync_attempt_at).toBe("string");
+    const logged = JSON.stringify([...warn.mock.calls, ...warn2.mock.calls]);
+    expect(logged).toContain("[plaid] sync failed");
+    expect(logged).not.toContain("S3CRET");
+    warn.mockRestore();
+    warn2.mockRestore();
+    fake.tables.plaid_items![0]!.last_sync_attempt_at = null;
+    const ok = vi.fn().mockResolvedValue({ data: { added: [], modified: [], removed: [], next_cursor: "c", has_more: false } });
+    await syncPlaidItem(fake.db, { ...row, status: "active" }, { client: { transactionsSync: ok } as never });
+    expect(typeof fake.tables.plaid_items![0]!.last_sync_attempt_at).toBe("string");
   });
 });

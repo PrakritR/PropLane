@@ -79,7 +79,7 @@ describe("listing price card CTAs", () => {
   it("offers Tour and Book even when the manager can be texted", () => {
     render(<ListingDetailSections property={property(WORK_NUMBER)} rich={rich} />);
     expect(screen.getAllByText("Tour").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Book").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Apply").length).toBeGreaterThan(0);
     expect(screen.queryByText("Apply long term")).toBeNull();
     expect(screen.queryByText("Text to tour")).toBeNull();
     expect(screen.queryByText("Text to book")).toBeNull();
@@ -98,7 +98,7 @@ describe("listing price card CTAs", () => {
     expect(screen.queryByText(/^Text\b/)).toBeNull();
     expect(document.querySelector('[data-attr="listing-text-tour"]')).toBeNull();
     expect(screen.getAllByText("Tour").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Book").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Apply").length).toBeGreaterThan(0);
   });
 });
 

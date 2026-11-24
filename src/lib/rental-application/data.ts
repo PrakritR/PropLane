@@ -1,3 +1,4 @@
+import { explainRoomDateConflict } from "@/lib/rental-application/room-conflict-explanation";
 import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import { nextDayKey, occupiedBedSpans, type RoomBedSpan } from "@/lib/room-occupancy-rule";
 import { freeingRoomStatus } from "@/lib/room-availability";
@@ -5,6 +6,8 @@ import { classifyRoomOpening } from "@/lib/room-availability-style";
 import { composePropertyTitle } from "@/lib/property-title";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { readPublicRoomOccupancy } from "@/lib/public-room-occupancy-client";
+import { publicRoomPick } from "@/lib/public-room-pick-availability";
+import { pacificTodayKey } from "@/lib/room-availability-range";
 import { mockProperties } from "@/data/mock-properties";
 import type { ListingRichContent } from "@/data/listing-rich-content";
 import type { MockProperty } from "@/data/types";
@@ -109,6 +112,13 @@ type RoomAvailabilityOptions = {
   leaseEnd?: string | null;
   excludeApplicationId?: string | null;
   includeUnavailable?: boolean;
+  /**
+   * Offer only the rooms the PUBLIC LISTING shows as available (open now, or opening on a date), judged by the
+   * listing's own predicate over the same anonymous occupancy: a room it calls "Leased until ..." or
+   * "Not available" is never offered, whatever dates the applicant has typed. Independent of the date-window
+   * check, which still applies on top.
+   */
+  listingOnly?: boolean;
   /**
    * The lease term the applicant (or manager) picked. When set, a room that
    * restricts the lease types it is offered on (`offeredLeaseTerms`) and does not
@@ -364,6 +374,43 @@ export function isRoomChoiceAvailable(
   }).hasRoom;
 }
 
+/**
+ * Why `roomChoiceValue` cannot be taken for the applicant's dates, in plain words, with the nearest workable
+ * dates and the other rooms free for the whole term. Built from the same windows and the same availability
+ * gate that refused the room, so the reason can never disagree with the refusal. Null when nothing overlaps.
+ */
+export function explainRoomChoiceConflict(
+  roomChoiceValue: string,
+  options: RoomAvailabilityOptions & { propertyId?: string | null; leaseTerm?: string | null } = {},
+): string | null {
+  const leaseStart = parseFlexibleLocalDate(options.leaseStart);
+  if (!leaseStart) return null;
+  const parsed = parseRoomChoiceValue(roomChoiceValue);
+  const propertyId = options.propertyId || parsed.propertyId;
+  const prop = propertyId ? getPropertyById(propertyId) : undefined;
+  const sub = prop?.listingSubmission?.v === 1 ? normalizeManagerListingSubmissionV1(prop.listingSubmission) : null;
+  const roomName = sub?.rooms.find((r) => r.id === parsed.listingRoomId)?.name.trim() || "That room";
+  const alternativeRooms = propertyId
+    ? getRoomOptionsForProperty(propertyId, {
+        leaseStart: options.leaseStart,
+        leaseEnd: options.leaseEnd,
+        leaseTerm: options.leaseTerm,
+        excludeApplicationId: options.excludeApplicationId,
+      })
+        .filter((o) => o.value !== roomChoiceValue)
+        .map((o) => o.label.split(" · ")[0]!.trim())
+    : [];
+  return (
+    explainRoomDateConflict({
+      roomName,
+      windows: getRoomUnavailabilityWindows(roomChoiceValue, { excludeApplicationId: options.excludeApplicationId }),
+      leaseStart,
+      leaseEnd: parseFlexibleLocalDate(options.leaseEnd) ?? null,
+      alternativeRooms,
+    })?.message ?? null
+  );
+}
+
 function pendingConflictForRoom(
   roomChoiceValue: string,
   leaseStart: string | null | undefined,
@@ -591,6 +638,40 @@ export function propertyAllowsAirbnbRental(propertyId: string): boolean {
   return Boolean(property?.listingSubmission?.airbnbRentalsAllowed);
 }
 
+type ListingPickRoom = Parameters<typeof publicRoomPick>[0];
+
+/** The listing's own availability decision for one room of a house, from the loaded public occupancy. */
+function listingRoomPick(propertyId: string, room: ListingPickRoom) {
+  const spans = isDemoModeActive() ? [] : (readPublicRoomOccupancy(`${propertyId}${LISTING_ROOM_CHOICE_SEP}${room.id}`) ?? []);
+  return publicRoomPick(room, spans, pacificTodayKey());
+}
+
+/**
+ * What the public listing says about the room behind a room choice ("Open now", "Opens Jan 1"), or null when the
+ * choice is not a listed room. The apply picker prints it beside the room so the date it offers is the listing's.
+ */
+export function listingRoomAvailabilityLabel(roomChoiceValue: string): string | null {
+  const parsed = parseRoomChoiceValue(roomChoiceValue);
+  if (!parsed.listingRoomId) return null;
+  const prop = getPropertyById(parsed.propertyId);
+  if (!prop?.listingSubmission || prop.listingSubmission.v !== 1) return null;
+  const room = normalizeManagerListingSubmissionV1(prop.listingSubmission).rooms.find((r) => r.id === parsed.listingRoomId);
+  return room ? listingRoomPick(prop.id, room).label : null;
+}
+
+/**
+ * True when a room may be PRESELECTED from a link: the listing shows it open now or opening within its own
+ * "soon" window. A room that opens months out, is leased, or is closed is left for the applicant to choose.
+ */
+export function listingRoomMayPreselect(roomChoiceValue: string): boolean {
+  const parsed = parseRoomChoiceValue(roomChoiceValue);
+  if (!parsed.listingRoomId) return true;
+  const prop = getPropertyById(parsed.propertyId);
+  if (!prop?.listingSubmission || prop.listingSubmission.v !== 1) return true;
+  const room = normalizeManagerListingSubmissionV1(prop.listingSubmission).rooms.find((r) => r.id === parsed.listingRoomId);
+  return room ? listingRoomPick(prop.id, room).tourable : true;
+}
+
 /** Rooms for the selected listing: manager submission rooms, else legacy one-row-per-unit in the same building. */
 export function getRoomOptionsForProperty(propertyId: string, options: RoomAvailabilityOptions = {}): { value: string; label: string }[] {
   const selected = getPropertyById(propertyId);
@@ -609,7 +690,8 @@ export function getRoomOptionsForProperty(propertyId: string, options: RoomAvail
         .filter((room) =>
         options.includeUnavailable ||
         isRoomChoiceAvailable(`${selected.id}${LISTING_ROOM_CHOICE_SEP}${room.id}`, room.availability, options),
-      );
+      )
+        .filter((room) => !options.listingOnly || listingRoomPick(selected.id, room)?.applicable !== false);
       return roomRows.map((r) => {
         const daily = roomDailyRentPrice(r);
         const rent = daily !== undefined ? `${formatRoomPriceAmount(daily)}/day` : r.monthlyRent > 0 ? `${formatRoomPriceAmount(r.monthlyRent)}/mo` : "Rent TBD";
@@ -752,7 +834,7 @@ export function firstChoiceRoomOptions(
     const canonical = canonicalRoomChoiceValue(keep);
     if (canonical && !rooms.some((r) => canonicalRoomChoiceValue(r.value) === canonical)) {
       // The applicant's own earlier pick stays selectable even if it does not offer this term.
-      const extra = getRoomOptionsForProperty(propertyId, { ...options, includeUnavailable: true, leaseTerm: undefined }).find(
+      const extra = getRoomOptionsForProperty(propertyId, { ...options, includeUnavailable: true, listingOnly: false, leaseTerm: undefined }).find(
         (r) => canonicalRoomChoiceValue(r.value) === canonical,
       );
       if (extra) rooms.push(extra);

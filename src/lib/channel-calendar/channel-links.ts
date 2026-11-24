@@ -78,19 +78,36 @@ export type ChannelStatusParts = {
   details: string[];
 };
 
+/** Agoda says its calendar connections "refresh several times a day": a full day of silence is not pulling. */
+export const AGODA_FEED_STALE_AFTER_MS = 24 * 60 * 60_000;
+
+/** Whether an Other calendar link is the Agoda row (named "Agoda", any case). */
+export function isAgodaSite(provider: ChannelCalendarProvider, label?: string | null): boolean {
+  return provider === "ical" && (label ?? "").trim().toLowerCase() === "agoda";
+}
+
 export function channelStatusParts(
   connection: ChannelConnectionStatus | null | undefined,
   now: Date = new Date(),
   provider: ChannelCalendarProvider = "airbnb",
   label?: string | null,
+  /**
+   * With a threshold the line is the platform's own truth: "Synced" only while the platform fetched PropLane inside
+   * it, "Not pulling" once it has been quiet longer, and "<Platform> has not fetched PropLane yet" before its first read.
+   */
+  opts?: { staleAfterMs?: number },
 ): ChannelStatusParts {
   const channel = channelCalendarProviderLabel(provider, label);
   if (!connection?.hasImportUrl) return { state: "Not linked", error: null, details: [] };
   const fetched = formatCheckedAt(connection.exportLastFetchedAt ?? null, now);
   const synced = formatCheckedAt(connection.lastSyncedAt, now);
   const error = connection.lastError?.trim().replace(/^Error:\s*/, "") || null;
+  const fetchedMs = connection.exportLastFetchedAt ? Date.parse(connection.exportLastFetchedAt) : NaN;
+  const truthful = opts?.staleAfterMs !== undefined;
+  const stale = truthful && Number.isFinite(fetchedMs) && now.getTime() - fetchedMs > (opts?.staleAfterMs ?? 0);
+  const waiting = truthful ? `${channel} has not fetched PropLane yet` : `Waiting for ${channel}`;
   return {
-    state: error ? "" : fetched ? "Synced" : `Waiting for ${channel}`,
+    state: error ? "" : fetched ? (stale ? "Not pulling" : "Synced") : waiting,
     error,
     details: [fetched && `${channel} ${fetched}`, synced && `PropLane ${synced}`].filter(
       (part): part is string => Boolean(part),
@@ -104,7 +121,8 @@ export function channelStatusLine(
   now: Date = new Date(),
   provider: ChannelCalendarProvider = "airbnb",
   label?: string | null,
+  opts?: { staleAfterMs?: number },
 ): string {
-  const parts = channelStatusParts(connection, now, provider, label);
+  const parts = channelStatusParts(connection, now, provider, label, opts);
   return [parts.error ? `Error: ${parts.error}` : parts.state, ...parts.details].filter(Boolean).join(" · ");
 }

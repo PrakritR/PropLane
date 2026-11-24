@@ -14,6 +14,7 @@ import {
   inboxThreadMessages,
   inboxThreadSortMs,
   mergeInboxReadSourceState,
+  mergeInboxSmsBindingKeys,
   type InboxThreadMessage,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
@@ -122,6 +123,20 @@ export function foldViewerSelfIntoAssistant(
     messages,
     unread: group.some((thread) => thread.folder === "inbox" && thread.unread),
   };
+  // The folded row must still JOIN the viewer's own text projection (keyed by their `tel:`), or it splits back out
+  // as a second row. Carry the group's binding keys as `collapsePersonInboxThreads` does, and, when the Assistant
+  // row has no conversation key of its own, the self row's (a `tel:` one first: that is what the projection joins on),
+  // so `emailThreadPersonKey` / `emailThreadJoinKeys` read the same values for the folded row.
+  const smsBindings = mergeInboxSmsBindingKeys(group);
+  const keyed = selfRows.filter((thread) => thread.conversationKey?.trim() && thread.workspaceId?.trim());
+  const joinSource = assistant.conversationKey?.trim()
+    ? null
+    : (keyed.find((thread) => thread.conversationKey!.startsWith("tel:")) ?? keyed.find((thread) => thread.conversationKey!.startsWith("mail:")) ?? keyed[0] ?? null);
+  Object.assign(folded, {
+    ...(joinSource ? { conversationKey: joinSource.conversationKey, workspaceId: joinSource.workspaceId } : {}),
+    smsConversationKey: smsBindings.length === 1 ? smsBindings[0] : undefined,
+    ...(smsBindings.length > 0 ? { smsBindingKeys: smsBindings } : {}),
+  });
   const selfSet = new Set(selfRows);
   return threads.flatMap((thread) => (thread === assistant ? [folded] : selfSet.has(thread) ? [] : [thread]));
 }

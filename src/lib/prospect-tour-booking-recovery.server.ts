@@ -1,5 +1,6 @@
 import "server-only";
 
+import { tourEventFactsFromRecord } from "@/lib/google-calendar/tour-event-payload";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { smsTourLabel } from "@/lib/sms/tour-label";
@@ -97,6 +98,7 @@ export async function recoverProspectTourBookingSideEffects(
         start: text(event.start),
         end: text(event.end),
         propertyTitle: text(event.propertyTitle) || undefined,
+        ...tourEventFactsFromRecord(event),
         attendeeName: text(event.attendeeName) || undefined,
         attendeeEmail: text(event.attendeeEmail) || undefined,
         attendeePhone: text(event.attendeePhone) || undefined,
@@ -339,6 +341,7 @@ export async function recoverExpiredProspectTourGoogleCalendarCreates(
           start: expectedStart,
           end: expectedEnd,
           propertyTitle: text(live.propertyTitle) || undefined,
+          ...tourEventFactsFromRecord(live),
           attendeeName: text(live.attendeeName) || undefined,
           attendeeEmail: text(live.attendeeEmail) || undefined,
           attendeePhone: text(live.attendeePhone) || undefined,

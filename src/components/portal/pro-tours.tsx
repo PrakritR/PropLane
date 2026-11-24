@@ -160,6 +160,8 @@ type TourNotifyPreview = {
   rowTimes?: Record<string, TourRescheduleTimes>;
   /** Delete only: past rows that go with the live ones, with no message. */
   silentRows?: ManagerTourRow[];
+  /** Decline only: the auto-proposed confirmation sitting on the declined request; discarded after the decline lands. */
+  pairedProposals?: ManagerTourRow[];
 };
 
 type GuestMessagePreview = {
@@ -602,7 +604,7 @@ export function ManagerTours({
     });
   }, []);
 
-  const openDeclinePreview = useCallback((rows: ManagerTourRow[]) => {
+  const openDeclinePreview = useCallback((rows: ManagerTourRow[], pairedProposals?: ManagerTourRow[]) => {
     const eligible = rows.filter(isPendingInquiry);
     if (eligible.length === 0) return;
     const row = eligible[0]!;
@@ -612,6 +614,7 @@ export function ManagerTours({
       rows: eligible,
       subject: TOUR_REQUEST_REMOVED_TENANT_SUBJECT,
       body: buildTourRequestRemovedTenantBody(ctx),
+      ...(pairedProposals?.length ? { pairedProposals: pairedProposals.filter(isPendingProposal) } : {}),
     });
   }, []);
 
@@ -996,6 +999,8 @@ export function ManagerTours({
               return;
             }
           }
+          // A declined request leaves no proposal behind to approve later.
+          if (preview.pairedProposals?.length) await decideTourProposals(preview.pairedProposals, "discard");
           setNotifyPreview(null);
           await refresh();
           if (tourIdProp) navigate(listHrefForBucket(bucket));
@@ -1148,6 +1153,7 @@ export function ManagerTours({
       basePath,
       bucket,
       buildRescheduleNotifyContext,
+      decideTourProposals,
       deleteTourRow,
       listHrefForBucket,
       navigate,
@@ -1501,6 +1507,12 @@ export function ManagerTours({
     // Delete, with Confirm as the one filled primary. The adaptive row keeps the primary at the right edge and folds
     // the red one into the ⋯ first.
     const headerActionSpecs = [];
+    // A proposed confirmation sits on top of the guest's own pending request: Reschedule and Decline act on that request
+    // (the same actions a pending request row has), so the detail never lacks them. Without the request in the store the
+    // proposal can only be discarded.
+    const underlyingInquiry = isPendingProposal(detailRow)
+      ? allRows.find((row) => row.source === "inquiry" && row.sourceId === detailRow.sourceId) ?? null
+      : null;
     if (needsConfirm) {
       headerActionSpecs.push(portalIconActionSpec({
         id: "confirm", label: "Confirm", icon: Check, tone: "primary", dataAttr: "record-header-action-confirm",
@@ -1516,10 +1528,10 @@ export function ManagerTours({
         onClick: () => openGuestMessage(detailRow),
       }));
     }
-    if (isPendingInquiry(detailRow) || isUpcomingPlanned(detailRow)) {
+    if (isPendingInquiry(detailRow) || isUpcomingPlanned(detailRow) || underlyingInquiry) {
       headerActionSpecs.push(portalIconActionSpec({
         id: "reschedule", label: "Reschedule", icon: CalendarClock, dataAttr: "tour-detail-reschedule",
-        onClick: () => openReschedulePreview([detailRow]),
+        onClick: () => openReschedulePreview([underlyingInquiry ?? detailRow]),
       }));
     }
     if (isPendingInquiry(detailRow) || isPendingProposal(detailRow)) {
@@ -1528,6 +1540,7 @@ export function ManagerTours({
         disabled: isPendingProposal(detailRow) && proposalBusy,
         onClick: () => {
           if (isPendingInquiry(detailRow)) openDeclinePreview([detailRow]);
+          else if (underlyingInquiry) openDeclinePreview([underlyingInquiry], [detailRow]);
           else void decideTourProposals([detailRow], "discard");
         },
       }));

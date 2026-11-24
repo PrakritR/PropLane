@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { buildReadableListingUrl } from "@/lib/seo/listing-slugs.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 const DEFAULT_HOLD_MESSAGE = "Your dates stay held for 15 minutes. Retry payment to confirm.";
@@ -33,6 +34,7 @@ export default async function ShortStayConfirmationPage({
   const propertyId = params.propertyId?.trim() ?? "";
   const bookingId = params.bookingId?.trim() ?? "";
 
+  const listingHref = propertyId && !canceled ? await buildReadableListingUrl("", propertyId) : "";
   const holdMessage: string | null = canceled && bookingId ? await resolveHoldMessage(bookingId) : null;
 
   return (
@@ -57,7 +59,7 @@ export default async function ShortStayConfirmationPage({
           href={
             canceled
               ? `/rent/stay?propertyId=${encodeURIComponent(propertyId)}${bookingId ? `&bookingId=${encodeURIComponent(bookingId)}` : ""}`
-              : `/rent/listings/${encodeURIComponent(propertyId)}`
+              : listingHref
           }
           className="text-sm font-semibold text-primary"
         >

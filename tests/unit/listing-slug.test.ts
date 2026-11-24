@@ -4,6 +4,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildListingSlugIndex,
   EMPTY_LISTING_SLUG_INDEX,
+  listingCanonicalSlug,
+  listingIdToken,
+  listingPublicPathFor,
   listingSlugFor,
   resolveListingParam,
   slugifyAddress,
@@ -36,72 +39,96 @@ describe("listingSlugFor", () => {
   });
 });
 
+describe("listingIdToken", () => {
+  it("uses the trailing random token of a minted id", () => {
+    expect(listingIdToken(A.id)).toBe("7mdlyj0h2vfg");
+  });
+  it("hashes an id without one: stable, url-safe, different per id", () => {
+    const t = listingIdToken("prop-b-0001");
+    expect(t).toMatch(/^h[a-z0-9]{6,12}$/);
+    expect(listingIdToken("prop-b-0001")).toBe(t);
+    expect(listingIdToken("prop-b-0002")).not.toBe(t);
+  });
+});
+
+describe("canonical slug", () => {
+  it("is the street line plus the id token, whatever the building was copied from", () => {
+    expect(listingCanonicalSlug(A)).toBe("4709a-8th-ave-ne-7mdlyj0h2vfg");
+    expect(listingPublicPathFor(A)).toBe("/rent/listings/4709a-8th-ave-ne-7mdlyj0h2vfg");
+  });
+  it("names the listing's OWN address for the three live houses even though their ids were copied from another house", () => {
+    const h4709 = home("mgr-5259-brooklyn-ave-copy-9-rooms-7mdlyj0h2vfg", "4709A 8th Ave NE, Seattle, WA 98105");
+    const h5259 = home("mgr-5257-brooklyn-ave-copy-4-rooms-1x3tiu8k2mnq", "5259 Brooklyn Ave NE, Seattle, WA 98105");
+    const h5257 = home("mgr-4709a-8th-ave-copy-3-rooms-9qwerty1zxcv", "5257 Brooklyn Ave NE, Seattle, WA 98105");
+    expect(listingCanonicalSlug(h4709)).toMatch(/^4709a-8th-ave-ne-/);
+    expect(listingCanonicalSlug(h5259)).toMatch(/^5259-brooklyn-ave-ne-/);
+    expect(listingCanonicalSlug(h5257)).toMatch(/^5257-brooklyn-ave-ne-/);
+    for (const h of [h4709, h5259, h5257]) expect(listingCanonicalSlug(h)).not.toContain("copy");
+  });
+  it("is stable when another listing joins the catalog or shares the address", () => {
+    const twin = home("prop-twin-aaaa1111zz", "4709A 8th Ave NE, Seattle, WA");
+    expect(buildListingSlugIndex([A]).idToSlug.get(A.id)).toBe(buildListingSlugIndex([twin, A, B]).idToSlug.get(A.id));
+  });
+  it("gives a listing with no street address a `listing-<token>` slug", () => {
+    expect(listingCanonicalSlug(home("blank-0000aaaabbbb", ""))).toBe("listing-0000aaaabbbb");
+  });
+});
+
 describe("buildListingSlugIndex", () => {
-  it("maps id to slug and back for unique addresses", () => {
+  it("maps id to slug and token to id", () => {
     const index = buildListingSlugIndex([A, B]);
-    expect(index.idToSlug.get(A.id)).toBe("4709a-8th-ave-ne");
-    expect(index.slugToId.get("5257-brooklyn-ave-ne")).toBe(B.id);
+    expect(index.idToSlug.get(A.id)).toBe("4709a-8th-ave-ne-7mdlyj0h2vfg");
+    expect(index.tokenToId.get(listingIdToken(B.id))).toBe(B.id);
   });
-
-  it("appends the last six characters of the id to EVERY listing that shares a slug, in any catalog order", () => {
-    const one = home("prop-aaaaaa111111", "10 Main St, Seattle, WA");
-    const two = home("prop-bbbbbb222222", "10 Main St., Seattle, WA");
-    const forward = buildListingSlugIndex([one, two]);
-    const backward = buildListingSlugIndex([two, one]);
-    expect(forward.idToSlug.get(one.id)).toBe("10-main-st-111111");
-    expect(forward.idToSlug.get(two.id)).toBe("10-main-st-222222");
-    expect(forward.slugToId.has("10-main-st")).toBe(false);
-    expect([...backward.idToSlug.entries()].sort()).toEqual([...forward.idToSlug.entries()].sort());
-  });
-
-  it("drops a slug that is still shared after the suffix, so neither listing resolves to the wrong home", () => {
-    const index = buildListingSlugIndex([home("a-x-123456", "1 Oak Ln"), home("b-y-123456", "1 Oak Ln")]);
+  it("drops a token shared by two different ids so neither resolves to the wrong home", () => {
+    const index = buildListingSlugIndex([home("a-x-abc12345", "1 Oak Ln"), home("b-y-abc12345", "2 Oak Ln")]);
     expect(index.idToSlug.size).toBe(0);
-    expect(index.slugToId.size).toBe(0);
-  });
-
-  it("gives a listing with no street address no slug", () => {
-    const index = buildListingSlugIndex([A, home("blank-1", "")]);
-    expect(index.idToSlug.has("blank-1")).toBe(false);
+    expect(index.tokenToId.size).toBe(0);
   });
 });
 
 describe("resolveListingParam", () => {
-  const index = buildListingSlugIndex([A, B, home("blank-1", "")]);
+  const index = buildListingSlugIndex([A, B]);
+  const slugA = "4709a-8th-ave-ne-7mdlyj0h2vfg";
 
-  it("redirects a known id to its slug", () => {
-    expect(resolveListingParam(index, A.id)).toEqual({ kind: "redirect", slug: "4709a-8th-ave-ne" });
+  it("redirects the old record id to the canonical slug", () => {
+    expect(resolveListingParam(index, A.id)).toEqual({ kind: "redirect", slug: slugA, id: A.id });
   });
-  it("resolves a slug back to its property id", () => {
-    expect(resolveListingParam(index, "4709a-8th-ave-ne")).toEqual({ kind: "slug", id: A.id });
+  it("renders the canonical slug", () => {
+    expect(resolveListingParam(index, slugA)).toEqual({ kind: "slug", id: A.id });
   });
-  it("keeps an id with no slug on its id URL", () => {
-    expect(resolveListingParam(index, "blank-1")).toEqual({ kind: "id", id: "blank-1" });
+  it("a renamed title (stale slug) still resolves by the token and redirects to the current slug", () => {
+    expect(resolveListingParam(index, "old-name-7mdlyj0h2vfg")).toEqual({ kind: "redirect", slug: slugA, id: A.id });
   });
-  it("passes a slug that resolves to nothing through as an id, which is the existing not-found state", () => {
+  it("an unknown param is passed through as an id (the existing not-found state)", () => {
     expect(resolveListingParam(index, "no-such-house")).toEqual({ kind: "id", id: "no-such-house" });
+    expect(resolveListingParam(index, "nope-zzzzzzzzzzzz")).toEqual({ kind: "id", id: "nope-zzzzzzzzzzzz" });
     expect(resolveListingParam(EMPTY_LISTING_SLUG_INDEX, A.id)).toEqual({ kind: "id", id: A.id });
   });
 });
 
 describe("URL builders stay derived from the module", () => {
-  it("buildManagerListingUrl emits the slug when it has one and the id URL otherwise", () => {
-    expect(buildManagerListingUrl("https://proplane.ai/", A.id, "4709a-8th-ave-ne")).toBe("https://proplane.ai/rent/listings/4709a-8th-ave-ne");
+  it("buildManagerListingUrl emits the canonical path for a listing in hand, the slug when given, the id URL otherwise", () => {
+    expect(buildManagerListingUrl("https://proplane.ai/", A.id, A)).toBe("https://proplane.ai/rent/listings/4709a-8th-ave-ne-7mdlyj0h2vfg");
+    expect(buildManagerListingUrl("https://proplane.ai/", A.id, "x-7mdlyj0h2vfg")).toBe("https://proplane.ai/rent/listings/x-7mdlyj0h2vfg");
     expect(buildManagerListingUrl("https://proplane.ai", "blank 1")).toBe("https://proplane.ai/rent/listings/blank%201");
   });
-  it("JSON-LD carries the slug URL on the accommodation and its offer", () => {
-    const ld = listingJsonLd({ ...A, rentLabel: "$900/mo" } as MockProperty, "https://proplane.ai", "4709a-8th-ave-ne") as { url: string; offers?: { url: string } };
-    expect(ld.url).toBe("https://proplane.ai/rent/listings/4709a-8th-ave-ne");
-    expect(ld.offers?.url).toBe("https://proplane.ai/rent/listings/4709a-8th-ave-ne");
-    expect((listingJsonLd(A, "https://proplane.ai") as { url: string }).url).toBe(`https://proplane.ai/rent/listings/${encodeURIComponent(A.id)}`);
+  it("JSON-LD carries the canonical URL on the accommodation and its offer", () => {
+    const url = "https://proplane.ai/rent/listings/4709a-8th-ave-ne-7mdlyj0h2vfg";
+    const ld = listingJsonLd({ ...A, rentLabel: "$900/mo" } as MockProperty, "https://proplane.ai") as { url: string; offers?: { url: string } };
+    expect(ld.url).toBe(url);
+    expect(ld.offers?.url).toBe(url);
   });
-  it("the sitemap and the listing page read the one slug module", () => {
+  it("the sitemap, the listing page, the canonical lookup and the middleware read the one slug module", () => {
     const sitemap = readFileSync(join(process.cwd(), "src/app/sitemap.ts"), "utf8");
-    expect(sitemap).toContain("buildListingSlugIndex");
+    expect(sitemap).toContain("listingCanonicalSlug");
     expect(sitemap).not.toContain("encodeURIComponent(p.id)");
     const page = readFileSync(join(process.cwd(), "src/app/(rent)/rent/listings/[id]/page.tsx"), "utf8");
     expect(page).toContain("canonical");
     expect(page).not.toContain("permanentRedirect");
+    const mw = readFileSync(join(process.cwd(), "src/middleware.ts"), "utf8");
+    expect(mw).toContain("/api/public/listing-canonical");
+    expect(mw).toContain("308");
   });
 });
 

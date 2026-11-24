@@ -129,7 +129,7 @@ function buildShortStayPostText(args: {
   const sharedOnly = rooms.length > 0 && rooms.every((room) => (room.occupancyCapacity ?? 1) >= 2);
   const kind = isEntireHomeListing(sub) ? "Entire home" : sharedOnly ? "Shared room" : "Private room";
   const place = clean(property.neighborhood) ? ` near ${clean(property.neighborhood)}` : "";
-  const base = `${buildManagerListingUrl(origin, property.id)}?stay=1`;
+  const base = `${buildManagerListingUrl(origin, property.id, property)}?stay=1`;
   const link = taggedListingLink(base, channel);
   const parts = [
     `${kind}${place} from ${formatShortStayMoney(nightly)}/night`,
@@ -183,7 +183,7 @@ export function buildListingPostText(args: {
     .slice(0, 4)
     .map((p) => `• ${p}`);
 
-  const link = taggedListingLink(buildManagerListingUrl(origin, property.id), channel);
+  const link = taggedListingLink(buildManagerListingUrl(origin, property.id, property), channel);
   const contactLine = ["Text " + phone, email ? `Email ${email}` : ""].filter(Boolean).join(" · ");
   const contactBlock = [`Details and photos: ${link}`, contactLine].join("\n");
   const attributionBlock = attribution ? listingAttributionLine(origin) : "";

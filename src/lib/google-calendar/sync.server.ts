@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { tourEventDescription, tourEventSummary, type TourEventFacts } from "@/lib/google-calendar/tour-event-payload";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 
@@ -17,7 +19,6 @@ import { mutateConfirmedTourSchedule } from "@/lib/tour-schedule-persistence.ser
 import {
   PROPLANE_AVAILABILITY_TYPE_MARKER,
   PROPLANE_GOOGLE_CALENDAR_MARKER,
-  PROPLANE_TOUR_TYPE_MARKER,
   PROPLANE_WORK_ORDER_TYPE_MARKER,
 } from "@/lib/google-calendar/markers";
 
@@ -225,41 +226,13 @@ export async function persistPlannedEventGoogleCalendarId(
   return { ok: false, reason: reason === "cancelled" || reason === "changed" ? reason : "missing" };
 }
 
-function buildTourDescription(event: {
-  attendeeName?: string;
-  attendeeEmail?: string;
-  attendeePhone?: string;
-  notes?: string;
-  instructions?: string;
-}): string {
-  return [
-    PROPLANE_TOUR_TYPE_MARKER,
-    event.attendeeName ? `Guest: ${event.attendeeName}` : null,
-    event.attendeeEmail ? `Email: ${event.attendeeEmail}` : null,
-    event.attendeePhone ? `Phone: ${event.attendeePhone}` : null,
-    event.notes ? `Notes: ${event.notes}` : null,
-    event.instructions ? `Instructions: ${event.instructions}` : null,
-    PROPLANE_GOOGLE_CALENDAR_MARKER,
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
 /** Best-effort push or update of a confirmed PropLane tour on the manager's Google Calendar. */
 export async function syncPlannedTourToGoogleCalendar(
   db: SupabaseClient,
   managerUserId: string,
-  event: {
-    plannedEventId: string;
-    title: string;
+  event: TourEventFacts & {
     start: string;
     end: string;
-    propertyTitle?: string;
-    attendeeName?: string;
-    attendeeEmail?: string;
-    attendeePhone?: string;
-    notes?: string;
-    instructions?: string;
     googleCalendarEventId?: string | null;
   },
   options?: PlannedTourGoogleCalendarSyncOptions,
@@ -280,17 +253,9 @@ export async function syncPlannedTourToGoogleCalendar(
 export async function syncPlannedTourToGoogleCalendarAttempt(
   db: SupabaseClient,
   managerUserId: string,
-  event: {
-    plannedEventId: string;
-    title: string;
+  event: TourEventFacts & {
     start: string;
     end: string;
-    propertyTitle?: string;
-    attendeeName?: string;
-    attendeeEmail?: string;
-    attendeePhone?: string;
-    notes?: string;
-    instructions?: string;
     googleCalendarEventId?: string | null;
   },
   options?: PlannedTourGoogleCalendarSyncOptions,
@@ -304,8 +269,8 @@ export async function syncPlannedTourToGoogleCalendarAttempt(
     try {
       upsert = await upsertGoogleCalendarEvent(db, managerUserId, {
         id: deterministicGoogleEventId(managerUserId, current.plannedEventId),
-        title: current.title,
-        description: buildTourDescription(current),
+        title: tourEventSummary(current),
+        description: tourEventDescription(current, resolveEmailLinkBaseUrl()),
         start: current.start,
         end: current.end,
         location: current.propertyTitle,

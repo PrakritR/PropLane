@@ -1,8 +1,7 @@
 /**
  * Step 1 Continue shows validation errors instantly: the room-occupancy refresh
- * ("Checking rooms…") runs only after the step validates. And the lease-length
- * checkboxes (Month-to-month / Custom dates) carry a "Lease length" label when
- * there is no fixed-length dropdown above them.
+ * ("Checking rooms…") runs only after the step validates. And the lease length is
+ * one labeled "Lease length" list holding Month-to-month and Custom dates as options.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -32,7 +31,8 @@ describe("step 1 Continue", () => {
 });
 
 describe("lease length control", () => {
-  it("labels the checkbox group when there are no fixed lengths", () => {
-    expect(STEPS).toContain('fixedLengthOptions.length === 0 ? <Label required>Lease length</Label>');
+  it("is one labeled Lease length list: fixed lengths, Custom dates and Month-to-month are options, never bare checkboxes", () => {
+    expect(STEPS).toContain('<Label htmlFor="longTermLength" required>Lease length</Label>');
+    expect(STEPS).not.toContain('data-wizard-field="longTermOptions"');
   });
 });

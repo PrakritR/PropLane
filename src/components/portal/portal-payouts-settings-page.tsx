@@ -589,6 +589,9 @@ export function PortalPayoutsSettingsPage({ portal }: { portal: PortalPayoutsPor
         title="Owner payouts"
         action={status.state && status.state !== "no_owner" && status.state !== "active" ? (
           <Button type="button" onClick={() => sendLink()} disabled={sending} data-attr="owner-payout-send-link">Send setup link</Button>
+        ) : status.state === "active" ? (
+          // Staff never change an owner's bank (Stripe needs the account holder): the owner does, signed in as themselves.
+          <PortalIconAction icon={Landmark} label="Send link to change bank" disabled={sending} onClick={() => sendLink()} data-attr="owner-payout-send-change-bank-link" />
         ) : undefined}
       >
         <PortalSettingsGroup>

@@ -5,6 +5,8 @@ import { runConfirmedPendingAction } from "@/lib/tools/confirm-gate.server";
 import { CONFIRM_TOUR_INQUIRY_TOOL } from "@/lib/tour-proposal.server";
 import { track } from "@/lib/analytics/posthog";
 import { scoreActionApproval } from "@/lib/observability/langfuse";
+import { INQUIRIES_RECORD_ID, inquiryRowsFromRecord } from "@/lib/tour-inquiry-create.server";
+import { tourInquirySummaryForProposal } from "@/lib/manager-tour-proposal-rows";
 
 export const runtime = "nodejs";
 
@@ -23,7 +25,19 @@ export async function GET() {
     userId: ctx.userId,
     toolName: CONFIRM_TOUR_INQUIRY_TOOL,
   });
-  // Expose only the inquiry id + slot times from stored input — never the full payload.
+  // The proposal card is the manager's own request, so the contact + house facts of THAT inquiry travel with it: a row
+  // built from the preview alone has no email or phone (the Tours list then showed "Prospect" / "Property" and the confirm
+  // message had no recipient). Read by the proposal's own inquiry id, from the manager's own queue only.
+  const inquiryById = new Map<string, Record<string, unknown>>();
+  try {
+    const { data } = await ctx.db.from("portal_schedule_records").select("row_data").eq("id", INQUIRIES_RECORD_ID).maybeSingle();
+    for (const row of inquiryRowsFromRecord(data?.row_data)) {
+      if (typeof row.id === "string") inquiryById.set(row.id, row);
+    }
+  } catch {
+    /* the preview fields still render the row */
+  }
+  // Expose only the inquiry id + slot times + the contact summary from stored input — never the full payload.
   return NextResponse.json({
     proposals: actions.map((action) => {
       const input =
@@ -39,6 +53,7 @@ export async function GET() {
         startIso,
         endIso,
         preview: action.preview,
+        inquiry: tourInquirySummaryForProposal(inquiryById.get(inquiryId)),
         createdAt: action.createdAt,
       };
     }),

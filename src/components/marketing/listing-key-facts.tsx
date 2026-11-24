@@ -98,7 +98,9 @@ export function deriveListingKeyFacts(
   }
 
   const bathrooms = rich.bathrooms.filter((b) => !isListingFallbackBathroom(b));
-  const bathCount = bathrooms.length > 0 ? bathrooms.length : property.baths > 0 ? property.baths : 0;
+  // The manager's declared total wins: it counts a half bath as 0.5 (4709A: four bathrooms listed, 3.5 baths), where
+  // counting the bathroom entries would say 4 and contradict the listing's own text.
+  const bathCount = property.baths > 0 ? property.baths : bathrooms.length;
   if (bathCount > 0) {
     const privateCount = bathrooms.filter((b) => b.modal.usedByRoomNames.length === 1).length;
     facts.push({

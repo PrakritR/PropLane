@@ -152,6 +152,13 @@ export async function pullGoogleCalendarMeetings(
   // from every future incremental pull.
   if (page.nextSyncToken && !page.truncated && writeFailures === 0) patch.syncToken = page.nextSyncToken;
 
+  // "Last sync" for the Integrations row: a pull that wrote everything. Stamped only when the last stamp is over 15
+  // minutes old, so a busy calendar page does not turn every poll into a connection write.
+  if (writeFailures === 0) {
+    const last = connection.lastSyncedAt ? Date.parse(connection.lastSyncedAt) : NaN;
+    if (!Number.isFinite(last) || Date.now() - last >= 15 * 60_000) patch.lastSyncedAt = new Date().toISOString();
+  }
+
   const needsChannel =
     !connection.channelId ||
     !connection.channelExpiryMs ||

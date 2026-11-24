@@ -103,7 +103,7 @@ export async function sendOwnerPayoutSetupLink(
     ownerUserId: managerOwner,
     workspaceId: input.workspaceId,
     subject: `Set up your payouts for ${input.workspaceName}`,
-    text: `Set up where your payouts go for ${input.workspaceName}. Sign in as yourself, open Balance & payouts, and add your bank account. Stripe collects your identity and tax details.\n${resolveEmailLinkBaseUrl()}${portalSignInHref(path)}`,
+    text: `Set up where your payouts go for ${input.workspaceName}. Sign in as yourself, open Balance & payouts, and add or change your bank account. Stripe collects your identity and tax details.\n${resolveEmailLinkBaseUrl()}${portalSignInHref(path)}`,
     url: portalSignInHref(path),
     idempotencyKey: `owner-payout-setup:${input.workspaceId}:${day}`,
   }).catch(() => ({ status: "failed" as const }));

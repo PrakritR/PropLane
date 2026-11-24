@@ -1760,7 +1760,7 @@ export function mergeInboxReadSourceState(threads: PersistedInboxThread[]): Pick
  * intentionally retained so the reader can resolve each exact native member
  * without treating a conflict as permission for email fallback.
  */
-function mergeInboxSmsBindingKeys(threads: PersistedInboxThread[]): string[] {
+export function mergeInboxSmsBindingKeys(threads: PersistedInboxThread[]): string[] {
   return [...new Set(
     threads.flatMap((thread) => [
       ...(thread.smsBindingKeys ?? []),

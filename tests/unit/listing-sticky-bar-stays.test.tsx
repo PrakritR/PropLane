@@ -102,12 +102,12 @@ const labels = () =>
 describe("manager preview phone bar with both stays", () => {
   it("shows one Book and Tour, whatever stays the listing offers", () => {
     render(<ListingDetailSections property={property} rich={rich} portalEmbedded managerPreviewChrome hidePortalSubnav />);
-    expect(labels()).toEqual(["Book", "Tour"]);
+    expect(labels()).toEqual(["Apply", "Tour"]);
     expect(bar().querySelector('[data-attr="listing-web-apply-short"]')).toBeNull();
     // A guest's Apply opens the public application with no account first (captain, Nov 14).
     expect(href('[data-attr="listing-web-apply"]')).toMatch(/^\/rent\/apply\?/);
     expect(href('[data-attr="listing-web-apply"]')).not.toContain("/auth/create-account");
-    expect(bar().querySelector('[data-attr="listing-web-apply"]')?.textContent).toBe("Book");
+    expect(bar().querySelector('[data-attr="listing-web-apply"]')?.textContent).toBe("Apply");
   });
 
   it("never draws two buttons to the same application", () => {
@@ -119,7 +119,7 @@ describe("manager preview phone bar with both stays", () => {
   it("keeps one row", () => {
     stays.short = false;
     render(<ListingDetailSections property={property} rich={rich} portalEmbedded managerPreviewChrome hidePortalSubnav />);
-    expect(labels()).toEqual(["Book", "Tour"]);
+    expect(labels()).toEqual(["Apply", "Tour"]);
     expect(bar().querySelector('[data-attr="listing-sticky-actions"]')?.parentElement?.className).not.toContain("flex-col");
   });
 });
@@ -139,7 +139,7 @@ describe("the assistant floats above the bar", () => {
   it("the non-dock bar keeps its two rows", () => {
     render(<ListingDetailSections property={property} rich={rich} />);
     expect(bar().hasAttribute("data-slim")).toBe(false);
-    expect(bar().textContent).toContain("Book");
+    expect(bar().textContent).toContain("Apply");
     expect(bar().textContent).toContain("Tour");
     expect(bar().textContent).not.toContain("Apply long term");
   });

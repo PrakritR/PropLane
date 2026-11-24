@@ -315,7 +315,16 @@ const PROPERTY: MockProperty = {
 };
 
 function stubAvailability(body: unknown, ok = true, status = 200) {
-  vi.stubGlobal("fetch", vi.fn(async () => ({ ok, status, json: async () => body }) as unknown as Response));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input?: unknown) => {
+      // The room picker reads the listing's occupancy through its own route (no stay on any room here).
+      if (String(input).includes("/api/public/approved-room-occupancy")) {
+        return { ok: true, status: 200, json: async () => ({ rooms: [] }) } as unknown as Response;
+      }
+      return { ok, status, json: async () => body } as unknown as Response;
+    }),
+  );
 }
 
 describe("the public tour scheduler", () => {
@@ -328,9 +337,9 @@ describe("the public tour scheduler", () => {
         </div>
       </AppUiProvider>,
     );
-    expect(await screen.findByText("Room 2 · 2nd floor · $2,150/mo")).toBeTruthy();
-    expect(screen.getByText("Room 3 · Main floor · $1,350/mo")).toBeTruthy();
-    expect(screen.getByText("Room 1 · 2nd floor · $1,000/mo")).toBeTruthy();
+    expect(await screen.findByText((t) => t.startsWith("Room 2 · 2nd floor · $2,150/mo"))).toBeTruthy();
+    expect(screen.getByText((t) => t.startsWith("Room 3 · Main floor · $1,350/mo"))).toBeTruthy();
+    expect(screen.getByText((t) => t.startsWith("Room 1 · 2nd floor · $1,000/mo"))).toBeTruthy();
     capture(
       "06-tour-rooms-one-monthly-price",
       "One monthly figure per room: Room 3 is priced by the day ($45/day) and reads as its 30-day amount, $1,350/mo. Every amount carries thousands separators.",

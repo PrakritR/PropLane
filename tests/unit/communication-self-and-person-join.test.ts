@@ -10,6 +10,7 @@ import {
   buildActiveCommunicationThreads,
   countUnreadActiveCommunication,
   countUnreadActiveConversations,
+  emailThreadJoinKeys,
   emailThreadPersonKey,
   smsConversationPersonKey,
 } from "@/lib/communication-active-rows";
@@ -99,6 +100,24 @@ describe("self fold into the Assistant", () => {
     expect(folded.unread).toBe(true);
     expect(folded.sourceThreadIds).toContain("msg_self_1");
     expect([folded.body, ...(folded.messages ?? []).map((m) => m.body)]).toEqual(["Welcome", "Your stay was confirmed"]);
+  });
+
+  it("carries the join and binding keys onto the folded row so the viewer's own text projection joins it", () => {
+    const selfTel = thread({
+      id: "msg_self_tel", from: "Me", conversationKey: "tel:+16505550100", workspaceId: WS, body: "Reminder", smsConversationKey: "sms-key-1", isViewerSelf: true,
+    });
+    const folded = foldViewerSelfIntoAssistant([assistant(), selfTel, { ...self, smsBindingKeys: ["sms-key-1"] }], assistantId)[0]!;
+    expect(folded.smsConversationKey).toBe("sms-key-1");
+    expect(folded.smsBindingKeys).toEqual(["sms-key-1"]);
+    expect(emailThreadJoinKeys(folded)).toEqual([`ck:${WS}:tel:+16505550100`]);
+    expect(emailThreadPersonKey(folded)).toBe(emailThreadPersonKey({ id: "x", smsConversationKey: "sms-key-1", email: "" }));
+    // Two different bindings: no single key, both retained, no email fallback.
+    const two = foldViewerSelfIntoAssistant([assistant(), selfTel, { ...self, smsConversationKey: "sms-key-2" }], assistantId)[0]!;
+    expect(two.smsConversationKey).toBeUndefined();
+    expect(two.smsBindingKeys).toEqual(["sms-key-1", "sms-key-2"]);
+    // The Assistant row's own conversation key is never overwritten.
+    const keyedAssistant = foldViewerSelfIntoAssistant([assistant({ conversationKey: `acct:${VIEWER}` }), selfTel], assistantId)[0]!;
+    expect(keyedAssistant.conversationKey).toBe(`acct:${VIEWER}`);
   });
 
   it("keeps the self row its own row when there is no Assistant row yet (loading) or the flag is absent (self read failed)", () => {

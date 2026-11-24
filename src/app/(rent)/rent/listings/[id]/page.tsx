@@ -33,13 +33,14 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 /**
  * `/rent/listings/<param>`: the param is a readable address slug (`4709a-8th-ave-ne`) or the property id. Both render
- * the same page. An id is never redirected: a redirect here cannot carry the query (`?stay=1`, `?src=`) without
- * reading `searchParams`, which would opt this ISR page out of its CDN cache, and id links with a query are still sent.
+ * the same page. The 308 from an id or a stale slug to the canonical path is issued by the middleware (it keeps the
+ * query: `?stay=1`, `?src=`), because reading `searchParams` here would opt this ISR page out of its CDN cache. This page is
+ * the fallback when that lookup fails: it renders in place and names the canonical URL.
  */
 export default async function PublicListingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: param } = await params;
   const resolution = resolveListingParam(await getListingSlugIndex(), param);
-  const id = resolution.kind === "redirect" ? param.trim() : resolution.id;
+  const id = resolution.id;
   const slug = resolution.kind === "slug" ? param.trim() : resolution.kind === "redirect" ? resolution.slug : null;
   const jsonLd = await listingStructuredData(id, slug);
   return (

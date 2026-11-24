@@ -9,7 +9,7 @@ import { formatInviteMessageBody } from "@/lib/invite-message-body";
 import { TEAM_ROLE_LABELS } from "@/lib/co-manager-team-roles";
 import { resolveAppOrigin } from "@/lib/app-url";
 import { normalizeE164 } from "@/lib/twilio";
-import { resolveManagerWorkNumber } from "@/lib/twilio-provisioning";
+import { resolveProspectFacingSendNumber } from "@/lib/sms/prospect-send-number.server";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import { assertManagerCommunicationAllowed } from "@/lib/manager-communication-access.server";
 
@@ -85,7 +85,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const workNumber = await resolveManagerWorkNumber(db, user.id);
+  const workNumber = await resolveProspectFacingSendNumber(db, user.id);
   if (!workNumber) {
     return NextResponse.json(
       { error: "No work number on this account yet. Finish SMS setup under Communication first." },

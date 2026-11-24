@@ -49,3 +49,30 @@ describe("channel export actual holds", () => {
     expect((await request()).status).toBe(500);
   });
 });
+
+import { HEAD as exportHead } from "@/app/api/calendar/export/[token]/route";
+import { GET as aliasGet, HEAD as aliasHead } from "@/app/ical/[token]/route";
+
+describe("feed response shape for strict importers", () => {
+  const params = { params: Promise.resolve({ token: "token.ics" }) };
+  it("is calendar content with no download disposition, and HEAD matches GET without a body", async () => {
+    const get = await request();
+    expect(get.status).toBe(200);
+    expect(get.headers.get("content-type")).toBe("text/calendar; charset=utf-8");
+    expect(get.headers.get("content-disposition")).toBeNull();
+    const body = await get.text();
+    expect(get.headers.get("content-length")).toBe(String(new TextEncoder().encode(body).length));
+    const head = await exportHead(new Request("https://example.com/api/calendar/export/token.ics", { method: "HEAD" }), params);
+    expect(head.status).toBe(200);
+    expect(head.headers.get("content-type")).toBe(get.headers.get("content-type"));
+    expect(head.headers.get("content-length")).toBe(get.headers.get("content-length"));
+    expect(head.headers.get("content-disposition")).toBeNull();
+    expect(await head.text()).toBe("");
+  });
+  it("serves the same feed from the short /ical alias", async () => {
+    const res = await aliasGet(new Request("https://example.com/ical/token.ics"), params);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("BEGIN:VCALENDAR");
+    expect((await aliasHead(new Request("https://example.com/ical/token.ics", { method: "HEAD" }), params)).status).toBe(200);
+  });
+});

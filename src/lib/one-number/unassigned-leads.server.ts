@@ -652,7 +652,7 @@ async function holdReplyText(db: SupabaseClient, depsIn: Pick<LeadDeps, "listing
     // A paid manager's home is offered but never described by the line: no page of it is handed out here.
     const homes = catalog
       .filter((listing) => lineTierOf(listing) !== "paid")
-      .map((listing) => ({ title: streetLine(listing.address) || listing.title, url: buildManagerListingUrl(origin, listing.id) }));
+      .map((listing) => ({ title: streetLine(listing.address) || listing.title, url: buildManagerListingUrl(origin, listing.id, listing) }));
     return toGsm7(holdReplyFor(homes));
   } catch {
     return toGsm7(HOLD_REPLY);

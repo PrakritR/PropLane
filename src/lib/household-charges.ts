@@ -369,6 +369,8 @@ export type HouseholdCharge = {
   voidedAt?: string;
   voidedBy?: string;
   voidReason?: string;
+  /** The void also reversed the hand-recorded receipt (a void before this left the cash line on the books). */
+  voidReceiptReversed?: boolean;
   /** `holding_deposit` only: when the hold lapses (paid time + the hold window); null/absent = no deadline. */
   holdExpiresAt?: string;
   /** `holding_deposit` only: set by the expiry sweep; the money is kept per policy, never auto-refunded. */

@@ -23,7 +23,7 @@ import {
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { normalizeE164 } from "@/lib/twilio";
-import { resolveManagerWorkNumber } from "@/lib/twilio-provisioning";
+import { resolveProspectFacingSendNumber } from "@/lib/sms/prospect-send-number.server";
 import { postResendEmail } from "@/lib/resend-delivery.server";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
@@ -147,7 +147,7 @@ export async function POST(req: Request) {
     }
 
     if (viaSms) {
-      const workNumber = await resolveManagerWorkNumber(db, user.id);
+      const workNumber = await resolveProspectFacingSendNumber(db, user.id);
       if (!workNumber) {
         return NextResponse.json(
           { error: "No work number on this account yet. Finish SMS setup under Communication first.", emailSent },

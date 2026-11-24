@@ -92,8 +92,8 @@ describe("public listing price card and sticky bar — signingOrder", () => {
     render(<ListingDetailSections property={property()} rich={rich()} />);
     const apply = priceCard().querySelector('[data-attr="listing-web-apply"]');
     expect(apply).not.toBeNull();
-    expect(apply!.textContent).toBe("Book");
-    expect(stickyBar().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Book");
+    expect(apply!.textContent).toBe("Apply");
+    expect(stickyBar().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Apply");
     expect(document.body.textContent).not.toContain("Apply long term");
   });
 
@@ -105,8 +105,8 @@ describe("public listing price card and sticky bar — signingOrder", () => {
       />,
     );
     const card = priceCard();
-    expect(card.querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Book");
-    expect(stickyBar().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Book");
+    expect(card.querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Apply");
+    expect(stickyBar().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Apply");
     expect(card.querySelector('[data-attr="listing-price-due-at-signing"]')).toBeNull();
     // The fees live in the Costs section now; the card carries the price and the doors.
     expect(document.querySelector('[data-attr="listing-price-rows"]')!.textContent).toContain("Application fee");
@@ -130,7 +130,7 @@ describe("public listing price card and sticky bar — signingOrder", () => {
     expect(card.querySelector('[data-attr="listing-stay-segments"]')).toBeNull();
     expect(card.querySelector('[data-attr="listing-book-short-term"]')).toBeNull();
     expect(card.querySelector('[data-attr="short-stay-request"]')).toBeNull();
-    expect(card.querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Book");
+    expect(card.querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Apply");
     expect(card.querySelector('[data-attr="listing-web-apply-short"]')).toBeNull();
     expect(card.textContent).not.toContain("Apply short term");
     expect(card.textContent).not.toContain("Book a short stay");

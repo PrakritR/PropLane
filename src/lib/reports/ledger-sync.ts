@@ -369,31 +369,37 @@ export async function syncLedgerPaymentEntry(
 }
 
 /**
- * Void a PAID charge in the books: post a balanced reversing journal for the CHARGE (the original journal stays),
- * then drop the charge line from `ledger_entries` so every total read from it excludes the charge.
+ * Void a charge recorded in error, in the books: post a balanced reversing journal for the CHARGE (the original journal
+ * stays - history is never deleted), then drop the charge line from `ledger_entries` so every total read from it
+ * excludes the charge.
  *
- * The cash receipt is NOT reversed. A void refunds nothing (`voidPaidCharge` never moves money), so undoing the
- * payment journal would credit `operating_cash` for funds still sitting in the bank and leave the GL out of step
- * with the real balance. Money that actually moved stays on the books - the same rule
- * {@link deleteLedgerEntriesForCharge} follows for a deleted charge - and the payment journal's receivable leg is
- * what carries the kept amount as the payer's credit balance until it is applied or refunded. `refund` lines are
- * left alone. Idempotent end to end, so a retry after a partial failure completes the rest.
+ * `reverseReceipt` (the default for a charge with NO provider money behind it, which is the only kind
+ * `voidPaidCharge` accepts) also reverses the hand-recorded receipt: a balanced reversing journal for the PAYMENT and
+ * removal of its `payment` ledger line, so "received" drops with "paid" and a duplicate month reads once. A real
+ * Stripe capture never reaches here - that money is returned through Refund, and a void would leave cash and books out
+ * of step - so `reverseReceipt: false` is only for repairing a void made before receipts were reversed. `refund`
+ * lines are left alone. Idempotent end to end, so a retry after a partial failure completes the rest.
  */
 export async function voidLedgerEntriesForCharge(
   db: SupabaseClient,
   charge: HouseholdCharge,
   voidedAtIso: string,
+  opts: { reverseReceipt?: boolean } = {},
 ): Promise<void> {
   if (!isUuid(charge.managerUserId)) return;
   const entryDate = parseIsoDate(voidedAtIso) ?? new Date().toISOString().slice(0, 10);
   const memo = `Void — ${charge.title}`;
+  if (opts.reverseReceipt) {
+    await reverseGlJournalForSource(db, { managerUserId: charge.managerUserId!, sourceType: "payment", sourceId: charge.id, entryDate, memo: `${memo} (receipt)` });
+  }
   await reverseGlJournalForSource(db, { managerUserId: charge.managerUserId!, sourceType: "charge", sourceId: charge.id, entryDate, memo });
+  const entryTypes = opts.reverseReceipt ? ["charge", "payment"] : ["charge"];
   const { error } = await db
     .from("ledger_entries")
     .delete()
     .eq("source_charge_id", charge.id)
     .eq("manager_user_id", charge.managerUserId!)
-    .eq("entry_type", "charge");
+    .in("entry_type", entryTypes);
   throwIfLedgerError(error);
 }
 

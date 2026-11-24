@@ -173,7 +173,7 @@ Airbnb has no public write API, so the two directions are not equally fast:
 - **Airbnb checked PropLane.** The export route stamps
   `external_calendar_connections.export_last_fetched_at` when the request's User-Agent
   contains "Airbnb" (`stampExportFetch`, `export-fetch-stamp.ts`): best-effort, never
-  fails the feed, written at most every 5 minutes. **PropLane checked Airbnb** is the
+  fails the feed, written at most every 15 minutes. **PropLane checked Airbnb** is the
   connection's `last_synced_at`. Both show on the booking record page and per room in the
   Connect popup.
 - **Sync-all budget.** The cron (`syncAllChannelCalendarImports`) fetches feeds four at a time, least recently

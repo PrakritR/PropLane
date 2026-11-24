@@ -46,7 +46,7 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { postResendEmail } from "@/lib/resend-delivery.server";
 import { buildConversationKey } from "@/lib/sms-conversation-identity";
 import { normalizeE164 } from "@/lib/twilio";
-import { resolveManagerWorkNumber } from "@/lib/twilio-provisioning";
+import { resolveProspectFacingSendNumber } from "@/lib/sms/prospect-send-number.server";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
@@ -75,7 +75,7 @@ export async function GET() {
   const { data: { user } } = await auth.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   const db = createSupabaseServiceRoleClient();
-  const [from, workNumber] = await Promise.all([managerOutboundFromHeader(db, user.id), resolveManagerWorkNumber(db, user.id)]);
+  const [from, workNumber] = await Promise.all([managerOutboundFromHeader(db, user.id), resolveProspectFacingSendNumber(db, user.id)]);
   return NextResponse.json({ from, name: fromHeaderDisplayName(from), email: fromHeaderAddress(from), workNumber, origin: appOrigin() });
 }
 
@@ -383,7 +383,7 @@ export async function POST(req: Request) {
     }
 
     const from = await managerOutboundFromHeader(svc, user.id);
-    const signatureNumber = kind === "listing" ? await resolveManagerWorkNumber(svc, user.id) : null;
+    const signatureNumber = kind === "listing" ? await resolveProspectFacingSendNumber(svc, user.id) : null;
     const subject = leadInviteSubject(kind, propertyTitle, listingCount ?? tourCount);
     const emailParams = {
       kind,
@@ -420,7 +420,7 @@ export async function POST(req: Request) {
     // manager cannot see, and the natural retry mails them a second one.
     let smsTarget: { to: string; fromNumber: string } | null = null;
     if (viaSms && phone) {
-      const workNumber = await resolveManagerWorkNumber(svc, user.id);
+      const workNumber = await resolveProspectFacingSendNumber(svc, user.id);
       if (!workNumber) {
         await discardMintedWaiver();
         return NextResponse.json(

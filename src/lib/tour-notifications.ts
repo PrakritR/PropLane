@@ -38,6 +38,10 @@ export type TourNotificationContext = {
   managerLabel?: string;
   instructions?: string;
   applyUrl: string;
+  /** Deep link that opens THIS tour in the manager's portal Tours (manager-facing copy only). */
+  tourDetailUrl?: string;
+  /** Short reference the guest quotes (derived from the tour record id). */
+  confirmationRef?: string;
   /** Resident sign-up — track tours and message the property team in PropLane. */
   createAccountUrl?: string;
   residentPortalUrl?: string;
@@ -86,6 +90,52 @@ export function formatTourTimeRange(startIso: string, endIso: string): string {
   return `${startLabel} – ${endLabel}`;
 }
 
+/** The short reference shown to the guest and quoted to the manager: "T-" + the first 6 hex chars of the record id. */
+export function tourConfirmationReference(inquiryId: string | null | undefined): string {
+  const hex = String(inquiryId ?? "").replace(/[^0-9a-fA-F]/g, "").slice(0, 6).toUpperCase();
+  return hex.length >= 4 ? `T-${hex}` : "";
+}
+
+/**
+ * The portal route that opens one tour request. `inquiry-<id>-0` is the row id `tourRowsFromInquiries` gives the
+ * request's first window, and `/portal/tours/<bucket>/<rowId>` is the Tours detail route (`managerTourDetailHref`).
+ */
+export function managerTourRequestDeepLink(origin: string, inquiryId: string | null | undefined): string {
+  const base = origin.replace(/\/$/, "");
+  const id = String(inquiryId ?? "").trim();
+  return id ? `${base}/portal/tours/pending/${encodeURIComponent(`inquiry-${id}-0`)}` : `${base}/portal/tours`;
+}
+
+/** "Sat, Nov 21, 2026, 2:00 PM PT" (the start) in Pacific, the zone every tour slot is published in. */
+export function formatTourStartPacific(startIso: string): string {
+  const start = new Date(startIso);
+  if (Number.isNaN(start.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(start);
+  return `${parts} PT`;
+}
+
+/**
+ * The manager's text for a new tour request: prospect name, property + room, date AND time (Pacific) and the link that
+ * opens this tour. One builder so the SMS and the email cannot drift on what they carry.
+ */
+export function buildTourRequestManagerSms(ctx: TourNotificationContext): string {
+  const place = [ctx.propertyTitle || "Property", ctx.roomLabel?.trim()].filter(Boolean).join(" - ");
+  const when = formatTourStartPacific(ctx.tourStartIso);
+  const who = ctx.guestName?.trim() || "A guest";
+  const ref = ctx.confirmationRef ? ` (${ctx.confirmationRef})` : "";
+  return `PropLane: new tour request${ref}. ${who} - ${place}${when ? ` - ${when}` : ""}. ${
+    ctx.requestedTime ? "They picked their own time. " : ""
+  }Open it: ${ctx.tourDetailUrl || ""}`.trim();
+}
+
 export function buildTourApplyUrl(origin: string, propertyId?: string | null, roomLabel?: string | null): string {
   const base = origin.replace(/\/$/, "");
   if (!propertyId?.trim()) return `${base}/rent/apply`;
@@ -122,13 +172,18 @@ export function buildTourRequestManagerBody(ctx: TourNotificationContext): strin
   if (ctx.roomLabel?.trim()) lines.push(`Room: ${ctx.roomLabel.trim()}`);
   if (ctx.propertyAddress?.trim()) lines.push(`Address: ${ctx.propertyAddress.trim()}`);
   lines.push(`Requested time: ${when}`);
+  const startPt = formatTourStartPacific(ctx.tourStartIso);
+  if (startPt) lines.push(`Date and time: ${startPt}`);
   lines.push(`Format: ${tourFormatDescription(ctx.tourFormat)}`);
+  if (ctx.confirmationRef) lines.push(`Reference: ${ctx.confirmationRef}`);
   if (ctx.notes?.trim()) {
     lines.push("", "Notes from guest:", ctx.notes.trim());
   }
   lines.push(
     "",
-    "Open your PropLane Property portal calendar to approve or decline this tour request.",
+    ctx.tourDetailUrl
+      ? `Open this tour to approve or decline it: ${ctx.tourDetailUrl}`
+      : "Open your PropLane Property portal calendar to approve or decline this tour request.",
     "",
     "— PropLane",
   );
@@ -164,6 +219,7 @@ export function buildTourRequestTenantBody(ctx: TourNotificationContext): string
   ];
   if (ctx.roomLabel?.trim()) lines.push(`Room: ${ctx.roomLabel.trim()}`);
   if (ctx.propertyAddress?.trim()) lines.push(`Address: ${ctx.propertyAddress.trim()}`);
+  if (ctx.confirmationRef) lines.push(`Reference: ${ctx.confirmationRef}`);
   lines.push(
     "",
     "You will receive a separate confirmation email once the manager approves your tour time.",
@@ -479,6 +535,9 @@ export function buildTourNotificationContext(input: {
     managerLabel: input.managerLabel?.trim() || undefined,
     instructions: input.instructions?.trim() || undefined,
     applyUrl: buildTourApplyUrl(input.origin, input.propertyId, input.roomLabel),
+    ...(tourInquiryId
+      ? { tourDetailUrl: managerTourRequestDeepLink(origin, tourInquiryId), confirmationRef: tourConfirmationReference(tourInquiryId) || undefined }
+      : {}),
     createAccountUrl: `${origin}/auth/create-account?${createAccountParams.toString()}`,
     residentPortalUrl: `${origin}/resident/applications`,
     replyOptions: input.replyOptions,

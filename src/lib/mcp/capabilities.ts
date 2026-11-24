@@ -95,6 +95,10 @@ export const EXTERNAL_EXCLUDED_TOOL_NAMES = new Set([
   // Manager listing edits by text (design-1112 section 3.3): a guided draft and an availability / description change.
   // They stay on the assistants and SMS; the API key surface keeps its own listing tools.
   "create_listing_draft_by_text",
+  // Photos texted in (MMS) by a manager/staff or relayed from a resident: the files are found by the sender's phone, which
+  // an API key does not have. SMS and the assistants only.
+  "place_resident_suggested_photos",
+  "place_my_texted_photos",
   "update_listing_details",
   "list_vendor_dispatches",
   "approve_vendor_dispatch",

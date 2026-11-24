@@ -31,6 +31,7 @@ import { preserveServerOwnedApplicationVersions } from "@/lib/rental-application
 import { propertyRecordWithoutInternal } from "@/lib/house-info-visibility";
 import { resolveAllowedLeaseTerms, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { normalizeLegacyLeaseTerms } from "@/lib/rental-application/lease-terms";
+import { jsonEqual } from "@/lib/write-skip";
 import {
   buildAllModulesGrant,
   coManagerModuleAllowed,
@@ -302,7 +303,7 @@ export async function POST(req: Request) {
     // server-read value, never on body.managerUserId (which a caller controls).
     const { data: existing, error: existingError } = await db
       .from("manager_property_records")
-      .select("manager_user_id, status, row_data, property_data, updated_at")
+      .select("manager_user_id, status, row_data, property_data, updated_at, edit_request_note")
       .eq("id", id)
       .maybeSingle();
     // A FAILED read is not an absent row. Falling through would answer 404 on a
@@ -664,7 +665,21 @@ export async function POST(req: Request) {
         (Array.isArray(submission?.propertyLeaseTemplates) && submission.propertyLeaseTemplates.length > 0)
       );
     });
-    const writeResult = hasProtectedTemplates && existing
+    // A mirror that re-sends the record exactly as stored (the portfolio sync on page load) must not rewrite
+    // the whole JSON blob: production's disk-IO budget was spent on exactly these no-op UPDATEs.
+    const existingNote = (existing as { edit_request_note?: unknown } | null)?.edit_request_note ?? null;
+    const unchangedRecord =
+      !hasProtectedTemplates &&
+      Boolean(existing) &&
+      String(existing?.manager_user_id ?? "") === String(managerUserIdForWrite ?? "") &&
+      existingStatus === (body.status ?? null) &&
+      !newWorkspaceId &&
+      existingNote === (recordForWrite.edit_request_note ?? null) &&
+      jsonEqual(existing?.row_data ?? null, rowDataForWrite ?? null) &&
+      jsonEqual(existing?.property_data ?? null, propertyDataForWrite ?? null);
+    const writeResult = unchangedRecord
+      ? { error: null, data: [{ id }] as Array<{ id: string }> }
+      : hasProtectedTemplates && existing
       ? await db.from("manager_property_records")
         .update(recordForWrite)
         .eq("id", id)

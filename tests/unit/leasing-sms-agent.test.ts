@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { listingUrlRe } from "./listing-url-matcher";
 import { routeResolves } from "../helpers/route-resolves";
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 
@@ -735,7 +736,7 @@ describe("cross-catalog listing resolution (shared PropLane line)", () => {
     expect(links.applyUrl).toContain("phone=%2B12065559999");
     expect(links.applyUrl).not.toMatch(/localhost/);
     // The readable address URL, from the published-catalog slug index (the id URL redirects to it).
-    expect(links.listingUrl).toBe(`${PROD_ORIGIN}/rent/listings/4709a-8th-ave-ne`);
+    expect(links.listingUrl).toMatch(new RegExp(`^${listingUrlRe(PROD_ORIGIN, "mgr-seed-4709a-8th-ave-ne").source.replace("[a-z0-9-]*", "4709a-8th-ave-ne-")}$`));
     expect(links.tourUrl).toBe(`${PROD_ORIGIN}/rent/tours-contact?propertyId=mgr-seed-4709a-8th-ave-ne`);
     expect(links.messageUrl).toBe(`${PROD_ORIGIN}/rent/tours-contact?propertyId=mgr-seed-4709a-8th-ave-ne&tab=message`);
     expect(links.browseUrl).toBe(`${PROD_ORIGIN}/rent/browse`);
@@ -754,7 +755,7 @@ describe("cross-catalog listing resolution (shared PropLane line)", () => {
     }));
 
     expect(links.ok).toBe(true);
-    expect(links.listingUrl).toBe("http://localhost:3010/rent/listings/4709a-8th-ave-ne");
+    expect(links.listingUrl).toMatch(new RegExp(`^${listingUrlRe("http://localhost:3010", "mgr-seed-4709a-8th-ave-ne").source.replace("[a-z0-9-]*", "4709a-8th-ave-ne-")}$`));
     expect(links.tourUrl).toBe("http://localhost:3010/rent/tours-contact?propertyId=mgr-seed-4709a-8th-ave-ne");
     expect(links.applyUrl).toContain("http://localhost:3010/rent/apply?");
   });

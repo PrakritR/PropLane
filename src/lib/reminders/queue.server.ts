@@ -183,14 +183,38 @@ export async function materializeReminders(
     })),
   );
 
-  // `ignoreDuplicates` is what makes a re-materialize free rather than an
-  // error — an unchanged reminder is already queued and must not be disturbed,
-  // because updating it would reset a row the dispatcher may be mid-send on.
+  // The 5-minute dispatcher re-materializes every subject on every tick, and an INSERT ... ON CONFLICT DO NOTHING
+  // is still a write attempt (millions a month). Read which keys already exist (one indexed select) and send only
+  // the delta; the unique `dedupe_key` + `ignoreDuplicates` stays as the race backstop.
+  const existingKeys = await loadExistingDedupeKeys(db, rows.map((row) => row.dedupe_key));
+  const fresh = filterNewReminderRows(rows, existingKeys);
+  if (fresh.length === 0) return rows.length;
   const { error } = await db
     .from("portal_reminder_records")
-    .upsert(rows, { onConflict: "dedupe_key", ignoreDuplicates: true });
+    .upsert(fresh, { onConflict: "dedupe_key", ignoreDuplicates: true });
   if (error) throw error;
   return rows.length;
+}
+
+/** The rows whose `dedupe_key` is not already queued. Pure, so the no-op skip is testable. */
+export function filterNewReminderRows<T extends { dedupe_key: string }>(rows: T[], existingKeys: ReadonlySet<string>): T[] {
+  return rows.filter((row) => !existingKeys.has(row.dedupe_key));
+}
+
+/** Best-effort: a failed read returns an empty set, which only costs the old (idempotent) insert attempt. */
+async function loadExistingDedupeKeys(db: SupabaseClient, keys: string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (keys.length === 0) return out;
+  try {
+    const { data, error } = await db.from("portal_reminder_records").select("dedupe_key").in("dedupe_key", keys);
+    if (error || !Array.isArray(data)) return out;
+    for (const row of data as Array<{ dedupe_key?: unknown }>) {
+      if (typeof row.dedupe_key === "string") out.add(row.dedupe_key);
+    }
+  } catch {
+    // fall through with what we have
+  }
+  return out;
 }
 
 /**

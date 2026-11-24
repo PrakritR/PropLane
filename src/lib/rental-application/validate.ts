@@ -33,6 +33,7 @@ import {
   parseRoomChoiceValue,
   isRoomChoiceAvailable,
   firstChoiceSlotIsTaken,
+  explainRoomChoiceConflict,
 } from "./data";
 import { acceptedLeaseTermsFromStored } from "./lease-terms";
 import { previousAddressRequired } from "./previous-address";
@@ -383,7 +384,13 @@ export function validateStandardWizardSection(
         f.leaseStart.trim() &&
         !isRoomChoiceAvailable(r1, "", { leaseStart: f.leaseStart, leaseEnd: f.leaseEnd })
       ) {
-        e.roomChoice1 = "That room is taken for these dates. Choose another room or different dates.";
+        e.roomChoice1 =
+          explainRoomChoiceConflict(r1, {
+            leaseStart: f.leaseStart,
+            leaseEnd: f.leaseEnd,
+            propertyId: f.propertyId,
+            leaseTerm: f.leaseTerm,
+          }) ?? "That room is taken for these dates. Choose another room or different dates.";
       }
     }
     if (fieldRequired("leaseTerm") && !f.leaseTerm.trim()) e.leaseTerm = "Lease term is required.";

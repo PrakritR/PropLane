@@ -10,6 +10,7 @@
  *
  * Writes its artifacts only when EVIDENCE_DIR is set.
  */
+import { listingCanonicalSlug } from "@/lib/listing-slug";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { resolveSitemap } from "next/dist/build/webpack/loaders/metadata/resolve-route-data";
@@ -51,8 +52,8 @@ describe("evidence · /sitemap.xml advertises every live listing", () => {
   it("renders the same XML the route serves, listings included", async () => {
     const sitemap = (await import("@/app/sitemap")).default;
     const xml = resolveSitemap(await sitemap());
-    expect(xml).toContain("https://proplane.ai/rent/listings/4709a-8th-ave-ne-room-9");
-    expect(xml).toContain("https://proplane.ai/rent/listings/4709a-8th-ave-ne-room-3");
+    expect(xml).toContain(`https://proplane.ai/rent/listings/${listingCanonicalSlug({ id: "7c1f0f2a-room-9", address: "4709A 8th Ave NE" })}`);
+    expect(xml).toContain(`https://proplane.ai/rent/listings/${listingCanonicalSlug({ id: "9b2e-room-3", address: "4709A 8th Ave NE" })}`);
     expect(xml).toContain("https://proplane.ai/blog/real-cost-of-a-turnover");
     write("sitemap-with-listings.xml", xml);
   });
@@ -61,7 +62,7 @@ describe("evidence · /sitemap.xml advertises every live listing", () => {
 describe("evidence · a listing page carries Accommodation JSON-LD", () => {
   it("emits the public facts and none of the manager's", async () => {
     const page = (await import("@/app/(rent)/rent/listings/[id]/page")).default;
-    const tree = (await page({ params: Promise.resolve({ id: "4709a-8th-ave-ne-room-9" }) })) as {
+    const tree = (await page({ params: Promise.resolve({ id: listingCanonicalSlug({ id: "7c1f0f2a-room-9", address: "4709A 8th Ave NE" }) }) })) as {
       props: { children: { props?: { dangerouslySetInnerHTML?: { __html: string } } }[] };
     };
     const script = tree.props.children.find((child) => child?.props?.dangerouslySetInnerHTML);

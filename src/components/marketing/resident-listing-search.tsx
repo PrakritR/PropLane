@@ -1,5 +1,6 @@
 "use client";
 
+import { listingPublicPathFor } from "@/lib/listing-slug";
 import { RotateCcw } from "lucide-react";
 
 import Link from "next/link";
@@ -228,7 +229,7 @@ export function ResidentListingSearch() {
               {results.map((room) => (
                 <li key={room.key}>
                   <Link
-                    href={`/rent/listings/${encodeURIComponent(room.propertyId)}`}
+                    href={listingPublicPathFor({ id: room.propertyId, address: room.headlineAddress })}
                     data-attr="resident-search-listing-card"
                     className="flex h-full flex-col gap-1.5 rounded-2xl border border-border/60 bg-card/50 p-3.5 transition hover:border-primary/25 hover:bg-card [html[data-theme=dark]_&]:border-white/10 [html[data-theme=dark]_&]:bg-white/[0.05]"
                   >
@@ -462,7 +463,7 @@ export function ResidentHousingChat({
           {listings.map((room) => (
             <li key={room.key}>
               <Link
-                href={`/rent/listings/${encodeURIComponent(room.propertyId)}`}
+                href={listingPublicPathFor({ id: room.propertyId, address: room.headlineAddress })}
                 data-attr="resident-search-ai-chat-listing-card"
                 className="flex flex-col gap-0.5 rounded-xl border border-border/60 bg-card/50 p-3 text-sm transition hover:border-primary/25 hover:bg-card [html[data-theme=dark]_&]:border-white/10 [html[data-theme=dark]_&]:bg-white/[0.05]"
               >

@@ -15,11 +15,34 @@ export function chargeHasProviderPayment(charge: Pick<HouseholdCharge, "stripeCh
   return Boolean(charge.stripeCheckoutSessionId?.trim() && !charge.paidMethod);
 }
 
+export const VOID_PROVIDER_PAYMENT_ERROR =
+  "A real card or bank payment captured money for this charge. Void cannot return it: use Refund instead.";
+
 /**
- * Void a PAID charge. Owner only: the signed-in user must BE the row's `manager_user_id` (the workspace owner, or
+ * Did Stripe capture money for this charge? The charge's own session (without a hand-recorded method) says so, and so
+ * does any ledger payment line that carries a Stripe session or charge id - a hand-marked receipt never has one.
+ * Fails closed: an unreadable ledger counts as provider money.
+ */
+export async function chargeCapturedProviderMoney(db: SupabaseClient, charge: HouseholdCharge): Promise<boolean> {
+  if (chargeHasProviderPayment(charge)) return true;
+  const { data, error } = await db
+    .from("ledger_entries")
+    .select("stripe_checkout_session_id, stripe_charge_id")
+    .eq("source_charge_id", charge.id)
+    .eq("entry_type", "payment");
+  if (error) return true;
+  return ((data ?? []) as { stripe_checkout_session_id?: string | null; stripe_charge_id?: string | null }[]).some(
+    (row) => Boolean(row.stripe_checkout_session_id?.trim() || row.stripe_charge_id?.trim()),
+  );
+}
+
+/**
+ * Void a PAID charge recorded in error (a duplicate, a wrong tenant, a hand-marked receipt). Owner only: the signed-in user must BE the row's `manager_user_id` (the workspace owner, or
  * the service owner on a managed workspace) - never a co-manager, a Property owner seat or a resident. Needs a
  * reason. Never deletes: the row stays with `status: "void"`, who/when/why, one `audit_log` row is written FIRST,
- * and the books get a balanced reversal (`voidLedgerEntriesForCharge`). It never refunds money.
+ * and the books get balanced reversing entries for the charge AND its hand-recorded receipt
+ * (`voidLedgerEntriesForCharge`). It never moves money: a charge Stripe captured money for is refused (409) and goes
+ * through Refund.
  *
  * Idempotent: voiding a void charge re-runs the ledger step (repairs a half-finished void) and reports ok.
  */
@@ -52,15 +75,19 @@ export async function voidPaidCharge(
   if ((current.refundedCents ?? 0) > 0) {
     return { ok: false, status: 409, error: "This charge has a refund on it. Settle the refund first." };
   }
-  const providerPayment = chargeHasProviderPayment(current);
 
   if (existing.status === "void") {
-    await voidLedgerEntriesForCharge(db, current, current.voidedAt ?? now);
-    return { ok: true, charge: current, alreadyVoid: true, providerPayment };
+    // Repair a half-finished void the way it was made: receipts are reversed only for a void that reversed them.
+    await voidLedgerEntriesForCharge(db, current, current.voidedAt ?? now, { reverseReceipt: current.voidReceiptReversed === true });
+    return { ok: true, charge: current, alreadyVoid: true, providerPayment: false };
   }
   if (existing.status !== "paid") {
     return { ok: false, status: 409, error: "Only a paid charge can be voided. Delete or edit an unpaid one." };
   }
+  if (await chargeCapturedProviderMoney(db, current)) {
+    return { ok: false, status: 409, error: VOID_PROVIDER_PAYMENT_ERROR };
+  }
+  const providerPayment = false;
 
   // Audit first: if it cannot be written the charge does not move.
   const { error: auditError } = await db.from("audit_log").insert({
@@ -69,7 +96,7 @@ export async function voidPaidCharge(
     action: "charge_voided",
     tool_name: "portal_household_charges",
     input_summary: { chargeId: id, kind: current.kind, amountLabel: current.amountLabel, reason },
-    result_summary: { outcome: "voided", providerPayment, refunded: false },
+    result_summary: { outcome: "voided", providerPayment, refunded: false, receiptReversed: true },
     dedupe_key: `charge-void:${id}`,
   });
   if (auditError && auditError.code !== "23505") {
@@ -83,6 +110,7 @@ export async function voidPaidCharge(
     voidedAt: now,
     voidedBy: input.actorUserId,
     voidReason: reason,
+    voidReceiptReversed: true,
   };
   let update = db
     .from("portal_household_charge_records")
@@ -94,7 +122,7 @@ export async function voidPaidCharge(
   if (saveError) return { ok: false, status: 500, error: "Could not void the charge." };
   if (!saved) return { ok: false, status: 409, error: "Charge changed. Refresh and try again." };
 
-  await voidLedgerEntriesForCharge(db, voided, now);
+  await voidLedgerEntriesForCharge(db, voided, now, { reverseReceipt: true });
   await cancelFuturePaymentRemindersForCharge(db, ownerId, id).catch(() => undefined);
   return { ok: true, charge: voided, alreadyVoid: false, providerPayment };
 }

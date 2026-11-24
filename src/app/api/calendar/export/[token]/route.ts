@@ -10,7 +10,7 @@ import {
 } from "@/lib/channel-calendar/connections.server";
 import { importedRangesForFeed, type FeedConnection, type FeedPlacement } from "@/lib/channel-calendar/export-feed";
 import { parseConnectionRow } from "@/lib/channel-calendar/connections.server";
-import { stampExportFetch } from "@/lib/channel-calendar/export-fetch-stamp";
+import { isAgodaLabel, stampExportFetch } from "@/lib/channel-calendar/export-fetch-stamp";
 import { EXPORT_FEED_ERROR_PREFIX } from "@/lib/channel-calendar/channel-health";
 import { cachedFeedRead } from "@/lib/channel-calendar/export-feed-reads.server";
 import { approvedRowBlocksRoom, blockEchoesToDestination, listingRentedWhole } from "@/lib/channel-calendar/export-occupancy";
@@ -249,7 +249,12 @@ export async function GET(
 
     failing = { id: connection.id };
     // "Airbnb checked PropLane": best-effort and throttled, never part of the feed's outcome.
-    await stampExportFetch(db, connection, req.headers.get("user-agent"));
+    const userAgent = req.headers.get("user-agent");
+    // Agoda's crawler is undocumented: say what it sent, so the next failed import can be matched in the logs.
+    if (connection.provider === "ical" && isAgodaLabel(connection.label)) {
+      console.info("calendar export fetched for Agoda link", JSON.stringify({ method: req.method, userAgent: (userAgent ?? "").slice(0, 160) }));
+    }
+    await stampExportFetch(db, connection, userAgent);
 
     const record = await loadPropertyRecord(db, connection.property_id);
     const submission = listingSubmissionFromProperty(record?.property ?? null);
@@ -296,8 +301,10 @@ export async function GET(
       status: 200,
       headers: {
         "Content-Type": "text/calendar; charset=utf-8",
-        // inline: some channel validators (Agoda's among them) reject an attachment response.
-        "Content-Disposition": `inline; filename="proplane-${connection.room_id}.ics"`,
+        // No Content-Disposition at all: a download hint (even `inline; filename=`) is what a browser turns into a
+        // file save, and a strict importer (Agoda's) treats the link as a file rather than a feed.
+        // An explicit length keeps GET and HEAD identical and stops a chunked reply some fetchers refuse.
+        "Content-Length": String(new TextEncoder().encode(body).length),
         "Cache-Control": "no-store",
       },
     });

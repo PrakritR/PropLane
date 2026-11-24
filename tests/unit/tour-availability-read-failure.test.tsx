@@ -66,7 +66,12 @@ const EMPTY_STATE = /No tour times yet/i;
 
 /** Every availability fetch in one test, newest response last. */
 function stubAvailability(responses: { ok: boolean; status: number; body: unknown }[]) {
-  const fetchMock = vi.fn(async () => {
+  const fetchMock = vi.fn(async (input?: unknown) => {
+    // The room picker reads the listing's occupancy through its own route; it must not consume a scripted
+    // tour-availability response (that would hide the failure this suite is about).
+    if (String(input).includes("/api/public/approved-room-occupancy")) {
+      return { ok: true, status: 200, json: async () => ({ rooms: [] }) } as unknown as Response;
+    }
     const next = responses.length > 1 ? responses.shift()! : responses[0]!;
     return {
       ok: next.ok,
@@ -125,7 +130,9 @@ describe("a failed tour-availability read is never a booking page with zero slot
       expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     });
     expect(screen.queryByText(EMPTY_STATE)).toBeNull();
-    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(
+      fetchMock.mock.calls.filter(([u]) => String(u).includes("property-tour-availability")).length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it("still treats a SUCCEEDED, empty read as the property's own answer (request mode, never a retry)", async () => {

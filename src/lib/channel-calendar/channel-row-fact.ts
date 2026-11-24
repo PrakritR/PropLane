@@ -1,3 +1,5 @@
+import { AGODA_FEED_STALE_AFTER_MS } from "@/lib/channel-calendar/channel-links";
+
 /** Relative "x min ago" for the Bookings row; falls back to "—" when never synced. */
 export function relativeSyncTime(iso: string | null | undefined, now: number = Date.now()): string {
   if (!iso) return "—";
@@ -20,5 +22,26 @@ export function channelRowFact(input: { linked: number; total: number; lastSynce
   let fact = `Connected · ${shown} of ${total} ${total === 1 ? "room" : "rooms"} · both ways`;
   if (input.lastSyncedAt) fact += ` · synced ${relativeSyncTime(input.lastSyncedAt, input.now)}`;
   if (shown < total) fact += ` · ${total - shown} ${total - shown === 1 ? "needs" : "need"} a listing`;
+  return fact;
+}
+
+/**
+ * The Agoda row's fact line, from what Agoda itself did: how many linked rooms it fetched PropLane's feed for inside
+ * the stale window, and when it last did. "Not pulling" names the rooms Agoda has gone quiet on.
+ */
+export function agodaRowFact(input: {
+  rooms: ReadonlyArray<{ lastSyncedAt: string | null; exportLastFetchedAt: string | null }>;
+  total: number;
+  now?: number;
+}): string {
+  const linked = input.rooms.length;
+  if (!linked) return "";
+  const now = input.now ?? Date.now();
+  const fetchedAt = input.rooms.map((r) => (r.exportLastFetchedAt ? Date.parse(r.exportLastFetchedAt) : NaN)).filter(Number.isFinite);
+  const pulling = fetchedAt.filter((at) => now - at <= AGODA_FEED_STALE_AFTER_MS).length;
+  const total = Math.max(input.total, linked);
+  let fact = `Connected · ${linked} of ${total} ${total === 1 ? "room" : "rooms"}`;
+  if (fetchedAt.length) fact += ` · Agoda last fetched ${relativeSyncTime(new Date(Math.max(...fetchedAt)).toISOString(), now)}`;
+  if (pulling < linked) fact += ` · ${linked - pulling} not pulling`;
   return fact;
 }

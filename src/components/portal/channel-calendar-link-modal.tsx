@@ -28,7 +28,7 @@ import {
 import type { ChannelCalendarProvider, ManagerChannelBookingProperty, ManagerChannelBookingRoom, RemovedChannelStay } from "@/lib/channel-calendar/types";
 import { channelCalendarProviderLabel, icalLabelKey, ICAL_LABEL_MAX_LENGTH, isValidChannelImportUrl, normalizeIcalLabel } from "@/lib/channel-calendar/airbnb-url";
 import { isEntireHomeProperty } from "@/lib/rental-application/data";
-import { channelStatusParts, type ChannelConnectionStatus } from "@/lib/channel-calendar/channel-links";
+import { AGODA_FEED_STALE_AFTER_MS, channelStatusParts, isAgodaSite, type ChannelConnectionStatus } from "@/lib/channel-calendar/channel-links";
 import { buildAirbnbListingPack } from "@/lib/channel-calendar/listing-pack";
 import { channelCalendarUnits, type ChannelCalendarUnit } from "@/lib/channel-calendar/property-units";
 import {
@@ -60,6 +60,8 @@ type Props = {
   propertyOptions: ManagerPropertyFilterOption[];
   /** The channel the opener already knows (the Integrations rows). Without it the page starts with a Channel dropdown. */
   initialProvider?: ChannelCalendarProvider;
+  /** A fixed Other calendar site (the Agoda row): the Name field is not asked and the title says the site. */
+  fixedSiteName?: string;
   /**
    * The rooms and links the opener already loaded (the Integrations panel). With them the popup opens
    * at once and refreshes behind itself; a slow or failed refresh keeps what is shown and never
@@ -72,8 +74,8 @@ type Props = {
 };
 
 /** The popup's title follows the channel picked in it. */
-export function channelCalendarLinkTitle(provider: ChannelCalendarProvider | ""): string {
-  return provider ? `Connect ${channelCalendarProviderLabel(provider)}` : "Connect a channel";
+export function channelCalendarLinkTitle(provider: ChannelCalendarProvider | "", site?: string): string {
+  return provider ? `Connect ${channelCalendarProviderLabel(provider, site)}` : "Connect a channel";
 }
 
 type LinkRow = {
@@ -99,11 +101,14 @@ function ChannelStatusText({
   channel: ChannelCalendarProvider;
   label?: string | null;
 }) {
-  const status = channelStatusParts(connection, new Date(), channel, label);
+  const agoda = isAgodaSite(channel, label);
+  const status = channelStatusParts(connection, new Date(), channel, label, agoda ? { staleAfterMs: AGODA_FEED_STALE_AFTER_MS } : undefined);
   const lead = status.error ? (
     <>
       <span className="text-danger">Error:</span> {status.error}
     </>
+  ) : status.state === "Not pulling" ? (
+    <span className="text-danger">Not pulling</span>
   ) : (
     status.state
   );
@@ -122,11 +127,11 @@ const SAVE_SYNC_CONCURRENCY = 4;
 
 type LinkCheck = { state: "checking" } | { state: "ok"; text: string } | { state: "bad"; text: string };
 
-export function ChannelCalendarLinkFields({ active, propertyOptions: allPropertyOptions, initialProvider, initialConnections, showToast, onChanged, onClose, entries = [], onOpenBooking }: Props) {
+export function ChannelCalendarLinkFields({ active, propertyOptions: allPropertyOptions, initialProvider, fixedSiteName, initialConnections, showToast, onChanged, onClose, entries = [], onOpenBooking }: Props) {
   const [provider, setProvider] = useState<ChannelCalendarProvider | "">(initialProvider ?? "");
   // The raw rooms and links; the per-row map below is derived from them for the channel (and, for Other calendar, site) in view.
   const [linked, setLinked] = useState<readonly ManagerChannelBookingProperty[]>(initialConnections ?? []);
-  const [siteName, setSiteName] = useState("");
+  const [siteName, setSiteName] = useState(fixedSiteName ?? "");
   const [checks, setChecks] = useState<Record<string, LinkCheck>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [copiedKeys, setCopiedKeys] = useState<Record<string, boolean>>({});
@@ -144,7 +149,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
   const name = channelCalendarProviderLabel(channel, site);
   const connections = useMemo(() => connectionMap(linked, channel, site), [linked, channel, site]);
   const knownSites = useMemo(
-    () => [...new Set(linked.flatMap((p) => p.rooms.filter((r) => r.provider === "ical" && r.label?.trim()).map((r) => r.label!.trim())))],
+    () => [...new Set(linked.flatMap((p) => p.rooms.filter((r) => r.provider === "ical" && r.label?.trim() && !isAgodaSite("ical", r.label)).map((r) => r.label!.trim())))],
     [linked],
   );
 
@@ -387,7 +392,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
     {errorAlert}
     <div className="mb-5 space-y-4">
       {!initialProvider ? <FieldSingleSelect labelClassName={POPUP_FIELD_LABEL_CLASS} label="Channel" dataAttr="channel-calendar-link-provider" value={provider} placeholder="Pick a channel…" disabled={busy} options={CHANNEL_OPTIONS} onChange={(next) => { if (next !== provider) { setDrafts({}); setChecks({}); } setProvider(next as ChannelCalendarProvider); }} /> : null}
-      {isIcal ? <div className="space-y-1.5">
+      {isIcal && !fixedSiteName ? <div className="space-y-1.5">
         <label htmlFor="channel-calendar-site-name" className="text-sm font-medium">Name</label>
         <Input id="channel-calendar-site-name" value={siteName} maxLength={ICAL_LABEL_MAX_LENGTH} list="channel-calendar-site-names" disabled={busy} placeholder="Houfy, Furnished Finder…" onChange={(e) => setSiteName(e.target.value)} data-attr="channel-calendar-site-name" />
         <datalist id="channel-calendar-site-names">{knownSites.map((known) => <option key={known} value={known} />)}</datalist>
@@ -456,7 +461,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
 
   return <>
     <AddWorkspace
-      title={channelCalendarLinkTitle(provider)}
+      title={channelCalendarLinkTitle(provider, isIcal ? site : undefined)}
       steps={stepsDef}
       current={0}
       onJump={() => {}}
@@ -474,7 +479,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
       dangerAction={<Button variant="ghost" disabled={busy || loading || rows.length === 0} data-attr="channel-calendar-sync-all" onClick={() => void syncAll()}>Sync all now</Button>}
       hideFooterStepCount
       reviewEditLinks={false}
-      saveState={busy ? "Saving…" : undefined}
+      saveState={busy ? "Saving…" : pending.length > 0 ? "Unsaved changes" : "Saved"}
       onFinish={() => void save()}
       sidePanel={previewPanel}
     >

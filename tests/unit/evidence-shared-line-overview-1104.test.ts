@@ -7,6 +7,7 @@
  * in order, with the MMS photo each one carries. With EVIDENCE_DIR set it writes
  * `shared-line-overview.txt`.
  */
+import { listingUrlRe } from "./listing-url-matcher";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
 import type { MockProperty } from "@/data/types";
@@ -124,7 +125,7 @@ describe("a question about what is open is answered with the open homes", () => 
     // The homes come first, drawn from the public catalog: price, availability, listing page, tour page.
     const all = bodies.join("\n");
     expect(all).toContain("from $900/mo");
-    expect(all).toContain("https://proplane.ai/rent/listings/prop-uw-a");
+    expect(all).toMatch(listingUrlRe("https://proplane.ai", "prop-uw-a"));
     expect(all).toContain("https://proplane.ai/rent/tours-contact?propertyId=prop-uw-a");
     expect(all).toMatch(/tap Apply/);
     // Not the old first move.
@@ -177,7 +178,7 @@ describe("a follow-up question after the overview", () => {
       printTurn(question, turn);
       // The rooms already offered come back with their listing pages, where price, photos and what is included live.
       expect(turn.reply).toContain("Photos, pricing and what is included are on each listing page:");
-      expect(turn.reply).toContain("https://proplane.ai/rent/listings/prop-ballard");
+      expect(turn.reply).toMatch(listingUrlRe("https://proplane.ai", "prop-ballard"));
       expect(turn.reply).not.toContain("I do not have a room that fits right now");
       const lead = fake.rows.sms_unassigned_leads![0]!;
       const stored = lead.profile as { area?: string; stage: string; offers: unknown[] };
@@ -190,7 +191,7 @@ describe("a follow-up question after the overview", () => {
     const narrowed = await say(fake, "do you have anything in Ballard?", { listings: async () => WITH_BALLARD });
     printTurn("do you have anything in Ballard?", narrowed);
     expect((fake.rows.sms_unassigned_leads![0]!.profile as { area?: string }).area).toContain("Ballard");
-    expect(narrowed.reply).toContain("https://proplane.ai/rent/listings/prop-ballard");
+    expect(narrowed.reply).toMatch(listingUrlRe("https://proplane.ai", "prop-ballard"));
     expect(narrowed.reply).not.toContain("prop-uw-a");
     say_("  (the questions keep the three open rooms; only a real neighbourhood narrows them)");
   });

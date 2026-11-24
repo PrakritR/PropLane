@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 import { PUBLIC_MARKETING_PATHS } from "@/lib/seo/marketing-routes";
 import { BLOG_POSTS } from "@/lib/blog/posts";
 import { getCrawlPublicListings } from "@/lib/seo/public-catalog.server";
-import { buildListingSlugIndex } from "@/lib/listing-slug";
+import { buildListingSlugIndex, listingCanonicalSlug } from "@/lib/listing-slug";
 import { listingPublicPath } from "@/lib/listing-public-path";
 
 const BASE = "https://proplane.ai";
@@ -36,7 +36,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     const catalog = await getCrawlPublicListings();
     const slugs = buildListingSlugIndex(catalog);
     listings = catalog.map((p) => ({
-      url: `${BASE}${listingPublicPath(p.id, slugs.idToSlug.get(p.id))}`,
+      url: `${BASE}${listingPublicPath(p.id, slugs.idToSlug.get(p.id) ?? listingCanonicalSlug(p))}`,
       lastModified,
       changeFrequency: "daily",
       priority: 0.7,

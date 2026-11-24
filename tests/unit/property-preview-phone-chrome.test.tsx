@@ -93,7 +93,7 @@ describe("manager preview — slim phone sticky bar", () => {
     expect(bar.hasAttribute("data-slim")).toBe(true);
     expect(bar.textContent).toContain("$1,450 / mo");
     expect(bar.textContent).toContain("5 rooms · 2 open now");
-    expect(bar.querySelector('[data-attr="listing-web-apply"]')?.textContent).toContain("Book");
+    expect(bar.querySelector('[data-attr="listing-web-apply"]')?.textContent).toContain("Apply");
     expect(bar.querySelector('[data-attr="listing-web-tour"]')?.textContent).toBe("Tour");
     // Email moved into the record header menu
     expect(bar.querySelector('[data-attr="listing-sticky-contact"]')).toBeNull();
@@ -105,7 +105,7 @@ describe("manager preview — slim phone sticky bar", () => {
     const bar = document.querySelector('[data-attr="listing-sticky-bar"]') as HTMLElement;
     expect(bar.hasAttribute("data-slim")).toBe(false);
     expect(bar.querySelector('[data-attr="listing-sticky-email"]')).toBeNull();
-    expect(bar.textContent).toContain("Book");
+    expect(bar.textContent).toContain("Apply");
     expect(bar.textContent).not.toContain("Apply long term");
     expect(bar.textContent).toContain("Tour");
   });

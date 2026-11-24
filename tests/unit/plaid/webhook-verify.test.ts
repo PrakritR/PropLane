@@ -1,6 +1,9 @@
 import { createHash, generateKeyPairSync, createSign } from "node:crypto";
-import { describe, expect, it } from "vitest";
-import { verifyPlaidWebhook, type PlaidVerificationKey } from "@/lib/plaid/webhook-verify.server";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { verifyPlaidWebhook, fetchPlaidVerificationKey, resetPlaidKeyCaches, type PlaidVerificationKey } from "@/lib/plaid/webhook-verify.server";
+
+const keyGet = vi.fn();
+vi.mock("@/lib/plaid/client.server", () => ({ getPlaidClient: () => ({ webhookVerificationKeyGet: keyGet }) }));
 
 const { publicKey, privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
 const jwk = publicKey.export({ format: "jwk" }) as PlaidVerificationKey;
@@ -54,5 +57,33 @@ describe("verifyPlaidWebhook", () => {
   it("refuses an expired key", async () => {
     const expired = async () => ({ ...key, expired_at: 1 });
     expect(await verifyPlaidWebhook(body, sign(), { fetchKey: expired, nowSeconds: NOW })).toEqual({ ok: false, reason: "expired_key" });
+  });
+});
+
+describe("fetchPlaidVerificationKey negative cache", () => {
+  beforeEach(() => {
+    resetPlaidKeyCaches();
+    keyGet.mockReset();
+  });
+  it("asks Plaid once for an unknown kid within the miss window", async () => {
+    keyGet.mockRejectedValue(new Error("unknown kid"));
+    expect(await fetchPlaidVerificationKey("random")).toBeNull();
+    expect(await fetchPlaidVerificationKey("random")).toBeNull();
+    expect(keyGet).toHaveBeenCalledTimes(1);
+    expect(await fetchPlaidVerificationKey("another")).toBeNull();
+    expect(keyGet).toHaveBeenCalledTimes(2);
+  });
+  it("retries after the miss window and caches a found key", async () => {
+    vi.useFakeTimers();
+    try {
+      keyGet.mockRejectedValueOnce(new Error("blip")).mockResolvedValue({ data: { key } });
+      expect(await fetchPlaidVerificationKey("k9")).toBeNull();
+      vi.advanceTimersByTime(61_000);
+      expect(await fetchPlaidVerificationKey("k9")).toEqual(key);
+      expect(await fetchPlaidVerificationKey("k9")).toEqual(key);
+      expect(keyGet).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -58,6 +58,8 @@ export type GoogleCalendarConnection = {
    * needing a separate table — cleared on every successful (re)connect.
    */
   revoked?: boolean;
+  /** ISO time of the last successful busy-time pull, stamped at most every 15 minutes (the Integrations "last sync"). */
+  lastSyncedAt?: string | null;
 };
 
 export const DEFAULT_GOOGLE_CALENDAR_CONNECTION: GoogleCalendarConnection = {
@@ -146,6 +148,7 @@ export function normalizeGoogleCalendarConnection(raw: unknown): GoogleCalendarC
       typeof r.proplaneSyncToken === "string" && r.proplaneSyncToken.trim() ? r.proplaneSyncToken.trim() : null,
     vendorPushEnabled: r.vendorPushEnabled === true,
     revoked: r.revoked === true,
+    lastSyncedAt: typeof r.lastSyncedAt === "string" && Number.isFinite(Date.parse(r.lastSyncedAt)) ? r.lastSyncedAt : null,
   };
 }
 
@@ -167,6 +170,7 @@ export function googleCalendarPublicStatus(
     // (`invalid_grant`) — lets the UI say "reconnect" instead of "connect".
     revoked: connection.revoked === true && !connection.connected,
     vendorPushEnabled: connection.vendorPushEnabled === true,
+    lastSyncedAt: connection.lastSyncedAt ?? null,
     // Whether a dedicated PropLane calendar exists yet — new writes land
     // there once true; older/failed-creation connections keep writing to
     // the primary calendar until this becomes true (e.g. on reconnect).

@@ -281,9 +281,11 @@ describe("the apply wizard refuses a room taken for the applicant's dates", () =
   it("flags the first choice when a signed resident holds the room for those dates", async () => {
     const { validateRentalWizardStep } = await import("@/lib/rental-application/validate");
     holdingResident("app-1", "2026-10-05", "2027-10-04");
-    expect(validateRentalWizardStep(1, form("2026-11-01", "2026-11-30")).roomChoice1).toBe(
-      "That room is taken for these dates. Choose another room or different dates.",
-    );
+    // The refusal says what conflicts and what would work, from the same windows that refused it.
+    const message = validateRentalWizardStep(1, form("2026-11-01", "2026-11-30")).roomChoice1;
+    expect(message).toContain("Room A is booked Oct 5, 2026 – Oct 4, 2027.");
+    expect(message).toContain("a start on Oct 5, 2027 or later");
+    expect(message).toContain("Room B");
   });
 
   it("accepts the same room for dates that do not overlap", async () => {

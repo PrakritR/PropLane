@@ -5,6 +5,7 @@
  * `/rent/listings/<id>` page. Both read the catalog through `getCrawlPublicListings`, and the
  * memo is what keeps that crawl from paying `getPublicListings()` once per URL.
  */
+import { listingCanonicalSlug } from "@/lib/listing-slug";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const reads = vi.hoisted(() => ({ count: 0, fail: false, gate: null as Promise<void> | null }));
@@ -38,6 +39,8 @@ afterEach(async () => {
   reads.gate = null;
 });
 
+const SLUG = listingCanonicalSlug({ id: "listing-1", address: "4709A 8th Ave NE" });
+
 describe("the crawl catalog is read once per hour, not once per URL", () => {
   it("serves the sitemap and the listing pages a crawler walks from it on one read", async () => {
     const { resetCrawlPublicListingsCache } = await import("@/lib/seo/public-catalog.server");
@@ -46,12 +49,12 @@ describe("the crawl catalog is read once per hour, not once per URL", () => {
     const page = (await import("@/app/(rent)/rent/listings/[id]/page")).default;
 
     const entries = await sitemap();
-    expect(entries.some((e) => e.url.endsWith("/rent/listings/4709a-8th-ave-ne"))).toBe(true);
+    expect(entries.some((e) => e.url.endsWith(`/rent/listings/${SLUG}`))).toBe(true);
     expect(reads.count).toBe(1);
 
     // The crawler then walks the listing URLs the sitemap just handed it.
     for (let i = 0; i < 3; i += 1) {
-      const tree = (await page({ params: Promise.resolve({ id: "4709a-8th-ave-ne" }) })) as {
+      const tree = (await page({ params: Promise.resolve({ id: SLUG }) })) as {
         props: { children: { props?: { dangerouslySetInnerHTML?: { __html: string } } }[] };
       };
       const script = tree.props.children.find((child) => child?.props?.dangerouslySetInnerHTML);
@@ -67,7 +70,7 @@ describe("the crawl catalog is read once per hour, not once per URL", () => {
     const tree = await mod.default({ params: Promise.resolve({ id: "listing-1" }) });
     expect(tree).toBeTruthy();
     const meta = await mod.generateMetadata({ params: Promise.resolve({ id: "listing-1" }) });
-    expect(String(meta.alternates?.canonical ?? "")).toMatch(/\/rent\/listings\/4709a-8th-ave-ne$/);
+    expect(String(meta.alternates?.canonical ?? "")).toMatch(new RegExp(`/rent/listings/${SLUG}$`));
     expect(reads.count).toBe(1);
   });
 
