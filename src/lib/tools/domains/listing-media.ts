@@ -358,26 +358,48 @@ export const placeMyTextedPhotosTool = defineWriteTool({
   name: "place_my_texted_photos",
   description:
     "Place the photos the user themself just texted (last 30 minutes) onto one of their listings: \"this is 5257 room 7\", \"post these to 4709A kitchen\". Resolve the house with list_properties and the room, bathroom or shared space (kitchen, living room) with get_listing_media_inventory, then pass propertyId, target and targetId. Never pass a photo URL: the photos are found for you. Ask one short question if the house or room is unclear.",
-  inputSchema: z.object(placeTargetSchema).strict(),
+  inputSchema: z
+    .object({
+      ...placeTargetSchema,
+      mediaIds: z
+        .array(z.string().min(1))
+        .optional()
+        .describe("Server-set by the preview: the exact photos the confirmation card counted. Never pass this."),
+    })
+    .strict(),
   preview: async (ctx, input) => {
     const rec = await loadOwnedPropertyRecord(ctx, input.propertyId);
     if (!rec) throw new Error("No listing with that id was found for this account.");
     const phone = await verifiedPhoneOfActor(ctx.db, ctx.userId);
     const files = phone ? await loadSenderRecentImages(ctx.db, { senderPhoneE164: phone }) : [];
     if (files.length === 0) throw new Error("I do not see photos from you in the last half hour. Text the photos again, then tell me the house.");
-    return placePreview(ctx, rec, "place_my_texted_photos", files, input.target ?? "house", input.targetId);
+    return {
+      ...placePreview(ctx, rec, "place_my_texted_photos", files, input.target ?? "house", input.targetId),
+      // Photos arrive as they are taken, so "the last half hour" is a different set by the time YES comes back. The
+      // approved set is pinned here; the handler places those and never a photo the card did not count.
+      confirmedInput: { ...input, mediaIds: files.map((f) => f.id) },
+    };
   },
   handler: async (ctx, input) => {
+    const pinned = new Set(input.mediaIds ?? []);
+    if (pinned.size === 0) throw new Error("Review the photos before adding them.");
     const rec = await loadOwnedPropertyRecord(ctx, input.propertyId);
     if (!rec) throw new Error("No listing with that id was found.");
     const phone = await verifiedPhoneOfActor(ctx.db, ctx.userId);
-    const files = phone ? await loadSenderRecentImages(ctx.db, { senderPhoneE164: phone }) : [];
-    if (files.length === 0) throw new Error("No recent photos from you were found; nothing was added.");
+    // The same read the preview made: it is what re-verifies every pinned id is still this actor's own verified
+    // phone's, still unlinked and still an image. The ids are a pin, never authorization.
+    const waiting = phone ? await loadSenderRecentImages(ctx.db, { senderPhoneE164: phone }) : [];
+    const files = waiting.filter((row) => pinned.has(row.id));
+    if (files.length === 0) throw new Error("Those photos are no longer waiting to be placed. Text them again, then tell me the house.");
     const target = input.target ?? "house";
-    return placeFilesOnListing(ctx, rec, files, target, input.targetId, {
+    const placed = await placeFilesOnListing(ctx, rec, files, target, input.targetId, {
       ids: files.map((f) => f.id),
       linkedId: target === "room" && input.targetId ? `${rec.id}:${input.targetId}` : rec.id,
       claim: "unlinked",
     });
+    const arrivedSince = waiting.length - files.length;
+    return arrivedSince > 0
+      ? { ...placed, reply: `${placed.reply} ${arrivedSince} more photo${arrivedSince === 1 ? "" : "s"} arrived after that — tell me where they go to add them.` }
+      : placed;
   },
 });

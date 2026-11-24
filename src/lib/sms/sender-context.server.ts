@@ -205,7 +205,7 @@ const targetOf = (value: unknown): SenderTarget | null => {
 async function loadSticky(db: SupabaseClient, phone: string): Promise<SenderSticky | null> {
   const row = await readRow(db, stickyKey(phone));
   const target = row ? targetOf(row.data) : null;
-  return row && target ? { target, at: row.at } : null;
+  return row && target ? { target, at: row.at, explicit: row.data.explicit === true } : null;
 }
 
 async function loadPending(db: SupabaseClient, phone: string): Promise<SenderPending | null> {
@@ -254,13 +254,23 @@ export async function resolveSenderContext(
     if (decision.kind === "reply") {
       if (decision.pending) await writeRow(db, questionKey(args.fromPhone), decision.pending);
       else await clear(db, questionKey(args.fromPhone));
-      if (decision.sticky) await writeRow(db, stickyKey(args.fromPhone), { key: decision.sticky.key, workspaceId: decision.sticky.workspaceId ?? null });
+      // The only replies that carry a pick are the ones the sender asked for (a bare switch, the menu's answer), so
+      // the pick is theirs: it holds for its window even on a workspace's own work number.
+      if (decision.sticky) {
+        await writeRow(db, stickyKey(args.fromPhone), { key: decision.sticky.key, workspaceId: decision.sticky.workspaceId ?? null, explicit: true });
+      }
       return { kind: "reply", text: decision.text };
     }
     const resolved = resolveSenderTarget(contexts, decision.target);
     if (!resolved) return { kind: "unchanged" };
     await clear(db, questionKey(args.fromPhone));
-    await writeRow(db, stickyKey(args.fromPhone), { key: decision.target.key, workspaceId: decision.target.workspaceId ?? null });
+    // Switch words and the answer to our question are the sender's own pick; a turn we routed for them (the notice,
+    // the number, a home they named) is not, and must not outrank the number on their next text.
+    const explicit =
+      decision.source === "switch" ||
+      decision.source === "answer" ||
+      (decision.source === "sticky" && sticky?.explicit === true);
+    await writeRow(db, stickyKey(args.fromPhone), { key: decision.target.key, workspaceId: decision.target.workspaceId ?? null, explicit });
     return { kind: "run", body: decision.body, tag: decision.tag, resolved, source: decision.source };
   } catch (error) {
     console.error("sender context unresolved", error instanceof Error ? error.name : "unknown");

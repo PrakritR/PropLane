@@ -20,14 +20,16 @@ import { serviceWorkspaceLabel } from "@/lib/service/service-label";
  *   2. "switch" / "menu" shows the menu
  *   3. explicit words: "manager:" "resident:" "admin:" prefixes, "as manager", "switch to <workspace or home>"; sticky
  *   4. a text that names a home resolves to the workspace that holds it, among the sender's own contexts
- *   5. the number they texted, when it is a workspace's OWN work number: that workspace owns the text
- *   6. a reply to a text we just sent about a workspace inherits that workspace (newer than the last pick)
- *   7. the last pick, for 12 hours
- *   8. ONE question listing only the roles they hold; the text waits for the answer
+ *   5. a pick the sender MADE explicitly (a bare "switch to X", the menu's answer, a role word), for 12 hours
+ *   6. the number they texted, when it is a workspace's OWN work number: that workspace owns the text
+ *   7. a reply to a text we just sent about a workspace inherits that workspace (newer than the last pick)
+ *   8. the last pick we INFERRED, for 12 hours
+ *   9. ONE question listing only the roles they hold; the text waits for the answer
  *
- * 6 and 7 are reached only on the shared PropLane line, where no number names a workspace: a text to a workspace's own
- * dedicated number is about that workspace unless the sender says otherwise (1-4), so neither an unrelated notice from
- * another workspace nor a stale pick can route it - and bill it - elsewhere.
+ * 7 and 8 are reached only on the shared PropLane line, where no number names a workspace: a text to a workspace's own
+ * dedicated number is about that workspace unless the sender said otherwise (1-5), so neither an unrelated notice from
+ * another workspace nor a context we merely inferred can route it - and bill it - elsewhere. An explicit pick does
+ * outrank the number: "switch to resident" then "my sink leaks" is one request, not two.
  */
 
 export const SENDER_STICKY_TTL_MS = 12 * 60 * 60 * 1000;
@@ -58,7 +60,12 @@ export type SenderTarget = { key: string; workspaceId?: string | null };
 export type SenderHome = { id: string; address: string; title: string; buildingName: string; neighborhood: string; target: SenderTarget };
 
 export type SenderPending = { options: SenderTarget[]; body: string; messageSid: string; at: number };
-export type SenderSticky = { target: SenderTarget; at: number };
+export type SenderSticky = {
+  target: SenderTarget;
+  at: number;
+  /** The sender said it (a switch word, the menu answer), rather than us inferring it from a notice or a routed turn. */
+  explicit?: boolean;
+};
 
 export type SenderDecision =
   | { kind: "unchanged" }
@@ -343,10 +350,13 @@ export async function decideSenderContext(input: SenderContextInput): Promise<Se
   const byName = await named(body, contexts, input.loadHomes, new Set(contexts.map((c) => c.key)));
   if (byName.kind === "one") return run(byName.target, body, "named");
 
-  // 5. the work number they texted, when it is a workspace's own
+  // 5. an explicit pick the sender made, which the number they texted does not undo
+  if (sticky?.explicit) return run(sticky.target, body, "sticky");
+
+  // 6. the work number they texted, when it is a workspace's own
   if (valid(input.numberDefault)) return run(input.numberDefault, body, "number");
 
-  // 6. a reply to a text we sent about one workspace, newer than the last pick
+  // 7. a reply to a text we sent about one workspace, newer than the last pick
   const notice = await input.loadNotice().catch(() => null);
   if (notice && now - notice.at <= SENDER_STICKY_TTL_MS && (!sticky || notice.at > sticky.at)) {
     const targets: SenderTarget[] = [];
@@ -358,9 +368,9 @@ export async function decideSenderContext(input: SenderContextInput): Promise<Se
     if (targets.length === 1) return run(targets[0]!, body, "notice");
   }
 
-  // 7. the last pick
+  // 8. the last pick we inferred
   if (sticky) return run(sticky.target, body, "sticky");
 
-  // 8. one question; the text waits
+  // 9. one question; the text waits
   return ask({ body, messageSid: input.messageSid });
 }

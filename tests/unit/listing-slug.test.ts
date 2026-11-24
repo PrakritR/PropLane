@@ -106,10 +106,19 @@ describe("resolveListingParam", () => {
     expect(resolveListingParam(index, "4709A-8th-Ave-NE")).toEqual({ kind: "redirect", slug: slugA, id: A.id });
   });
 
-  it("a legacy base slug two listings share names neither", () => {
+  // The pre-token scheme (b83f959 `buildListingSlugIndex` + `listingIdSuffix`) published the bare street line for a
+  // listing that owned it alone and `<street>-<last six characters of the id>` for each listing in a group that shared
+  // one. Both forms went out in the sitemap, texts and syndicated posts, so both must still resolve.
+  it("a legacy base slug two listings share names neither, but each one's published suffix form resolves", () => {
     const twin = home("prop-twin-aaaa1111zz", "4709A 8th Ave NE, Seattle, WA");
     const shared = buildListingSlugIndex([A, twin]);
     expect(resolveListingParam(shared, "4709a-8th-ave-ne")).toEqual({ kind: "id", id: "4709a-8th-ave-ne" });
+    expect(resolveListingParam(shared, `4709a-8th-ave-ne-${A.id.slice(-6)}`)).toMatchObject({ kind: "redirect", id: A.id });
+    expect(resolveListingParam(shared, `4709a-8th-ave-ne-${twin.id.slice(-6)}`)).toMatchObject({ kind: "redirect", id: twin.id });
+  });
+
+  it("the suffix form resolves for a listing that owned its street line alone, too", () => {
+    expect(resolveListingParam(index, `4709a-8th-ave-ne-${A.id.slice(-6)}`)).toEqual({ kind: "redirect", slug: slugA, id: A.id });
   });
 
   it("an unknown param is passed through as an id (the existing not-found state)", () => {

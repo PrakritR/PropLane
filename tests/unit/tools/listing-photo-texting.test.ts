@@ -93,16 +93,59 @@ describe("place_my_texted_photos (manager / staff by text)", () => {
     expect((await previewWrite(placeMyTextedPhotosTool, ctx, { propertyId: "someone-elses" })).ok).toBe(false);
   });
 
+  /** Preview, then confirm with what the gate STORED - the real sequence behind a YES. */
+  async function previewThenConfirm(ctx: unknown, input: Record<string, unknown>) {
+    const preview = await previewWrite(placeMyTextedPhotosTool, ctx, input);
+    if (!preview.ok) return { preview, result: { ok: false as const, error: preview.error } };
+    return { preview, result: await executeWrite(placeMyTextedPhotosTool, ctx, preview.input) };
+  }
+
   it("confirm ingests to the public bucket, places into the named room, and claims the photos", async () => {
     mocks.verifiedPhoneOfActor.mockResolvedValue("+12065550101");
     mocks.loadSenderRecentImages.mockResolvedValue([fileRow("a"), fileRow("b")]);
     const { ctx, store } = makeWritableCtx({ manager_property_records: [listing()], audit_log: [] });
-    const result = await executeWrite(placeMyTextedPhotosTool, ctx, { propertyId: PROPERTY, target: "room", targetId: "room-7" });
+    const { result } = await previewThenConfirm(ctx, { propertyId: PROPERTY, target: "room", targetId: "room-7" });
     expect(result.ok).toBe(true);
     expect(mocks.ingestListingPhoto).toHaveBeenCalledTimes(2);
     const sub = (store.manager_property_records![0]!.property_data as { listingSubmission: { rooms: Array<{ photoDataUrls: string[] }> } }).listingSubmission;
     expect(sub.rooms[0]!.photoDataUrls).toEqual(["https://cdn.test/listing-photos/a.jpg", "https://cdn.test/listing-photos/b.jpg"]);
     expect(mocks.linkClaimedMedia).toHaveBeenCalledWith(ctx.db, { ids: ["a", "b"], linkedType: "listing", linkedId: `${PROPERTY}:room-7` });
+  });
+
+  // The confirm gate replays the STORED input, and "the photos from the last half hour" is a different set by the time
+  // YES comes back (`WritePreview.confirmedInput` exists for exactly this drift). What the card counted is what is
+  // placed: the two bathroom photos texted after the preview are not added to Room 7 behind the manager's back.
+  it("places only the photos the card counted, even when more arrive before YES", async () => {
+    mocks.verifiedPhoneOfActor.mockResolvedValue("+12065550101");
+    mocks.loadSenderRecentImages.mockResolvedValue([fileRow("a"), fileRow("b"), fileRow("c")]);
+    const { ctx, store } = makeWritableCtx({ manager_property_records: [listing()], audit_log: [] });
+    const preview = await previewWrite(placeMyTextedPhotosTool, ctx, { propertyId: PROPERTY, target: "room", targetId: "room-7" });
+    expect(preview.ok && preview.preview.summary).toBe("Add 3 photos to 5257 Brooklyn Ave NE · Room 7.");
+    if (!preview.ok) return;
+
+    mocks.loadSenderRecentImages.mockResolvedValue([fileRow("a"), fileRow("b"), fileRow("c"), fileRow("d"), fileRow("e")]);
+    const result = await executeWrite(placeMyTextedPhotosTool, ctx, preview.input);
+    expect(result.ok).toBe(true);
+    const sub = (store.manager_property_records![0]!.property_data as { listingSubmission: { rooms: Array<{ photoDataUrls: string[] }> } }).listingSubmission;
+    expect(sub.rooms[0]!.photoDataUrls).toEqual([
+      "https://cdn.test/listing-photos/a.jpg",
+      "https://cdn.test/listing-photos/b.jpg",
+      "https://cdn.test/listing-photos/c.jpg",
+    ]);
+    expect(mocks.linkClaimedMedia).toHaveBeenCalledWith(ctx.db, { ids: ["a", "b", "c"], linkedType: "listing", linkedId: `${PROPERTY}:room-7` });
+    expect(result.reply).toMatch(/2 more photos arrived/);
+  });
+
+  it("refuses a confirm that names no reviewed photos, or whose photos are no longer waiting", async () => {
+    mocks.verifiedPhoneOfActor.mockResolvedValue("+12065550101");
+    mocks.loadSenderRecentImages.mockResolvedValue([fileRow("a")]);
+    const { ctx } = makeWritableCtx({ manager_property_records: [listing()], audit_log: [] });
+    expect(await executeWrite(placeMyTextedPhotosTool, ctx, { propertyId: PROPERTY })).toMatchObject({ ok: false });
+    // The reviewed photo was linked (or the half hour lapsed) before YES: nothing newer is placed in its stead.
+    mocks.loadSenderRecentImages.mockResolvedValue([fileRow("z")]);
+    const result = await executeWrite(placeMyTextedPhotosTool, ctx, { propertyId: PROPERTY, mediaIds: ["a"] });
+    expect(result).toMatchObject({ ok: false });
+    expect(mocks.ingestListingPhoto).not.toHaveBeenCalled();
   });
 
   it("a shared space (kitchen) is placeable, which the plain MMS filer cannot do", async () => {

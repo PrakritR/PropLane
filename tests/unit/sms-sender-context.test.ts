@@ -206,6 +206,27 @@ describe("sender context: one decision per text", () => {
       .toMatchObject({ kind: "run", source: "answer", target: { key: "resident:ws-res" }, body: "rent status" });
   });
 
+  // "switch to resident" then "my sink leaks" is ONE request: a pick the sender made holds for its window, even on the
+  // workspace's own number. A context we merely inferred does not - that is what the number default is for.
+  it("an explicit pick holds for the next plain text on the workspace's own number; an inferred one does not", async () => {
+    const onOwn = { numberDefault: { key: "manager:ws-mine" } as const };
+    const picked = await decideSenderContext(base({ ...onOwn, body: "switch to 88 Pine St" }));
+    expect(picked).toMatchObject({ kind: "reply", sticky: { key: "resident:ws-res" } });
+
+    const explicitPick = { target: { key: "resident:ws-res" }, at: NOW - 60_000, explicit: true };
+    expect(await decideSenderContext(base({ ...onOwn, body: "my sink leaks", sticky: explicitPick })))
+      .toMatchObject({ kind: "run", source: "sticky", target: { key: "resident:ws-res" }, tag: null });
+
+    const inferredPick = { target: { key: "resident:ws-res" }, at: NOW - 60_000 };
+    expect(await decideSenderContext(base({ ...onOwn, body: "my sink leaks", sticky: inferredPick })))
+      .toMatchObject({ kind: "run", source: "number", target: { key: "manager:ws-mine" } });
+
+    // Past its 12 hours an explicit pick is gone like any other.
+    const stale = { target: { key: "resident:ws-res" }, at: NOW - hours(13), explicit: true };
+    expect(await decideSenderContext(base({ ...onOwn, body: "my sink leaks", sticky: stale })))
+      .toMatchObject({ kind: "run", source: "number", target: { key: "manager:ws-mine" } });
+  });
+
   it("a reply to a notice inherits the notice's workspace when it is newer than the last pick", async () => {
     const notice = { workspaceId: "ws-vin", at: NOW - 60_000 };
     const fresh = await decideSenderContext(base({ body: "ok what should we do", loadNotice: async () => notice, sticky: { target: { key: "manager:ws-mine" }, at: NOW - hours(3) } }));
