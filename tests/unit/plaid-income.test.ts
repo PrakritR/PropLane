@@ -95,6 +95,29 @@ describe("income calc", () => {
     expect(estimateMonthlyIncome(biweekly)).toEqual(estimate);
   });
 
+  // Same deposit, four positions: an extra deposit is not pay whether it lands before the first paycheck, between
+  // two of them, beside one, or on its own mid-cycle. Oracle: the biweekly paycheck annualized from its own cycle,
+  // 2425 x (365.25/14) / 12 = $5,272/mo. Plausible wrong behaviours this rejects: anchoring the cadence on a
+  // leading bonus ($7,588/mo), and keeping a bonus whose amount is close enough to a paycheck ($7,274/mo).
+  it("sets an off-cycle deposit aside wherever in the history it sits", () => {
+    const biweekly = ["2026-10-01", "2026-10-15", "2026-10-29", "2026-11-12", "2026-11-26"];
+    const pay = biweekly.map((date) => dated(2425, date));
+    const extra = (amount: number, date: string) => ({ ...dated(amount, date), name: "ACME CORP PAYROLL BONUS" });
+    const cases: Record<string, IncomeTransactionInput[]> = {
+      "before the first paycheck": [extra(8000, "2026-09-30"), ...pay],
+      "the day after a paycheck": [...pay, extra(3000, "2026-11-27")],
+      "the day before a middle paycheck": [...pay, extra(3000, "2026-10-28")],
+      "alone between two paychecks": [...pay, extra(5000, "2026-10-08")],
+    };
+    for (const [where, rows] of Object.entries(cases)) {
+      const estimate = estimateMonthlyIncome(rows);
+      expect(within1Percent(figureOf(estimate), monthlyFromCycle(2425, 14)), where).toBe(true);
+      expect(estimate.ok && estimate.estimate.depositCount, where).toBe(5);
+    }
+    // And the pay alone reads the same: the figure is the cadence, never what landed beside it.
+    expect(within1Percent(figureOf(estimateMonthlyIncome(pay)), monthlyFromCycle(2425, 14))).toBe(true);
+  });
+
   it("gives no figure when only a pair of paychecks survives the off-cycle test", () => {
     // Two monthly paychecks plus a $5,000 deposit the next day: the pair is one gap, which cannot tell a cadence
     // from a paycheck plus a bonus (`INCOME_MIN_DEPOSITS`). The mean-gap divisor reported $5,892/mo on $2,000 pay.

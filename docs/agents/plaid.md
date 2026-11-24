@@ -142,9 +142,12 @@ group never waits on it.
 - **Method.** Link with the Transactions product (90 days), then `/transactions/get` and `income-calc.ts`: payroll-style
   deposits (Plaid `INCOME_WAGES`, or a payroll name; never a transfer, refund, peer payment or pending line) divided by the
   period THOSE DEPOSITS earn over — never the window asked for, neither capped nor floored by it. `depositCoverageMonths`
-  reads the cadence off the deposits as the **median** gap between them, keeps only the deposits that sit on it (one
-  arriving less than half a cadence after the last regular one is OFF-CYCLE — a bonus, a correction run, a final check)
-  and divides those by `span of the regular deposits + one median cycle`, unrounded. An off-cycle deposit is in neither
+  keeps only the deposits that sit on the cadence in BOTH amount and time, and divides those by `span of the regular
+  deposits + one median cycle`, unrounded. A deposit is OFF-CYCLE — a bonus, a correction run, a final check — when its
+  amount is more than a quarter away from the **median** amount, or when it lands less than half a **median** gap after
+  the deposit before it, in which case the one of that pair further from the median amount is the extra. Neither test
+  privileges a position: a bonus dated the day BEFORE the first paycheck is set aside exactly like one dated the day
+  after, and either one left as the anchor read $7,588/mo on $5,272 of real pay. An off-cycle deposit is in neither
   half: money that arrived once is not a monthly rate, and counted as pay it would move the figure twice, adding to it
   while shortening the period it is spread over (a $3,000 bonus the day after a biweekly paycheck read as $8,089/mo on
   $5,254 of real pay under the old mean-gap cycle). `INCOME_MIN_DEPOSITS` is counted AFTER that — two paychecks plus a
@@ -152,7 +155,7 @@ group never waits on it.
   paychecks over 28 days earn over 35 days (the 52/12 rate), seven biweekly ones over 84 days earn over 98 (the 26/12
   rate), and three paychecks 45 days apart earn over 135 days — one every 45 days, not one a month. Dividing by the window
   instead would report a weekly earner whose bank shared one month at a third of their income, and that 45-day earner at
-  half again more than arrives. `INCOME_MIN_DEPOSITS` is **three** deposits ON the cadence, because two
+  half again more than arrives. `INCOME_MIN_DEPOSITS` is **three** deposits left ON the cadence, because two
   deposits are one gap: a cadence guessed from a single interval cannot tell a monthly paycheck pair from a paycheck plus
   a bonus. Fewer than three, or a span under `INCOME_MIN_COVERAGE_DAYS` of real observation, and there is no figure at
   all — which costs the applicant nothing, since the check never blocks a submit. A refusal names WHICH of the two it is

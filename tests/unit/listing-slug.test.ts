@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { pathToRegexp } from "path-to-regexp";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   buildListingSlugIndex,
@@ -182,12 +181,13 @@ describe("the middleware sends an old record-id URL to the canonical one", () =>
 });
 
 // The tour doors are decided by `redirects()` in `next.config.ts`, which Next evaluates IN ORDER and whose
-// `missing` entries it ANDs. The matcher below is that contract applied to the real exported list: sources go
-// through `path-to-regexp` (the library Next itself matches `source` with) and a rule applies only when every
-// `missing` query key is absent. Oracle: Next.js routing (`redirects` ordering + `missing`) and RFC 7538 for
-// `permanent: false` meaning 307. Wrong behaviours this rejects: a bare /rent/tour landing on the dead-end
-// contact form, a request that NAMES a home being bounced to the browse picker, and any of these rules being
-// minted permanent so a browser caches the hop.
+// `missing` entries it ANDs. The matcher below is that contract applied to the real exported list: every rule
+// under test names a literal path, so a literal compare is the whole of Next's matching for these requests, and
+// a rule applies only when every `missing` query key is absent. A parameterised source that could reach one of
+// these paths is not something a literal compare may silently skip, so the matcher refuses to guess.
+// Oracle: Next.js routing (`redirects` ordering + `missing`) and RFC 7538 for `permanent: false` meaning 307.
+// Wrong behaviours this rejects: a bare /rent/tour landing on the dead-end contact form, a request that NAMES a
+// home being bounced to the browse picker, and any of these rules being minted permanent so a browser caches it.
 type RedirectRule = {
   source: string;
   destination: string;
@@ -198,7 +198,14 @@ type RedirectRule = {
 
 function firstRedirect(rules: RedirectRule[], pathname: string, query: Record<string, string> = {}) {
   return rules.find((rule) => {
-    if (!pathToRegexp(rule.source).test(pathname)) return false;
+    const parameter = rule.source.indexOf(":");
+    if (parameter >= 0) {
+      if (pathname.startsWith(rule.source.slice(0, parameter))) {
+        throw new Error(`"${rule.source}" may match ${pathname}; teach this matcher the pattern before trusting it`);
+      }
+      return false;
+    }
+    if (rule.source !== pathname) return false;
     const absent = (entry: { type: string; key?: string }) => entry.type === "query" && !(String(entry.key) in query);
     if (!(rule.missing ?? []).every(absent)) return false;
     return (rule.has ?? []).every((entry) => !absent(entry));
