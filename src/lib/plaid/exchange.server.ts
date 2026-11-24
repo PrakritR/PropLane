@@ -2,12 +2,12 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AccountType, type PlaidApi } from "plaid";
-import type { PlaidPurpose } from "@/lib/plaid/client.server";
+import { plaidFailure, type PlaidPurpose } from "@/lib/plaid/client.server";
 import { PlaidItemConflictError, type CreatePlaidItemInput, type PlaidItemRow } from "@/lib/plaid/items.server";
 
 export type ExchangeDeps = {
   db: SupabaseClient;
-  client: Pick<PlaidApi, "itemPublicTokenExchange" | "accountsGet" | "institutionsGetById">;
+  client: Pick<PlaidApi, "itemPublicTokenExchange" | "accountsGet" | "institutionsGetById" | "itemRemove">;
   createItem: (db: SupabaseClient, input: CreatePlaidItemInput) => Promise<PlaidItemRow>;
   /** Makes the manager's bank account from the linked account when none was picked first. */
   createBankAccount?: (
@@ -33,6 +33,12 @@ export type ExchangeResult =
  * Exchange, read the one account the feed follows (a depository account, the one the user
  * picked when Plaid reports it), and store the item for `ownerUserId`. Account and routing
  * numbers are never requested; only the last four digits (mask) are kept.
+ *
+ * The exchanged access token lives only in this call until `createItem` stores it encrypted, so every way out
+ * of here that does NOT store it removes the Item at Plaid first: a refusal (no account shared, a foreign
+ * owner, a purpose change, the one-live-feed race), a failed bank-account or row write, and an unreadable key
+ * store alike. Otherwise the user's bank keeps a live PropLane connection nothing on our side can reach or
+ * revoke - not even deleting the account, which walks stored rows.
  */
 export async function exchangePublicToken(deps: ExchangeDeps, input: ExchangeInput): Promise<ExchangeResult> {
   if (input.purpose === "bank_feed" && !input.bankAccountId && !deps.createBankAccount) {
@@ -53,60 +59,75 @@ export async function exchangePublicToken(deps: ExchangeDeps, input: ExchangeInp
   const accessToken = exchanged.data.access_token;
   const plaidItemId = exchanged.data.item_id;
 
-  const accountsRes = await deps.client.accountsGet({ access_token: accessToken });
-  const accounts = accountsRes.data.accounts;
-  const depository = accounts.filter((a) => a.type === AccountType.Depository);
-  const pool = depository.length > 0 ? depository : accounts;
-  const chosen = pool.find((a) => a.account_id === input.preferredPlaidAccountId) ?? pool[0];
-  if (!chosen) return { ok: false, status: 422, error: "No account was shared." };
-
-  let institutionName: string | null = null;
-  const institutionId = accountsRes.data.item.institution_id;
-  if (institutionId) {
-    try {
-      const inst = await deps.client.institutionsGetById({ institution_id: institutionId, country_codes: ["US" as never] });
-      institutionName = inst.data.institution.name;
-    } catch {
-      institutionName = null;
-    }
-  }
-
-  let bankAccountId = input.purpose === "bank_feed" ? input.bankAccountId : null;
-  /** The account this exchange made itself, so a refused item never leaves an empty one behind. */
-  let createdBankAccountId: string | null = null;
-  if (input.purpose === "bank_feed" && !bankAccountId) {
-    // No account picked yet (an empty Bank rec): the linked account becomes the manager's operating account.
-    const label = [institutionName, chosen.name ?? chosen.official_name].filter(Boolean).join(" ").trim() || "Bank account";
-    const created = await deps.createBankAccount!(deps.db, {
-      managerUserId: input.ownerUserId,
-      name: label,
-      accountType: "operating",
-      lastFour: chosen.mask ?? null,
-    });
-    bankAccountId = created.id;
-    createdBankAccountId = created.id;
-  }
-
+  let stored = false;
   try {
-    const item = await deps.createItem(deps.db, {
-      ownerUserId: input.ownerUserId,
-      purpose: input.purpose,
-      itemId: plaidItemId,
-      accessToken,
-      institutionName,
-      accountMask: chosen.mask ?? null,
-      accountName: chosen.name ?? chosen.official_name ?? null,
-      plaidAccountId: chosen.account_id,
-      bankAccountId,
-    });
-    return { ok: true, item };
+    const accountsRes = await deps.client.accountsGet({ access_token: accessToken });
+    const accounts = accountsRes.data.accounts;
+    const depository = accounts.filter((a) => a.type === AccountType.Depository);
+    const pool = depository.length > 0 ? depository : accounts;
+    const chosen = pool.find((a) => a.account_id === input.preferredPlaidAccountId) ?? pool[0];
+    if (!chosen) return { ok: false, status: 422, error: "No account was shared." };
+
+    let institutionName: string | null = null;
+    const institutionId = accountsRes.data.item.institution_id;
+    if (institutionId) {
+      try {
+        const inst = await deps.client.institutionsGetById({ institution_id: institutionId, country_codes: ["US" as never] });
+        institutionName = inst.data.institution.name;
+      } catch {
+        institutionName = null;
+      }
+    }
+
+    let bankAccountId = input.purpose === "bank_feed" ? input.bankAccountId : null;
+    /** The account this exchange made itself, so a refused item never leaves an empty one behind. */
+    let createdBankAccountId: string | null = null;
+    if (input.purpose === "bank_feed" && !bankAccountId) {
+      // No account picked yet (an empty Bank rec): the linked account becomes the manager's operating account.
+      const label = [institutionName, chosen.name ?? chosen.official_name].filter(Boolean).join(" ").trim() || "Bank account";
+      const created = await deps.createBankAccount!(deps.db, {
+        managerUserId: input.ownerUserId,
+        name: label,
+        accountType: "operating",
+        lastFour: chosen.mask ?? null,
+      });
+      bankAccountId = created.id;
+      createdBankAccountId = created.id;
+    }
+
+    try {
+      const item = await deps.createItem(deps.db, {
+        ownerUserId: input.ownerUserId,
+        purpose: input.purpose,
+        itemId: plaidItemId,
+        accessToken,
+        institutionName,
+        accountMask: chosen.mask ?? null,
+        accountName: chosen.name ?? chosen.official_name ?? null,
+        plaidAccountId: chosen.account_id,
+        bankAccountId,
+      });
+      stored = true;
+      return { ok: true, item };
+    } catch (error) {
+      // The item is what the account was made for. A refusal (a foreign owner, a purpose change, the race the
+      // unique index catches) is retried by the manager, so an account left behind here becomes one more empty
+      // row per attempt. It was created moments ago by this request alone and nothing else can reference it yet.
+      await rollBackCreatedBankAccount(deps, input.ownerUserId, createdBankAccountId);
+      if (error instanceof PlaidItemConflictError) return { ok: false, status: error.status, error: error.message };
+      throw error;
+    }
+  } finally {
+    if (!stored) await revokeExchangedItem(deps, accessToken);
+  }
+}
+
+/** Best effort, like the account rollback: a failed revoke must not replace what the caller has to report. */
+async function revokeExchangedItem(deps: ExchangeDeps, accessToken: string): Promise<void> {
+  try {
+    await deps.client.itemRemove({ access_token: accessToken });
   } catch (error) {
-    // The item is what the account was made for. A refusal (a foreign owner, a purpose change, the race the
-    // unique index catches) is retried by the manager, so an account left behind here becomes one more empty
-    // row per attempt. It was created moments ago by this request alone and nothing else can reference it yet.
-    await rollBackCreatedBankAccount(deps, input.ownerUserId, createdBankAccountId);
-    if (error instanceof PlaidItemConflictError) return { ok: false, status: error.status, error: error.message };
-    throw error;
+    console.warn("[plaid] item remove failed", plaidFailure(error).code);
   }
 }
 

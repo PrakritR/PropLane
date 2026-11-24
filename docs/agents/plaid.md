@@ -60,6 +60,12 @@ micro-deposits stay as "Enter numbers instead"; phone-bound links and saved-bank
 - **The owner is the session user.** The link token and the exchange derive the user (and the
   Financials permission for `bank_feed`) from the session, never the body. Update mode (Reconnect)
   resolves the item by our row id scoped to that user.
+- **An Item we do not store is removed at Plaid.** The exchanged `access_token` exists only inside
+  `exchangePublicToken` until `createPlaidItem` stores it encrypted, so every exit that does not store it
+  (no usable account shared, the 403/409 item refusals, a failed bank-account or row write, an unreadable
+  key store) calls `/item/remove` in a `finally` first - best effort, logging only `plaidFailure().code`.
+  Otherwise the user's bank keeps a live PropLane connection nothing can reach, including the purge below,
+  which walks stored rows. `computeIncomeFromPublicToken` holds the same invariant the same way.
 - **The webhook is JWT-verified.** `verifyPlaidWebhook`: ES256 `Plaid-Verification`, key by `kid`
   from `/webhook_verification_key/get`, `iat` within 5 minutes, `request_body_sha256` equals the
   SHA-256 of the raw body. Anything else is a 401 that does nothing. URL: `PLAID_WEBHOOK_URL`, else

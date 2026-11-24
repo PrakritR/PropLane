@@ -16,6 +16,7 @@ function client() {
       },
     })),
     institutionsGetById: vi.fn(async () => ({ data: { institution: { name: "First Platypus Bank" } } })),
+    itemRemove: vi.fn(async () => ({ data: { request_id: "req-1" } })),
   };
 }
 
@@ -68,6 +69,74 @@ describe("exchangePublicToken", () => {
     );
     expect(result).toMatchObject({ ok: false, status: 409 });
     expect(result.ok === false && result.error).toMatch(/already connected/);
+  });
+
+  // An access token this call does not STORE is the only copy there will ever be: the Item has to be removed at
+  // Plaid before the refusal is returned, or the user's bank keeps a live PropLane connection no later code can
+  // reach - `removePlaidItemsForOwner` (even on account deletion) walks stored rows only. Oracle: Plaid's
+  // /item/remove contract plus the sibling exchange path `computeIncomeFromPublicToken`, which removes the Item
+  // in a `finally` "so a failure at any step still leaves no access token behind". Plausible wrong behaviour this
+  // rejects: returning the refusal (or rethrowing) with the Item still live, as every retry adds another.
+  it("removes the Item at Plaid on every exit that does not store it, and logs no token", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      for (const failure of [
+        new PlaidItemConflictError("This bank login can't be connected here.", 403),
+        new PlaidItemConflictError("This bank account is already connected. Reconnect that connection instead.", 409),
+        new Error("DATA_ENCRYPTION_ACTIVE_KEY_ID is not set"),
+      ]) {
+        const { db } = createFakeDb({ manager_bank_accounts: [{ id: "ba-1", manager_user_id: "user-1" }] });
+        const c = client();
+        const createItem = vi.fn(async () => {
+          throw failure;
+        });
+        const run = exchangePublicToken(
+          { db, client: c as never, createItem: createItem as never },
+          { ownerUserId: "user-1", purpose: "bank_feed", publicToken: "p", bankAccountId: "ba-1", preferredPlaidAccountId: null },
+        );
+        if (failure instanceof PlaidItemConflictError) await expect(run).resolves.toMatchObject({ ok: false });
+        else await expect(run).rejects.toThrow(/DATA_ENCRYPTION/);
+        expect(c.itemRemove.mock.calls).toEqual([[{ access_token: "access-sandbox-xyz" }]]);
+      }
+
+      // A bank that shares no usable account is the same situation: nothing was stored.
+      const { db } = createFakeDb({ manager_bank_accounts: [{ id: "ba-1", manager_user_id: "user-1" }] });
+      const empty = client();
+      empty.accountsGet = vi.fn(async () => ({ data: { item: { institution_id: null }, accounts: [] } })) as never;
+      const refused = await exchangePublicToken(
+        { db, client: empty as never, createItem: vi.fn() as never },
+        { ownerUserId: "user-1", purpose: "bank_feed", publicToken: "p", bankAccountId: "ba-1", preferredPlaidAccountId: null },
+      );
+      expect(refused).toMatchObject({ ok: false, status: 422 });
+      expect(empty.itemRemove).toHaveBeenCalledTimes(1);
+
+      // A revoke that itself fails still reports the original refusal, and never prints the token.
+      const { db: db2 } = createFakeDb({ manager_bank_accounts: [{ id: "ba-1", manager_user_id: "user-1" }] });
+      const broken = client();
+      broken.itemRemove = vi.fn(async () => {
+        throw { response: { data: { error_code: "ITEM_NOT_FOUND", error_type: "ITEM_ERROR", error_message: "x" }, status: 400 } };
+      }) as never;
+      const stillRefused = await exchangePublicToken(
+        { db: db2, client: broken as never, createItem: vi.fn(async () => { throw new PlaidItemConflictError("Nope.", 409); }) as never },
+        { ownerUserId: "user-1", purpose: "bank_feed", publicToken: "p", bankAccountId: "ba-1", preferredPlaidAccountId: null },
+      );
+      expect(stillRefused).toMatchObject({ ok: false, status: 409 });
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("access-sandbox-xyz");
+      expect(JSON.stringify(warn.mock.calls)).toContain("ITEM_NOT_FOUND");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("keeps the stored item's login: a connection that succeeded is never removed", async () => {
+    const { db } = createFakeDb({ manager_bank_accounts: [{ id: "ba-1", manager_user_id: "user-1" }] });
+    const c = client();
+    const result = await exchangePublicToken(
+      { db, client: c as never, createItem: vi.fn(async () => ({ id: "row-1" }) as never) as never },
+      { ownerUserId: "user-1", purpose: "bank_feed", publicToken: "p", bankAccountId: "ba-1", preferredPlaidAccountId: null },
+    );
+    expect(result.ok).toBe(true);
+    expect(c.itemRemove).not.toHaveBeenCalled();
   });
 
   it("leaves no empty bank account behind when the item is refused", async () => {
