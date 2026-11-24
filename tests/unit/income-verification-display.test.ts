@@ -17,7 +17,7 @@ function row(over: Partial<DemoApplicantRow> = {}): DemoApplicantRow {
     ...over,
   };
 }
-const verified = { source: "plaid" as const, monthlyIncomeCents: 485000, months: 3, depositCount: 6, historyDays: 90, verifiedAt: "2026-11-18T00:00:00.000Z" };
+const verified = { source: "plaid" as const, monthlyIncomeCents: 485000, months: 3, depositCount: 6, verifiedAt: "2026-11-18T00:00:00.000Z" };
 
 describe("manager income fact", () => {
   it("the HTML builder draws stated vs verified as one fact", () => {

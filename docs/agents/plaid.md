@@ -154,18 +154,16 @@ group never waits on it.
   `no_payroll_deposits` vs `not_enough_history`) and `INCOME_REFUSAL_MESSAGE` maps it to the one message, so an
   applicant whose bank shared too little is never told no paychecks were found. Only `estimateMonthlyIncome` knows which
   applies — never re-derive it by counting deposits at the call site.
-- **The basis is shown with the figure.** `historyDays` records how much bank history the provider actually returned
-  (stored nullable on `applicant_income_verifications`), and `incomeVerifiedLine` renders the whole basis in one plain
-  fact: `✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · as of Nov 3, 2026`, plus
-  `· only 45 days of bank history` when the history falls more than `INCOME_SHORT_HISTORY_SLACK_DAYS` short of the
-  window — a week of slack, because a quiet first week is not a new account. A 45-day-old account therefore reads as
-  one instead of looking like a full quarter of pay. The as-of date (Pacific, like every other stamp) is there because
-  a stored figure is reused for up to `INCOME_VERIFICATION_MAX_AGE_DAYS`: without it a check run a month ago reads as
-  the last 90 days ending today. It names the YEAR too, because the line is stamped onto the application and read off
-  durable artifacts (an archived PDF, the same person's application a year later) long after that window closes. Every clause is omitted when its fact is missing rather than rendered empty, and both
-  routes answer with the ONE shape `incomeVerifiedPayload` builds — a narrower projection is how the applicant's own
-  line came to read "(undefined deposits)" on a reload. Plaid's own Income products (`/credit/bank_income/get`) need separate product
-  access, so they are not used; proven against the sandbox with a custom user.
+- **The basis is shown with the figure.** `incomeVerifiedLine` renders the figure and what it is made of in one
+  plain fact: `✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · as of Nov 3, 2026`. The as-of date
+  (Pacific, like every other stamp, with the year) is there because a stored figure is reused for up to
+  `INCOME_VERIFICATION_MAX_AGE_DAYS` and the same line is read off durable artifacts - an archived PDF, the same
+  person's application a year later - long after that window closes. How much bank history the provider shared is NOT
+  claimed: `/transactions/get` returns transactions, not an account-open date, so the earliest row dates a quiet
+  savings account exactly like a new one and the old "only N days of bank history" note called a full-history account
+  new. Every clause is omitted when its fact is missing rather than rendered empty, and both routes answer with the
+  ONE shape `incomeVerifiedPayload` builds - a narrower projection is how the applicant's own line came to read
+  "(undefined deposits)" on a reload.
 - **Server-owned.** `POST /api/plaid/income/verify` takes only the public token and the listing id (never a figure), computes
   on the server, stores one row per (applicant, listing) in `applicant_income_verifications` (service role only, a figure and
   the institution, never a token) and removes the Plaid Item before returning: no access token lingers. The signed-in

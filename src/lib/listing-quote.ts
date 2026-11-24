@@ -26,6 +26,7 @@
 import { shortTermStayNightCount, shortTermStayCanBePriced, shortTermStayTotalAmount, shortTermStayTierNote } from "@/lib/short-term-stay-pricing";
 import { parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
 import { parseMoneyAmount } from "@/lib/parse-money";
+import { roomFeeRow } from "@/lib/room-term-fees";
 import {
   feeAppliesToResidentSlot,
   isListingFeeAmountFilled,
@@ -283,9 +284,13 @@ export function buildListingQuote(
   const staySlot = room && residentSlot ? roomStayPriceForSlot(room, residentSlot) : undefined;
   const arrangementPrice =
     room && arrangementCount ? roomPriceForResidentCount(room, arrangementCount) : undefined;
+  // The one arrangement-row lookup (`roomFeeRow`), on the count the applicant picked or the single-resident row:
+  // the lease rider and the monthly charge read it the same way, so a fee typed per room cannot be quoted at one
+  // figure and billed at another.
   const arrangementRow =
-    room?.occupancyPrices?.find((row) => row.count === arrangementCount) ??
-    (options.useEntireHomeRent && !room ? sub.entireHomeArrangementFees : undefined);
+    room || !options.useEntireHomeRent
+      ? roomFeeRow(sub, room, arrangementCount ?? 1)
+      : sub.entireHomeArrangementFees;
   const placementFees = resolvePlacementStandardFees(sub, {
     leaseTerm,
     room,
@@ -427,10 +432,7 @@ export function buildListingQuote(
     ))
   );
   if (billsCustomLease) {
-    // The arrangement row's own typed amount is the most specific setting the manager made (exactly as its
-    // month-to-month surcharge is); with none, the listing's row decides - removed bills nothing, blank the default.
-    const rowAmount = String(arrangementRow?.customStartSurcharge ?? "").trim();
-    const amount = rowAmount ? parseMoneyAmount(rowAmount) : customLeaseSurchargeAmount(sub);
+    const amount = customLeaseSurchargeAmount(sub, arrangementRow);
     if (amount > 0) {
       customLeaseSurcharge = amount;
       (foldMonthlyIntoRent ? folded : recurring).push({

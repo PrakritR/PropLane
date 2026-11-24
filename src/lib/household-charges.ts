@@ -17,7 +17,7 @@ import {
   type MonthlyFeeLine,
 } from "@/lib/rent-fold-in";
 import { feeAppliesToResidentSlot, listingFeeCadence, type ListingFeeRow } from "@/lib/listing-fees";
-import { submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
+import { roomFeeRow, submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
 import type { RentRuleAddress } from "@/lib/seattle-rent-rule";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { parseRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
@@ -4369,12 +4369,17 @@ function buildApprovedStandardChargeDrafts(
 
   const monthlyFeeSet = filterFeesForResidentSlot(
     opts.allowListingDefaults && ledgerHasProratedFeeLines(opts.applicationId)
-      ? monthlyFeesBilledSeparately(sub, listingProperty, {
-          leaseStart: opts.leaseStart,
-          leaseEnd: opts.leaseEnd,
-          leaseTerm: row.application?.leaseTerm,
-          rentalType: row.application?.rentalType,
-        })
+      ? monthlyFeesBilledSeparately(
+          sub,
+          listingProperty,
+          {
+            leaseStart: opts.leaseStart,
+            leaseEnd: opts.leaseEnd,
+            leaseTerm: row.application?.leaseTerm,
+            rentalType: row.application?.rentalType,
+          },
+          roomFeeRow(sub, room),
+        )
       : [],
     sub,
     row.application?.residentSlot,
@@ -4697,12 +4702,12 @@ function upsertRecurringRentProfileForApprovedRow(
   const rentAmount = selectedRoomRentAmount(row);
   const utilities = selectedRoomUtilities(row);
   const monthlyFeeSet = filterFeesForResidentSlot(
-    monthlyFeesBilledSeparately(sub, prop, {
-      leaseStart,
-      leaseEnd,
-      leaseTerm: row.application?.leaseTerm,
-      rentalType: row.application?.rentalType,
-    }),
+    monthlyFeesBilledSeparately(
+      sub,
+      prop,
+      { leaseStart, leaseEnd, leaseTerm: row.application?.leaseTerm, rentalType: row.application?.rentalType },
+      roomFeeRow(sub, room),
+    ),
     sub,
     row.application?.residentSlot,
   );
@@ -5297,12 +5302,12 @@ export function recordApprovedApplicationCharges(
   // it, which is why only the separately-billed set is read here. A $0 fee is skipped
   // exactly like $0 utilities. The recurring profile still starts the first FULL month.
   const monthlyFeeSet = filterFeesForResidentSlot(
-    monthlyFeesBilledSeparately(sub, prop, {
-      leaseStart,
-      leaseEnd,
-      leaseTerm: row.application?.leaseTerm,
-      rentalType: row.application?.rentalType,
-    }),
+    monthlyFeesBilledSeparately(
+      sub,
+      prop,
+      { leaseStart, leaseEnd, leaseTerm: row.application?.leaseTerm, rentalType: row.application?.rentalType },
+      sub ? roomFeeRow(sub, room) : undefined,
+    ),
     sub,
     row.application?.residentSlot,
   );

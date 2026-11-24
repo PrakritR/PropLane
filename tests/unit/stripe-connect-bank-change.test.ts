@@ -63,6 +63,8 @@ const state = vi.hoisted(() => ({
   accountId: "acct_1" as string | null,
   loginLink: vi.fn(),
   accountLink: vi.fn(),
+  staffContext: { staff: false } as { staff: boolean; workspaceId?: string; workspaceName?: string; ownerUserId?: string },
+  sendOwnerLink: vi.fn(),
 }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { getUser: async () => ({ data: { user: state.user } }) } }) }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({}) }));
@@ -72,7 +74,11 @@ vi.mock("@/lib/auth/manager-stripe-payout-access.server", () => ({
   stripePayoutContextError: () => "Payout setup belongs to the owner.",
 }));
 vi.mock("@/lib/auth/co-manager-bank-account-access", () => ({ assertCoManagerBankAccountAccess: async () => ({ ok: true }) }));
-vi.mock("@/lib/managed-finance/payout-setup.server", () => ({ activeWorkspaceIdFromCookie: async () => "ws-1" }));
+vi.mock("@/lib/managed-finance/payout-setup.server", () => ({
+  activeWorkspaceIdFromCookie: async () => "ws-1",
+  resolveManagedPayoutStaffContext: async () => state.staffContext,
+  sendOwnerPayoutSetupLink: state.sendOwnerLink,
+}));
 vi.mock("@/lib/stripe", () => ({
   getStripe: () => ({ accounts: { createLoginLink: state.loginLink }, accountLinks: { create: state.accountLink } }),
 }));
@@ -88,6 +94,8 @@ beforeEach(() => {
   state.payout = { payoutOwnerUserId: "owner-1" };
   state.accountId = "acct_1";
   state.account = { id: "acct_1", metadata: { axis_user_id: "owner-1" }, details_submitted: true, controller: { stripe_dashboard: { type: "express" } } };
+  state.staffContext = { staff: false };
+  state.sendOwnerLink.mockReset().mockResolvedValue({ ok: true, status: "sent" });
   state.loginLink.mockReset().mockResolvedValue({ url: "https://connect.stripe.com/express/login" });
   state.accountLink.mockReset().mockResolvedValue({ url: "https://connect.stripe.com/setup/abc" });
 });
@@ -142,5 +150,45 @@ describe("POST /api/stripe/connect/change-bank", () => {
   it("422 when there is no payout account to change", async () => {
     state.accountId = null;
     expect((await call()).status).toBe(422);
+  });
+});
+
+// A bank change moves where somebody else's money lands, and the hosted paths are worse than that: an Express
+// login link signs the holder into their WHOLE Stripe dashboard (balance, payout history, tax and account
+// settings) and an Account Link re-onboards the account. Oracle: this change's own rule for staff on a managed
+// workspace — "Staff never change an owner's bank (Stripe needs the account holder): the owner does, signed in as
+// themselves" (portal-payouts-settings-page.tsx) — applied to every non-owner. Plausible wrong behaviour this
+// rejects: a co-manager holding `bankAccount:edit` receiving the owner's dashboard session.
+describe("only the account holder changes the bank", () => {
+  it("refuses a co-manager with bank-edit permission before Stripe is touched, and sends the owner the link", async () => {
+    state.user = { id: "co-manager-1" };
+    state.staffContext = { staff: true, workspaceId: "ws-1", workspaceName: "Ambika", ownerUserId: "owner-1" };
+    const res = await call();
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      code: "OWNER_ONLY",
+      error: "Only the account owner can change the payout bank. We emailed them a link.",
+    });
+    expect(state.sendOwnerLink).toHaveBeenCalledTimes(1);
+    expect(state.sendOwnerLink.mock.calls[0]![1]).toMatchObject({ ownerUserId: "owner-1", staffUserId: "co-manager-1" });
+    expect(state.loginLink).not.toHaveBeenCalled();
+    expect(state.accountLink).not.toHaveBeenCalled();
+  });
+
+  it("claims no email it did not send, and still refuses", async () => {
+    state.user = { id: "co-manager-1" };
+    const res = await call();
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe(
+      "Only the account owner can change the payout bank. Send them a link from Owner payouts.",
+    );
+    expect(state.sendOwnerLink).not.toHaveBeenCalled();
+    expect(state.loginLink).not.toHaveBeenCalled();
+  });
+
+  it("still serves the owner themselves", async () => {
+    const res = await call();
+    expect(await res.json()).toMatchObject({ mode: "redirect", via: "login_link" });
+    expect(state.sendOwnerLink).not.toHaveBeenCalled();
   });
 });

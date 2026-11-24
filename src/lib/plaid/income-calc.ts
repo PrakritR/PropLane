@@ -35,11 +35,10 @@ export const INCOME_WINDOW_DAYS = 90;
  */
 export const INCOME_MIN_DEPOSITS = 3;
 /**
- * How far short of the window a history may fall before it is called short. A dense account's earliest
- * transaction can sit a few days inside the window simply because nothing happened that first week, so a
- * week of slack keeps "only N days of bank history" meaning a NEW account rather than a quiet one.
+ * How much bank history the provider shared is NOT knowable here: `/transactions/get` returns transactions, not
+ * an account-open date, so the earliest row dates a quiet account exactly like a new one. Nothing therefore
+ * labels the figure's history - the deposit count and the as-of date are the whole basis.
  */
-export const INCOME_SHORT_HISTORY_SLACK_DAYS = 7;
 
 const PAYROLL_NAME = /\b(payroll|direct\s*dep(?:osit)?|dir\s*dep|salary|paychec?k|wages|gusto|adp|paycom|paylocity|paychex|rippling|trinet|justworks|workday)\b/i;
 const NOT_INCOME_NAME = /\b(transfer|xfer|refund|reversal|venmo|zelle|cash\s*app|paypal|apple\s*cash|loan|credit\s*card|autopay|deposit\s*return)\b/i;
@@ -62,8 +61,6 @@ export type IncomeEstimate = {
   months: number;
   /** How many payroll deposits the average is made of. */
   depositCount: number;
-  /** Days of bank history the provider actually returned, so a short history reads as short. */
-  historyDays: number;
 };
 
 /** Why there is no figure. `no_payroll_deposits` is "nothing in that account looked like pay";
@@ -90,8 +87,7 @@ function dayNumber(value: string | null | undefined): number | null {
  * checks of a job the applicant just left are all money that arrived, and a window average says so without
  * claiming any of them repeats. The divisor is the window itself, never a period derived from the deposits, so
  * the figure cannot be moved by one odd gap or one odd amount. A deposit with no usable date is ignored rather
- * than guessed at, and `historyDays` reports how much bank history the provider returned, so a 45-day-old
- * account is shown as one instead of being silently scaled up to a full window.
+ * than guessed at.
  *
  * A refusal says WHICH of the two it is, because "we found no paychecks" and "we found paychecks but too few in
  * the window" are different answers to the applicant and only this function knows which applies.
@@ -115,7 +111,5 @@ export function estimateMonthlyIncome(
   const totalCents = counted.reduce((sum, txn) => sum + Math.round(Math.abs(txn.amount) * 100), 0);
   const monthlyIncomeCents = Math.round(totalCents / months);
   if (monthlyIncomeCents <= 0) return { ok: false, reason: "no_payroll_deposits", depositCount };
-  const dated = transactions.map((txn) => dayNumber(txn.date)).filter((day): day is number => day !== null && day <= today);
-  const historyDays = dated.length === 0 ? 0 : Math.min(INCOME_WINDOW_DAYS, today - Math.min(...dated));
-  return { ok: true, estimate: { monthlyIncomeCents, months, depositCount: counted.length, historyDays } };
+  return { ok: true, estimate: { monthlyIncomeCents, months, depositCount: counted.length } };
 }

@@ -35,7 +35,7 @@ import {
   resolvePlacementStandardFees,
 } from "@/lib/listing-placement-standard-fees";
 import { parseMoneyAmount } from "@/lib/parse-money";
-import { DEFAULT_CUSTOM_LEASE_SURCHARGE } from "@/lib/rental-application/lease-dates";
+import { customLeaseSurchargeAmount } from "@/lib/custom-lease-billing";
 import { listingFoldsAllMonthlyFeesIntoRent, type RentRuleAddress } from "@/lib/seattle-rent-rule";
 import {
   AIRBNB_LEASE_TERM,
@@ -247,14 +247,9 @@ export function resolveRoomTermFees(input: {
       scope === "long" && !listingFoldsAllMonthlyFeesIntoRent(input.sub, input.listingProperty)
         ? money(row?.monthToMonthSurcharge)
         : 0,
-    customStartSurcharge:
-      scope === "long"
-        ? String(row?.customStartSurcharge ?? "").trim()
-          ? money(row?.customStartSurcharge)
-          : roomPricingFeeVisibility(input.sub, room, input.listingProperty).customStartSurcharge
-          ? DEFAULT_CUSTOM_LEASE_SURCHARGE
-          : 0
-        : 0,
+    // One resolver for the amount, shared with the quote and the monthly charge: the arrangement row's typed
+    // figure, else the listing's row (removed bills nothing, blank defaults when the listing offers Custom dates).
+    customStartSurcharge: scope === "long" ? customLeaseSurchargeAmount(input.sub, row) : 0,
   };
 }
 

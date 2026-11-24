@@ -1,10 +1,10 @@
-import { NextRequest } from "next/server";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   buildListingSlugIndex,
   EMPTY_LISTING_SLUG_INDEX,
   listingCanonicalSlug,
   listingIdToken,
+  listingPublicPath,
   listingPublicPathFor,
   listingSlugFor,
   resolveListingParam,
@@ -142,41 +142,25 @@ describe("URL builders stay derived from the module", () => {
   });
 });
 
-describe("the middleware sends an old record-id URL to the canonical one", () => {
-  // Oracle: RFC 7538 — a 308 names the resource's new location and the client repeats the request there, so the
-  // query a listing link carries (`?stay=1`, `?src=`) must survive the hop. The canonical slug itself comes from
-  // this module. Wrong behaviours this rejects: no redirect at all, or a Location with the query dropped.
-  it("answers 308 with the canonical path and keeps the query", async () => {
-    const { middleware } = await import("@/middleware");
-    const slug = "4709a-8th-ave-ne-7mdlyj0h2vfg";
-    const asked: string[] = [];
-    const realFetch = globalThis.fetch;
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
-      asked.push(String(input));
-      return new Response(JSON.stringify({ slug }), { status: 200, headers: { "content-type": "application/json" } });
-    }) as typeof globalThis.fetch;
-    try {
-      const res = await middleware(
-        new NextRequest(`https://proplane.ai/rent/listings/${encodeURIComponent(A.id)}?stay=1&src=zillow`, { method: "GET" }),
-      );
-      expect(res.status).toBe(308);
-      expect(res.headers.get("location")).toBe(`https://proplane.ai/rent/listings/${slug}?stay=1&src=zillow`);
-      expect(asked.some((url) => url.includes("/api/public/listing-canonical") && url.includes(encodeURIComponent(A.id)))).toBe(true);
-    } finally {
-      globalThis.fetch = realFetch;
+describe("an old record-id URL and a stale slug", () => {
+  // No redirect hop: the page renders the listing the param names and `generateMetadata` declares the canonical
+  // readable URL, which is what the sitemap publishes and every link builder prints. Oracle: the resolver in this
+  // module (`resolveListingParam`) plus the canonical path builder. Wrong behaviours this rejects: resolving an id
+  // or a renamed listing's old slug to nothing, and a canonical that still names the param the visitor arrived on.
+  it("resolve to the listing and name the canonical readable URL", () => {
+    const index = buildListingSlugIndex([A]);
+    for (const param of [A.id, "old-name-7mdlyj0h2vfg"]) {
+      const resolution = resolveListingParam(index, param);
+      expect(resolution.id, param).toBe(A.id);
+      const slug = resolution.kind === "redirect" ? resolution.slug : resolution.kind === "slug" ? param : null;
+      expect(listingPublicPath(param, slug), param).toBe("/rent/listings/4709a-8th-ave-ne-7mdlyj0h2vfg");
     }
   });
 
-  it("renders in place when the canonical lookup fails", async () => {
-    const { middleware } = await import("@/middleware");
-    const realFetch = globalThis.fetch;
-    globalThis.fetch = (async () => new Response("nope", { status: 500 })) as typeof globalThis.fetch;
-    try {
-      const res = await middleware(new NextRequest(`https://proplane.ai/rent/listings/${A.id}`, { method: "GET" }));
-      expect(res.status).not.toBe(308);
-    } finally {
-      globalThis.fetch = realFetch;
-    }
+  it("keeps the id URL when the catalog cannot be read, rather than naming a URL that resolves to nothing", () => {
+    const resolution = resolveListingParam(EMPTY_LISTING_SLUG_INDEX, A.id);
+    expect(resolution).toEqual({ kind: "id", id: A.id });
+    expect(listingPublicPath(A.id, null)).toBe(`/rent/listings/${encodeURIComponent(A.id)}`);
   });
 });
 

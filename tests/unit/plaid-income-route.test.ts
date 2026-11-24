@@ -35,7 +35,7 @@ beforeEach(() => {
   h.load.mockReset().mockResolvedValue(null);
   h.compute.mockReset().mockResolvedValue({
     ok: true,
-    verification: { source: "plaid", monthlyIncomeCents: 485000, months: 3, depositCount: 6, historyDays: 90, verifiedAt: "2026-11-18T00:00:00.000Z" },
+    verification: { source: "plaid", monthlyIncomeCents: 485000, months: 3, depositCount: 6, verifiedAt: "2026-11-18T00:00:00.000Z" },
   });
 });
 
@@ -45,7 +45,7 @@ describe("POST /api/plaid/income/verify", () => {
     expect(res.status).toBe(200);
     // The applicant sees the same basis the manager does, in the same shape the read-back GET answers with.
     expect(await res.json()).toEqual({
-      verified: { monthlyIncomeCents: 485000, months: 3, depositCount: 6, historyDays: 90, verifiedAt: "2026-11-18T00:00:00.000Z" },
+      verified: { monthlyIncomeCents: 485000, months: 3, depositCount: 6, verifiedAt: "2026-11-18T00:00:00.000Z" },
     });
     expect(h.compute).toHaveBeenCalledWith({ publicToken: "public-x" });
     expect(h.save).toHaveBeenCalledTimes(1);
@@ -89,7 +89,6 @@ describe("GET /api/screening/income", () => {
     monthlyIncomeCents: 485000,
     months: 3,
     depositCount: 6,
-    historyDays: 45,
     verifiedAt: "2026-11-03T19:00:00.000Z",
     institutionName: "First Platypus Bank",
   };
@@ -108,11 +107,10 @@ describe("GET /api/screening/income", () => {
       monthlyIncomeCents: 485000,
       months: 3,
       depositCount: 6,
-      historyDays: 45,
-      verifiedAt: "2026-11-03T19:00:00.000Z",
+        verifiedAt: "2026-11-03T19:00:00.000Z",
     });
     expect(incomeVerifiedLine({ source: "plaid", ...(body.verified as never) })).toBe(
-      "✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · only 45 days of bank history · as of Nov 3, 2026",
+      "✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · as of Nov 3, 2026",
     );
   });
 

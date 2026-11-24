@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildListingQuote } from "@/lib/listing-quote";
+import { monthlyFeesBilledSeparately } from "@/lib/rent-fold-in";
+import { roomFeeRow } from "@/lib/room-term-fees";
+import { resolveApplicationRoomTermFees } from "@/lib/room-term-fees";
 import { applyListingFeesToSubmission } from "@/lib/listing-fees";
 import {
   createDefaultListingSubmission,
@@ -31,6 +34,50 @@ const quote = (sub: ManagerListingSubmissionV1, leaseStart: string, leaseEnd: st
   buildListingQuote(sub, { roomId: "room-1", leaseTerm, leaseStart, leaseEnd });
 
 const firstMonthLine = (q: ReturnType<typeof quote>) => q.signingLines.find((l) => l.key.includes("room_rent") || l.key === "first_month_rent");
+
+// The amount the manager typed is the amount, on the quote, on the lease rider AND on the monthly charge. Oracle:
+// the figure they entered in that room's Pricing popup ($250) - nothing derived. Plausible wrong behaviour this
+// rejects: quoting and printing $250 while the recurring charge bills the $100 default, which is $150/mo of signed
+// rent never invoiced.
+describe("the room's own custom-dates surcharge", () => {
+  const perRoom = () => {
+    const sub = listing();
+    const room = sub.rooms[0]!;
+    return normalizeManagerListingSubmissionV1({
+      ...sub,
+      rooms: [{ ...room, occupancyPrices: [{ count: 1, customStartSurcharge: "250" }] }],
+    });
+  };
+
+  it("is what the quote, the lease rider and the monthly charge all say", () => {
+    const sub = perRoom();
+    expect(quote(sub, "2027-01-15", "2028-01-31").customLeaseSurcharge).toBe(250);
+
+    const rider = resolveApplicationRoomTermFees(sub, { listingRoomId: "room-1" }, { leaseTerm: "Long-term" });
+    expect(rider?.customStartSurcharge).toBe(250);
+
+    const billed = monthlyFeesBilledSeparately(
+      sub,
+      null,
+      { leaseStart: "2027-01-15", leaseEnd: "2028-01-31", leaseTerm: "Long-term" },
+      roomFeeRow(sub, sub.rooms[0]),
+    );
+    expect(billed.find((fee) => fee.label === "Custom lease")?.amount).toBe(250);
+  });
+
+  it("falls back to the listing's own row, and a removed row bills and prints nothing", () => {
+    const listingLevel = listing("75");
+    expect(quote(listingLevel, "2027-01-15", "2028-01-31").customLeaseSurcharge).toBe(75);
+    expect(
+      monthlyFeesBilledSeparately(
+        listingLevel,
+        null,
+        { leaseStart: "2027-01-15", leaseEnd: "2028-01-31", leaseTerm: "Long-term" },
+        roomFeeRow(listingLevel, listingLevel.rooms[0]),
+      ).find((fee) => fee.label === "Custom lease")?.amount,
+    ).toBe(75);
+  });
+});
 
 describe("custom-dates surcharge on the applicant quote", () => {
   it("adds the $100/month default when the lease starts off the 1st", () => {

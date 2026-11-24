@@ -50,7 +50,7 @@ describe("income calc", () => {
     // Per-payer rates added each job's own $5,272/mo and reported $10,545/mo on $4,850 of real payroll.
     expect(observe([...old, ...next])).toEqual({
       ok: true,
-      estimate: { monthlyIncomeCents: 485000, months: 3, depositCount: 6, historyDays: 87 },
+      estimate: { monthlyIncomeCents: 485000, months: 3, depositCount: 6 },
     });
   });
 
@@ -71,14 +71,18 @@ describe("income calc", () => {
     expect(observe([...pay, bonus])).toMatchObject({ ok: true, estimate: { monthlyIncomeCents: 342500, depositCount: 4 } });
   });
 
-  it("says how little bank history a short one is, instead of scaling it up", () => {
-    const pay = ["2026-10-30", "2026-11-13", "2026-11-27"].map((date) => dated(2425, date));
-    const firstTransaction = { amount: 42, name: "COFFEE", date: "2026-10-16" };
-    const estimate = observe([firstTransaction, ...pay]);
-    // $7,275 over 3 months is $2,425/mo, from an account only 45 days old - which the manager's line has to say.
-    expect(estimate).toMatchObject({ ok: true, estimate: { monthlyIncomeCents: 242500, depositCount: 3, historyDays: 45 } });
+  // What the window holds is the whole claim. How much history the bank SHARED is not knowable from
+  // `/transactions/get` (it returns transactions, never an account-open date), so a quiet savings account that has
+  // only ever received a monthly direct deposit must not be described as a new one: the line says what it counted
+  // and when, nothing about the account's age. Plausible wrong behaviour this rejects: the "only N days of bank
+  // history" note, which called a full-history account 75 days old.
+  it("claims nothing about how much history the bank shared", () => {
+    const pay = ["2026-09-01", "2026-10-01", "2026-11-01"].map((date) => dated(2425, date));
+    const estimate = observe(pay);
+    // $7,275 over the 3 months of the window is $2,425/mo, whatever else is or is not in the account.
+    expect(estimate).toEqual({ ok: true, estimate: { monthlyIncomeCents: 242500, months: 3, depositCount: 3 } });
     expect(estimate.ok && incomeVerifiedLine({ source: "plaid", verifiedAt: NOW.toISOString(), ...estimate.estimate })).toBe(
-      "✓ $2,425/mo avg of payroll deposits, last 90 days (3 deposits) · only 45 days of bank history · as of Nov 29, 2026",
+      "✓ $2,425/mo avg of payroll deposits, last 90 days (3 deposits) · as of Nov 29, 2026",
     );
   });
 
@@ -109,7 +113,7 @@ describe("display line", () => {
   // The manager reads the figure AND its basis in one plain fact, so "$4,850/mo" cannot be mistaken for a promised
   // rate: it is the average of 6 payroll deposits over a stated 90-day window. docs/agents/plaid.md § Income check
   // owns the wording. Plausible wrong behaviour this rejects: a bare "verified" figure with no window or count.
-  const v = { source: "plaid" as const, monthlyIncomeCents: 485000, months: 3, depositCount: 6, historyDays: 90, verifiedAt: "2026-11-18T19:00:00.000Z" };
+  const v = { source: "plaid" as const, monthlyIncomeCents: 485000, months: 3, depositCount: 6, verifiedAt: "2026-11-18T19:00:00.000Z" };
   const fact = "$4,850/mo avg of payroll deposits, last 90 days (6 deposits) · as of Nov 18, 2026";
   it("draws stated and verified as one plain glyph fact, with the basis in it", () => {
     expect(incomeVerifiedLine(v)).toBe(`✓ ${fact}`);
@@ -122,14 +126,6 @@ describe("display line", () => {
     expect(incomeStatedVsVerifiedLine("4.8k", v)).toBe(`4.8k stated · ✓ ${fact}`);
     expect(incomeStatedVsVerifiedLine("varies", v)).toBe(`varies stated · ✓ ${fact}`);
     expect(incomeStatedVsVerifiedLine("$4,800.50", v)).toBe(`$4,801/mo stated · ✓ ${fact}`);
-  });
-
-  it("names a short bank history, and says nothing extra for a full one or an unrecorded one", () => {
-    expect(incomeVerifiedLine({ ...v, historyDays: 45 })).toBe(
-      "✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · only 45 days of bank history · as of Nov 18, 2026",
-    );
-    expect(incomeVerifiedLine({ ...v, historyDays: 84 })).toBe(`✓ ${fact}`);
-    expect(incomeVerifiedLine({ ...v, historyDays: null })).toBe(`✓ ${fact}`);
   });
 
   // A stored row from before a basis field existed, or a projection that dropped one, must not put the word

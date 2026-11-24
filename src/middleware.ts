@@ -130,28 +130,6 @@ export async function middleware(request: NextRequest) {
   const viewAs = await viewAsGuard(request);
   if (viewAs.blocked) return viewAs.blocked;
 
-  // `/rent/listings/<record id | stale slug>` -> 308 to the canonical readable path, query kept. A failed or slow lookup
-  // falls through: the page renders the same listing in place.
-  // Only an old RECORD-id path pays for the lookup (every live record id starts `mgr-`; one seeded row `akhil-`):
-  // a canonical path, which is every link we now print, renders with no extra hop. A renamed listing's stale slug
-  // still renders the right listing in place and names the canonical URL in its metadata.
-  const listingParam = /^\/rent\/listings\/((?:mgr|akhil)-[^/]+)$/.exec(path)?.[1];
-  if (listingParam && (request.method === "GET" || request.method === "HEAD")) {
-    try {
-      const lookup = new URL("/api/public/listing-canonical", request.nextUrl.origin);
-      lookup.searchParams.set("param", decodeURIComponent(listingParam));
-      const res = await fetch(lookup, { signal: AbortSignal.timeout(2500) });
-      const slug = res.ok ? ((await res.json()) as { slug?: string | null }).slug : null;
-      if (slug && slug !== decodeURIComponent(listingParam)) {
-        const target = request.nextUrl.clone();
-        target.pathname = `/rent/listings/${slug}`;
-        return NextResponse.redirect(target, 308);
-      }
-    } catch {
-      /* fall through to the page */
-    }
-  }
-
   // Browser visitors on a legacy domain (prop-lane.space, proplane.space,
   // axis-seattle-housing.com, and their www variants) go to proplane.ai.
   // Never a Vercel domain-level 308 — see src/lib/legacy-host-redirect.ts for

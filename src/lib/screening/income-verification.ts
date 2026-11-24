@@ -3,7 +3,7 @@
  * linked bank (`lib/plaid/income.server.ts`) and stamped onto the application by the signed-in write; the browser
  * never supplies it. See docs/agents/plaid.md § Income check.
  */
-import { INCOME_SHORT_HISTORY_SLACK_DAYS, INCOME_WINDOW_DAYS } from "@/lib/plaid/income-calc";
+import { INCOME_WINDOW_DAYS } from "@/lib/plaid/income-calc";
 import { formatPacificDate } from "@/lib/pacific-time";
 
 export type IncomeVerification = {
@@ -12,8 +12,6 @@ export type IncomeVerification = {
   monthlyIncomeCents: number;
   months: number;
   depositCount: number;
-  /** Days of bank history the provider returned. Absent on a row stored before it was recorded. */
-  historyDays?: number | null;
   /** ISO timestamp the figure was computed. */
   verifiedAt: string;
   institutionName?: string | null;
@@ -49,9 +47,7 @@ export function formatIncomeDollars(cents: number): string {
 
 /**
  * The manager's glyph fact, with the basis of the figure in it:
- * `✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · as of Nov 3, 2026`, and
- * `· only 45 days of bank history` when the provider returned materially less than the window — so a figure
- * drawn from a new account reads as one instead of looking like a full quarter of pay. The as-of date is
+ * `✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · as of Nov 3, 2026`. The as-of date is
  * there because a stored figure is reused for up to `INCOME_VERIFICATION_MAX_AGE_DAYS`: without it, a check
  * run a month ago reads as the last 90 days ending today. It carries the YEAR because this same line is
  * stamped onto the application and read off durable artifacts - an archived PDF, a printed packet, the same
@@ -66,16 +62,11 @@ export function incomeVerifiedLine(verification: IncomeVerification, options: { 
   const count = verification.depositCount;
   const deposits =
     typeof count === "number" && Number.isFinite(count) && count > 0 ? ` (${count} deposit${count === 1 ? "" : "s"})` : "";
-  const history = verification.historyDays;
-  const short =
-    typeof history === "number" && history > 0 && history < INCOME_WINDOW_DAYS - INCOME_SHORT_HISTORY_SLACK_DAYS
-      ? ` · only ${history} days of bank history`
-      : "";
   const verifiedAt = Date.parse(verification.verifiedAt ?? "");
   const asOf = Number.isFinite(verifiedAt)
     ? ` · as of ${formatPacificDate(verifiedAt, { month: "short", day: "numeric", year: "numeric" })}`
     : "";
-  const fact = `${formatIncomeDollars(verification.monthlyIncomeCents)}/mo avg of payroll deposits, last ${INCOME_WINDOW_DAYS} days${deposits}${short}${asOf}`;
+  const fact = `${formatIncomeDollars(verification.monthlyIncomeCents)}/mo avg of payroll deposits, last ${INCOME_WINDOW_DAYS} days${deposits}${asOf}`;
   return options.glyph === false ? fact : `✓ ${fact}`;
 }
 
@@ -87,14 +78,12 @@ export function incomeVerifiedPayload(verification: IncomeVerification): {
   monthlyIncomeCents: number;
   months: number;
   depositCount: number;
-  historyDays: number | null;
   verifiedAt: string;
 } {
   return {
     monthlyIncomeCents: verification.monthlyIncomeCents,
     months: verification.months,
     depositCount: verification.depositCount,
-    historyDays: verification.historyDays ?? null,
     verifiedAt: verification.verifiedAt,
   };
 }

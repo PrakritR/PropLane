@@ -16,7 +16,6 @@ const verified: IncomeVerification = {
   monthlyIncomeCents: 485000,
   months: 3,
   depositCount: 6,
-  historyDays: 90,
   verifiedAt: "2026-11-18T00:00:00.000Z",
 };
 
