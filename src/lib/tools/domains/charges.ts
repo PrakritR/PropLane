@@ -16,6 +16,12 @@ import { propertyInAgentWorkspace, rowAllowedInAgentWorkspace } from "@/lib/agen
 import { captureSmsTestDelivery, currentSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 
+/**
+ * What a caller is told when the charge row landed but its write-through ledger line did not. The charge itself is
+ * real, so the answer says so: calling it a failure is what made the manager create the charge a second time.
+ */
+const LEDGER_RETRY_NOTE = " The accounting ledger line did not write; it is retried on the next change to this charge.";
+
 /** Every charge kind the site models (mirrors HouseholdChargeKind exactly). */
 const CHARGE_KINDS = [
   "application_fee",
@@ -290,12 +296,14 @@ export const createChargeTool = defineWriteTool({
       ...stampSmsTestProvenance({}),
     };
 
+    let ledgerFailures: string[] = [];
     try {
-      await upsertManagerCharges(ctx.db, ctx.landlordId, [charge]);
+      ({ ledgerFailures } = await upsertManagerCharges(ctx.db, ctx.landlordId, [charge]));
     } catch (e) {
       await updateAuditResult(ctx, dedupeKey, { error: "charge_upsert_failed" }, { clearDedupeKey: true });
       throw new Error(e instanceof Error ? e.message : "The charge could not be created.");
     }
+    const ledgerPending = ledgerFailures.length > 0 ? LEDGER_RETRY_NOTE : "";
     if (smsTest) {
       captureSmsTestDelivery({
         kind: "reminder",
@@ -305,8 +313,8 @@ export const createChargeTool = defineWriteTool({
       });
     }
 
-    await updateAuditResult(ctx, dedupeKey, { chargeId: charge.id });
-    return { reply: `Created a ${amountLabel} "${charge.title}" charge for ${target.residentName}${dueLabel ? ` due ${dueLabel}` : " with an automatic due date"}. Payment reminders are scheduled automatically.`, resultSummary: { chargeId: charge.id } };
+    await updateAuditResult(ctx, dedupeKey, { chargeId: charge.id, ...(ledgerPending ? { ledgerPending: true } : {}) });
+    return { reply: `Created a ${amountLabel} "${charge.title}" charge for ${target.residentName}${dueLabel ? ` due ${dueLabel}` : " with an automatic due date"}. Payment reminders are scheduled automatically.${ledgerPending}`, resultSummary: { chargeId: charge.id } };
   },
 });
 
@@ -394,12 +402,14 @@ export const updateChargeTool = defineWriteTool({
       ...(dueLabel ? { dueDateLabel: dueLabel } : {}),
       ...stampSmsTestProvenance({}),
     };
+    let ledgerFailures: string[] = [];
     try {
-      await upsertManagerCharges(ctx.db, ctx.landlordId, [merged]);
+      ({ ledgerFailures } = await upsertManagerCharges(ctx.db, ctx.landlordId, [merged]));
     } catch (e) {
       await updateAuditResult(ctx, dedupeKey, { error: "charge_upsert_failed" }, { clearDedupeKey: true });
       throw new Error(e instanceof Error ? e.message : "The charge could not be updated.");
     }
+    const ledgerPending = ledgerFailures.length > 0 ? LEDGER_RETRY_NOTE : "";
     if (smsTest) {
       captureSmsTestDelivery({
         kind: "reminder",
@@ -409,12 +419,12 @@ export const updateChargeTool = defineWriteTool({
       });
     }
 
-    await updateAuditResult(ctx, dedupeKey, { chargeId: charge.id });
+    await updateAuditResult(ctx, dedupeKey, { chargeId: charge.id, ...(ledgerPending ? { ledgerPending: true } : {}) });
     const changed: string[] = [];
     if (amountLabel) changed.push(`amount → ${amountLabel}`);
     if (dueLabel) changed.push(`due date → ${dueLabel}`);
     if (input.title != null) changed.push(`title → "${input.title.trim()}"`);
-    return { reply: `Updated "${merged.title}" for ${merged.residentName || merged.residentEmail}: ${changed.join(", ")}.`, resultSummary: { chargeId: charge.id } };
+    return { reply: `Updated "${merged.title}" for ${merged.residentName || merged.residentEmail}: ${changed.join(", ")}.${ledgerPending}`, resultSummary: { chargeId: charge.id } };
   },
 });
 
@@ -560,14 +570,16 @@ export const markChargePaidTool = defineWriteTool({
       paidAt: new Date().toISOString(),
       balanceLabel: "$0.00",
     };
+    let ledgerFailures: string[] = [];
     try {
-      await upsertManagerCharges(ctx.db, ctx.landlordId, [merged]);
+      ({ ledgerFailures } = await upsertManagerCharges(ctx.db, ctx.landlordId, [merged]));
     } catch (e) {
       await updateAuditResult(ctx, dedupeKey, { error: "charge_upsert_failed" }, { clearDedupeKey: true });
       throw new Error(e instanceof Error ? e.message : "The charge could not be marked paid.");
     }
+    const ledgerPending = ledgerFailures.length > 0 ? LEDGER_RETRY_NOTE : "";
 
-    await updateAuditResult(ctx, dedupeKey, { chargeId: charge.id, channel: input.channel ?? null, paid: true });
-    return { reply: `Marked "${charge.title}" (${charge.amountLabel}) for ${charge.residentName || charge.residentEmail} as paid${input.channel ? ` via ${input.channel}` : ""}. Future reminders were cancelled and the payment was recorded in the ledger.`, resultSummary: { chargeId: charge.id, channel: input.channel ?? null } };
+    await updateAuditResult(ctx, dedupeKey, { chargeId: charge.id, channel: input.channel ?? null, paid: true, ...(ledgerPending ? { ledgerPending: true } : {}) });
+    return { reply: `Marked "${charge.title}" (${charge.amountLabel}) for ${charge.residentName || charge.residentEmail} as paid${input.channel ? ` via ${input.channel}` : ""}. Future reminders were cancelled${ledgerPending ? "" : " and the payment was recorded in the ledger"}.${ledgerPending}`, resultSummary: { chargeId: charge.id, channel: input.channel ?? null } };
   },
 });

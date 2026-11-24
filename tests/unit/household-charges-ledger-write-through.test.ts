@@ -1,7 +1,9 @@
 /**
- * AGENTS.md § Financials: "Ledger is write-through (`syncLedger*`)". A charge that was saved but whose ledger line
- * could not be written must NOT report success — the caller (route or tool) has to answer an error so the manager
- * retries — and one failing row must not cost the rest of the batch its ledger line.
+ * AGENTS.md § Financials: "Ledger is write-through (`syncLedger*`)". One failing row must not cost the rest of the
+ * batch its ledger line, and a charge whose ROW landed is never reported as a failure: the caller is told which
+ * charges are missing their ledger line (`ledgerFailures`) so it can say so without inviting a second charge. The
+ * precedent in this repo is the late-fee path in `/api/cron/send-payment-reminders`, which counts the fee as
+ * created and records the ledger failure beside it.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -73,14 +75,13 @@ beforeEach(() => {
 });
 
 describe("upsertManagerCharges: the write-through ledger", () => {
-  it("rejects when a charge's ledger line could not be written, after trying every other row", async () => {
+  it("names the charge whose ledger line could not be written, after trying every other row", async () => {
     h.ledger.mockImplementation(async (_db: unknown, c: unknown) => {
       if ((c as { id: string }).id === "chg-2") throw new Error("ledger_entries unavailable");
     });
 
-    await expect(upsertManagerCharges(fakeDb(), MANAGER, [charge("chg-1"), charge("chg-2"), charge("chg-3")])).rejects.toThrow(
-      /chg-2/,
-    );
+    const result = await upsertManagerCharges(fakeDb(), MANAGER, [charge("chg-1"), charge("chg-2"), charge("chg-3")]);
+    expect(result).toEqual({ ledgerFailures: ["chg-2"] });
 
     expect(h.ledger.mock.calls.map((call) => (call[1] as { id: string }).id)).toEqual(["chg-1", "chg-2", "chg-3"]);
     expect(h.emit.mock.calls.map((call) => (call[1] as { charge: { id: string } }).charge.id)).toEqual([
@@ -90,8 +91,10 @@ describe("upsertManagerCharges: the write-through ledger", () => {
     ]);
   });
 
-  it("resolves when every ledger line is written", async () => {
-    await expect(upsertManagerCharges(fakeDb(), MANAGER, [charge("chg-1"), charge("chg-2")])).resolves.toBeUndefined();
+  it("names none when every ledger line is written", async () => {
+    await expect(upsertManagerCharges(fakeDb(), MANAGER, [charge("chg-1"), charge("chg-2")])).resolves.toEqual({
+      ledgerFailures: [],
+    });
     expect(h.ledger).toHaveBeenCalledTimes(2);
   });
 });

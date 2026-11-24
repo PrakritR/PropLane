@@ -71,15 +71,19 @@ export function householdChargeRowUnchanged(
 /**
  * Upsert household charge rows for a manager. `managerUserId` MUST come from
  * the authenticated context (route session / AgentContext), never from client
- * or model input. Throws on upsert failure so callers surface the error.
+ * or model input. Throws when the ROW write fails, so callers surface that and
+ * may retry; a charge whose row landed but whose ledger line did not comes back
+ * in `ledgerFailures` instead, because a caller told "it failed" after the row
+ * exists bills the resident twice on the retry. The write-through ledger heals
+ * such a line on the next upsert of the same charge.
  */
 export async function upsertManagerCharges(
   db: SupabaseClient,
   managerUserId: string,
   charges: Record<string, unknown>[],
   opts: UpsertManagerChargesOptions = {},
-): Promise<void> {
-  if (charges.length === 0) return;
+): Promise<{ ledgerFailures: string[] }> {
+  if (charges.length === 0) return { ledgerFailures: [] };
   const now = new Date().toISOString();
 
   const reminderSettings = await loadManagerAutomationSettings(db, managerUserId).catch(
@@ -123,7 +127,7 @@ export async function upsertManagerCharges(
       row_data: c,
       updated_at: now,
     }));
-  if (rows.length === 0) return;
+  if (rows.length === 0) return { ledgerFailures: [] };
 
   // A mirror that re-sends an unchanged charge must not rewrite the row (164 ms update on production) nor re-stamp a
   // transition event with a fresh `now`. Only changed or new rows are written.
@@ -159,7 +163,7 @@ export async function upsertManagerCharges(
     }
     // The ledger is write-through, so an unchanged row still runs it: that is how a line a previous run failed to
     // write is healed (the sync compares before it writes, so nothing changes = no write). Per row, so one failure
-    // cannot cost the rest of the batch its ledger line - and the batch still reports it below, never silently.
+    // cannot cost the rest of the batch its ledger line - and the batch returns it below, never silently.
     try {
       await syncLedgerChargeEntry(db, c as HouseholdCharge);
     } catch (error) {
@@ -174,7 +178,5 @@ export async function upsertManagerCharges(
       transitionId: `${chargeId}:${nextStatus}:${now}`,
     }).catch(() => undefined);
   }
-  if (ledgerFailures.length > 0) {
-    throw new Error(`Ledger sync failed for ${ledgerFailures.length} charge(s): ${ledgerFailures.join(", ")}`);
-  }
+  return { ledgerFailures };
 }

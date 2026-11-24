@@ -42,34 +42,43 @@ describe("income calc", () => {
 
   const dated = (amount: number, date: string) => ({ ...wages(amount), date });
 
-  // The figure a manager is shown next to what the applicant stated must never be biased UPWARD: the divisor is the
-  // longer of the three months we asked the bank for and the period the deposits really earn over. Oracle for the
-  // cases below: the paycheck amount annualized from its own observed cycle (365.25 days / cycle / 12), or the plain
-  // window average when every deposit fits inside the window.
+  // The figure a manager is shown beside what the applicant stated is the rate their paychecks ACTUALLY arrive at:
+  // the deposits' own earning period (span + one cycle), never the window the bank was asked for. Oracle for every
+  // case below: the paycheck amount annualized from its observed cycle, amount x (365.25 / cycleDays) / 12 - which
+  // comes from the calendar, not from this module. Each case also names the figure the window-based divisors
+  // reported, so the test rejects both of them.
   const monthlyFromCycle = (amount: number, cycleDays: number) => (amount * (365.25 / cycleDays)) / 12;
   const figureOf = (outcome: ReturnType<typeof estimateMonthlyIncome>) =>
     (outcome.ok ? outcome.estimate.monthlyIncomeCents : 0) / 100;
+  const within1Percent = (figure: number, truth: number) => Math.abs(figure - truth) / truth < 0.01;
 
-  it("divides three monthly paychecks by the month: the label is the history the bank shared", () => {
+  it("three monthly paychecks read as one a month, labelled with the history the bank shared", () => {
     const estimate = estimateMonthlyIncome([dated(2425, "2026-09-15"), dated(2425, "2026-10-15"), dated(2425, "2026-11-15")]);
     expect(estimate).toEqual({ ok: true, estimate: { monthlyIncomeCents: 242023, months: 2, depositCount: 3 } });
-    expect(figureOf(estimate)).toBeCloseTo(monthlyFromCycle(2425, 30.5), 0);
-    expect(figureOf(estimate)).toBeLessThan(2425);
+    expect(within1Percent(figureOf(estimate), monthlyFromCycle(2425, 30.5))).toBe(true);
   });
 
-  it("divides a thin slice of history by the whole window instead of annualizing it up", () => {
-    // Three biweekly paychecks are all the bank shared: $7,275 arrived, and the two months of the window it could
-    // not see are not assumed to pay the same. Dividing by the 28-day span reported $5,273/mo off four weeks.
+  it("five weekly paychecks from a bank that shared only one month read at the weekly rate", () => {
+    // The trace that matters most: $1,000 a week is $4,333/mo (1000 x 52 / 12). Dividing those five deposits by the
+    // three months requested reported $1,667/mo - 38% of a real income, on the screen beside what they stated.
+    const dates = ["2026-10-22", "2026-10-29", "2026-11-05", "2026-11-12", "2026-11-19"];
+    const estimate = estimateMonthlyIncome(dates.map((date) => dated(1000, date)));
+    expect(within1Percent(figureOf(estimate), monthlyFromCycle(1000, 7))).toBe(true);
+    expect(figureOf(estimate)).toBeGreaterThan(4000);
+  });
+
+  it("three biweekly paychecks read at the biweekly rate, not as a third of it", () => {
     const estimate = estimateMonthlyIncome([dated(2425, "2026-10-22"), dated(2425, "2026-11-05"), dated(2425, "2026-11-19")]);
-    expect(estimate).toEqual({ ok: true, estimate: { monthlyIncomeCents: 242500, months: 1, depositCount: 3 } });
+    expect(estimate).toEqual({ ok: true, estimate: { monthlyIncomeCents: 527264, months: 1, depositCount: 3 } });
+    expect(within1Percent(figureOf(estimate), monthlyFromCycle(2425, 14))).toBe(true);
   });
 
-  it("divides a full window of semi-monthly pay by the window", () => {
+  it("reads a semi-monthly cadence too", () => {
     const dates = ["2026-09-01", "2026-09-15", "2026-10-01", "2026-10-15", "2026-11-01", "2026-11-15"];
-    // 1212.50 twice a month is 2425/mo, and six of them across the window average exactly that.
+    // 1212.50 twice a month is 2425/mo; the derived figure lands within a couple of percent.
     expect(estimateMonthlyIncome(dates.map((date) => dated(1212.5, date)))).toEqual({
       ok: true,
-      estimate: { monthlyIncomeCents: 242500, months: 2, depositCount: 6 },
+      estimate: { monthlyIncomeCents: 246057, months: 2, depositCount: 6 },
     });
   });
 
@@ -78,16 +87,16 @@ describe("income calc", () => {
     // Capping the divisor at the window reported $2,425/mo, 48% above what the account shows.
     const estimate = estimateMonthlyIncome([dated(2425, "2026-08-20"), dated(2425, "2026-10-05"), dated(2425, "2026-11-18")]);
     expect(estimate).toMatchObject({ ok: true, estimate: { months: 3 } });
-    expect(figureOf(estimate)).toBeCloseTo(monthlyFromCycle(2425, 45), 0);
+    expect(within1Percent(figureOf(estimate), monthlyFromCycle(2425, 45))).toBe(true);
     expect(figureOf(estimate)).toBeLessThan(2425);
   });
 
   it("never reports a biweekly earner above their biweekly rate, even when the window catches an extra paycheck", () => {
-    // Seven $2,425 paychecks 14 days apart earn $5,272/mo (2425 x (365.25/14) / 12). A 91-day window holds 6.5 of
-    // them on average, so dividing seven by three months reported $5,658/mo, 7% too high.
+    // Seven $2,425 paychecks 14 days apart earn $5,272/mo. A 91-day window holds 6.5 of them on average, so
+    // dividing seven by three months reported $5,658/mo, 7% too high.
     const dates = ["2026-08-27", "2026-09-10", "2026-09-24", "2026-10-08", "2026-10-22", "2026-11-05", "2026-11-19"];
     const estimate = estimateMonthlyIncome(dates.map((date) => dated(2425, date)));
-    expect(figureOf(estimate)).toBeCloseTo(monthlyFromCycle(2425, 14), 0);
+    expect(within1Percent(figureOf(estimate), monthlyFromCycle(2425, 14))).toBe(true);
     expect(figureOf(estimate)).toBeLessThan((7 * 2425) / 3);
   });
 
