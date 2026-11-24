@@ -12,12 +12,12 @@ export function isAirbnbFetcher(userAgent: string | null | undefined): boolean {
 }
 
 /**
- * Whether this request is the connection's OWN channel reading the feed: Airbnb, and the Agoda row this change
- * adds, each by NAME in the user-agent and nothing else. A provider whose row surfaces no last-fetch state is
- * not recognised here at all - a stamp nothing reads is a stored fact nobody asked for. "Agoda last fetched" is the only input to the row's "Synced" / "Not pulling"
- * state, so a curl, a link checker or an uptime probe must never stamp it; an unrecognised fetcher reads as
- * "Agoda has not fetched PropLane yet", the honest answer. The export route logs the agent of every fetch on
- * an Agoda link, which is how the real one gets named here.
+ * Whether this request is the connection's OWN channel reading the feed: Airbnb, Booking.com and the Agoda row,
+ * each by NAME in the user-agent and nothing else. `export_last_fetched_at` is the ONLY input to a row's
+ * "Synced" / "Not pulling" state, so every channel whose row shows that state has to be recognised here or it
+ * reads "Waiting" forever - and a curl, a link checker or an uptime probe must never stamp it: an unrecognised
+ * fetcher reads as "<channel> has not fetched PropLane yet", the honest answer. The export route logs the agent
+ * of every fetch on an Agoda link, which is how the real one gets named here.
  */
 export function isChannelFetcher(
   userAgent: string | null | undefined,
@@ -26,6 +26,7 @@ export function isChannelFetcher(
 ): boolean {
   const ua = (userAgent ?? "").trim();
   if (provider === "airbnb") return isAirbnbFetcher(ua);
+  if (provider === "booking_com") return /booking/i.test(ua);
   if (provider === "ical" && isAgodaLabel(label)) return /agoda/i.test(ua);
   return false;
 }

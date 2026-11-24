@@ -42,33 +42,53 @@ describe("income calc", () => {
 
   const dated = (amount: number, date: string) => ({ ...wages(amount), date });
 
-  it("divides by the period the paychecks earn over, not the window asked for", () => {
-    // Three monthly paychecks: the figure is one paycheck a month, whatever window was requested, and the
-    // label is the history the bank really shared (61 days), never the derived 3-month earning period.
-    expect(estimateMonthlyIncome([dated(2425, "2026-09-15"), dated(2425, "2026-10-15"), dated(2425, "2026-11-15")])).toEqual({
-      ok: true,
-      estimate: { monthlyIncomeCents: 242500, months: 2, depositCount: 3 },
-    });
+  // The figure a manager is shown next to what the applicant stated must never be biased UPWARD: the divisor is the
+  // longer of the three months we asked the bank for and the period the deposits really earn over. Oracle for the
+  // cases below: the paycheck amount annualized from its own observed cycle (365.25 days / cycle / 12), or the plain
+  // window average when every deposit fits inside the window.
+  const monthlyFromCycle = (amount: number, cycleDays: number) => (amount * (365.25 / cycleDays)) / 12;
+  const figureOf = (outcome: ReturnType<typeof estimateMonthlyIncome>) =>
+    (outcome.ok ? outcome.estimate.monthlyIncomeCents : 0) / 100;
+
+  it("divides three monthly paychecks by the month: the label is the history the bank shared", () => {
+    const estimate = estimateMonthlyIncome([dated(2425, "2026-09-15"), dated(2425, "2026-10-15"), dated(2425, "2026-11-15")]);
+    expect(estimate).toEqual({ ok: true, estimate: { monthlyIncomeCents: 242023, months: 2, depositCount: 3 } });
+    expect(figureOf(estimate)).toBeCloseTo(monthlyFromCycle(2425, 30.5), 0);
+    expect(figureOf(estimate)).toBeLessThan(2425);
   });
 
-  it("reads a biweekly cadence as biweekly, not as the calendar span", () => {
-    // Three biweekly paychecks over 28 days: 2425 x 26 / 12 is about 5254/mo.
+  it("divides a thin slice of history by the whole window instead of annualizing it up", () => {
+    // Three biweekly paychecks are all the bank shared: $7,275 arrived, and the two months of the window it could
+    // not see are not assumed to pay the same. Dividing by the 28-day span reported $5,273/mo off four weeks.
     const estimate = estimateMonthlyIncome([dated(2425, "2026-10-22"), dated(2425, "2026-11-05"), dated(2425, "2026-11-19")]);
-    expect(estimate).toEqual({ ok: true, estimate: { monthlyIncomeCents: 527264, months: 1, depositCount: 3 } });
+    expect(estimate).toEqual({ ok: true, estimate: { monthlyIncomeCents: 242500, months: 1, depositCount: 3 } });
   });
 
-  it("reads a semi-monthly cadence too", () => {
+  it("divides a full window of semi-monthly pay by the window", () => {
     const dates = ["2026-09-01", "2026-09-15", "2026-10-01", "2026-10-15", "2026-11-01", "2026-11-15"];
-    // 1212.50 twice a month is 2425/mo; the derived figure lands within a couple of percent.
+    // 1212.50 twice a month is 2425/mo, and six of them across the window average exactly that.
     expect(estimateMonthlyIncome(dates.map((date) => dated(1212.5, date)))).toEqual({
       ok: true,
-      estimate: { monthlyIncomeCents: 246057, months: 2, depositCount: 6 },
+      estimate: { monthlyIncomeCents: 242500, months: 2, depositCount: 6 },
     });
   });
 
-  it("keeps the full window when the bank shared it all", () => {
+  it("reports paychecks spread wider than the window at the rate they actually arrive", () => {
+    // One paycheck every 45 days across the whole window is NOT one a month: 2425 x (365.25/45) / 12 = $1,640/mo.
+    // Capping the divisor at the window reported $2,425/mo, 48% above what the account shows.
     const estimate = estimateMonthlyIncome([dated(2425, "2026-08-20"), dated(2425, "2026-10-05"), dated(2425, "2026-11-18")]);
-    expect(estimate).toMatchObject({ ok: true, estimate: { months: 3, monthlyIncomeCents: 242500 } });
+    expect(estimate).toMatchObject({ ok: true, estimate: { months: 3 } });
+    expect(figureOf(estimate)).toBeCloseTo(monthlyFromCycle(2425, 45), 0);
+    expect(figureOf(estimate)).toBeLessThan(2425);
+  });
+
+  it("never reports a biweekly earner above their biweekly rate, even when the window catches an extra paycheck", () => {
+    // Seven $2,425 paychecks 14 days apart earn $5,272/mo (2425 x (365.25/14) / 12). A 91-day window holds 6.5 of
+    // them on average, so dividing seven by three months reported $5,658/mo, 7% too high.
+    const dates = ["2026-08-27", "2026-09-10", "2026-09-24", "2026-10-08", "2026-10-22", "2026-11-05", "2026-11-19"];
+    const estimate = estimateMonthlyIncome(dates.map((date) => dated(2425, date)));
+    expect(figureOf(estimate)).toBeCloseTo(monthlyFromCycle(2425, 14), 0);
+    expect(figureOf(estimate)).toBeLessThan((7 * 2425) / 3);
   });
 
   it("gives no figure when the paychecks span less than a month of real observation", () => {

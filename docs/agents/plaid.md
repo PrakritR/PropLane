@@ -135,10 +135,12 @@ group never waits on it.
   much: the held draft only exists after the form is finished, and the account is created after proof.
 - **Method.** Link with the Transactions product (90 days), then `/transactions/get` and `income-calc.ts`: payroll-style
   deposits (Plaid `INCOME_WAGES`, or a payroll name; never a transfer, refund, peer payment or pending line) divided by the
-  period THOSE DEPOSITS cover, never the window asked for. `depositCoverageMonths` reads the cadence off the deposits: `n` of
-  them spanning `span` days imply a cycle of `span / (n - 1)` and cover `span + cycle` days, capped at the 3 months requested
-  and never rounded — rounding the divisor down is what would report a monthly-paid applicant at twice their income, and
-  rounding the window up is what would report them at a third of it. `INCOME_MIN_DEPOSITS` is **three**, because two
+  LONGER of the 3 months asked for and the period those deposits cover. `depositCoverageMonths` reads the cadence off the
+  deposits: `n` of them spanning `span` days imply a cycle of `span / (n - 1)` and cover `span + cycle` days, floored at the
+  3 months requested and never rounded. The figure is therefore **never biased upward**: deposits spread wider than the
+  window divide by the period they really cover (three paychecks 45 days apart over the whole window are one paycheck every
+  45 days, not one a month), and a bank that shared only a few weeks divides by the whole window rather than annualizing
+  that slice up — a paycheck we cannot see can only understate. `INCOME_MIN_DEPOSITS` is **three**, because two
   deposits are one gap: a cadence guessed from a single interval cannot tell a monthly paycheck pair from a paycheck plus
   a bonus. Fewer than three, or a span under `INCOME_MIN_COVERAGE_DAYS` of real observation, and there is no figure at
   all — which costs the applicant nothing, since the check never blocks a submit. A refusal names WHICH of the two it is
@@ -146,7 +148,7 @@ group never waits on it.
   one message, so an applicant whose bank shared too little is never told no paychecks were found. Only
   `estimateMonthlyIncome` knows which applies — never re-derive it by counting deposits at the call site. `months` in the manager's line is the
   whole-month label for the history the bank SHARED (`observedMonths`), a fact they can hold the figure against; the
-  figure itself comes from the unrounded earning period, which is derived, not observed. Plaid's own Income products (`/credit/bank_income/get`) need separate product
+  figure itself comes from the unrounded divisor, which is derived, not observed, and never shorter than the window. Plaid's own Income products (`/credit/bank_income/get`) need separate product
   access, so they are not used; proven against the sandbox with a custom user.
 - **Server-owned.** `POST /api/plaid/income/verify` takes only the public token and the listing id (never a figure), computes
   on the server, stores one row per (applicant, listing) in `applicant_income_verifications` (service role only, a figure and

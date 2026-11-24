@@ -42,10 +42,28 @@ describe("export fetch stamp by platform", () => {
     expect(isChannelFetcher("Mozilla/5.0 (Macintosh) AppleWebKit Chrome/120 Safari/537", "ical", "Agoda")).toBe(false);
     expect(isChannelFetcher("Agoda-Calendar-Sync/1.0", "ical", "Agoda")).toBe(true);
     expect(isChannelFetcher("Agoda-Calendar-Sync/1.0", "ical", "Houfy")).toBe(false);
-    // Only the two rows that surface a last-fetch state are recognised: a provider whose row shows none is
-    // never stamped, so no stored fact exists that nothing reads.
-    expect(isChannelFetcher("Booking.com Calendar Sync", "booking_com")).toBe(false);
-    expect(isChannelFetcher("Vrbo Calendar", "vrbo")).toBe(false);
+    expect(isChannelFetcher("Booking.com Calendar Sync", "booking_com")).toBe(true);
+    // A channel's own name, not another channel's: the Agoda crawler reading a Booking.com link proves nothing
+    // about Booking.com.
+    expect(isChannelFetcher("Agoda-Calendar-Sync/1.0", "booking_com")).toBe(false);
+    expect(isChannelFetcher("Booking.com Calendar Sync", "airbnb")).toBe(false);
+  });
+
+  // `export_last_fetched_at` is the only input to the Synced / Waiting line the Connect popup draws per room, for
+  // whichever channel is selected (`CHANNEL_OPTIONS` holds booking_com). Oracle: docs/agents/integrations.md -
+  // the row tells the manager whether the channel has pulled PropLane. Plausible wrong behaviour this rejects:
+  // the row reading "Waiting for Booking.com" forever after Booking.com has fetched the feed.
+  it("a Booking.com fetch stamps the row, and the row then reads Synced", () => {
+    expect(shouldStampExportFetch({ userAgent: "Booking.com Calendar Sync", provider: "booking_com", lastFetchedAt: null, now })).toBe(true);
+    expect(shouldStampExportFetch({ userAgent: "curl/8.4.0", provider: "booking_com", lastFetchedAt: null, now })).toBe(false);
+
+    const unfetched = { hasImportUrl: true, lastSyncedAt: hoursAgo(1), exportLastFetchedAt: null };
+    expect(channelStatusLine(unfetched, now, "booking_com")).toContain("Waiting for Booking.com");
+
+    const stamped = { ...unfetched, exportLastFetchedAt: hoursAgo(2) };
+    const line = channelStatusLine(stamped, now, "booking_com");
+    expect(line.startsWith("Synced")).toBe(true);
+    expect(line).toContain("Booking.com");
   });
 
   // "Agoda last fetched" is the ONLY input to Synced / Not pulling, so a stranger's fetch must not say Agoda was here:

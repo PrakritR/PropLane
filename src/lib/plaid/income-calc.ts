@@ -72,9 +72,11 @@ function dayNumber(value: string | null | undefined): number | null {
  * `months` is the period the deposits EARN over, the divisor: `n` deposits spanning `span` days are
  * spaced by a cycle of `span / (n - 1)`, and together they are a cycle's worth of earnings beyond the
  * last one, so the period is `span + cycle`. It is never rounded — rounding it down inflates the figure
- * — and it is capped at the window actually requested, so a wide gap can only understate. `n` is at
- * least `INCOME_MIN_DEPOSITS`, so the cycle is measured across two or more gaps rather than guessed
- * from one.
+ * — and it is never SHORTER than the window actually requested, so the figure can only ever understate:
+ * paychecks spread wider than the window divide by the period they really cover, and a bank that shared
+ * only a few weeks of it divides by the whole window rather than claiming the rest of it earns the same.
+ * `n` is at least `INCOME_MIN_DEPOSITS`, so the cycle is measured across two or more gaps rather than
+ * guessed from one.
  *
  * `observedMonths` is the history the bank actually shared, the span alone. That is what the manager is
  * shown, so the label names observed history and never an inferred period.
@@ -92,19 +94,19 @@ export function depositCoverageMonths(
   const spanDays = sorted[sorted.length - 1]! - sorted[0]!;
   if (spanDays < INCOME_MIN_COVERAGE_DAYS) return { tooShort: true };
   const cycleDays = spanDays / (sorted.length - 1);
-  const coveredDays = Math.min(spanDays + cycleDays, requestedMonths * DAYS_PER_MONTH);
+  const coveredDays = Math.max(spanDays + cycleDays, requestedMonths * DAYS_PER_MONTH);
   return { months: coveredDays / DAYS_PER_MONTH, observedMonths: spanDays / DAYS_PER_MONTH };
 }
 
 /**
  * Average monthly payroll-style deposits, or the reason there is no figure.
  *
- * The divisor is the period the deposits actually earn over (`depositCoverageMonths`), never the window
- * we asked for: dividing five weeks of paychecks by three months would understate real income two- to
- * threefold, and dividing them by a rounded one month would overstate it twofold. Deposits spanning less
- * than `INCOME_MIN_COVERAGE_DAYS` yield no figure at all. `months` is the whole-month label for the
- * history the bank shared, a fact the manager can hold the figure against; it is deliberately not the
- * divisor, which is a derived period and is used unrounded.
+ * The divisor is the LONGER of the window we asked for and the period the deposits actually earn over
+ * (`depositCoverageMonths`), so the figure is never biased upward: paychecks spread wider than the window
+ * are divided by the period they really cover, and a thin slice of history is divided by the whole window
+ * instead of being annualized up from it. Deposits spanning less than `INCOME_MIN_COVERAGE_DAYS` yield no
+ * figure at all. `months` is the whole-month label for the history the bank shared, a fact the manager can
+ * hold the figure against; it is deliberately not the divisor, which is a derived period used unrounded.
  *
  * A refusal says WHICH of the two it is, because "we found no paychecks" and "we found paychecks but too
  * little history" are different answers to the applicant and only this function knows which applies.
