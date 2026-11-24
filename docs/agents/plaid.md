@@ -156,12 +156,13 @@ group never waits on it.
   applies — never re-derive it by counting deposits at the call site.
 - **The basis is shown with the figure.** `historyDays` records how much bank history the provider actually returned
   (stored nullable on `applicant_income_verifications`), and `incomeVerifiedLine` renders the whole basis in one plain
-  fact: `✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · as of Nov 3`, plus
+  fact: `✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · as of Nov 3, 2026`, plus
   `· only 45 days of bank history` when the history falls more than `INCOME_SHORT_HISTORY_SLACK_DAYS` short of the
   window — a week of slack, because a quiet first week is not a new account. A 45-day-old account therefore reads as
   one instead of looking like a full quarter of pay. The as-of date (Pacific, like every other stamp) is there because
   a stored figure is reused for up to `INCOME_VERIFICATION_MAX_AGE_DAYS`: without it a check run a month ago reads as
-  the last 90 days ending today. Every clause is omitted when its fact is missing rather than rendered empty, and both
+  the last 90 days ending today. It names the YEAR too, because the line is stamped onto the application and read off
+  durable artifacts (an archived PDF, the same person's application a year later) long after that window closes. Every clause is omitted when its fact is missing rather than rendered empty, and both
   routes answer with the ONE shape `incomeVerifiedPayload` builds — a narrower projection is how the applicant's own
   line came to read "(undefined deposits)" on a reload. Plaid's own Income products (`/credit/bank_income/get`) need separate product
   access, so they are not used; proven against the sandbox with a custom user.
@@ -170,7 +171,7 @@ group never waits on it.
   the institution, never a token) and removes the Plaid Item before returning: no access token lingers. The signed-in
   application write stamps `row.incomeVerification` from that row (fresh within 30 days) or the stored row, never from the body;
   the guest upsert keeps only what is already stored.
-- **Manager.** One plain glyph fact, never a pill: `Income $4,800/mo stated · ✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · as of Nov 3`
+- **Manager.** One plain glyph fact, never a pill: `Income $4,800/mo stated · ✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · as of Nov 3, 2026`
   (`incomeStatedVsVerifiedLine`) in the review, the fact cards, the HTML and the PDF (the PDF omits the check mark: its standard
   font cannot draw it).
 - **FCRA.** No decline or ranking logic is tied to this figure. TODO: counsel to review whether a bank-derived income figure

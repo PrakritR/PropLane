@@ -49,11 +49,13 @@ export function formatIncomeDollars(cents: number): string {
 
 /**
  * The manager's glyph fact, with the basis of the figure in it:
- * `✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · as of Nov 3`, and
+ * `✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · as of Nov 3, 2026`, and
  * `· only 45 days of bank history` when the provider returned materially less than the window — so a figure
  * drawn from a new account reads as one instead of looking like a full quarter of pay. The as-of date is
  * there because a stored figure is reused for up to `INCOME_VERIFICATION_MAX_AGE_DAYS`: without it, a check
- * run a month ago reads as the last 90 days ending today. Never a pill.
+ * run a month ago reads as the last 90 days ending today. It carries the YEAR because this same line is
+ * stamped onto the application and read off durable artifacts - an archived PDF, a printed packet, the same
+ * person's application a year later - long after that window closes. Never a pill.
  *
  * Every clause is omitted when its fact is missing rather than rendered empty: a row stored before a basis
  * field existed, or a projection that dropped one, must never put the word "undefined" on an applicant's
@@ -71,7 +73,7 @@ export function incomeVerifiedLine(verification: IncomeVerification, options: { 
       : "";
   const verifiedAt = Date.parse(verification.verifiedAt ?? "");
   const asOf = Number.isFinite(verifiedAt)
-    ? ` · as of ${formatPacificDate(verifiedAt, { month: "short", day: "numeric" })}`
+    ? ` · as of ${formatPacificDate(verifiedAt, { month: "short", day: "numeric", year: "numeric" })}`
     : "";
   const fact = `${formatIncomeDollars(verification.monthlyIncomeCents)}/mo avg of payroll deposits, last ${INCOME_WINDOW_DAYS} days${deposits}${short}${asOf}`;
   return options.glyph === false ? fact : `✓ ${fact}`;
@@ -109,7 +111,7 @@ function statedAmountCents(stated: string): number | null {
 
 /**
  * The value of an "Income" fact: `$4,800/mo stated · ✓ $4,850/mo avg of payroll deposits, last 90 days (6
- * deposits) · as of Nov 3`, or only the verified half
+ * deposits) · as of Nov 3, 2026`, or only the verified half
  * when nothing was stated.
  *
  * `stated` is the applicant's own free-text answer. Only a single plain amount is read as money; anything else

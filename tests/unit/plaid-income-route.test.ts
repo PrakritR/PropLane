@@ -112,7 +112,7 @@ describe("GET /api/screening/income", () => {
       verifiedAt: "2026-11-03T19:00:00.000Z",
     });
     expect(incomeVerifiedLine({ source: "plaid", ...(body.verified as never) })).toBe(
-      "✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · only 45 days of bank history · as of Nov 3",
+      "✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · only 45 days of bank history · as of Nov 3, 2026",
     );
   });
 

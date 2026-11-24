@@ -78,7 +78,7 @@ describe("income calc", () => {
     // $7,275 over 3 months is $2,425/mo, from an account only 45 days old - which the manager's line has to say.
     expect(estimate).toMatchObject({ ok: true, estimate: { monthlyIncomeCents: 242500, depositCount: 3, historyDays: 45 } });
     expect(estimate.ok && incomeVerifiedLine({ source: "plaid", verifiedAt: NOW.toISOString(), ...estimate.estimate })).toBe(
-      "✓ $2,425/mo avg of payroll deposits, last 90 days (3 deposits) · only 45 days of bank history · as of Nov 29",
+      "✓ $2,425/mo avg of payroll deposits, last 90 days (3 deposits) · only 45 days of bank history · as of Nov 29, 2026",
     );
   });
 
@@ -110,7 +110,7 @@ describe("display line", () => {
   // rate: it is the average of 6 payroll deposits over a stated 90-day window. docs/agents/plaid.md § Income check
   // owns the wording. Plausible wrong behaviour this rejects: a bare "verified" figure with no window or count.
   const v = { source: "plaid" as const, monthlyIncomeCents: 485000, months: 3, depositCount: 6, historyDays: 90, verifiedAt: "2026-11-18T19:00:00.000Z" };
-  const fact = "$4,850/mo avg of payroll deposits, last 90 days (6 deposits) · as of Nov 18";
+  const fact = "$4,850/mo avg of payroll deposits, last 90 days (6 deposits) · as of Nov 18, 2026";
   it("draws stated and verified as one plain glyph fact, with the basis in it", () => {
     expect(incomeVerifiedLine(v)).toBe(`✓ ${fact}`);
     expect(incomeStatedVsVerifiedLine("4,800", v)).toBe(`$4,800/mo stated · ✓ ${fact}`);
@@ -126,7 +126,7 @@ describe("display line", () => {
 
   it("names a short bank history, and says nothing extra for a full one or an unrecorded one", () => {
     expect(incomeVerifiedLine({ ...v, historyDays: 45 })).toBe(
-      "✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · only 45 days of bank history · as of Nov 18",
+      "✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · only 45 days of bank history · as of Nov 18, 2026",
     );
     expect(incomeVerifiedLine({ ...v, historyDays: 84 })).toBe(`✓ ${fact}`);
     expect(incomeVerifiedLine({ ...v, historyDays: null })).toBe(`✓ ${fact}`);
@@ -145,7 +145,18 @@ describe("display line", () => {
       "✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits)",
     );
     // 2026-11-04T03:00Z is still Nov 3 in Pacific, where every other stamp in the product is read.
-    expect(incomeVerifiedLine({ ...v, verifiedAt: "2026-11-04T03:00:00.000Z" })).toContain("· as of Nov 3");
+    expect(incomeVerifiedLine({ ...v, verifiedAt: "2026-11-04T03:00:00.000Z" })).toContain("· as of Nov 3, 2026");
+  });
+
+  // This same line is stamped onto the application and read off durable artifacts - an archived PDF, a printed
+  // packet, the same person's application a year later - long after the 30-day freshness window closes. Two checks
+  // a year apart must therefore not read identically. Plausible wrong behaviour this rejects: a year-less date,
+  // which made a 15-month-old figure indistinguishable from one taken last week.
+  it("dates the figure by year, so a stored line still says how old it is", () => {
+    const lastYear = incomeVerifiedLine({ ...v, verifiedAt: "2025-11-18T19:00:00.000Z" });
+    expect(lastYear).toContain("· as of Nov 18, 2025");
+    expect(lastYear).not.toBe(incomeVerifiedLine(v));
+    expect(incomeVerifiedLine(v)).toContain("· as of Nov 18, 2026");
   });
 });
 
