@@ -1,7 +1,6 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { NextRequest } from "next/server";
-import { describe, expect, it } from "vitest";
+import { pathToRegexp } from "path-to-regexp";
+import { beforeAll, describe, expect, it } from "vitest";
 import {
   buildListingSlugIndex,
   EMPTY_LISTING_SLUG_INDEX,
@@ -182,9 +181,50 @@ describe("the middleware sends an old record-id URL to the canonical one", () =>
   });
 });
 
-describe("/rent/tour", () => {
-  it("is a temporary redirect to /rent/tours-contact (never cached as a 308)", () => {
-    const config = readFileSync(join(process.cwd(), "next.config.ts"), "utf8");
-    expect(config).toMatch(/source:\s*"\/rent\/tour",\s*destination:\s*"\/rent\/tours-contact",\s*permanent:\s*false/);
+// The tour doors are decided by `redirects()` in `next.config.ts`, which Next evaluates IN ORDER and whose
+// `missing` entries it ANDs. The matcher below is that contract applied to the real exported list: sources go
+// through `path-to-regexp` (the library Next itself matches `source` with) and a rule applies only when every
+// `missing` query key is absent. Oracle: Next.js routing (`redirects` ordering + `missing`) and RFC 7538 for
+// `permanent: false` meaning 307. Wrong behaviours this rejects: a bare /rent/tour landing on the dead-end
+// contact form, a request that NAMES a home being bounced to the browse picker, and any of these rules being
+// minted permanent so a browser caches the hop.
+type RedirectRule = {
+  source: string;
+  destination: string;
+  permanent?: boolean;
+  missing?: { type: string; key?: string }[];
+  has?: { type: string; key?: string }[];
+};
+
+function firstRedirect(rules: RedirectRule[], pathname: string, query: Record<string, string> = {}) {
+  return rules.find((rule) => {
+    if (!pathToRegexp(rule.source).test(pathname)) return false;
+    const absent = (entry: { type: string; key?: string }) => entry.type === "query" && !(String(entry.key) in query);
+    if (!(rule.missing ?? []).every(absent)) return false;
+    return (rule.has ?? []).every((entry) => !absent(entry));
+  });
+}
+
+describe("the tour and message doors", () => {
+  let rules: RedirectRule[] = [];
+  beforeAll(async () => {
+    const config = (await import("../../next.config")).default;
+    rules = (await config.redirects!()) as RedirectRule[];
+  });
+
+  it("sends a request that names no home to the browse picker, temporarily", () => {
+    for (const path of ["/rent/tour", "/rent/tours", "/rent/tours-contact"]) {
+      expect(firstRedirect(rules, path), path).toMatchObject({ destination: "/rent/browse", permanent: false });
+    }
+  });
+
+  it("keeps a request that names a home, a share list, a sign-in return or a filed inquiry", () => {
+    expect(firstRedirect(rules, "/rent/tour", { propertyId: "prop-1" })).toMatchObject({
+      destination: "/rent/tours-contact",
+      permanent: false,
+    });
+    expect(firstRedirect(rules, "/rent/tours", { ids: "prop-1,prop-2" })).toBeUndefined();
+    expect(firstRedirect(rules, "/rent/tours-contact", { tourInquiryId: "ti-1" })).toBeUndefined();
+    expect(firstRedirect(rules, "/rent/tours-contact", { next: "/resident/applications" })).toBeUndefined();
   });
 });

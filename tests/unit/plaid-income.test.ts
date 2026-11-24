@@ -76,10 +76,30 @@ describe("income calc", () => {
   it("reads a semi-monthly cadence too", () => {
     const dates = ["2026-09-01", "2026-09-15", "2026-10-01", "2026-10-15", "2026-11-01", "2026-11-15"];
     // 1212.50 twice a month is 2425/mo; the derived figure lands within a couple of percent.
-    expect(estimateMonthlyIncome(dates.map((date) => dated(1212.5, date)))).toEqual({
-      ok: true,
-      estimate: { monthlyIncomeCents: 246057, months: 2, depositCount: 6 },
-    });
+    const estimate = estimateMonthlyIncome(dates.map((date) => dated(1212.5, date)));
+    expect(estimate).toEqual({ ok: true, estimate: { monthlyIncomeCents: 248821, months: 2, depositCount: 6 } });
+    expect(Math.abs(figureOf(estimate) - 2425) / 2425).toBeLessThan(0.03);
+  });
+
+  // A bonus, a correction run or a final check is money that arrived once, not a monthly rate. Counted as pay it
+  // lands in the figure AND shortens the period the figure is spread over, so it moves the number twice. Oracle:
+  // the regular paycheck annualized from its own cycle, 2425 x (365.25/14) / 12 = $5,272/mo. Plausible wrong
+  // behaviour this rejects: the mean-gap divisor, which read this account as $8,089/mo - 54% above what it pays.
+  it("leaves an off-cycle deposit out of the monthly rate", () => {
+    const biweekly = ["2026-10-22", "2026-11-05", "2026-11-19"].map((date) => dated(2425, date));
+    const bonus = { ...dated(3000, "2026-11-20"), name: "ACME CORP PAYROLL BONUS" };
+    const estimate = estimateMonthlyIncome([...biweekly, bonus]);
+    expect(within1Percent(figureOf(estimate), monthlyFromCycle(2425, 14))).toBe(true);
+    expect(estimate).toEqual({ ok: true, estimate: { monthlyIncomeCents: 527264, months: 1, depositCount: 3 } });
+    // Dropping the bonus leaves the same rate: the figure is the pay, whatever else landed beside it.
+    expect(estimateMonthlyIncome(biweekly)).toEqual(estimate);
+  });
+
+  it("gives no figure when only a pair of paychecks survives the off-cycle test", () => {
+    // Two monthly paychecks plus a $5,000 deposit the next day: the pair is one gap, which cannot tell a cadence
+    // from a paycheck plus a bonus (`INCOME_MIN_DEPOSITS`). The mean-gap divisor reported $5,892/mo on $2,000 pay.
+    const rows = [dated(2000, "2026-09-01"), dated(2000, "2026-10-01"), { ...dated(5000, "2026-10-02"), name: "ACME PAYROLL FINAL" }];
+    expect(estimateMonthlyIncome(rows)).toEqual({ ok: false, reason: "not_enough_history", depositCount: 3 });
   });
 
   it("reports paychecks spread wider than the window at the rate they actually arrive", () => {
