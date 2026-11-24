@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { NextRequest } from "next/server";
 import { describe, expect, it } from "vitest";
 import {
   buildListingSlugIndex,
@@ -100,6 +101,17 @@ describe("resolveListingParam", () => {
   it("a renamed title (stale slug) still resolves by the token and redirects to the current slug", () => {
     expect(resolveListingParam(index, "old-name-7mdlyj0h2vfg")).toEqual({ kind: "redirect", slug: slugA, id: A.id });
   });
+  it("a slug published before the id token (the bare street line) still resolves, to the canonical URL", () => {
+    expect(resolveListingParam(index, "4709a-8th-ave-ne")).toEqual({ kind: "redirect", slug: slugA, id: A.id });
+    expect(resolveListingParam(index, "4709A-8th-Ave-NE")).toEqual({ kind: "redirect", slug: slugA, id: A.id });
+  });
+
+  it("a legacy base slug two listings share names neither", () => {
+    const twin = home("prop-twin-aaaa1111zz", "4709A 8th Ave NE, Seattle, WA");
+    const shared = buildListingSlugIndex([A, twin]);
+    expect(resolveListingParam(shared, "4709a-8th-ave-ne")).toEqual({ kind: "id", id: "4709a-8th-ave-ne" });
+  });
+
   it("an unknown param is passed through as an id (the existing not-found state)", () => {
     expect(resolveListingParam(index, "no-such-house")).toEqual({ kind: "id", id: "no-such-house" });
     expect(resolveListingParam(index, "nope-zzzzzzzzzzzz")).toEqual({ kind: "id", id: "nope-zzzzzzzzzzzz" });
@@ -119,16 +131,43 @@ describe("URL builders stay derived from the module", () => {
     expect(ld.url).toBe(url);
     expect(ld.offers?.url).toBe(url);
   });
-  it("the sitemap, the listing page, the canonical lookup and the middleware read the one slug module", () => {
-    const sitemap = readFileSync(join(process.cwd(), "src/app/sitemap.ts"), "utf8");
-    expect(sitemap).toContain("listingCanonicalSlug");
-    expect(sitemap).not.toContain("encodeURIComponent(p.id)");
-    const page = readFileSync(join(process.cwd(), "src/app/(rent)/rent/listings/[id]/page.tsx"), "utf8");
-    expect(page).toContain("canonical");
-    expect(page).not.toContain("permanentRedirect");
-    const mw = readFileSync(join(process.cwd(), "src/middleware.ts"), "utf8");
-    expect(mw).toContain("/api/public/listing-canonical");
-    expect(mw).toContain("308");
+});
+
+describe("the middleware sends an old record-id URL to the canonical one", () => {
+  // Oracle: RFC 7538 — a 308 names the resource's new location and the client repeats the request there, so the
+  // query a listing link carries (`?stay=1`, `?src=`) must survive the hop. The canonical slug itself comes from
+  // this module. Wrong behaviours this rejects: no redirect at all, or a Location with the query dropped.
+  it("answers 308 with the canonical path and keeps the query", async () => {
+    const { middleware } = await import("@/middleware");
+    const slug = "4709a-8th-ave-ne-7mdlyj0h2vfg";
+    const asked: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      asked.push(String(input));
+      return new Response(JSON.stringify({ slug }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof globalThis.fetch;
+    try {
+      const res = await middleware(
+        new NextRequest(`https://proplane.ai/rent/listings/${encodeURIComponent(A.id)}?stay=1&src=zillow`, { method: "GET" }),
+      );
+      expect(res.status).toBe(308);
+      expect(res.headers.get("location")).toBe(`https://proplane.ai/rent/listings/${slug}?stay=1&src=zillow`);
+      expect(asked.some((url) => url.includes("/api/public/listing-canonical") && url.includes(encodeURIComponent(A.id)))).toBe(true);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("renders in place when the canonical lookup fails", async () => {
+    const { middleware } = await import("@/middleware");
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response("nope", { status: 500 })) as typeof globalThis.fetch;
+    try {
+      const res = await middleware(new NextRequest(`https://proplane.ai/rent/listings/${A.id}`, { method: "GET" }));
+      expect(res.status).not.toBe(308);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });
 

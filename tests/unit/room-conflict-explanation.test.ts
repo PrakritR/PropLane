@@ -50,6 +50,23 @@ describe("explainRoomDateConflict", () => {
     expect(r.nextStartAfterConflict).toEqual(d("2026-12-21"));
   });
 
+  // Oracle: the offer is a promise about the applicant's OWN request — the same term, starting later. A start day that
+  // is free but runs into the next booking would be refused again, so it is not the nearest date that works.
+  it("offers only a start the whole requested term fits from, skipping a free day the next booking swallows", () => {
+    const r = explainRoomDateConflict({
+      roomName: "Room 7",
+      windows: [
+        { start: d("2026-12-01"), end: d("2026-12-14") },
+        { start: d("2026-12-16"), end: d("2026-12-31") },
+      ],
+      leaseStart: d("2026-12-05"),
+      leaseEnd: d("2027-06-04"),
+    })!;
+    expect(r.nextStartAfterConflict).toEqual(d("2027-01-01"));
+    expect(r.message).toContain("a start on Jan 1, 2027 or later");
+    expect(r.message).not.toContain("Dec 15, 2026 or later");
+  });
+
   it("offers no next start when the room is held indefinitely, and falls back to the generic advice", () => {
     const r = explainRoomDateConflict({
       roomName: "Room 7",

@@ -131,9 +131,12 @@ export function buildTourRequestManagerSms(ctx: TourNotificationContext): string
   const when = formatTourStartPacific(ctx.tourStartIso);
   const who = ctx.guestName?.trim() || "A guest";
   const ref = ctx.confirmationRef ? ` (${ctx.confirmationRef})` : "";
-  return `PropLane: new tour request${ref}. ${who} - ${place}${when ? ` - ${when}` : ""}. ${
-    ctx.requestedTime ? "They picked their own time. " : ""
-  }Open it: ${ctx.tourDetailUrl || ""}`.trim();
+  // Without a tour id there is no detail link (`buildTourNotificationContext`), and the sentence is dropped whole
+  // rather than left as a dangling "Open it:" — the same guard the email body uses.
+  const link = ctx.tourDetailUrl?.trim() ? ` Open it: ${ctx.tourDetailUrl.trim()}` : "";
+  return `PropLane: new tour request${ref}. ${who} - ${place}${when ? ` - ${when}` : ""}.${
+    ctx.requestedTime ? " They picked their own time." : ""
+  }${link}`.trim();
 }
 
 export function buildTourApplyUrl(origin: string, propertyId?: string | null, roomLabel?: string | null): string {

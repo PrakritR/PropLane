@@ -1,7 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { isAgodaLabel } from "@/lib/channel-calendar/channel-links";
+import { shouldRestamp, SYNC_STAMP_MIN_INTERVAL_MS } from "@/lib/write-skip";
+
 /** A poll is stamped at most this often per connection (production disk IO): channels poll a few times a day. */
-export const EXPORT_FETCH_STAMP_THROTTLE_MS = 15 * 60_000;
+export const EXPORT_FETCH_STAMP_THROTTLE_MS = SYNC_STAMP_MIN_INTERVAL_MS;
 
 /** Only the channel's own crawler counts as "Airbnb checked PropLane". */
 export function isAirbnbFetcher(userAgent: string | null | undefined): boolean {
@@ -11,11 +14,6 @@ export function isAirbnbFetcher(userAgent: string | null | undefined): boolean {
 /** A browser (a manager previewing the feed) is never a channel's importer. */
 function looksLikeBrowser(userAgent: string): boolean {
   return /mozilla\/.*(chrome|safari|firefox|edg)/i.test(userAgent);
-}
-
-/** "Agoda" is an Other calendar link named Agoda: the one site whose fetcher PropLane recognizes by that name. */
-export function isAgodaLabel(label: string | null | undefined): boolean {
-  return (label ?? "").trim().toLowerCase() === "agoda";
 }
 
 /**
@@ -43,9 +41,12 @@ export function shouldStampExportFetch(input: {
   now?: Date;
 }): boolean {
   if (!isChannelFetcher(input.userAgent, input.provider, input.label)) return false;
-  const last = input.lastFetchedAt ? Date.parse(input.lastFetchedAt) : NaN;
-  if (!Number.isFinite(last)) return true;
-  return (input.now ?? new Date()).getTime() - last >= EXPORT_FETCH_STAMP_THROTTLE_MS;
+  return shouldRestamp({
+    lastStampIso: input.lastFetchedAt,
+    now: input.now ?? new Date(),
+    changed: false,
+    minIntervalMs: EXPORT_FETCH_STAMP_THROTTLE_MS,
+  });
 }
 
 /** Best-effort: never throws, never delays the feed beyond one update. */

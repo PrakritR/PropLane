@@ -13,7 +13,7 @@ export type RoomConflictExplanation = {
   conflicts: { start: Date | null; end: Date | null }[];
   /** Latest lease end that stops before the first conflict, or null when none fits (it would end before it starts). */
   latestEndBeforeConflict: Date | null;
-  /** First start day after the conflict that is itself free, or null when the room stays held. */
+  /** First start day after the conflict from which the WHOLE requested term is free, or null when none is. */
   nextStartAfterConflict: Date | null;
   message: string;
 };
@@ -57,11 +57,6 @@ function overlaps(w: RoomConflictWindow, from: Date, to: Date | null): boolean {
   return ws <= t && we >= f;
 }
 
-function containsDay(w: RoomConflictWindow, day: Date): boolean {
-  const n = dayNumber(day);
-  return (w.start ? dayNumber(w.start) : -Infinity) <= n && n <= (w.end ? dayNumber(w.end) : Infinity);
-}
-
 export function explainRoomDateConflict(input: {
   roomName: string;
   windows: RoomConflictWindow[];
@@ -98,11 +93,14 @@ export function explainRoomDateConflict(input: {
     if (dayNumber(candidate) >= dayNumber(input.leaseStart)) latestEndBeforeConflict = startOfDay(candidate);
   }
 
+  // "A start on <date> or later" is only offered when the applicant's WHOLE term fits from that day: a free day
+  // followed by another booking is a term that would be refused again.
+  const termDays = input.leaseEnd ? Math.max(0, dayNumber(input.leaseEnd) - dayNumber(input.leaseStart)) : 0;
   let nextStartAfterConflict: Date | null = null;
   if (first.end) {
     let candidate = addDays(first.end, 1);
     for (let guard = 0; guard < 50; guard += 1) {
-      const holder = sorted.find((w) => containsDay(w, candidate));
+      const holder = sorted.find((w) => overlaps(w, candidate, termDays > 0 ? addDays(candidate, termDays) : null));
       if (!holder) {
         nextStartAfterConflict = startOfDay(candidate);
         break;

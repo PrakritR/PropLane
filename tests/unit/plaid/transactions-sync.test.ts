@@ -197,6 +197,20 @@ describe("relink after revoke", () => {
     expect(tables.manager_bank_statement_lines).toHaveLength(3);
   });
 
+  // Oracle: Plaid's /transactions/sync contract — the replayed history arrives in the batches read from a NULL
+  // cursor; once the Item has its own cursor every later batch is new activity. So a later line whose date, amount
+  // and description match one already stored is a real second transaction, not the replay.
+  it("stops deduping once the relinked Item holds its own cursor, so a genuine repeat still posts", async () => {
+    const { db, tables } = seed();
+    const result = await applyPlaidChanges(db, { ...relinked, transactions_cursor: "cur-1" }, {
+      added: [txn("new-a", "2026-11-02", 10, { name: "Txn a" })],
+      modified: [],
+      removed: [],
+    });
+    expect(result).toMatchObject({ added: 1, skipped: 0 });
+    expect(tables.manager_bank_statement_lines).toHaveLength(3);
+  });
+
   it("dedupes nothing when no revoked Item shares the institution and mask", async () => {
     const { db } = seed();
     const result = await applyPlaidChanges(db, { ...relinked, account_mask: "9999" }, { added: [txn("n", "2026-11-02", 10, { name: "Txn a" })], modified: [], removed: [] });

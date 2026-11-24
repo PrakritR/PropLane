@@ -147,6 +147,10 @@ export function feedLineContentKey(line: { lineDate: string; amountCents: number
  * After a relink, the feed lines this account already holds (under the revoked Item's transaction ids), as a
  * multiset of content keys over the incoming date span. Each incoming line consumes at most one, so two real
  * same-day same-amount purchases still land twice when two were already there twice.
+ *
+ * Only the FIRST sync of the new Item reads this (see `applyPlaidChanges`): that is the one batch Plaid replays
+ * history in, and once the Item has its own cursor every later batch is new activity whose content may legitimately
+ * repeat a line this same Item already posted.
  */
 async function loadRelinkBaseline(
   db: SupabaseClient,
@@ -188,7 +192,7 @@ async function loadRelinkBaseline(
 export async function applyPlaidChanges(
   db: SupabaseClient,
   item: Pick<PlaidItemRow, "owner_user_id" | "bank_account_id" | "plaid_account_id"> &
-    Partial<Pick<PlaidItemRow, "id" | "account_mask" | "institution_name">>,
+    Partial<Pick<PlaidItemRow, "id" | "account_mask" | "institution_name" | "transactions_cursor">>,
   changes: { added: Transaction[]; modified: Transaction[]; removed: Pick<RemovedTransaction, "transaction_id">[] },
 ): Promise<{ added: number; modified: number; removed: number; skipped: number }> {
   const counts = { added: 0, modified: 0, removed: 0, skipped: 0 };
@@ -203,10 +207,12 @@ export async function applyPlaidChanges(
   const existing = await loadExisting(db, item.owner_user_id, [...byId.keys()]);
   const statementCache = new Map<string, { id: string }>();
   let conflicted = 0;
-  // Relink after a revoke: dedupe replayed history against the lines the old Item already posted.
+  // Relink after a revoke: dedupe the replayed history against the lines the old Item already posted. Only on this
+  // Item's FIRST batch (no cursor yet) — a revoked sibling row stays there for good, and from the second batch on an
+  // incoming line that matches an existing one is a real second transaction, not the replay.
   let relinkBaseline: Map<string, number> | null = null;
   const incoming = [...byId.values()].filter((t) => !existing.has(t.transaction_id));
-  if (incoming.length > 0 && (await isRelinkAfterRevoke(db, item))) {
+  if (incoming.length > 0 && !item.transactions_cursor && (await isRelinkAfterRevoke(db, item))) {
     const dates = incoming.map((t) => t.date.slice(0, 10)).sort();
     relinkBaseline = await loadRelinkBaseline(db, item.owner_user_id, item.bank_account_id, dates[0]!, dates[dates.length - 1]!);
   }

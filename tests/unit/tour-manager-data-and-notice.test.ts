@@ -108,6 +108,22 @@ describe("manager tour-request notification (A3)", () => {
     expect(sms).toContain(managerTourRequestDeepLink("https://proplane.ai", ID));
   });
 
+  it("drops the whole link sentence when the tour has no detail URL, rather than a dangling \"Open it:\"", () => {
+    const noLink = buildTourNotificationContext({
+      origin: "https://proplane.ai",
+      guestName: "QA Test Prospect",
+      guestEmail: "qa@example.com",
+      propertyId: "prop-5257",
+      propertyTitle: "5257 Brooklyn",
+      tourStartIso: START,
+      tourEndIso: END,
+    });
+    const sms = buildTourRequestManagerSms(noLink);
+    expect(noLink.tourDetailUrl ?? "").toBe("");
+    expect(sms).not.toContain("Open it");
+    expect(sms.endsWith(".")).toBe(true);
+  });
+
   it("the email body carries the same five facts", () => {
     const body = buildTourRequestManagerBody(ctx);
     expect(body).toContain("QA Test Prospect");

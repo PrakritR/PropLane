@@ -10,7 +10,8 @@ import {
 } from "@/lib/channel-calendar/connections.server";
 import { importedRangesForFeed, type FeedConnection, type FeedPlacement } from "@/lib/channel-calendar/export-feed";
 import { parseConnectionRow } from "@/lib/channel-calendar/connections.server";
-import { isAgodaLabel, stampExportFetch } from "@/lib/channel-calendar/export-fetch-stamp";
+import { stampExportFetch } from "@/lib/channel-calendar/export-fetch-stamp";
+import { isAgodaSite } from "@/lib/channel-calendar/channel-links";
 import { EXPORT_FEED_ERROR_PREFIX } from "@/lib/channel-calendar/channel-health";
 import { cachedFeedRead } from "@/lib/channel-calendar/export-feed-reads.server";
 import { approvedRowBlocksRoom, blockEchoesToDestination, listingRentedWhole } from "@/lib/channel-calendar/export-occupancy";
@@ -251,7 +252,7 @@ export async function GET(
     // "Airbnb checked PropLane": best-effort and throttled, never part of the feed's outcome.
     const userAgent = req.headers.get("user-agent");
     // Agoda's crawler is undocumented: say what it sent, so the next failed import can be matched in the logs.
-    if (connection.provider === "ical" && isAgodaLabel(connection.label)) {
+    if (isAgodaSite(connection.provider, connection.label)) {
       console.info("calendar export fetched for Agoda link", JSON.stringify({ method: req.method, userAgent: (userAgent ?? "").slice(0, 160) }));
     }
     await stampExportFetch(db, connection, userAgent);

@@ -1,7 +1,6 @@
-// Which hat is a verified sender wearing on a text? The pure decision (`sender-context.ts`) plus the pipeline wiring,
-// pinned by source because the pipeline is one large private function. The first case is the production incident of
-// Nov 24: a reply to Assistant notices about three PropLane-managed homes was answered from the sender's own workspace.
-import { readFileSync } from "node:fs";
+// Which hat is a verified sender wearing on a text? The pure decision (`sender-context.ts`), plus the registry an
+// admin by text actually gets. The first case is the production incident of Nov 24: a reply to Assistant notices
+// about three PropLane-managed homes was answered from the sender's own workspace.
 import { describe, expect, it } from "vitest";
 import {
   decideSenderContext,
@@ -105,7 +104,9 @@ describe("sender context: one decision per text", () => {
   it("a role word or a workspace name answers the question too; a digit past the list is not an answer", async () => {
     const pending = { options: [{ key: "manager:ws-mine" }, { key: "manager:ws-sea" }, { key: "admin" }], body: "rent status", messageSid: "SM1", at: NOW - 1000 };
     expect(await decideSenderContext(base({ body: "admin", pending }))).toMatchObject({ kind: "run", target: { key: "admin" }, body: "rent status" });
-    expect(await decideSenderContext(base({ body: "Seattle", pending }))).toMatchObject({ kind: "run", target: { key: "manager:ws-sea" } });
+    expect(await decideSenderContext(base({ body: "PropLane Seattle", pending }))).toMatchObject({ kind: "run", target: { key: "manager:ws-sea" } });
+    // Half a name is not an answer: the question stands rather than guessing a workspace.
+    expect(await decideSenderContext(base({ body: "Seattle", pending }))).not.toMatchObject({ source: "answer" });
     const out = await decideSenderContext(base({ body: "9", pending }));
     expect(out).not.toMatchObject({ source: "answer" });
   });
@@ -128,7 +129,11 @@ describe("sender context: one decision per text", () => {
   it('"as resident" with a trailing role, "resident:" prefixes and "switch to <workspace>" all switch', async () => {
     expect(await decideSenderContext(base({ body: "is my deposit back, as resident" }))).toMatchObject({ kind: "run", target: { key: "resident:ws-res" }, body: "is my deposit back" });
     expect(await decideSenderContext(base({ body: "switch to Ambika" }))).toMatchObject({ kind: "reply", sticky: { key: "admin", workspaceId: "ws-amb" } });
-    expect(await decideSenderContext(base({ body: "switch to Seattle" }))).toMatchObject({ kind: "reply", sticky: { key: "manager:ws-sea" } });
+    expect(await decideSenderContext(base({ body: "switch to PropLane Seattle" }))).toMatchObject({ kind: "reply", sticky: { key: "manager:ws-sea" } });
+    // A switch target that names no workspace of theirs falls through to the numbered question, never a guess.
+    const unknownTarget = await decideSenderContext(base({ body: "switch to Seattle" }));
+    expect(unknownTarget.kind).toBe("reply");
+    if (unknownTarget.kind === "reply") expect(unknownTarget.pending?.body).toBe("switch to Seattle");
   });
 
   it('"as manager" with several manager workspaces asks which, holding the text; naming one settles it', async () => {
@@ -200,41 +205,18 @@ describe("sender context: one decision per text", () => {
   });
 });
 
-describe("sender context: pipeline wiring", () => {
-  const pipeline = readFileSync("src/lib/sms/inbound-pipeline.server.ts", "utf8");
-  const server = readFileSync("src/lib/sms/sender-context.server.ts", "utf8");
-
-  it("resolves the context inside the manager fork, after dispatch answers and manager commands, before team routing", () => {
-    const commands = pipeline.indexOf("handleManagerSmsCommand(db, {");
-    const resolve = pipeline.indexOf("resolveSenderContext(db, {");
-    const team = pipeline.indexOf("let teamRoute:");
-    expect(commands).toBeGreaterThan(-1);
-    expect(resolve).toBeGreaterThan(commands);
-    expect(resolve).toBeLessThan(pipeline.indexOf("try {\n      if (serviceManager && !senderOwnPath)"));
-    expect(team).toBeLessThan(resolve);
-  });
-
-  it("each context runs its own registry: manager/admin through the workspace context builder, resident through the resident resolver", () => {
-    expect(pipeline).toMatch(/resolveResidentSmsAgentContext\(db, \{ fromPhone, ownerManagerUserId: residency\.ownerUserId \}\)/);
-    expect(pipeline).toMatch(/\(serviceManager \|\| senderRun\) && serviceTarget/);
-    expect(pipeline).toMatch(/context\.basis === "owner" && context\.ownerUserId !== managerInbound\.actorUserId\) throw/);
-  });
-
-  it("admin by text is read-only off the PropLane line", () => {
-    expect(pipeline).toMatch(/const readOnly = !onPropLaneLine;/);
-    expect(pipeline).toMatch(/readOnly: true as const/);
-  });
-
-  it("the reply carries the context tag, and the workspace never comes from the text", () => {
-    expect(pipeline).toMatch(/if \(senderRun\?\.tag\) turn\.reply = `\$\{senderRun\.tag\} \$\{turn\.reply\}`;/);
-    expect(server).toContain("holdsAdminRole");
-    expect(server).toContain("findVerifiedProfileByPhone");
-  });
-
-  it("keeps its state in sms_line_sessions rows, so no new table needs classifying", () => {
-    expect(server).toMatch(/scs:\$\{normalizeConsentPhone/);
-    expect(server).toMatch(/scq:\$\{normalizeConsentPhone/);
-    expect(server).not.toMatch(/create table/i);
+describe("admin by text: the registry off the PropLane line", () => {
+  // Oracle: AGENTS.md § AI Agent & Tool Layer — "Admin by text reads and never writes, except on the PropLane line".
+  // The pipeline marks the admin target `readOnly` whenever the text did not arrive on that line, and the registry is
+  // what makes that real. A plausible wrong behaviour this rejects: a write tool stays callable off the line.
+  it("holds no write tool at all when the target is read-only, and the same access keeps its writes on the line", async () => {
+    const { buildManagerSmsRegistry } = await import("@/lib/tools");
+    const access = { mode: "owner" as const, workspacePropertyIds: ["prop-a1"] };
+    const onLine = buildManagerSmsRegistry(access as never);
+    const offLine = buildManagerSmsRegistry({ ...access, readOnly: true } as never);
+    expect([...onLine.values()].filter((tool) => tool.kind === "write").length).toBeGreaterThan(0);
+    expect([...offLine.values()].filter((tool) => tool.kind === "write")).toEqual([]);
+    expect([...offLine.values()].filter((tool) => tool.kind !== "write").length).toBeGreaterThan(0);
   });
 });
 

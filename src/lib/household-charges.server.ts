@@ -125,35 +125,46 @@ export async function upsertManagerCharges(
     }));
   if (rows.length === 0) return;
 
-  // A mirror that re-sends an unchanged charge must not rewrite the row (164 ms update on production, plus a
-  // ledger resync and a transition event stamped with a fresh `now`). Only changed or new rows continue.
+  // A mirror that re-sends an unchanged charge must not rewrite the row (164 ms update on production) nor re-stamp a
+  // transition event with a fresh `now`. Only changed or new rows are written.
   const changedIds = new Set(
     rows.filter((row) => !householdChargeRowUnchanged(storedById.get(row.id), row)).map((row) => row.id),
   );
-  if (changedIds.size === 0) return;
   const changedRows = rows.filter((row) => changedIds.has(row.id));
 
-  const { error } = await db.from("portal_household_charge_records").upsert(changedRows, { onConflict: "id" });
-  if (error) throw new Error(error.message);
-  await reconcileDuplicateHouseholdChargeRecords(
-    db,
-    opts.trustRowManagerUserId ? undefined : managerUserId,
-  ).catch(() => undefined);
+  if (changedRows.length > 0) {
+    const { error } = await db.from("portal_household_charge_records").upsert(changedRows, { onConflict: "id" });
+    if (error) throw new Error(error.message);
+    await reconcileDuplicateHouseholdChargeRecords(
+      db,
+      opts.trustRowManagerUserId ? undefined : managerUserId,
+    ).catch(() => undefined);
+  }
 
   for (const c of normalizedCharges) {
     if (!c.id) continue;
     const chargeId = String(c.id);
-    if (!changedIds.has(chargeId)) continue;
     const nextStatus = typeof c.status === "string" ? c.status : null;
     if (!nextStatus) continue;
     const managerId = resolveManagerId(c);
     const prevStatus = previousStatusById.get(chargeId) ?? null;
-    if (nextStatus === "paid" && prevStatus !== "paid") {
-      await cancelFuturePaymentRemindersForCharge(db, managerId, chargeId).catch(() => undefined);
-    } else if (nextStatus === "pending" && prevStatus === "paid") {
-      await restoreFuturePaymentRemindersForCharge(db, managerId, chargeId).catch(() => undefined);
+    const changed = changedIds.has(chargeId);
+    if (changed) {
+      if (nextStatus === "paid" && prevStatus !== "paid") {
+        await cancelFuturePaymentRemindersForCharge(db, managerId, chargeId).catch(() => undefined);
+      } else if (nextStatus === "pending" && prevStatus === "paid") {
+        await restoreFuturePaymentRemindersForCharge(db, managerId, chargeId).catch(() => undefined);
+      }
     }
-    await syncLedgerChargeEntry(db, c as HouseholdCharge);
+    // The ledger is write-through, so an unchanged row still runs it: that is how a line a previous run failed to
+    // write is healed (the sync compares before it writes, so nothing changes = no write). Per row, so one failure
+    // cannot cost the rest of the batch its ledger line.
+    try {
+      await syncLedgerChargeEntry(db, c as HouseholdCharge);
+    } catch (error) {
+      console.error("household charge ledger sync failed", chargeId, error instanceof Error ? error.message : "unknown");
+    }
+    if (!changed) continue;
     await emitHouseholdChargeTransition(db, {
       managerUserId: managerId,
       previousStatus: prevStatus,

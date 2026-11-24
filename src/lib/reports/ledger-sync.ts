@@ -275,26 +275,52 @@ function buildPaymentLedgerRow(
   };
 }
 
+/** Every column an upsert writes except the `updated_at` stamp, which is never a reason to write. */
+const LEDGER_ENTRY_COMPARED_COLUMNS = [
+  "manager_user_id",
+  "resident_user_id",
+  "resident_email",
+  "property_id",
+  "unit_label",
+  "lease_id",
+  "entry_type",
+  "category_code",
+  "amount_cents",
+  "due_date",
+  "posted_date",
+  "source_charge_id",
+  "description",
+  "stripe_checkout_session_id",
+] as const;
+
 async function upsertLedgerEntryRow(db: SupabaseClient, row: LedgerEntryRow): Promise<string | null> {
-  const { data: existing } = await db
+  const { data: found } = await db
     .from("ledger_entries")
-    .select("id, stripe_checkout_session_id")
+    .select(["id", ...LEDGER_ENTRY_COMPARED_COLUMNS].join(", "))
     .eq("source_charge_id", row.source_charge_id)
     .eq("entry_type", row.entry_type)
     .maybeSingle();
 
-  if (existing?.id) {
+  const stored = (found ?? null) as Record<string, unknown> | null;
+  const existingId = stored?.id ? String(stored.id) : null;
+  if (stored && existingId) {
     // Most re-sync paths (charge edits, the backfill sweep) rebuild the row
     // without a session id; blanking the stored one would lose the only link
     // back to the Stripe Checkout session that settled the payment.
     const update: LedgerEntryRow = {
       ...row,
       stripe_checkout_session_id:
-        row.stripe_checkout_session_id ?? existing.stripe_checkout_session_id ?? null,
+        row.stripe_checkout_session_id ?? ((stored.stripe_checkout_session_id as string | null) ?? null),
     };
-    const { error } = await db.from("ledger_entries").update(update).eq("id", existing.id);
+    // A write-through resync that rebuilds the line it already holds must not rewrite the row: the production
+    // disk-IO budget is spent by exactly these no-op UPDATEs. The stamp alone is never a reason to write.
+    const unchanged = LEDGER_ENTRY_COMPARED_COLUMNS.every(
+      (column) => (stored[column] ?? null) === ((update as unknown as Record<string, unknown>)[column] ?? null),
+    );
+    if (unchanged) return existingId;
+    const { error } = await db.from("ledger_entries").update(update).eq("id", existingId);
     throwIfLedgerError(error);
-    return String(existing.id);
+    return existingId;
   }
 
   const { data, error } = await db.from("ledger_entries").insert(row).select("id").single();

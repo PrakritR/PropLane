@@ -119,7 +119,7 @@ export function PortalPayoutMethodCard({
     return (
       <PortalSettingsSection
         title="Payout method"
-        action={unavailable ? <PortalIconAction icon={Landmark} label="Set up payouts" disabled={changing} onClick={() => changeBank()} data-attr="payout-method-fallback" /> : undefined}
+        action={unavailable ? <PortalIconAction icon={Landmark} label="Set up payouts" onClick={onFallback} data-attr="payout-method-fallback" /> : undefined}
       >
         {problemBanner}
         {unavailable ? null : (

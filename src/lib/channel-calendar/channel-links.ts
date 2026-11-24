@@ -81,9 +81,14 @@ export type ChannelStatusParts = {
 /** Agoda says its calendar connections "refresh several times a day": a full day of silence is not pulling. */
 export const AGODA_FEED_STALE_AFTER_MS = 24 * 60 * 60_000;
 
-/** Whether an Other calendar link is the Agoda row (named "Agoda", any case). */
+/** "Agoda": the one site PropLane recognizes by the name on an Other calendar link, any case. One rule, one place. */
+export function isAgodaLabel(label: string | null | undefined): boolean {
+  return (label ?? "").trim().toLowerCase() === "agoda";
+}
+
+/** Whether an Other calendar link is the Agoda row (an `ical` link named "Agoda"). */
 export function isAgodaSite(provider: ChannelCalendarProvider, label?: string | null): boolean {
-  return provider === "ical" && (label ?? "").trim().toLowerCase() === "agoda";
+  return provider === "ical" && isAgodaLabel(label);
 }
 
 export function channelStatusParts(

@@ -1214,6 +1214,19 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       const residency = senderRun.resolved.context;
       const residentContext = await resolveResidentSmsAgentContext(db, { fromPhone, ownerManagerUserId: residency.ownerUserId });
       if (!residentContext.ok) return answerServiceQuestion("I could not open your resident account just now. Try again in a minute.");
+      // The inbox is the record: the text lands in their resident conversation with the landlord of THAT residency,
+      // exactly where a resident's own text to that workspace lands, never in the work number owner's Assistant.
+      await projectClassifiedInbound(db, {
+        managerUserId: residency.ownerUserId,
+        role: "resident",
+        counterpartyUserId: residentContext.ctx.userId,
+        fromPhone,
+        toPhone,
+        messageSid,
+        body,
+        occurredAt,
+        workspaceId: residency.workspaceId,
+      }).catch((error) => console.error("resident inbound projection failed", error instanceof Error ? error.message : "unknown"));
       const residentTurn = await runResidentSmsAgentTurn(db, {
         ctx: residentContext.ctx,
         ownerManagerUserId: residency.ownerUserId,
@@ -1224,7 +1237,6 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         console.error("sender-context resident turn failed", error instanceof Error ? error.name : "unknown");
         return null;
       });
-      await db.from("inbound_sms_log").delete().eq("message_sid", messageSid).eq("manager_user_id", managerId);
       if (!residentTurn?.reply) {
         await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
         return NextResponse.json({ error: "Resident assistant turn unavailable." }, { status: 503 });
@@ -1233,8 +1245,8 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       const preparedResident = await prepareInboundReply(db, {
         messageSid,
         workerId: inboundWorkerId,
-        routeKind: "manager_agent",
-        counterpartyUserId: managerInbound.actorUserId,
+        routeKind: "resident_agent",
+        counterpartyUserId: residentContext.ctx.userId,
         agentSessionId: residentTurn.sessionId,
         inboundAgentMessageId: residentTurn.inboundMessageId,
         assistantAgentMessageId: residentTurn.assistantMessageId,
@@ -1246,23 +1258,28 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
         return NextResponse.json({ error: "Reply preparation failed." }, { status: 503 });
       }
-      const residentDelivered = await deliverManagerSmsReply({
-        managerUserId: managerInbound.workNumberOwnerId,
-        actorUserId: managerInbound.actorUserId,
+      const residentDelivered = await deliverResidentSmsReply({
+        ownerManagerUserId: residency.ownerUserId,
+        residentUserId: residentContext.ctx.userId,
         toPhone: fromPhone,
         text: residentReply,
         workNumber,
         inboundMessageSid: messageSid,
         traceId: residentTurn.traceId,
-        workspaceId: workspaceId ?? null,
+        workspaceId: residency.workspaceId,
         bubbles: feel.bubbleReplies,
         inboundText: senderRun.body,
       });
+      // The raw inbound copy goes only once the answer is out, the same as the dispatch path: a failed send leaves it
+      // for the retry.
+      if (residentDelivered.ok) {
+        await db.from("inbound_sms_log").delete().eq("message_sid", messageSid).eq("manager_user_id", managerId);
+      }
       return finishPreparedDelivery(
         {
           status: "processing",
-          routeKind: "manager_agent",
-          counterpartyUserId: managerInbound.actorUserId,
+          routeKind: "resident_agent",
+          counterpartyUserId: residentContext.ctx.userId,
           agentSessionId: residentTurn.sessionId,
           inboundAgentMessageId: residentTurn.inboundMessageId ?? null,
           assistantAgentMessageId: residentTurn.assistantMessageId ?? null,

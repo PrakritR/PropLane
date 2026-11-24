@@ -175,21 +175,6 @@ export function textNamesWorkspace(text: string, name: string): boolean {
   return distinct.every((t) => spoken.has(t));
 }
 
-/** The distinctive words of a workspace name ("PropLane Seattle" -> proplane, seattle). */
-const distinctWords = (name: string): string[] => tokens(serviceWorkspaceLabel(name)).filter((t) => t.length >= 3 && !GENERIC_NAME_WORDS.has(t));
-
-/**
- * A short name for a workspace: any ONE of its distinctive words, as long as no other workspace shares that word
- * ("Seattle" for "PropLane Seattle" when no other workspace says Seattle). Used only where the sender is choosing among
- * their own workspaces (a switch, an answer), never to read an ordinary text.
- */
-function looseWorkspaceMatches(text: string, names: ReadonlyArray<{ id: string; name: string }>): string[] {
-  const spoken = new Set(tokens(text));
-  return names
-    .filter((n) => distinctWords(n.name).some((w) => spoken.has(w) && names.every((o) => o.id === n.id || !distinctWords(o.name).includes(w))))
-    .map((n) => n.id);
-}
-
 type ParsedSwitch = { role: Role | null; target: string | null; rest: string } | { menu: true };
 
 const PREFIX = /^\s*(manager|resident|admin)\s*:\s*([\s\S]*)$/i;
@@ -240,13 +225,7 @@ function answerFromPending(body: string, pending: SenderPending, contexts: reado
     if (context.kind === "resident") return listingsNamedIn(text, [{ id: context.key, address: context.label, title: context.label, buildingName: "", neighborhood: "" }]).length > 0;
     return false;
   });
-  if (named.length === 1) return named[0]!;
-  const managers = pool.flatMap((o) => {
-    const c = resolveSenderTarget(contexts, o)?.context;
-    return c && c.kind === "manager" ? [{ id: o.key, name: c.name }] : [];
-  });
-  const loose = looseWorkspaceMatches(text, managers);
-  return loose.length === 1 ? (pool.find((o) => o.key === loose[0]) ?? null) : null;
+  return named.length === 1 ? named[0]! : null;
 }
 
 // --- naming ---------------------------------------------------------------------------------------------------------
@@ -264,7 +243,6 @@ async function named(
   contexts: readonly SenderContext[],
   loadHomes: () => Promise<readonly SenderHome[]>,
   allowed: ReadonlySet<string>,
-  loose = false,
 ): Promise<Named> {
   const hits: SenderTarget[] = [];
   const add = (t: SenderTarget) => {
@@ -274,15 +252,6 @@ async function named(
     if (context.kind === "manager" && textNamesWorkspace(text, context.name)) add({ key: context.key });
     if (context.kind === "admin") {
       for (const ws of context.workspaces) if (textNamesWorkspace(text, ws.name)) add({ key: "admin", workspaceId: ws.id });
-    }
-  }
-  if (loose && hits.length === 0) {
-    const managers = contexts.flatMap((c) => (c.kind === "manager" ? [{ id: c.key, name: c.name }] : []));
-    const wss = contexts.flatMap((c) => (c.kind === "admin" ? c.workspaces.map((w) => ({ id: `admin:${w.id}`, name: w.name })) : []));
-    const found = looseWorkspaceMatches(text, [...managers, ...wss]);
-    if (found.length === 1) {
-      const id = found[0]!;
-      add(id.startsWith("admin:") ? { key: "admin", workspaceId: id.slice(6) } : { key: id });
     }
   }
   if (/\d/.test(text) || hits.length === 0) {
@@ -353,14 +322,14 @@ export async function decideSenderContext(input: SenderContextInput): Promise<Se
         return { kind: "reply", text: `I do not see a ${parsed.role} account for this number. ${senderQuestionText(contexts)}`, pending: { options: senderMenuOptions(contexts), body: "", messageSid: input.messageSid } };
       }
       const poolKeys = new Set(pool.map((c) => c.key));
-      const byName = parsed.rest ? await named(parsed.rest, contexts, input.loadHomes, poolKeys, true) : ({ kind: "none" } as Named);
+      const byName = parsed.rest ? await named(parsed.rest, contexts, input.loadHomes, poolKeys) : ({ kind: "none" } as Named);
       if (byName.kind === "one") return done(byName.target, parsed.rest);
       if (pool.length === 1) return done({ key: pool[0]!.key }, parsed.rest);
       const options = pool.map((c) => ({ key: c.key }));
       return ask({ body: parsed.rest, messageSid: input.messageSid }, options);
     }
     if (parsed.target) {
-      const byName = await named(parsed.target, contexts, input.loadHomes, new Set(contexts.map((c) => c.key)), true);
+      const byName = await named(parsed.target, contexts, input.loadHomes, new Set(contexts.map((c) => c.key)));
       if (byName.kind === "one") return done(byName.target, "");
       // "switch off the heat in 5257": not a switch we can read, so it is an ordinary text below.
     }

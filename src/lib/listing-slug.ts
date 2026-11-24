@@ -9,9 +9,10 @@ export { LISTING_PATH_PREFIX, listingPublicPath } from "@/lib/listing-public-pat
  * Readable listing URLs: `/rent/listings/4709a-8th-ave-ne` instead of `/rent/listings/<propertyId>`.
  *
  * The slug is DERIVED from the listing's current street address plus a stable token of its id, never stored: no database
- * id changes, an address edit moves only the readable part, and the old id URL (and any older slug) keeps working through
- * a permanent redirect. Resolution reads the trailing id token only, so a rename never breaks a link. This module
- * is pure; the one server read that maps a slug back to an id is `src/lib/seo/listing-slugs.server.ts`.
+ * id changes, an address edit moves only the readable part, and the old id URL keeps working through a permanent
+ * redirect. Resolution reads the trailing id token, so a rename never breaks a link; a slug minted before the token
+ * existed (the bare street line, `4709a-8th-ave-ne`) still resolves by that base when exactly one listing owns it.
+ * This module is pure; the one server read that maps a slug back to an id is `src/lib/seo/listing-slugs.server.ts`.
  */
 
 const MAX_SLUG_LENGTH = 80;
@@ -92,9 +93,11 @@ export type ListingSlugIndex = {
   idToSlug: ReadonlyMap<string, string>;
   /** id token -> property id (a token shared by two ids is left out of both maps). */
   tokenToId: ReadonlyMap<string, string>;
+  /** legacy base slug (the bare street line, minted before the id token) -> property id; a base two listings share is left out. */
+  baseSlugToId: ReadonlyMap<string, string>;
 };
 
-export const EMPTY_LISTING_SLUG_INDEX: ListingSlugIndex = { idToSlug: new Map(), tokenToId: new Map() };
+export const EMPTY_LISTING_SLUG_INDEX: ListingSlugIndex = { idToSlug: new Map(), tokenToId: new Map(), baseSlugToId: new Map() };
 
 /**
  * Canonical slugs for a whole catalog. Every listing gets `<street>-<id token>`, which depends on that listing alone, so
@@ -115,13 +118,21 @@ export function buildListingSlugIndex(listings: readonly SlugListing[]): Listing
   }
   const idToSlug = new Map<string, string>();
   const tokenToId = new Map<string, string>();
+  const baseSlugOwners = new Map<string, string[]>();
   for (const [token, group] of byToken) {
     if (group.length !== 1) continue;
     const listing = group[0]!;
-    idToSlug.set(listing.id.trim(), listingCanonicalSlug({ ...listing, id: listing.id.trim() }));
-    tokenToId.set(token, listing.id.trim());
+    const id = listing.id.trim();
+    idToSlug.set(id, listingCanonicalSlug({ ...listing, id }));
+    tokenToId.set(token, id);
+    const base = listingSlugFor(listing);
+    if (base) baseSlugOwners.set(base, [...(baseSlugOwners.get(base) ?? []), id]);
   }
-  return { idToSlug, tokenToId };
+  // The slug scheme before the id token was the bare street line, and those URLs were published (sitemap, texts,
+  // emails, syndicated posts). A base two listings share names neither: such a link keeps the not-found state.
+  const baseSlugToId = new Map<string, string>();
+  for (const [base, owners] of baseSlugOwners) if (owners.length === 1) baseSlugToId.set(base, owners[0]!);
+  return { idToSlug, tokenToId, baseSlugToId };
 }
 
 export type ListingParamResolution =
@@ -134,7 +145,8 @@ export type ListingParamResolution =
 
 /**
  * What a `/rent/listings/<param>` request is. An exact record id wins (old links keep working and redirect to the
- * canonical path); otherwise the trailing id token picks the listing, whatever the title part says.
+ * canonical path); otherwise the trailing id token picks the listing, whatever the title part says; failing that, a
+ * legacy base slug (the bare street line published before the token) picks the one listing that owns it.
  */
 export function resolveListingParam(index: ListingSlugIndex, param: string): ListingParamResolution {
   const value = param.trim();
@@ -145,5 +157,7 @@ export function resolveListingParam(index: ListingSlugIndex, param: string): Lis
     const slug = index.idToSlug.get(idOfToken)!;
     return value === slug ? { kind: "slug", id: idOfToken } : { kind: "redirect", slug, id: idOfToken };
   }
+  const idOfBase = index.baseSlugToId.get(value.toLowerCase());
+  if (idOfBase) return { kind: "redirect", slug: index.idToSlug.get(idOfBase)!, id: idOfBase };
   return { kind: "id", id: value };
 }
