@@ -181,13 +181,14 @@ schedule and instant payouts, trust-account adoption (see below), tour-host / cl
 Settings > Balance & payouts > Payout method has a **Change bank** icon action (`PortalPayoutMethodCard`) that asks
 `POST /api/stripe/connect/change-bank` (`planBankChange`, `src/lib/stripe-connect-bank-change.ts`). The owner and the
 account come from the session, and **only the account holder gets through**: a co-manager holding the bank-account
-grant, like PropLane staff in a managed workspace, is refused 403 `OWNER_ONLY` before Stripe is touched and the owner
-is emailed the link to do it themselves (the one existing `sendOwnerPayoutSetupLink`; when no managed workspace is in
-context the refusal says to send it from Owner payouts rather than claiming an email). An Express login link signs the
-holder into their WHOLE Stripe dashboard - balance, payout history, tax and account settings - and an Account Link
-re-onboards the account, so no delegated permission may mint either, and Stripe wants the account holder for a bank
-change in any case. PropLane staff in a managed workspace also resolve to no account at all and get **Send link
-to change bank** (the same owner setup email). An application-collected account (`stripe_dashboard.type: "none"`)
+grant is refused 403 `OWNER_ONLY` before Stripe is touched, with the one answer that works - the owner opens
+Settings > Balance & payouts themselves. An Express login link signs the holder into their WHOLE Stripe dashboard -
+balance, payout history, tax and account settings - and an Account Link re-onboards the account, so no delegated
+permission may mint either, and Stripe wants the account holder for a bank change in any case. The route's ceiling
+(10 per user+IP per 10 minutes) sits above every gate, so a refusal is bounded too. PropLane staff in a managed
+workspace resolve to no account at all (`staff_managed_workspace`, refused earlier still) and get **Send link to
+change bank** on Owner payouts, which emails the owner their own setup link (`sendOwnerPayoutSetupLink`).
+An application-collected account (`stripe_dashboard.type: "none"`)
 answers `in_app` and the card opens PropLane's own add-bank sheet. A **legacy Express account** (Stripe collects
 requirements) cannot use any embedded component (`createAccountSession` refuses it, `CONNECT_ACCOUNT_NOT_EMBEDDABLE`) -
 that refusal, shown nowhere, was the "Stripe onboarding errors out" on Ambika - so it goes to Stripe's hosted page: the

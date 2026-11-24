@@ -34,11 +34,6 @@ export const INCOME_WINDOW_DAYS = 90;
  * put a number on the screen that says more about when the account was linked than about the applicant.
  */
 export const INCOME_MIN_DEPOSITS = 3;
-/**
- * How much bank history the provider shared is NOT knowable here: `/transactions/get` returns transactions, not
- * an account-open date, so the earliest row dates a quiet account exactly like a new one. Nothing therefore
- * labels the figure's history - the deposit count and the as-of date are the whole basis.
- */
 
 const PAYROLL_NAME = /\b(payroll|direct\s*dep(?:osit)?|dir\s*dep|salary|paychec?k|wages|gusto|adp|paycom|paylocity|paychex|rippling|trinet|justworks|workday)\b/i;
 const NOT_INCOME_NAME = /\b(transfer|xfer|refund|reversal|venmo|zelle|cash\s*app|paypal|apple\s*cash|loan|credit\s*card|autopay|deposit\s*return)\b/i;

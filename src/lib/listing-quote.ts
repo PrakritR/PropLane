@@ -287,10 +287,7 @@ export function buildListingQuote(
   // The one arrangement-row lookup (`roomFeeRow`), on the count the applicant picked or the single-resident row:
   // the lease rider and the monthly charge read it the same way, so a fee typed per room cannot be quoted at one
   // figure and billed at another.
-  const arrangementRow =
-    room || !options.useEntireHomeRent
-      ? roomFeeRow(sub, room, arrangementCount ?? 1)
-      : sub.entireHomeArrangementFees;
+  const arrangementRow = roomFeeRow(sub, room, arrangementCount ?? 1);
   const placementFees = resolvePlacementStandardFees(sub, {
     leaseTerm,
     room,

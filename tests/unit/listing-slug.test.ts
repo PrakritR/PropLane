@@ -90,18 +90,18 @@ describe("resolveListingParam", () => {
   const index = buildListingSlugIndex([A, B]);
   const slugA = "4709a-8th-ave-ne-7mdlyj0h2vfg";
 
-  it("redirects the old record id to the canonical slug", () => {
-    expect(resolveListingParam(index, A.id)).toEqual({ kind: "redirect", slug: slugA, id: A.id });
+  it("resolves the old record id to the listing, naming the canonical slug", () => {
+    expect(resolveListingParam(index, A.id)).toEqual({ kind: "stale", slug: slugA, id: A.id });
   });
   it("renders the canonical slug", () => {
     expect(resolveListingParam(index, slugA)).toEqual({ kind: "slug", id: A.id });
   });
-  it("a renamed title (stale slug) still resolves by the token and redirects to the current slug", () => {
-    expect(resolveListingParam(index, "old-name-7mdlyj0h2vfg")).toEqual({ kind: "redirect", slug: slugA, id: A.id });
+  it("a renamed title (stale slug) still resolves by the token, naming the current slug", () => {
+    expect(resolveListingParam(index, "old-name-7mdlyj0h2vfg")).toEqual({ kind: "stale", slug: slugA, id: A.id });
   });
   it("a slug published before the id token (the bare street line) still resolves, to the canonical URL", () => {
-    expect(resolveListingParam(index, "4709a-8th-ave-ne")).toEqual({ kind: "redirect", slug: slugA, id: A.id });
-    expect(resolveListingParam(index, "4709A-8th-Ave-NE")).toEqual({ kind: "redirect", slug: slugA, id: A.id });
+    expect(resolveListingParam(index, "4709a-8th-ave-ne")).toEqual({ kind: "stale", slug: slugA, id: A.id });
+    expect(resolveListingParam(index, "4709A-8th-Ave-NE")).toEqual({ kind: "stale", slug: slugA, id: A.id });
   });
 
   // The pre-token scheme (b83f959 `buildListingSlugIndex` + `listingIdSuffix`) published ONE form per listing: the bare
@@ -112,8 +112,8 @@ describe("resolveListingParam", () => {
     const twin = home("prop-twin-aaaa1111zz", "4709A 8th Ave NE, Seattle, WA");
     const shared = buildListingSlugIndex([A, twin]);
     expect(resolveListingParam(shared, "4709a-8th-ave-ne")).toEqual({ kind: "id", id: "4709a-8th-ave-ne" });
-    expect(resolveListingParam(shared, `4709a-8th-ave-ne-${A.id.slice(-6)}`)).toMatchObject({ kind: "redirect", id: A.id });
-    expect(resolveListingParam(shared, `4709a-8th-ave-ne-${twin.id.slice(-6)}`)).toMatchObject({ kind: "redirect", id: twin.id });
+    expect(resolveListingParam(shared, `4709a-8th-ave-ne-${A.id.slice(-6)}`)).toMatchObject({ kind: "stale", id: A.id });
+    expect(resolveListingParam(shared, `4709a-8th-ave-ne-${twin.id.slice(-6)}`)).toMatchObject({ kind: "stale", id: twin.id });
   });
 
   it("accepts no suffix form for a listing that owned its street line alone: that URL was never published", () => {
@@ -152,7 +152,7 @@ describe("an old record-id URL and a stale slug", () => {
     for (const param of [A.id, "old-name-7mdlyj0h2vfg"]) {
       const resolution = resolveListingParam(index, param);
       expect(resolution.id, param).toBe(A.id);
-      const slug = resolution.kind === "redirect" ? resolution.slug : resolution.kind === "slug" ? param : null;
+      const slug = resolution.kind === "stale" ? resolution.slug : resolution.kind === "slug" ? param : null;
       expect(listingPublicPath(param, slug), param).toBe("/rent/listings/4709a-8th-ave-ne-7mdlyj0h2vfg");
     }
   });

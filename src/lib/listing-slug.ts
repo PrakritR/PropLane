@@ -152,28 +152,30 @@ export function buildListingSlugIndex(listings: readonly SlugListing[]): Listing
 }
 
 export type ListingParamResolution =
-  /** The param is an id or a stale slug: send the visitor to the canonical slug URL (308). */
-  | { kind: "redirect"; slug: string; id: string }
+  /** The param names this listing but is not its canonical slug (a record id, a slug minted before a rename):
+   *  the page renders the listing and declares `slug` as its canonical URL. */
+  | { kind: "stale"; slug: string; id: string }
   /** The param is exactly the canonical slug: render the property with this id. */
   | { kind: "slug"; id: string }
   /** Anything else (an unpublished id, an unknown word): render as before; a miss is the existing not-found state. */
   | { kind: "id"; id: string };
 
 /**
- * What a `/rent/listings/<param>` request is. An exact record id wins (old links keep working and redirect to the
- * canonical path); otherwise the trailing id token picks the listing, whatever the title part says; failing that, the
- * legacy slug the listing was published under before the token picks the one listing that owns it.
+ * What a `/rent/listings/<param>` request is. An exact record id wins (every link sent before slugs existed keeps
+ * working); otherwise the trailing id token picks the listing, whatever the title part says; failing that, the legacy
+ * slug the listing was published under before the token picks the one listing that owns it. No form redirects: the
+ * page renders in place and names the canonical readable URL.
  */
 export function resolveListingParam(index: ListingSlugIndex, param: string): ListingParamResolution {
   const value = param.trim();
   const slugOfId = index.idToSlug.get(value);
-  if (slugOfId) return { kind: "redirect", slug: slugOfId, id: value };
+  if (slugOfId) return { kind: "stale", slug: slugOfId, id: value };
   const idOfToken = index.tokenToId.get(listingTokenOfParam(value));
   if (idOfToken) {
     const slug = index.idToSlug.get(idOfToken)!;
-    return value === slug ? { kind: "slug", id: idOfToken } : { kind: "redirect", slug, id: idOfToken };
+    return value === slug ? { kind: "slug", id: idOfToken } : { kind: "stale", slug, id: idOfToken };
   }
   const idOfBase = index.baseSlugToId.get(value.toLowerCase());
-  if (idOfBase) return { kind: "redirect", slug: index.idToSlug.get(idOfBase)!, id: idOfBase };
+  if (idOfBase) return { kind: "stale", slug: index.idToSlug.get(idOfBase)!, id: idOfBase };
   return { kind: "id", id: value };
 }

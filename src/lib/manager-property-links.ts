@@ -109,8 +109,8 @@ export function buildManagerPortfolioTourUrl(origin: string, propertyIds: string
 /**
  * The public listing URL, always the readable canonical path (`/rent/listings/4709a-8th-ave-ne-7mdlyj0h2vfg`): pass the
  * listing in hand (id + address) and the slug is derived, or its already-built `slug` string. With only an id the URL is the
- * id URL, which the site 308-redirects to the canonical path (server callers use `buildReadableListingUrl`, which reads the
- * catalog and returns the canonical form directly).
+ * id URL, which the page serves in place while naming the canonical path as its canonical (server callers use
+ * `buildReadableListingUrl`, which reads the catalog and returns the canonical form directly).
  */
 export function buildManagerListingUrl(
   origin: string,
