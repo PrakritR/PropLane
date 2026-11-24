@@ -54,15 +54,9 @@ export async function GET(
     // Co-managers granted `financials` read the owning manager's books, bounded
     // to exactly the properties that grant covers (owner-level substitution,
     // property-level narrowing — see resolveManagerReportScope).
-    let managerUserId = auth.userId;
-    let grantedPropertyIds: string[] | null = null;
-    if (auth.role === "admin") {
-      managerUserId = searchParams.get("managerUserId")?.trim() || auth.userId;
-    } else {
-      const scope = await resolveManagerReportScope(auth.db, auth.userId);
-      managerUserId = scope.managerUserId;
-      grantedPropertyIds = scope.grantedPropertyIds;
-    }
+    const { managerUserId, grantedPropertyIds } = await resolveManagerReportScope(auth.db, auth.userId, {
+      adminManagerUserId: auth.role === "admin" ? searchParams.get("managerUserId")?.trim() || auth.userId : undefined,
+    });
 
     // The active workspace narrows every manager report, read from the viewer's
     // own selection cookie so the request cannot widen its own scope. A

@@ -1,6 +1,8 @@
 import "server-only";
 
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
+import { serviceStaffSettingsAccess } from "@/lib/scope/settings-scope";
+import { loadServiceStaffScope } from "@/lib/service/service-mode.server";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -37,7 +39,9 @@ export type ManagerReportScope = {
  * other houses, and never other workspaces of that owner.
  *
  * Resolution:
- * - A primary manager (owns ≥1 property) always reads their OWN books, with no
+ * - Active managed-workspace staff read that workspace owner's books, bounded
+ *   by the selected workspace and their financials grant, even if they also own houses.
+ * - Outside service mode, a primary manager (owns ≥1 property) reads their OWN books, with no
  *   additional narrowing from this function (`grantedPropertyIds: null`).
  * - A pure co-manager reads the books of an owner who granted them `financials`,
  *   narrowed to exactly the properties that grant covers under that owner.
@@ -47,7 +51,7 @@ export type ManagerReportScope = {
  * - Otherwise (no ownership, no financials grant) it falls back to the user's own
  *   id, so they only ever see their own — empty — books, never someone else's.
  *
- * Because substitution happens ONLY when a financials grant exists, this doubles
+ * Because substitution requires a financials grant or full managed staff standing, this doubles
  * as the access check: a co-manager without `financials` can never reach an
  * owner's books through it. The returned `grantedPropertyIds` is what makes the
  * grant also bound WHICH of that owner's houses the report may read — callers
@@ -57,7 +61,27 @@ export type ManagerReportScope = {
 export async function resolveManagerReportScope(
   db: ServiceClient,
   userId: string,
+  options: { adminManagerUserId?: string } = {},
 ): Promise<ManagerReportScope> {
+  const staffScope = await loadServiceStaffScope(db, userId);
+  if (staffScope) {
+    const access = await serviceStaffSettingsAccess(db, userId, staffScope.workspaceId, "read");
+    if (access.kind !== "ok") throw new Error("Could not verify financial access to this workspace.");
+    let propertyIds = staffScope.propertyIds;
+    if (!access.fullGrant) {
+      const grants = await linkedOwnerScopeForModule(db, userId, "financials", "read", { throwOnError: true });
+      const allowed = grants.propertyIdsByOwner.get(access.ownerUserId);
+      propertyIds = propertyIds.filter((id) => allowed?.has(id));
+    }
+    return { managerUserId: access.ownerUserId, grantedPropertyIds: propertyIds };
+  }
+
+  // Preserve the explicit admin report selector outside service mode. Callers
+  // may supply this option only after authenticating the platform-admin role.
+  if (options.adminManagerUserId) {
+    return { managerUserId: options.adminManagerUserId, grantedPropertyIds: null };
+  }
+
   const { data: owned } = await db
     .from("manager_property_records")
     .select("id")

@@ -11,10 +11,20 @@
  * `grantedPropertyIds`, and that `intersectPropertyScopes` folds that set into
  * the workspace scope without ever widening either side.
  */
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { intersectPropertyScopes } from "@/lib/reports/workspace-scope";
 import { resolveManagerReportScope } from "@/lib/reports/co-manager-report-scope";
+
+vi.mock("@/lib/service/service-mode.server", () => ({ loadServiceStaffScope: vi.fn() }));
+vi.mock("@/lib/scope/settings-scope", () => ({ serviceStaffSettingsAccess: vi.fn() }));
+import { loadServiceStaffScope } from "@/lib/service/service-mode.server";
+import { serviceStaffSettingsAccess } from "@/lib/scope/settings-scope";
+
+beforeEach(() => {
+  vi.mocked(loadServiceStaffScope).mockReset().mockResolvedValue(null);
+  vi.mocked(serviceStaffSettingsAccess).mockReset();
+});
 
 const OWNER = "owner-1";
 const DELEGATE = "delegate-1";
@@ -53,6 +63,51 @@ function makeDb(opts: { owned: boolean; linkRows: LinkRow[] }) {
 }
 
 describe("resolveManagerReportScope", () => {
+  it("managed staff read the selected owner's books even when they own houses or an admin selector names another owner", async () => {
+    vi.mocked(loadServiceStaffScope).mockResolvedValue({ workspaceId: "managed", propertyIds: [HOUSE_1] });
+    vi.mocked(serviceStaffSettingsAccess).mockResolvedValue({ kind: "ok", ownerUserId: OWNER, fullGrant: true });
+    const scope = await resolveManagerReportScope(makeDb({ owned: true, linkRows: [] }), DELEGATE, { adminManagerUserId: "other-owner" });
+    expect(scope).toEqual({ managerUserId: OWNER, grantedPropertyIds: [HOUSE_1] });
+    expect(serviceStaffSettingsAccess).toHaveBeenCalledWith(expect.anything(), DELEGATE, "managed", "read");
+  });
+
+  it("limited staff need a financials grant inside the active workspace", async () => {
+    vi.mocked(loadServiceStaffScope).mockResolvedValue({ workspaceId: "managed", propertyIds: [HOUSE_1, HOUSE_2] });
+    vi.mocked(serviceStaffSettingsAccess).mockResolvedValue({ kind: "ok", ownerUserId: OWNER, fullGrant: false });
+    const db = makeDb({ owned: true, linkRows: [{ inviter_user_id: OWNER,
+      assigned_property_ids: [HOUSE_1, HOUSE_2, HOUSE_3], house_scope: "selected",
+      property_co_manager_permissions: { [HOUSE_1]: { financials: { read: true } }, [HOUSE_3]: { financials: { read: true } } },
+    }] });
+    expect(await resolveManagerReportScope(db, DELEGATE)).toEqual({ managerUserId: OWNER, grantedPropertyIds: [HOUSE_1] });
+  });
+
+  it("staff without a financials grant get no properties", async () => {
+    vi.mocked(loadServiceStaffScope).mockResolvedValue({ workspaceId: "managed", propertyIds: [HOUSE_1] });
+    vi.mocked(serviceStaffSettingsAccess).mockResolvedValue({ kind: "ok", ownerUserId: OWNER, fullGrant: false });
+    expect(await resolveManagerReportScope(makeDb({ owned: true, linkRows: [] }), DELEGATE))
+      .toEqual({ managerUserId: OWNER, grantedPropertyIds: [] });
+  });
+
+  it("an empty managed workspace never falls back to all owner properties", async () => {
+    vi.mocked(loadServiceStaffScope).mockResolvedValue({ workspaceId: "managed", propertyIds: [] });
+    vi.mocked(serviceStaffSettingsAccess).mockResolvedValue({ kind: "ok", ownerUserId: OWNER, fullGrant: true });
+    expect(await resolveManagerReportScope(makeDb({ owned: true, linkRows: [] }), DELEGATE))
+      .toEqual({ managerUserId: OWNER, grantedPropertyIds: [] });
+  });
+
+  it.each(["none", "unavailable", "read_only"] as const)("refuses unresolved staff access: %s", async (kind) => {
+    vi.mocked(loadServiceStaffScope).mockResolvedValue({ workspaceId: "managed", propertyIds: [HOUSE_1] });
+    vi.mocked(serviceStaffSettingsAccess).mockResolvedValue({ kind });
+    await expect(resolveManagerReportScope(makeDb({ owned: true, linkRows: [] }), DELEGATE))
+      .rejects.toThrow("Could not verify financial access");
+  });
+
+  it("preserves an authenticated admin's explicit selector outside service mode", async () => {
+    expect(await resolveManagerReportScope(makeDb({ owned: true, linkRows: [] }), DELEGATE, { adminManagerUserId: OWNER }))
+      .toEqual({ managerUserId: OWNER, grantedPropertyIds: null });
+  });
+
+
   it("a primary owner reads their own books with no additional narrowing", async () => {
     const scope = await resolveManagerReportScope(makeDb({ owned: true, linkRows: [] }), OWNER);
     expect(scope).toEqual({ managerUserId: OWNER, grantedPropertyIds: null });

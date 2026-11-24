@@ -691,6 +691,8 @@ assigned to its vendor. Historical paid rows remain readable. New payment
 execution stays unavailable until checkout concurrency and AP settlement are
 safe; a display status must never stand in for money movement.
 
+Managed-workspace staff reports resolve the active workspace through `loadServiceStaffScope` and verify its owner and financial access through the existing staff standing resolver in `resolveManagerReportScope`. The selected workspace takes precedence over the staff member's own houses or an admin owner selector. Every read and export intersects the staff's property scope with the active workspace; limited staff still require the per-property `financials` grant. Owner-wide account movements stay excluded from delegated reports. Regression: `tests/unit/reports/managed-financial-report-routes.test.ts`.
+
 Finances has Overview and Reports (the Activity tab is gone; `/financials/activity`, `income` and `expenses` redirect to Overview). `financial-activity` reads recorded
 payment/refund ledger rows and expense entries, with chart-of-accounts types
 controlling operating totals and the deposit subledger controlling held funds.

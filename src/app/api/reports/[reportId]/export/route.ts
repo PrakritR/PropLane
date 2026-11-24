@@ -52,14 +52,11 @@ export async function GET(
       }
       const gate = await assertManagerFinancialsAccess(auth);
       if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
-      let grantedPropertyIds: string[] | null = null;
-      if (auth.role === "admin") {
-        managerUserId = searchParams.get("managerUserId")?.trim() || auth.userId;
-      } else {
-        const scope = await resolveManagerReportScope(auth.db, auth.userId);
-        managerUserId = scope.managerUserId;
-        grantedPropertyIds = scope.grantedPropertyIds;
-      }
+      const scope = await resolveManagerReportScope(auth.db, auth.userId, {
+        adminManagerUserId: auth.role === "admin" ? searchParams.get("managerUserId")?.trim() || auth.userId : undefined,
+      });
+      managerUserId = scope.managerUserId;
+      const grantedPropertyIds = scope.grantedPropertyIds;
       // Same workspace narrowing as the on-screen report, plus the co-manager's
       // own grant narrowed on top, so an export can never carry rows the page
       // itself would not show — and never more than the grant allows.
