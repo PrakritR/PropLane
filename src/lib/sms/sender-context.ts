@@ -335,7 +335,7 @@ export async function decideSenderContext(input: SenderContextInput): Promise<Se
     if (parsed.role) {
       const pool = contexts.filter((c) => c.kind === parsed.role || (parsed.role === "manager" && c.kind === "admin" && !contexts.some((x) => x.kind === "manager")));
       if (pool.length === 0) {
-        return { kind: "reply", text: `I do not see a ${parsed.role} account for this number. ${senderQuestionText(contexts)}`, pending: { options: senderMenuOptions(contexts), body: "", messageSid: input.messageSid } };
+        return { kind: "reply", text: `I do not see ${parsed.role === "admin" ? "an" : "a"} ${parsed.role} account for this number. ${senderQuestionText(contexts)}`, pending: { options: senderMenuOptions(contexts), body: "", messageSid: input.messageSid } };
       }
       const poolKeys = new Set(pool.map((c) => c.key));
       const byName = parsed.rest ? await named(parsed.rest, contexts, input.loadHomes, poolKeys) : ({ kind: "none" } as Named);

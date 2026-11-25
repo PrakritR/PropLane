@@ -137,7 +137,7 @@ describe("channel status line", () => {
     const now = new Date("2026-10-09T20:00:00");
     const at = (h: string) => new Date(`2026-10-09T${h}:00`).toISOString();
     expect(channelStatusLine({ hasImportUrl: true, lastSyncedAt: at("08:00"), exportLastFetchedAt: at("08:04") }, now)).toBe("Synced · Airbnb 8:04 AM · PropLane 8:00 AM");
-    expect(channelStatusLine({ hasImportUrl: true, lastSyncedAt: at("08:00") }, now)).toBe("Waiting for Airbnb · PropLane 8:00 AM");
+    expect(channelStatusLine({ hasImportUrl: true, lastSyncedAt: at("08:00") }, now)).toBe("Airbnb has not fetched PropLane yet · PropLane 8:00 AM");
     expect(channelStatusLine({ hasImportUrl: true, lastSyncedAt: null, lastError: "bad feed" }, now)).toBe("Error: bad feed");
     expect(channelStatusLine({ hasImportUrl: false, lastSyncedAt: null }, now)).toBe("Not linked");
     expect(channelStatusLine(null, now)).toBe("Not linked");

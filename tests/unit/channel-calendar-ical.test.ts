@@ -114,7 +114,7 @@ describe("the provider name is read from the row's label", () => {
   });
 
   it("status lines, guest labels, source labels and booking alerts all say the typed name", () => {
-    expect(channelStatusLine({ hasImportUrl: true, lastSyncedAt: null }, new Date(), "ical", "Houfy")).toBe("Waiting for Houfy");
+    expect(channelStatusLine({ hasImportUrl: true, lastSyncedAt: null }, new Date(), "ical", "Houfy")).toBe("Houfy has not fetched PropLane yet");
     expect(bookingGuestLabel("Reserved", "ical", "Houfy")).toBe("Houfy guest");
     expect(bookingGuestLabel("Houfy (Not available)", "ical", "Houfy")).toBe("Closed on Houfy");
     expect(bookingEntryGuestLabel({ source: "ical", summary: "Reserved", channelLabel: "Houfy" })).toBe("Houfy guest");

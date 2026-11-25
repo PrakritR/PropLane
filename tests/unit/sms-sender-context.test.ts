@@ -155,7 +155,7 @@ describe("sender context: one decision per text", () => {
     const d = await decideSenderContext(base({ contexts: [mine, resident], body: "as admin" }));
     expect(d.kind).toBe("reply");
     if (d.kind !== "reply") return;
-    expect(d.text).toMatch(/do not see a admin account/);
+    expect(d.text).toMatch(/do not see an admin account/);
     expect(d.text).not.toMatch(/3 Admin/);
   });
 

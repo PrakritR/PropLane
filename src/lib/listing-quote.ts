@@ -494,12 +494,13 @@ export function buildListingQuote(
   const leaseEndText = options.leaseEnd ?? undefined;
   const prorates = !isStay && hasStayRate && !(room && roomIsDailyPriced(room)) && Boolean(parseFlexibleLocalDate(leaseStartText));
   const roomProration = resolveRoomProrationForSlot(room, residentSlot, leaseTerm);
-  const monthlyFeeInputs = recurring.filter((f) => (f.cadence ?? "monthly") === "monthly");
-  // A weekly or daily fee is charged for the days a partial month actually covers, at its own day rate - the same
-  // way the monthly ones are prorated, and the same at both ends of the lease.
-  const otherRecurring = recurring.filter((f) => (f.cadence ?? "monthly") !== "monthly");
-  const otherRecurringForDays = (days: number) =>
-    otherRecurring.reduce((sum, f) => sum + (f.cadence === "weekly" ? f.amount / 7 : f.amount) * days, 0);
+  // Every recurring fee is prorated on its monthly equivalent, the one basis `recurringTotal` above, the ledger
+  // (`recurringGenuinelyCustomFees`) and the lease rider already use, so a partial month is quoted and charged alike.
+  const proratableFees = recurring.map((f) => ({
+    id: f.id,
+    label: f.label,
+    amount: listingFeeMonthlyEquivalent(f.amount, f.cadence ?? "monthly"),
+  }));
   let firstMonth: QuoteProratedPeriod | null = null;
   let lastMonth: QuoteProratedPeriod | null = null;
   if (prorates) {
@@ -509,10 +510,10 @@ export function buildListingQuote(
     });
     if (first.applies) {
       const boundary = leaseFirstPeriodProration(leaseStartText, leaseEndText, true);
-      const feeLines = proratedFeeLines(monthlyFeeInputs.map((f) => ({ id: f.id, label: f.label, amount: f.amount })), boundary, roomProration.method);
+      const feeLines = proratedFeeLines(proratableFees, boundary, roomProration.method);
       firstMonth = {
         billableDays: boundary.billableDays, daysInMonth: boundary.daysInMonth, monthLabel: prorationMonthLabel(leaseStartText),
-        amount: Number((first.proratedRent + feeLines.reduce((sum, l) => sum + l.amount, 0) + otherRecurringForDays(boundary.billableDays)).toFixed(2)),
+        amount: Number((first.proratedRent + feeLines.reduce((sum, l) => sum + l.amount, 0)).toFixed(2)),
         utilities: first.proratedUtilities,
       };
     }
@@ -523,10 +524,10 @@ export function buildListingQuote(
       endsInsideFirstMonth: intraMonthStaySpan(leaseStartText, leaseEndText) !== null,
     });
     if (last.applies) {
-      const feeLines = proratedFeeLines(monthlyFeeInputs.map((f) => ({ id: f.id, label: f.label, amount: f.amount })), endBoundary, roomProration.method);
+      const feeLines = proratedFeeLines(proratableFees, endBoundary, roomProration.method);
       lastMonth = {
         billableDays: last.billableDays, daysInMonth: last.daysInMonth, monthLabel: last.monthLabel,
-        amount: Number((last.proratedRent + feeLines.reduce((sum, l) => sum + l.amount, 0) + otherRecurringForDays(last.billableDays)).toFixed(2)),
+        amount: Number((last.proratedRent + feeLines.reduce((sum, l) => sum + l.amount, 0)).toFixed(2)),
         utilities: last.proratedUtilities,
       };
     }

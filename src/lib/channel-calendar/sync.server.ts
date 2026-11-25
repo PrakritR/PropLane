@@ -813,8 +813,13 @@ async function withoutMoves(
  */
 export type SyncChannelCalendarOptions = { force?: boolean };
 
-/** A sync that changes nothing restamps `last_synced_at` at most this often (cron is every 15 min). */
-const CONNECTION_STAMP_MIN_MS = 10 * 60_000;
+/**
+ * A sync that changes nothing restamps `last_synced_at` at most this often. The cron runs every 15 minutes, so a
+ * window at or under that cadence skips nothing - every run arrives already older than it. An hour drops an
+ * unchanged connection to one write per hour and still leaves its stamp well inside the two
+ * hours `channel-health.ts` calls a stale sync, so a healthy feed never reads as stale nor earns the failure notice.
+ */
+const CONNECTION_STAMP_MIN_MS = 60 * 60_000;
 
 async function sameStoredError(db: SupabaseClient, connectionId: string, message: string): Promise<boolean> {
   try {
@@ -925,9 +930,10 @@ export async function syncChannelCalendarConnection(
     // placement for the same dates is refused by `assert_room_placement_capacity` ("This room is blocked for the
     // requested dates") on every run; the Residents list derives channel guests from the booking rows instead.
 
-    // Write only what changed. An unchanged feed leaves `imported_ranges` (a large jsonb) and a clean
-    // `last_error` untouched, and the sync stamp is refreshed at most every SYNC_STAMP interval, so the
-    // 15-minute cron stops rewriting every connection row for nothing. "Last synced" stays accurate to it.
+    // Write only what changed. A changed range set or an error to clear is written at once; an unchanged feed
+    // leaves `imported_ranges` (a large jsonb) and a clean `last_error` untouched and restamps at most once per
+    // CONNECTION_STAMP_MIN_MS, so the 15-minute cron stops rewriting every connection row for nothing.
+    // "Last synced" is then accurate to that window, not to the run.
     const rangesChanged = !jsonEqual(imported, connection.imported_ranges ?? []);
     const hadError = connection.last_error != null && connection.last_error !== "";
     const changedColumns = rangesChanged || hadError;
