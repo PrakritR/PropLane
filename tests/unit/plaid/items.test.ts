@@ -1,6 +1,13 @@
 import { describe, expect, it, beforeAll } from "vitest";
 import { randomBytes } from "node:crypto";
-import { createPlaidItem, PlaidItemConflictError, readPlaidAccessToken, toPlaidItemView, maskLastFour } from "@/lib/plaid/items.server";
+import {
+  createPlaidItem,
+  listPlaidItemsForOwner,
+  PlaidItemConflictError,
+  readPlaidAccessToken,
+  toPlaidItemView,
+  maskLastFour,
+} from "@/lib/plaid/items.server";
 import { createFakeDb } from "./fake-db";
 
 beforeAll(() => {
@@ -62,6 +69,22 @@ describe("plaid items", () => {
     tables.plaid_items![0]!.status = "revoked";
     await createPlaidItem(db, { ownerUserId: "u1", purpose: "bank_feed", itemId: "i3", accessToken: "t", bankAccountId: "ba-1" });
     expect(tables.plaid_items).toHaveLength(2);
+  });
+
+  /*
+   * A revoked item is not a feed any more: the same contract the one-live-feed index states (it excludes a
+   * revoked row so the account can be linked again) and the daily cron reads (`status in (active, error)`).
+   * `/api/plaid/status` answers from this list, so a revoked item leaves the Bank rec panel with nothing to
+   * sync and only Connect bank to offer. Plausible wrong behaviour this rejects: listing it as the account's
+   * feed, which gave the panel a dead item to draw a status line from.
+   */
+  it("leaves a revoked item out of the owner's feed list", async () => {
+    const { db, tables } = createFakeDb();
+    await createPlaidItem(db, { ownerUserId: "u1", purpose: "bank_feed", itemId: "i1", accessToken: "t", bankAccountId: "ba-1" });
+    expect((await listPlaidItemsForOwner(db, "u1", "bank_feed")).map((row) => row.item_id)).toEqual(["i1"]);
+
+    tables.plaid_items![0]!.status = "revoked";
+    expect(await listPlaidItemsForOwner(db, "u1", "bank_feed")).toEqual([]);
   });
 
   it("keeps only the last four of a mask", () => {

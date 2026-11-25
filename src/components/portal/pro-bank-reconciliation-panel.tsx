@@ -35,7 +35,8 @@ type PlaidFeedItem = {
   institutionName: string | null;
   accountMask: string | null;
   bankAccountId: string | null;
-  status: "active" | "login_required" | "error" | "revoked";
+  /** `/api/plaid/status` answers only live feeds: a revoked item is omitted, so none ever reaches this view. */
+  status: "active" | "login_required" | "error";
   lastSyncedAt: string | null;
 };
 
@@ -404,7 +405,7 @@ export const ManagerBankReconciliationPanel = forwardRef<
                   Retry
                 </Button>
               </>
-            ) : plaidItem.status === "active" ? (
+            ) : (
               <>
                 <span className="text-foreground">
                   {plaidItem.institutionName ?? "Bank"}
@@ -418,20 +419,6 @@ export const ManagerBankReconciliationPanel = forwardRef<
                   onClick={() => void syncPlaid(plaidItem.id)}
                   data-attr="bank-feed-sync"
                 />
-              </>
-            ) : (
-              <>
-                <span className="text-foreground">
-                  {plaidItem.institutionName ?? "Bank"}
-                  {plaidItem.accountMask ? ` ••${plaidItem.accountMask}` : ""} · Disconnected at your bank
-                </span>
-                <PlaidLinkLauncher purpose="bank_feed" onSuccess={connectBank} onError={showToast}>
-                  {({ start, busy }) => (
-                    <Button type="button" variant="outline" disabled={busy} onClick={() => start()} data-attr="bank-feed-relink">
-                      Reconnect
-                    </Button>
-                  )}
-                </PlaidLinkLauncher>
               </>
             )}
           </div>

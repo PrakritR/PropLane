@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 /**
- * A bank feed's status line is the manager's only signal that the feed is alive. Only an ACTIVE item may read
- * "Connected" and offer Sync now; a feed the bank has cut (`revoked`, written by the Plaid webhook on
- * USER_PERMISSION_REVOKED / USER_ACCOUNT_REVOKED) must say so and offer a reconnect, never a stale sync time.
+ * What the Bank rec panel offers for each feed state `/api/plaid/status` can answer with. A live feed reads
+ * "Connected" with Sync now; a bank that wants a fresh sign-in gets the same-item re-auth; a transient read
+ * failure gets Retry, not a relink. A feed the bank cut is not one of those states: the status route answers
+ * only live items (`listPlaidItemsForOwner`, asserted in tests/unit/plaid/items.test.ts), so the panel has no
+ * item at all and offers Connect bank.
  *
- * Oracle: the statuses `plaid_items.status` holds (`PlaidItemStatus`) and what each one means at Plaid -
- * `login_required` is a re-auth of the same item, `error` is a transient read to retry, `revoked` is consent
- * withdrawn at the bank, which needs a fresh Link (the one-live-feed index deliberately excludes a revoked row).
- * Plausible wrong behaviour this rejects: a non-active status falling through to the "Connected · synced …" row,
- * which tells a manager a dead feed is fine and offers only Sync now.
+ * Oracle: what each `plaid_items.status` means at Plaid - `login_required` is a re-auth of the same item,
+ * `error` is a transient read to retry - and the status route's own contract for a revoked item. Plausible
+ * wrong behaviour this rejects: "Connected · synced …" with only Sync now for a state that is not live.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
@@ -39,7 +39,9 @@ const ACCOUNT = {
   isActive: true,
 };
 
-function stubFetch(status: "active" | "login_required" | "error" | "revoked") {
+type FeedState = "active" | "login_required" | "error" | "none";
+
+function stubFetch(status: FeedState) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -48,16 +50,19 @@ function stubFetch(status: "active" | "login_required" | "error" | "revoked") {
         return new Response(
           JSON.stringify({
             enabled: true,
-            items: [
-              {
-                id: "item-1",
-                institutionName: "First Platypus Bank",
-                accountMask: "0000",
-                bankAccountId: ACCOUNT.id,
-                status,
-                lastSyncedAt: "2026-11-20T18:00:00.000Z",
-              },
-            ],
+            items:
+              status === "none"
+                ? []
+                : [
+                    {
+                      id: "item-1",
+                      institutionName: "First Platypus Bank",
+                      accountMask: "0000",
+                      bankAccountId: ACCOUNT.id,
+                      status,
+                      lastSyncedAt: "2026-11-20T18:00:00.000Z",
+                    },
+                  ],
           }),
           { status: 200 },
         );
@@ -75,11 +80,15 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function renderWith(status: "active" | "login_required" | "error" | "revoked") {
+async function renderWith(status: FeedState) {
   stubFetch(status);
   render(<ManagerBankReconciliationPanel />);
   await waitFor(() => {
-    expect(document.querySelector('[data-attr="bank-feed-sync"], [data-attr="bank-feed-reconnect"], [data-attr="bank-feed-retry"], [data-attr="bank-feed-relink"]')).toBeTruthy();
+    expect(
+      document.querySelector(
+        '[data-attr="bank-feed-sync"], [data-attr="bank-feed-reconnect"], [data-attr="bank-feed-retry"], [data-attr="bank-feed-connect"]',
+      ),
+    ).toBeTruthy();
   });
 }
 
@@ -90,12 +99,13 @@ describe("the bank feed status line", () => {
     expect(document.querySelector('[data-attr="bank-feed-sync"]')).toBeTruthy();
   });
 
-  it("says the bank cut the feed and offers Reconnect when consent was revoked", async () => {
-    await renderWith("revoked");
-    expect(screen.getByText("First Platypus Bank ••0000 · Disconnected at your bank")).toBeTruthy();
+  // What a revoked feed looks like here: the route omits the item, so there is nothing to sync and the only
+  // offer is a fresh link - never a "Connected" line against a stale sync time.
+  it("offers Connect bank when the owner holds no live feed for the account", async () => {
+    await renderWith("none");
     expect(screen.queryByText(/Connected/)).toBeNull();
     expect(document.querySelector('[data-attr="bank-feed-sync"]')).toBeNull();
-    expect(document.querySelector('[data-attr="bank-feed-relink"]')).toBeTruthy();
+    expect(document.querySelector('[data-attr="bank-feed-connect"]')).toBeTruthy();
   });
 
   it("offers the same-item re-auth when the bank wants a fresh sign-in", async () => {
@@ -109,6 +119,6 @@ describe("the bank feed status line", () => {
     await renderWith("error");
     expect(screen.queryByText(/Connected/)).toBeNull();
     expect(document.querySelector('[data-attr="bank-feed-retry"]')).toBeTruthy();
-    expect(document.querySelector('[data-attr="bank-feed-relink"]')).toBeNull();
+    expect(document.querySelector('[data-attr="bank-feed-connect"]')).toBeNull();
   });
 });
