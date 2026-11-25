@@ -37,8 +37,8 @@ export const CRAWL_CATALOG_WAIT_MS = 15_000;
 let cached: { expiresAt: number; listings: MockProperty[] } | null = null;
 let inFlight: Promise<MockProperty[]> | null = null;
 
-export async function getCrawlPublicListings(): Promise<MockProperty[]> {
-  if (cached && cached.expiresAt > Date.now()) return cached.listings;
+/** The one read in flight, started if there is none. The memo is overwritten only when a read lands. */
+function catalogRead(): Promise<MockProperty[]> {
   if (!inFlight) {
     inFlight = getPublicListings()
       .then((listings) => {
@@ -49,7 +49,11 @@ export async function getCrawlPublicListings(): Promise<MockProperty[]> {
         inFlight = null;
       });
   }
-  const read = inFlight;
+  return inFlight;
+}
+
+/** Nobody waits on the read past `CRAWL_CATALOG_WAIT_MS`; giving up is not cancelling, so it still fills the memo. */
+async function withinWait(read: Promise<MockProperty[]>): Promise<MockProperty[]> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -63,7 +67,22 @@ export async function getCrawlPublicListings(): Promise<MockProperty[]> {
   }
 }
 
-/** Drop the memo so the next read hits the catalog: the slug index's throttled refresh, and tests. */
+export async function getCrawlPublicListings(): Promise<MockProperty[]> {
+  if (cached && cached.expiresAt > Date.now()) return cached.listings;
+  return withinWait(catalogRead());
+}
+
+/**
+ * The same read, without the memo's answer standing in for it: for a caller that has reason to believe the catalog
+ * moved on (the slug index meeting a URL it does not know). It REPLACES the memo only when the read lands, shares
+ * whatever read is already in flight, and never drops what the memo holds - a failed refresh leaves the last good
+ * catalog standing for `/sitemap.xml`, `/llms.txt` and every listing page.
+ */
+export async function refreshCrawlPublicListings(): Promise<MockProperty[]> {
+  return withinWait(catalogRead());
+}
+
+/** Tests only: drop the memo so the next read hits the catalog. */
 export function resetCrawlPublicListingsCache(): void {
   cached = null;
   inFlight = null;

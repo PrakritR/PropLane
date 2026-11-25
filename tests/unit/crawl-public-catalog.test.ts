@@ -241,6 +241,28 @@ describe("a canonical slug resolves without the catalog index", () => {
     expect(db.queries).toEqual([]);
   });
 
+  /*
+   * The memo is shared: `/sitemap.xml`, `/llms.txt`, `buildReadableListingUrl` and every listing render read it.
+   * A refresh for ONE unknown slug may not cost them the catalog they already have - AGENTS.md section Performance
+   * & egress, and section AI search visibility for what an empty sitemap costs. Oracle: `getCrawlPublicListings`'
+   * own hourly contract. Wrong behaviour this rejects: evicting the memo before a replacement has landed, so a
+   * failed refresh leaves the instance with no catalog at all.
+   */
+  it("keeps the last good catalog when a refresh fails, and pays one read for it", async () => {
+    const { getCrawlPublicListings } = await import("@/lib/seo/public-catalog.server");
+    expect((await getCrawlPublicListings()).length).toBe(1);
+    expect(reads.count).toBe(1);
+
+    reads.fail = true;
+    expect(await listingIdFromPage("z-abcd1234")).toBe("z-abcd1234");
+    expect(reads.count).toBe(2);
+
+    // Still failing: the sitemap publishes every listing URL off the memo the failed refresh did not touch.
+    const entries = await (await import("@/app/sitemap")).default();
+    expect(entries.some((e) => e.url.endsWith(`/rent/listings/${SLUG}`))).toBe(true);
+    expect(reads.count).toBe(2);
+  });
+
   it("buys at most one refresh a minute, whatever arrives", async () => {
     const { getCrawlPublicListings } = await import("@/lib/seo/public-catalog.server");
     await getCrawlPublicListings();

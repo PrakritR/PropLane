@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createPhoneEmailEvidenceCache,
   loadPhoneEmailEvidence,
@@ -105,11 +105,21 @@ describe("loadPhoneEmailEvidence", () => {
       { phone: "+16505129140", email: "elsewhere@x.com", managerUserId: OTHER, createdAt: "2026-11-01T00:00:00Z" },
     ];
     const { db, reads } = fakeDb([], inquiries);
-    const first = await loadPhoneEmailEvidence(db, [OWNER], ["+16505129140"]);
-    const second = await loadPhoneEmailEvidence(db, [OTHER], ["+16505129140"]);
-    expect(first.map((e) => e.email)).toEqual(["t@x.com"]);
-    expect(second.map((e) => e.email)).toEqual(["elsewhere@x.com"]);
-    expect(reads.inquiries).toBe(1);
+    // The snapshot cache is off in test runs so mocks stay live (`serverSnapshotCacheEnabled`); the TTL this
+    // asserts is the production one, so it is exercised with the gate on.
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VITEST", "");
+    try {
+      resetCachedInquiryRows();
+      const first = await loadPhoneEmailEvidence(db, [OWNER], ["+16505129140"]);
+      const second = await loadPhoneEmailEvidence(db, [OTHER], ["+16505129140"]);
+      expect(first.map((e) => e.email)).toEqual(["t@x.com"]);
+      expect(second.map((e) => e.email)).toEqual(["elsewhere@x.com"]);
+      expect(reads.inquiries).toBe(1);
+    } finally {
+      vi.unstubAllEnvs();
+      resetCachedInquiryRows();
+    }
   });
 
   it("reuses phones already read on an earlier page of the same request", async () => {

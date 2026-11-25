@@ -14,7 +14,7 @@ import {
   type ListingSlugIndex,
 } from "@/lib/listing-slug";
 import { listingPublicPath } from "@/lib/listing-public-path";
-import { getCrawlPublicListings, resetCrawlPublicListingsCache } from "@/lib/seo/public-catalog.server";
+import { getCrawlPublicListings, refreshCrawlPublicListings } from "@/lib/seo/public-catalog.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 /**
@@ -45,7 +45,8 @@ export async function getListingSlugIndex(): Promise<ListingSlugIndex> {
 /**
  * The hourly catalog memo is why a listing published since that read is missing from a perfectly readable index, so
  * a slug it does not know gets ONE more catalog read before the answer stands - at most one per minute for the
- * whole instance, shared by everyone waiting on it, and it refills the memo every other surface reads.
+ * whole instance, shared by everyone waiting on it. The memo is replaced only when that read lands: a refresh that
+ * fails leaves the last good catalog standing for every surface that shares it.
  */
 const INDEX_REFRESH_COOLDOWN_MS = 60_000;
 let lastIndexRefreshAt = 0;
@@ -57,7 +58,11 @@ async function refreshedListingSlugIndex(): Promise<ListingSlugIndex | null> {
   if (now - lastIndexRefreshAt < INDEX_REFRESH_COOLDOWN_MS) return null;
   lastIndexRefreshAt = now;
   const run = (async () => {
-    resetCrawlPublicListingsCache();
+    try {
+      await refreshCrawlPublicListings();
+    } catch {
+      /* the memo still holds whatever it held */
+    }
     return getListingSlugIndex();
   })();
   indexRefresh = run;

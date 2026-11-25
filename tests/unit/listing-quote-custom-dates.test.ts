@@ -350,6 +350,35 @@ describe("partial months on the applicant quote", () => {
     expect(last?.amount).toBeCloseTo(Number((1100 * (14 / 31)).toFixed(2)), 1);
   });
 
+  /*
+   * A recurring fee covers days, so a partial month at EITHER end bills the days it covers - the same answer per
+   * day whichever end it is. Oracle: the manager's own published rates ($50 a week over a 7-day week, $100 a month
+   * over the month's own days), not a monthly equivalent. Wrong behaviour this rejects: the weekly fee billed whole
+   * for a 12-day first month and not at all for a 20-day last one.
+   */
+  it("bills a weekly fee for the days each partial month covers, at both ends", () => {
+    const sub = applyListingFeesToSubmission(listing(), [
+      { id: "fee-cleaning", presetId: null, label: "Cleaning", amount: "50", frequency: "weekly" },
+      { id: "fee-parking", presetId: null, label: "Parking", amount: "100", frequency: "monthly" },
+    ]);
+    const q = quote(normalizeManagerListingSubmissionV1(sub), "2026-12-20", "2027-06-20");
+    expect(q.proration?.firstMonth).toMatchObject({ billableDays: 12, daysInMonth: 31 });
+    expect(q.proration?.lastMonth).toMatchObject({ billableDays: 20, daysInMonth: 30 });
+
+    // Parking $100/mo plus the $100/mo custom-dates surcharge this lease owes, each prorated by the month's days.
+    const perDayWeekly = 50 / 7;
+    const monthlyFirst = 2 * Number((100 * (12 / 31)).toFixed(2));
+    const monthlyLast = 2 * Number((100 * (20 / 30)).toFixed(2));
+    const firstRent = Number(((1000 / 31) * 12).toFixed(2));
+    const lastRent = Number(((1000 / 30) * 20).toFixed(2));
+    expect(q.proration?.firstMonth?.amount).toBeCloseTo(firstRent + monthlyFirst + perDayWeekly * 12, 1);
+    expect(q.proration?.lastMonth?.amount).toBeCloseTo(lastRent + monthlyLast + perDayWeekly * 20, 1);
+
+    // The weekly fee costs its own day rate at BOTH ends: 12 days of it, then 20 days of it.
+    expect((q.proration!.firstMonth!.amount - firstRent - monthlyFirst) / 12).toBeCloseTo(perDayWeekly, 1);
+    expect((q.proration!.lastMonth!.amount - lastRent - monthlyLast) / 20).toBeCloseTo(perDayWeekly, 1);
+  });
+
   it("leaves a full first month alone", () => {
     const q = quote(listing(), "2027-01-01", "2027-12-31");
     expect(firstMonthLine(q)?.amount).toBe(1000);

@@ -110,15 +110,33 @@ describe("a tour lead links to the row the Tours list gives its request", () => 
 
   /*
    * That singleton row is a whole-platform blob (every workspace's tour requests), and a Leads page wants one field
-   * off a handful of its rows - AGENTS.md section Performance & egress. Oracle: the same minute-long contract
-   * `phone-email-join.server.ts` reads it under. Plausible wrong behaviour this rejects: one blob read per page load.
+   * off a handful of its rows - AGENTS.md section Performance & egress. The snapshot cache is deliberately off in
+   * test runs (`serverSnapshotCacheEnabled`, so mocks stay live), so the production path is exercised with it on.
+   * Oracle: the minute-long contract `server-ttl-cache.ts` states. Wrong behaviour this rejects: a blob read per load.
    */
   it("reads that whole-platform blob once a minute, not once a page load", async () => {
     store.inquiries = [inquiry("pending") as unknown as Record<string, unknown>];
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VITEST", "");
+    try {
+      resetCachedInquiryRows();
+      await lead();
+      await lead();
+      await lead();
+      expect(store.blobReads).toBe(1);
+    } finally {
+      vi.unstubAllEnvs();
+      resetCachedInquiryRows();
+    }
+  });
+
+  it("reads it live while the snapshot cache is off, so a test never sees a stale answer", async () => {
+    store.inquiries = [inquiry("pending") as unknown as Record<string, unknown>];
     await lead();
-    await lead();
-    await lead();
-    expect(store.blobReads).toBe(1);
+    store.inquiries = [inquiry("declined") as unknown as Record<string, unknown>];
+    const [row] = tourRowsFromInquiries([inquiry("declined")]);
+    expect((await lead()).rowId).toBe(row!.id);
+    expect(store.blobReads).toBe(2);
   });
 
   it("a confirmed tour names no inquiry row, so the lead carries none", async () => {

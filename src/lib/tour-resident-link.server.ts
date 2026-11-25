@@ -4,7 +4,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeTourFormat, type TourFormat } from "@/lib/tour-format";
-import { createTtlCache } from "@/lib/server-ttl-cache";
+import { createTtlCache, serverSnapshotCacheEnabled } from "@/lib/server-ttl-cache";
 import { INQUIRIES_RECORD_ID } from "@/lib/tour-inquiry.server";
 import { normalizeE164 } from "@/lib/twilio";
 
@@ -39,7 +39,7 @@ const INQUIRY_ROWS_TTL_MS = 60_000;
 const inquiryRowsCache = createTtlCache<Record<string, unknown>[]>(INQUIRY_ROWS_TTL_MS);
 
 export function readCachedInquiryRows(db: Db): Promise<Record<string, unknown>[]> {
-  return inquiryRowsCache.get("all", async () => {
+  const load = async () => {
     const { data, error } = await db
       .from("portal_schedule_records")
       .select("row_data")
@@ -48,7 +48,8 @@ export function readCachedInquiryRows(db: Db): Promise<Record<string, unknown>[]
     // Throws so the TTL cache never remembers a failed read as "no tour requests".
     if (error) throw new Error(String(error.message ?? "read failed"));
     return inquiryRowsFromRecord(data?.row_data);
-  });
+  };
+  return serverSnapshotCacheEnabled() ? inquiryRowsCache.get("all", load) : load();
 }
 
 /** Test hook: forget the cached inquiry rows. */
