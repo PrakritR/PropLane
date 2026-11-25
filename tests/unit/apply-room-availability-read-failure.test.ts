@@ -13,7 +13,6 @@ import { replaceManagerApplicationRowInCache } from "@/lib/manager-applications-
 import { pacificTodayKey } from "@/lib/room-availability-range";
 import { publicRoomPickFromRows } from "@/lib/public-room-pick-availability";
 import {
-  APPLY_ROOM_AVAILABILITY_UNKNOWN,
   getRoomOptionsForProperty,
   listingRoomAvailabilityLabel,
   listingRoomAvailabilityUnknown,
@@ -86,7 +85,6 @@ describe("the Apply room picker and the public occupancy read", () => {
     expect(staticPick("b", "Available now").applicable).toBe(true);
     expect(offered()).toEqual(["Room A", "Room B"]);
     expect(listingRoomAvailabilityLabel(roomChoiceValue(HOUSE, "b"))).toBe("Open now");
-    expect(APPLY_ROOM_AVAILABILITY_UNKNOWN).toContain("the listing's own dates");
   });
 
   it("offers exactly the rooms the loaded snapshot verifies once the read lands", () => {

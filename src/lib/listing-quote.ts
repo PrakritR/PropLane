@@ -38,7 +38,7 @@ import {
 } from "@/lib/listing-fees";
 import { feeAppliesToArrangementCount } from "@/lib/listing-fees";
 import { roomPriceForResidentCount } from "@/lib/room-arrangement-pricing";
-import { resolveRoomProrationForSlot, roomIsDailyPriced, roomResidentPriceForSlot, roomStayPriceForSlot, resolveStayPricing } from "@/lib/room-pricing";
+import { roomIsDailyPriced, roomResidentPriceForSlot, roomStayPriceForSlot, resolveStayPricing } from "@/lib/room-pricing";
 import {
   PAYMENT_AT_SIGNING_FEE_KEY_PREFIX,
   PAYMENT_AT_SIGNING_ROOM_RENT_KEY_PREFIX,
@@ -67,6 +67,7 @@ import {
   leaseFirstPeriodProration,
   prorationMonthLabel,
   proratedFeeLines,
+  resolveListingProrationForSlot,
 } from "@/lib/lease-first-period-proration";
 import { intraMonthStaySpan } from "@/lib/short-term-stay-pricing";
 
@@ -82,7 +83,7 @@ export type ListingQuoteLine = {
   dueLabel?: "Before check-in" | "Before lease signing";
 };
 
-export type ListingQuoteFee = { id: string; label: string; amount: number; cadence?: ListingFeeCadence };
+export type ListingQuoteFee = { id: string; label: string; amount: number; cadence?: ListingFeeCadence; dailyRate?: number };
 
 export type ListingQuote = {
   leaseTerm: string;
@@ -406,7 +407,7 @@ export function buildListingQuote(
     }
     const cadence = listingFeeCadence(fee);
     if (cadence === "monthly" || cadence === "weekly" || cadence === "daily") {
-      const entry = { id: fee.id, label: feeLabel(fee), amount, cadence };
+      const entry = { id: fee.id, label: feeLabel(fee), amount, cadence, dailyRate: fee.dailyRate };
       if (cadence === "monthly" && (foldMonthlyIntoRent || fee.includeInRent)) folded.push(entry);
       else recurring.push(entry);
       continue;
@@ -493,13 +494,14 @@ export function buildListingQuote(
   const leaseStartText = options.leaseStart ?? undefined;
   const leaseEndText = options.leaseEnd ?? undefined;
   const prorates = !isStay && hasStayRate && !(room && roomIsDailyPriced(room)) && Boolean(parseFlexibleLocalDate(leaseStartText));
-  const roomProration = resolveRoomProrationForSlot(room, residentSlot, leaseTerm);
+  const roomProration = resolveListingProrationForSlot(sub, room, residentSlot, leaseTerm);
   // Every recurring fee is prorated on its monthly equivalent, the one basis `recurringTotal` above, the ledger
   // (`recurringGenuinelyCustomFees`) and the lease rider already use, so a partial month is quoted and charged alike.
   const proratableFees = recurring.map((f) => ({
     id: f.id,
     label: f.label,
     amount: listingFeeMonthlyEquivalent(f.amount, f.cadence ?? "monthly"),
+    dailyRate: f.dailyRate,
   }));
   let firstMonth: QuoteProratedPeriod | null = null;
   let lastMonth: QuoteProratedPeriod | null = null;

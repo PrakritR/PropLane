@@ -1,12 +1,11 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
-import type { ProratedFirstMonthComputeInput } from "@/lib/lease-first-period-proration";
 import {
-  isEntireHomeListing,
-  normalizeManagerListingSubmissionV1,
-  type ManagerRoomSubmission,
-} from "@/lib/manager-listing-submission";
-import { resolveRoomProrationForSlot, roomDailyRentPrice } from "@/lib/room-pricing";
+  resolveListingProrationForSlot,
+  type ProratedFirstMonthComputeInput,
+} from "@/lib/lease-first-period-proration";
+import { normalizeManagerListingSubmissionV1, type ManagerRoomSubmission } from "@/lib/manager-listing-submission";
+import { roomDailyRentPrice } from "@/lib/room-pricing";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { intraMonthStaySpan } from "@/lib/short-term-stay-pricing";
 
@@ -48,19 +47,16 @@ export function resolveLeaseProrationInputForApplicant(
   const sub = prop?.listingSubmission?.v === 1 ? normalizeManagerListingSubmissionV1(prop.listingSubmission) : null;
   if (!sub) return {};
 
-  const entireHome = isEntireHomeListing(sub);
   const room = roomForApplicant(sub, applicant, prop?.unitLabel);
-  const slotProration = resolveRoomProrationForSlot(
+  const listingProration = resolveListingProrationForSlot(
+    sub,
     room,
     applicant.application?.residentSlot,
     applicant.application?.leaseTerm,
   );
-  const prorateMethod =
-    entireHome && sub.entireHomeProrateMethod === "daily_rate"
-      ? "daily_rate"
-      : slotProration.method;
-  const dailyRentRate = entireHome ? sub.entireHomeDailyRentRate : slotProration.dailyRentRate;
-  const dailyUtilitiesRate = entireHome ? sub.entireHomeDailyUtilitiesRate : slotProration.dailyUtilitiesRate;
+  const prorateMethod = listingProration.method;
+  const dailyRentRate = listingProration.dailyRentRate;
+  const dailyUtilitiesRate = listingProration.dailyUtilitiesRate;
   const dailyBasisRate = roomDailyRentPrice(room);
   const leaseStart = applicant.application?.leaseStart?.trim() ?? "";
   const leaseEnd = applicant.application?.leaseEnd?.trim() ?? "";

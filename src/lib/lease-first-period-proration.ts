@@ -1,5 +1,36 @@
 import { parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
+import { isEntireHomeListing, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { resolveRoomProrationForSlot } from "@/lib/room-pricing";
 import { intraMonthStaySpan } from "@/lib/short-term-stay-pricing";
+
+/**
+ * The proration method and day rates in force for one resident slot - the ONE decision the ledger, the lease
+ * document and the applicant quote all read. A whole-unit listing prorates by its own whole-house setting (its
+ * room rows do not describe a house); every other listing follows the room's own slot row.
+ */
+export function resolveListingProrationForSlot(
+  sub:
+    | Pick<
+        ManagerListingSubmissionV1,
+        | "listingPlaceCategoryId"
+        | "entireHomeProrateMethod"
+        | "entireHomeDailyRentRate"
+        | "entireHomeDailyUtilitiesRate"
+      >
+    | null
+    | undefined,
+  room: Parameters<typeof resolveRoomProrationForSlot>[0],
+  slot: number | null | undefined,
+  term?: string | null,
+): { method: "auto" | "daily_rate"; dailyRentRate?: number; dailyUtilitiesRate?: number } {
+  const slotProration = resolveRoomProrationForSlot(room, slot, term);
+  if (!sub || !isEntireHomeListing(sub)) return slotProration;
+  return {
+    method: sub.entireHomeProrateMethod === "daily_rate" ? "daily_rate" : slotProration.method,
+    dailyRentRate: sub.entireHomeDailyRentRate,
+    dailyUtilitiesRate: sub.entireHomeDailyUtilitiesRate,
+  };
+}
 
 export type LeaseBoundaryProration = {
   prorated: boolean;

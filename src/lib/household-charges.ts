@@ -37,7 +37,7 @@ import { resolvedShortTermPlacementDeposit } from "@/lib/listing-fees";
 import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
 import { placementApplicationFeeCents, resolvedMoveInFeeRaw, stayPlacementLeaseTerm } from "@/lib/listing-placement-standard-fees";
 import { effectiveHoldExpiresAt, holdDeadlineLabel, holdState, resolveHoldFeeCents } from "@/lib/holding-hold";
-import { formatRoomPriceAmount, resolveStayPricing, resolveRoomProrationForSlot, roomDailyRentPrice,
+import { formatRoomPriceAmount, resolveStayPricing, roomDailyRentPrice,
   DAILY_RENT_MONTH_ESTIMATE_DAYS,
   roomPricingIsFlexible,
   roomResidentPriceForSlot,
@@ -77,6 +77,7 @@ import {
   proratedFeeLines,
   leaseStartProration,
   proratedLastMonthAmount,
+  resolveListingProrationForSlot,
 } from "@/lib/lease-first-period-proration";
 import {
   intraMonthStaySpan,
@@ -4309,18 +4310,15 @@ function buildApprovedStandardChargeDrafts(
   // function, and it passes the PROPERTY's unitLabel. Passing anything else here made this
   // one function price rent off one room and prorate off another.
   const { room, prop: listingProperty } = resolveRowSubmissionRoom(row);
-  const entireHome = isEntireHomeListing(sub);
-  const slotProration = resolveRoomProrationForSlot(
+  const listingProration = resolveListingProrationForSlot(
+    sub,
     room,
     row.application?.residentSlot,
     row.application?.leaseTerm,
   );
-  const prorateMethod =
-    entireHome && sub.entireHomeProrateMethod === "daily_rate"
-      ? "daily_rate"
-      : slotProration.method;
-  const dailyRentRate = entireHome ? sub.entireHomeDailyRentRate : slotProration.dailyRentRate;
-  const dailyUtilitiesRate = entireHome ? sub.entireHomeDailyUtilitiesRate : slotProration.dailyUtilitiesRate;
+  const prorateMethod = listingProration.method;
+  const dailyRentRate = listingProration.dailyRentRate;
+  const dailyUtilitiesRate = listingProration.dailyUtilitiesRate;
   const dailyBasisRate =
     residentNegotiatedMonthlyRent(row) > 0 ? undefined : roomDailyRentPrice(room);
   const weeklyBasisRate =
@@ -5226,18 +5224,15 @@ export function recordApprovedApplicationCharges(
   // A MISSING per-day utilities rate stays undefined and reads as zero on purpose — a
   // listing briefly folded (rent baked-in, no util rate) bills the same total, never a
   // double-charge; do NOT derive a utilities figure from the rate.
-  const entireHome = Boolean(sub && isEntireHomeListing(sub));
-  const slotProration = resolveRoomProrationForSlot(
+  const listingProration = resolveListingProrationForSlot(
+    sub,
     room,
     row.application?.residentSlot,
     row.application?.leaseTerm,
   );
-  const prorateMethod =
-    entireHome && sub?.entireHomeProrateMethod === "daily_rate"
-      ? "daily_rate"
-      : slotProration.method;
-  const dailyRentRate = entireHome ? sub?.entireHomeDailyRentRate : slotProration.dailyRentRate;
-  const dailyUtilitiesRate = entireHome ? sub?.entireHomeDailyUtilitiesRate : slotProration.dailyUtilitiesRate;
+  const prorateMethod = listingProration.method;
+  const dailyRentRate = listingProration.dailyRentRate;
+  const dailyUtilitiesRate = listingProration.dailyUtilitiesRate;
   // When the room is priced by the day, rent (not utilities) bills per-day every period —
   // unless this resident has their own negotiated monthly rent, which wins exactly as it
   // does over the room's listing monthly rent.
