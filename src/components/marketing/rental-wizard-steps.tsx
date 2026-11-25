@@ -23,6 +23,7 @@ import {
 import { ApplyFieldRow } from "@/app/(rent)/rent/apply/apply-field-row";
 import { GROUP_SIZE_MAX, GROUP_SIZE_MIN, normalizeGroupSize } from "@/app/(rent)/rent/apply/apply-validation";
 import {
+  APPLY_ROOM_AVAILABILITY_UNKNOWN,
   LEASE_TERM_CHOICES,
   SHORT_TERM_LEASE_TERM,
   firstChoiceRoomOptions,
@@ -38,6 +39,7 @@ import {
   listingLongTermLengths,
   listingOfferedLeaseTerms,
   listingRoomAvailabilityLabel,
+  listingRoomAvailabilityUnknown,
   roomSelectOptionsWithNone,
 } from "@/lib/rental-application/data";
 import { addMonthsToDateString } from "@/lib/rental-application/long-term-length";
@@ -962,6 +964,9 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
     const rooms = allRooms.filter(
       (o) => availableRooms.some((a) => a.value === o.value) || chosenRoomValues.has(o.value),
     );
+    // The listing's own availability decides which rooms are offered, so a refused read offers none and says so
+    // rather than letting the applicant pick a room nobody checked.
+    const roomAvailabilityUnknown = Boolean(form.propertyId) && listingRoomAvailabilityUnknown(form.propertyId);
     const firstChoiceRooms = firstChoiceRoomOptions(form.propertyId, {
       includeUnnamed: true,
       includeUnavailable: !datesPicked,
@@ -1167,6 +1172,15 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
         <div className="space-y-2">
           <Label required={roomQuestion?.required}>{roomQuestion?.label ?? "Room"}</Label>
           <div data-wizard-field="roomChoice1">
+            {roomAvailabilityUnknown ? (
+              <p
+                role="status"
+                data-attr="apply-room-availability-unknown"
+                className="rounded-xl border px-4 py-3 text-sm portal-banner-pending"
+              >
+                {APPLY_ROOM_AVAILABILITY_UNKNOWN}
+              </p>
+            ) : (
             <Select
               aria-label="Room"
               value={form.roomChoice1}
@@ -1190,6 +1204,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
                 </option>
               ))}
             </Select>
+            )}
             <FieldError msg={errors.roomChoice1} />
           </div>
         </div>

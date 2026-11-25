@@ -54,6 +54,7 @@ import { isEntireHomeListing, type ManagerListingSubmissionV1, type ManagerRoomS
 import {
   CUSTOM_LEASE_SURCHARGE_FEE_ID,
   customLeaseSurchargeAmount,
+  monthToMonthSurchargeAmount,
   shouldBillCustomLeaseSurcharge,
 } from "@/lib/custom-lease-billing";
 import {
@@ -440,8 +441,8 @@ export function buildListingQuote(
 
   const foldedTotal = folded.reduce((sum, f) => sum + f.amount, 0);
   let monthlyRent = baseMonthlyRent + foldedTotal;
-  if (!isStay && startKind === "m2m" && startSurchargeRow?.monthToMonthSurcharge && !foldMonthlyIntoRent) {
-    monthlyRent += parseMoneyAmount(startSurchargeRow.monthToMonthSurcharge);
+  if (!isStay && startKind === "m2m" && !foldMonthlyIntoRent) {
+    monthlyRent += monthToMonthSurchargeAmount(sub, startSurchargeRow);
   }
   const recurringTotal = recurring.reduce(
     (sum, f) => sum + listingFeeMonthlyEquivalent(f.amount, f.cadence ?? "monthly"),

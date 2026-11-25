@@ -631,6 +631,11 @@ export function tourInquiryRowId(inquiryId: string, windowIndex: number): string
   return `inquiry-${inquiryId}-${windowIndex}`;
 }
 
+/** The Tours row id a declined request carries in the Past bucket (`tourRowsFromInquiries`). */
+export function declinedTourRowId(inquiryId: string): string {
+  return `declined-${inquiryId}`;
+}
+
 export function managerTourDetailHref(
   basePath: string,
   bucket: ManagerTourBucketId,

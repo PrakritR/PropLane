@@ -69,6 +69,7 @@ vi.mock("@/data/mock-properties", () => ({
 }));
 
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
+import { clearPublicRoomOccupancy, replacePublicRoomOccupancyForProperty } from "@/lib/public-room-occupancy-client";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import {
   applyApprovedAvailabilityToRichContent,
@@ -114,6 +115,7 @@ beforeEach(() => {
   rows.length = 0;
   leaseRows.length = 0;
   roomCapacity = undefined;
+  clearPublicRoomOccupancy();
 });
 
 describe("approved applications hold a bed whether or not the lease is signed (room-occupancy-truth)", () => {
@@ -280,6 +282,9 @@ describe("the apply wizard refuses a room taken for the applicant's dates", () =
 
   it("flags the first choice when a signed resident holds the room for those dates", async () => {
     const { validateRentalWizardStep } = await import("@/lib/rental-application/validate");
+    // Room B is only ever suggested as an alternative once a PUBLIC occupancy read has landed for the house;
+    // it reports no bookings here, and Room A's conflict is the approved application this file drives.
+    replacePublicRoomOccupancyForProperty("prop-1", []);
     holdingResident("app-1", "2026-10-05", "2027-10-04");
     // The refusal says what conflicts and what would work, from the same windows that refused it.
     const message = validateRentalWizardStep(1, form("2026-11-01", "2026-11-30")).roomChoice1;

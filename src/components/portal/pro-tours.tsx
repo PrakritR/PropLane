@@ -72,6 +72,7 @@ import {
   MANAGER_TOUR_BUCKETS,
   managerTourDetailHref,
   managerTourListHref,
+  plannedTourRowId,
   type ManagerTourBucketId,
 } from "@/lib/portal-detail-routes";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
@@ -1735,7 +1736,7 @@ export function ManagerTours({
           onAdded={(outcome) => {
             void refresh();
             if (outcome.tourId) {
-              navigate(detailHrefForTour("upcoming", `planned-${outcome.tourId}`));
+              navigate(detailHrefForTour("upcoming", plannedTourRowId(outcome.tourId)));
             } else if (bucket !== "upcoming") {
               navigate(listHrefForBucket("upcoming"));
             }

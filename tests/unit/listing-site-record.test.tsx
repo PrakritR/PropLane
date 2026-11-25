@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { tourInquiryRowId } from "@/lib/portal-detail-routes";
 
 const toast = vi.hoisted(() => vi.fn());
 const copied = vi.hoisted(() => vi.fn(async (_text: string) => true));
@@ -113,7 +114,9 @@ describe("ListingSiteRecord", () => {
     render(<ListingSiteRecord channelId="craigslist" tab="leads" />);
     await waitFor(() => expect(q("listing-site-lead-tour")).not.toBeNull());
     fireEvent.click(q("listing-site-lead-tour")!);
-    expect(navigate).toHaveBeenCalledWith("/portal/tours/pending/t1");
+    // The Tours list gives a pending request's first window the row id `tourInquiryRowId` mints, and the detail
+    // view resolves by that row id - a raw inquiry id lands on the list instead.
+    expect(navigate).toHaveBeenCalledWith(`/portal/tours/pending/${tourInquiryRowId("t1", 0)}`);
     fireEvent.click(q("listing-site-lead-application")!);
     expect(navigate).toHaveBeenLastCalledWith("/portal/applications/approved/AXIS-1");
     cleanup();

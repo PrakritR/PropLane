@@ -9,11 +9,13 @@ import {
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
 import { buildListingQuote } from "@/lib/listing-quote";
+import { monthlyFeesBilledSeparately } from "@/lib/rent-fold-in";
 import type { LeaseGenerationContext } from "@/lib/generated-lease";
 import {
   feeVisibilityForTerms,
   resolveRoomTermFees,
   roomFeeTermScope,
+  roomStartSurchargeRow,
   roomPricingFeeVisibility,
   submissionWithRoomTermFees,
   termFeePatch,
@@ -151,6 +153,27 @@ describe("Application fee and Lease fee are bound to their step", () => {
       { address: "5259 Brooklyn Ave NE, Seattle, WA 98105", city: "Seattle", zip: "98105" },
     );
     expect(resolveRoomTermFees({ sub: seattle, room: seattle.rooms[0], leaseTerm: "Month-to-Month" }).monthToMonthSurcharge).toBe(0);
+  });
+
+  /*
+   * Oracle: the listing's own Month-to-month surcharge preset, the $150 the manager typed in the unified Fees
+   * table - not a figure either side computes. The rider prints `resolveRoomTermFees` and the ledger bills
+   * `monthlyFeesBilledSeparately`, so they have to answer the same $150. Plausible wrong behaviour this rejects:
+   * the rider reading the blank room row as "no surcharge" while the resident is billed every month.
+   */
+  it("a listing-level month-to-month surcharge reaches the rider and the ledger alike", () => {
+    const sub = listing({}, { monthToMonthSurcharge: "150" });
+    const row = roomStartSurchargeRow(sub, sub.rooms[0]);
+    expect(String(row?.monthToMonthSurcharge ?? "").trim()).toBe("");
+    const ctx = { leaseTerm: "Month-to-Month" } as const;
+    expect(resolveRoomTermFees({ sub, room: sub.rooms[0], leaseTerm: ctx.leaseTerm }).monthToMonthSurcharge).toBe(150);
+    expect(monthlyFeesBilledSeparately(sub, null, ctx, row).find((f) => f.label.startsWith("Month-to-month"))?.amount).toBe(150);
+
+    // The room's own typed figure still outranks the listing's, for both.
+    const priced = listing({ occupancyPrices: [{ count: 1, monthToMonthSurcharge: "250" }] }, { monthToMonthSurcharge: "150" });
+    const pricedRow = roomStartSurchargeRow(priced, priced.rooms[0]);
+    expect(resolveRoomTermFees({ sub: priced, room: priced.rooms[0], leaseTerm: ctx.leaseTerm }).monthToMonthSurcharge).toBe(250);
+    expect(monthlyFeesBilledSeparately(priced, null, ctx, pricedRow).find((f) => f.label.startsWith("Month-to-month"))?.amount).toBe(250);
   });
 });
 

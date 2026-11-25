@@ -5,7 +5,7 @@ import { freeingRoomStatus } from "@/lib/room-availability";
 import { classifyRoomOpening } from "@/lib/room-availability-style";
 import { composePropertyTitle } from "@/lib/property-title";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
-import { readPublicRoomOccupancy } from "@/lib/public-room-occupancy-client";
+import { publicRoomOccupancyRead, readPublicRoomOccupancy } from "@/lib/public-room-occupancy-client";
 import { publicRoomPick } from "@/lib/public-room-pick-availability";
 import { pacificTodayKey } from "@/lib/room-availability-range";
 import { mockProperties } from "@/data/mock-properties";
@@ -643,10 +643,32 @@ export function propertyAllowsAirbnbRental(propertyId: string): boolean {
 
 type ListingPickRoom = Parameters<typeof publicRoomPick>[0];
 
-/** The listing's own availability decision for one room of a house, from the loaded public occupancy. */
+/**
+ * The listing's own availability decision for one room of a house, or null when no public occupancy read has
+ * landed for it (never loaded, refused, or the 60s snapshot lapsed). An unknown answer claims nothing; under a
+ * live read a room with no row simply has no occupancy.
+ */
 function listingRoomPick(propertyId: string, room: ListingPickRoom) {
-  const spans = isDemoModeActive() ? [] : (readPublicRoomOccupancy(`${propertyId}${LISTING_ROOM_CHOICE_SEP}${room.id}`) ?? []);
+  if (isDemoModeActive()) return publicRoomPick(room, [], pacificTodayKey());
+  if (!publicRoomOccupancyRead(propertyId)) return null;
+  const spans = readPublicRoomOccupancy(`${propertyId}${LISTING_ROOM_CHOICE_SEP}${room.id}`) ?? [];
   return publicRoomPick(room, spans, pacificTodayKey());
+}
+
+/** Shown in place of the Apply room dropdown when the occupancy read was refused: no room is claimed either way. */
+export const APPLY_ROOM_AVAILABILITY_UNKNOWN =
+  "Couldn't check room availability just now. Reload to try again, or ask the host about a room - this application is for the home.";
+
+/**
+ * True when this listing has rooms and no public occupancy read has landed for it, so the picker can neither
+ * offer nor refuse a room honestly.
+ */
+export function listingRoomAvailabilityUnknown(propertyId: string): boolean {
+  if (isDemoModeActive()) return false;
+  const prop = getPropertyById(propertyId);
+  if (!prop?.listingSubmission || prop.listingSubmission.v !== 1) return false;
+  if (!normalizeManagerListingSubmissionV1(prop.listingSubmission).rooms.length) return false;
+  return !publicRoomOccupancyRead(prop.id);
 }
 
 /**
@@ -659,12 +681,13 @@ export function listingRoomAvailabilityLabel(roomChoiceValue: string): string | 
   const prop = getPropertyById(parsed.propertyId);
   if (!prop?.listingSubmission || prop.listingSubmission.v !== 1) return null;
   const room = normalizeManagerListingSubmissionV1(prop.listingSubmission).rooms.find((r) => r.id === parsed.listingRoomId);
-  return room ? listingRoomPick(prop.id, room).label : null;
+  return room ? listingRoomPick(prop.id, room)?.label ?? null : null;
 }
 
 /**
  * True when a room may be PRESELECTED from a link: the listing shows it open now or opening within its own
- * "soon" window. A room that opens months out, is leased, or is closed is left for the applicant to choose.
+ * "soon" window. A room that opens months out, is leased, or is closed is left for the applicant to choose. An
+ * unknown read is not a refusal here - it would blank a link's room for good, and Continue re-checks live.
  */
 export function listingRoomMayPreselect(roomChoiceValue: string): boolean {
   const parsed = parseRoomChoiceValue(roomChoiceValue);
@@ -672,7 +695,7 @@ export function listingRoomMayPreselect(roomChoiceValue: string): boolean {
   const prop = getPropertyById(parsed.propertyId);
   if (!prop?.listingSubmission || prop.listingSubmission.v !== 1) return true;
   const room = normalizeManagerListingSubmissionV1(prop.listingSubmission).rooms.find((r) => r.id === parsed.listingRoomId);
-  return room ? listingRoomPick(prop.id, room).tourable : true;
+  return room ? listingRoomPick(prop.id, room)?.tourable !== false : true;
 }
 
 /** Rooms for the selected listing: manager submission rooms, else legacy one-row-per-unit in the same building. */
@@ -694,7 +717,7 @@ export function getRoomOptionsForProperty(propertyId: string, options: RoomAvail
         options.includeUnavailable ||
         isRoomChoiceAvailable(`${selected.id}${LISTING_ROOM_CHOICE_SEP}${room.id}`, room.availability, options),
       )
-        .filter((room) => !options.listingOnly || listingRoomPick(selected.id, room)?.applicable !== false);
+        .filter((room) => !options.listingOnly || listingRoomPick(selected.id, room)?.applicable === true);
       return roomRows.map((r) => {
         const daily = roomDailyRentPrice(r);
         const rent = daily !== undefined ? `${formatRoomPriceAmount(daily)}/day` : r.monthlyRent > 0 ? `${formatRoomPriceAmount(r.monthlyRent)}/mo` : "Rent TBD";

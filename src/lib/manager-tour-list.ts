@@ -13,7 +13,7 @@ import {
   type PartnerInquiry,
   type PlannedEvent,
 } from "@/lib/demo-admin-scheduling";
-import { plannedTourRowId, tourInquiryRowId, type ManagerTourBucketId } from "@/lib/portal-detail-routes";
+import { declinedTourRowId, plannedTourRowId, tourInquiryRowId, type ManagerTourBucketId } from "@/lib/portal-detail-routes";
 import { normalizeTourFormat, type TourFormat } from "@/lib/tour-format";
 import {
   type PropertyCluster,
@@ -145,7 +145,7 @@ export function tourRowsFromInquiries(rows: PartnerInquiry[]): ManagerTourRow[] 
         if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return [];
         return [
           {
-            id: `declined-${row.id}`,
+            id: declinedTourRowId(row.id),
             source: "inquiry" as const,
             sourceId: row.id,
             guestName: row.name?.trim() || "Prospect",

@@ -45,6 +45,7 @@ import {
   listingSiteDetailHref,
   listingSitesListHref,
   managerTourDetailHref,
+  tourInquiryRowId,
   type ApplicationBucketId,
   type ListingSiteTabId,
   type ManagerTourBucketId,
@@ -241,7 +242,7 @@ export function ListingSiteRecord({
 
   const leadHref = (lead: ListingSiteLead): string =>
     lead.kind === "tour"
-      ? managerTourDetailHref(basePath, lead.bucket as ManagerTourBucketId, lead.id)
+      ? managerTourDetailHref(basePath, lead.bucket as ManagerTourBucketId, tourInquiryRowId(lead.id, 0))
       : applicationDetailHref(basePath, lead.bucket as ApplicationBucketId, lead.id);
 
   const nameOf = (propertyId: string) => {

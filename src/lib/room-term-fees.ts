@@ -35,7 +35,7 @@ import {
   resolvePlacementStandardFees,
 } from "@/lib/listing-placement-standard-fees";
 import { parseMoneyAmount } from "@/lib/parse-money";
-import { customLeaseSurchargeAmount } from "@/lib/custom-lease-billing";
+import { customLeaseSurchargeAmount, monthToMonthSurchargeAmount } from "@/lib/custom-lease-billing";
 import { listingFoldsAllMonthlyFeesIntoRent, type RentRuleAddress } from "@/lib/seattle-rent-rule";
 import {
   AIRBNB_LEASE_TERM,
@@ -242,10 +242,11 @@ export function resolveRoomTermFees(input: {
     applicationFee: fees.applicationFee,
     leaseFee: fees.leaseFee,
     moveInFee: parseMoneyAmount(resolvedMoveInFeeRaw(input.sub, opts)),
-    // Optional long-term charge; never on a Seattle listing, where this resolves to nothing.
+    // Optional long-term charge; never on a Seattle listing, where this resolves to nothing. One resolver for the
+    // amount, shared with the quote and the monthly charge: the arrangement row's typed figure, else the listing's.
     monthToMonthSurcharge:
       scope === "long" && !listingFoldsAllMonthlyFeesIntoRent(input.sub, input.listingProperty)
-        ? money(row?.monthToMonthSurcharge)
+        ? monthToMonthSurchargeAmount(input.sub, row)
         : 0,
     // One resolver for the amount, shared with the quote and the monthly charge: the arrangement row's typed
     // figure, else the listing's row (removed bills nothing, blank defaults when the listing offers Custom dates).

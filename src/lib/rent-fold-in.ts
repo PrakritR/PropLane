@@ -28,7 +28,7 @@ import {
   recurringMonthlyFeesForLease,
   shouldBillCustomLeaseSurcharge,
   type LeaseRecurringFeeBillingContext,
-  type CustomStartSurchargeRow,
+  type ArrangementSurchargeRow,
 } from "@/lib/custom-lease-billing";
 import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
 import { listingPresetFeeAppliesToLeaseType } from "@/lib/listing-fee-scope";
@@ -194,8 +194,8 @@ export function monthlyFeesBilledSeparately(
   sub: ManagerListingSubmissionV1 | null | undefined,
   listingProperty: RentRuleAddress | null | undefined,
   ctx: LeaseRecurringFeeBillingContext,
-  /** The placement's arrangement row: the custom-start surcharge it names is what gets billed. */
-  arrangementRow?: CustomStartSurchargeRow | null,
+  /** The placement's arrangement row: the two start surcharges it names are what get billed. */
+  arrangementRow?: ArrangementSurchargeRow | null,
 ): MonthlyFeeLine[] {
   if (!sub) return [];
   if (listingFoldsAllMonthlyFeesIntoRent(sub, listingProperty)) return [];
