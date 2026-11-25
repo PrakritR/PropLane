@@ -36,6 +36,13 @@ export type HouseholdChargeWriteContext = {
   existingLedgerFingerprintById: Map<string, string>;
 };
 
+function matchesCharge(stored: Record<string, unknown>, row: HouseholdChargeWriteRow): boolean {
+  return stored.id === row.id && isDeepStrictEqual(stored.row_data, row.row_data) &&
+    stored.manager_user_id === row.manager_user_id && stored.resident_user_id === row.resident_user_id &&
+    stored.resident_email === row.resident_email && stored.property_id === row.property_id &&
+    stored.kind === row.kind && stored.status === row.status;
+}
+
 /**
  * The ONE write path for household charge rows: insert-only for a new id,
  * compare-and-swap update for an existing one, then the batch duplicate
@@ -62,10 +69,7 @@ export async function persistHouseholdChargeRows(
     }
     if (existingOwnerById.has(row.id)) {
       const stored = existingRecordById.get(row.id);
-      if (stored && isDeepStrictEqual(stored.row_data, row.row_data) &&
-          stored.manager_user_id === row.manager_user_id && stored.resident_user_id === row.resident_user_id &&
-          stored.resident_email === row.resident_email && stored.property_id === row.property_id &&
-          stored.kind === row.kind && stored.status === row.status) { confirmedIds.push(row.id); continue; }
+      if (stored && matchesCharge(stored, row)) { confirmedIds.push(row.id); continue; }
       const expectedStatus = previousStatusById.get(row.id);
       const expectedUpdatedAt = existingUpdatedAtById.get(row.id);
       // A missing version cannot safely be compared; a subsequent load
@@ -86,7 +90,18 @@ export async function persistHouseholdChargeRows(
       // Insert-only: a concurrent provider/manager writer may have created
       // this id after our read. Never turn that row into an upsert target.
       const { data, error } = await db.from("portal_household_charge_records").insert(row).select("id");
-      if (error?.code === "23505") { conflictIds.push(row.id); continue; }
+      if (error?.code === "23505") {
+        // Two identical mirrors can both read a new id before either inserts.
+        // Confirm only the exact stored charge; a different owner, amount,
+        // receipt or status remains a conflict. Never overwrite the winner or
+        // repeat its ledger/notification side effects.
+        const current = await db.from("portal_household_charge_records")
+          .select("id,manager_user_id,resident_user_id,resident_email,property_id,kind,status,row_data")
+          .eq("id", row.id).maybeSingle();
+        if (!current.error && current.data && matchesCharge(current.data, row)) confirmedIds.push(row.id);
+        else conflictIds.push(row.id);
+        continue;
+      }
       if (error) { chargeWriteError = error.message; break; }
       if ((data ?? []).length > 0) { persistedRows.push(row); confirmedIds.push(row.id); }
     }

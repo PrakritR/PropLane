@@ -5,6 +5,8 @@
 
 The ordinary `/api/portal-household-charges` full-list mirror carries charge edits only. It cannot create `paid`/processing/refunded status, provider or receipt fields, or waiver audit fields. Existing financial rows are immutable through that mirror. Writes to known rows compare stored status and `updated_at`; new IDs insert only, and only rows actually persisted reach reminder/ledger sync. If a later row in the same mirror fails, earlier persisted rows still sync before the request returns an error. A manager's offline receipt uses only `action: "recordOfflinePayment"`, which rechecks owner, workspace, status, and the stored amount before ledger posting.
 
+A concurrent insert of the exact same charge is acknowledged only after a read-back matches its id, owner, resident, house, kind, status and entire payload. A different charge, a different amount or receipt state, or an unreadable row remains a conflict. The losing request never overwrites the winner or repeats ledger/notification effects (`household-charge-persist.server.ts`, `household-charge-confirmation.test.ts`).
+
 **A stale tab must never resurrect a deleted charge or rent profile (Oct 8 2026).** That mirror's
 `action: "replace"` re-posted every locally cached row, so a tab open across a server-side delete
 (Delete resident, `deleteCharge` on another device, an admin cleanup) re-inserted the rows under the same
