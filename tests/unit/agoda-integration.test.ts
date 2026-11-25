@@ -25,13 +25,34 @@ describe("Agoda row", () => {
     expect(channelStatusLine({ hasImportUrl: true, lastSyncedAt: null }, now, "ical", "Houfy")).toBe("Waiting for Houfy");
   });
 
-  it("row fact counts the rooms Agoda has gone quiet on", () => {
+  // The row and the per-room line answer the same question, so they must keep the same two states apart: a feed
+  // Agoda has never read is waiting, not quiet. Oracle: `channelStatusParts`' own wording, pinned in the case above
+  // ("Agoda has not fetched PropLane yet" vs "Not pulling"), and docs/agents/integrations.md's truthful status.
+  // Wrong behaviour this rejects: the row telling a manager who pasted their links a minute ago that Agoda stopped
+  // polling - "Connected · 2 of 28 rooms · 2 not pulling" before Agoda has had any chance to poll.
+  it("row fact separates the rooms Agoda has gone quiet on from the ones it has never read", () => {
     const rooms = [
       { lastSyncedAt: null, exportLastFetchedAt: hoursAgo(1) },
       { lastSyncedAt: null, exportLastFetchedAt: hoursAgo(40) },
       { lastSyncedAt: null, exportLastFetchedAt: null },
     ];
-    expect(agodaRowFact({ rooms, total: 28, now: now.getTime() })).toBe("Connected · 3 of 28 rooms · Agoda last fetched 1 h ago · 2 not pulling");
+    expect(agodaRowFact({ rooms, total: 28, now: now.getTime() })).toBe(
+      "Connected · 3 of 28 rooms · Agoda last fetched 1 h ago · 1 not pulling · 1 not fetched yet",
+    );
+
+    // Freshly pasted links: nothing has been fetched, so nothing has gone quiet and there is no "last fetched".
+    const fresh = [
+      { lastSyncedAt: null, exportLastFetchedAt: null },
+      { lastSyncedAt: null, exportLastFetchedAt: null },
+    ];
+    expect(agodaRowFact({ rooms: fresh, total: 28, now: now.getTime() })).toBe(
+      "Connected · 2 of 28 rooms · 2 not fetched yet",
+    );
+
+    // Every room pulling: no trailing clause at all.
+    expect(
+      agodaRowFact({ rooms: [{ lastSyncedAt: null, exportLastFetchedAt: hoursAgo(2) }], total: 1, now: now.getTime() }),
+    ).toBe("Connected · 1 of 1 room · Agoda last fetched 2 h ago");
     expect(agodaRowFact({ rooms: [], total: 28 })).toBe("");
   });
 });
