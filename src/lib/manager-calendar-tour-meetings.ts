@@ -20,6 +20,7 @@ import {
   startOfWeekMonday,
   toLocalDateStr,
 } from "@/lib/demo-admin-scheduling";
+import { plannedTourRowId, tourInquiryRowId } from "@/lib/portal-detail-routes";
 
 function addDays(d: Date, n: number): Date {
   const x = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0, 0);
@@ -121,7 +122,7 @@ export function buildScheduledTourMeetings(
             event.managerUserId !== scheduledTourFilter?.viewerUserId;
           const hostPeer = scheduledTourFilter?.peers.find((peer) => peer.userId === event.managerUserId);
           return {
-            id: `planned-${event.id}`,
+            id: plannedTourRowId(event.id),
             source: "planned",
             sourceId: event.id,
             startIso: event.start,
@@ -169,7 +170,7 @@ export function buildScheduledTourMeetings(
           }
           const durationMinutes = durationMinutesBetweenIso(window.start, window.end);
           return {
-            id: `inquiry-${row.id}-${index}`,
+            id: tourInquiryRowId(row.id, index),
             source: "inquiry",
             sourceId: row.id,
             startIso: window.start,

@@ -215,6 +215,19 @@ describe("the receipt and the overlay read the same fees", () => {
     expect(std.monthlyFees.map((f) => f.label)).not.toContain("Custom lease surcharge");
   });
 
+  /*
+   * Oracle: the manager's own $150 preset in the unified Fees table, which is the one amount owed per month on a
+   * month-to-month start. Plausible wrong behaviour this rejects: quoting it twice - once folded into the rent
+   * figure and once as a "Month-to-month surcharge" line - so the receipt reads $300/month.
+   */
+  it("quotes a listing-level month-to-month surcharge exactly once", () => {
+    const sub = listing({}, { monthToMonthSurcharge: "150" });
+    const std = buildListingQuote(sub, { roomId: "room-7", leaseTerm: "Long-term", arrangementCount: 1 });
+    const m2m = buildListingQuote(sub, { roomId: "room-7", leaseTerm: "Long-term", arrangementCount: 1, startKind: "m2m" });
+    expect(m2m.monthlyRent - std.monthlyRent).toBe(150);
+    expect(m2m.monthlyFees.filter((f) => f.label.startsWith("Month-to-month"))).toEqual([]);
+  });
+
   it("the overlay hands the room's surcharges and Lease fee to everything that reads the listing", () => {
     const out = submissionWithRoomTermFees(priced, priced.rooms[0], { leaseTerm: "Long-term" });
     expect(out.monthToMonthSurcharge).toBe("25");

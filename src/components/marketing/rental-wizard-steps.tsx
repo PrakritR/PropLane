@@ -964,8 +964,8 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
     const rooms = allRooms.filter(
       (o) => availableRooms.some((a) => a.value === o.value) || chosenRoomValues.has(o.value),
     );
-    // The listing's own availability decides which rooms are offered, so a refused read offers none and says so
-    // rather than letting the applicant pick a room nobody checked.
+    // The picker always stands: with no occupancy read landed the rooms carry the listing's own dates, and the
+    // live check at Continue is what refuses an unavailable pick.
     const roomAvailabilityUnknown = Boolean(form.propertyId) && listingRoomAvailabilityUnknown(form.propertyId);
     const firstChoiceRooms = firstChoiceRoomOptions(form.propertyId, {
       includeUnnamed: true,
@@ -1172,15 +1172,6 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
         <div className="space-y-2">
           <Label required={roomQuestion?.required}>{roomQuestion?.label ?? "Room"}</Label>
           <div data-wizard-field="roomChoice1">
-            {roomAvailabilityUnknown ? (
-              <p
-                role="status"
-                data-attr="apply-room-availability-unknown"
-                className="rounded-xl border px-4 py-3 text-sm portal-banner-pending"
-              >
-                {APPLY_ROOM_AVAILABILITY_UNKNOWN}
-              </p>
-            ) : (
             <Select
               aria-label="Room"
               value={form.roomChoice1}
@@ -1204,7 +1195,11 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
                 </option>
               ))}
             </Select>
-            )}
+            {roomAvailabilityUnknown ? (
+              <p role="status" data-attr="apply-room-availability-unknown" className="mt-1 text-sm text-muted-foreground">
+                {APPLY_ROOM_AVAILABILITY_UNKNOWN}
+              </p>
+            ) : null}
             <FieldError msg={errors.roomChoice1} />
           </div>
         </div>

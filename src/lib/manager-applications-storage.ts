@@ -551,7 +551,6 @@ function persistManagerApplicationsToSession(rows: DemoApplicantRow[], scopeUser
 }
 
 function emit() {
-  clearPublicRoomOccupancy();
   publicApprovedApplicationsLastSyncedAt = 0;
   if (!canUseStorage()) return;
   window.dispatchEvent(new Event(MANAGER_APPLICATIONS_EVENT));

@@ -18,9 +18,7 @@ import {
   bookingRecordHref,
   managerTaskDetailHref,
   managerTourDetailHref,
-  plannedTourRowId,
   serviceRequestDetailHref,
-  tourInquiryRowId,
   workOrderDetailHref,
   type ManagerTaskListTabId,
   type ManagerTourBucketId,
@@ -91,9 +89,8 @@ export function meetingRecordTarget(
 
   if (meeting.kind === "tour" || meeting.kind === "partner") {
     if (meeting.source === "external" || !meeting.sourceId) return null;
-    // A meeting carries the SOURCE id (planned event / inquiry); the Tours list resolves its detail by row id.
-    const id = meeting.source === "inquiry" ? tourInquiryRowId(meeting.sourceId, 0) : plannedTourRowId(meeting.sourceId);
-    return { kind: "tour", id, bucket: calendarTourBucket(meeting, nowMs) };
+    // A scheduled tour meeting IS one Tours row - its id is that row's id, window and all.
+    return { kind: "tour", id: meeting.id, bucket: calendarTourBucket(meeting, nowMs) };
   }
 
   if (meeting.kind === "service") {
