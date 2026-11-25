@@ -11,7 +11,7 @@
  * (`resident-tour-panel-load-failure.test.tsx`): a failed read is rendered as a
  * failed read, with a way to retry.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { MockProperty } from "@/data/types";
 import {
@@ -43,6 +43,7 @@ vi.mock("@/lib/supabase/browser", () => ({
 }));
 
 import { TourScheduleFlow } from "@/components/marketing/tour-schedule-flow";
+import { invalidateSharedGets } from "@/lib/shared-get-cache";
 
 afterEach(() => {
   cleanup();
@@ -115,6 +116,9 @@ const ROOMS_PROPERTY: MockProperty = (() => {
 // answers 503 on a loader error and 429 on the shared-NAT rate limit. Wrong behaviour this rejects: offering -
 // and letting a prospect book a tour for - a room whose only unavailability lives in that unread occupancy.
 describe("a failed room-occupancy read offers no room rather than every room", () => {
+  // `sharedGet` keeps a settled answer per URL, so each case reads the occupancy route for itself.
+  beforeEach(() => invalidateSharedGets("/api/public/approved-room-occupancy"));
+
   it("drops the room dropdown and says the check failed; a known read still offers the rooms", async () => {
     stubAvailability([{ ok: true, status: 200, body: { slotHosts: {} } }], { ok: false, status: 503 });
     render(<TourScheduleFlow property={ROOMS_PROPERTY} returnAfterAuth="/rent" onSuccess={() => {}} />);
@@ -125,6 +129,7 @@ describe("a failed room-occupancy read offers no room rather than every room", (
     expect(screen.queryByLabelText("Room")).toBeNull();
 
     cleanup();
+    invalidateSharedGets("/api/public/approved-room-occupancy");
     stubAvailability([{ ok: true, status: 200, body: { slotHosts: {} } }], { ok: true, status: 200 });
     render(<TourScheduleFlow property={ROOMS_PROPERTY} returnAfterAuth="/rent" onSuccess={() => {}} />);
 
@@ -132,6 +137,21 @@ describe("a failed room-occupancy read offers no room rather than every room", (
       expect(screen.getByLabelText("Room")).toBeTruthy();
     });
     expect(screen.queryByText(/Couldn't check room availability/i)).toBeNull();
+  });
+
+  // A home with no rooms to choose between never draws the dropdown, so a refused read withholds nothing there
+  // and must say nothing: the request was always for the home. Wrong behaviour this rejects: telling a prospect
+  // on an entire-home listing that a room check failed.
+  it("says nothing on a listing that has no room choice to withhold", async () => {
+    invalidateSharedGets("/api/public/approved-room-occupancy");
+    stubAvailability([{ ok: true, status: 200, body: { slotHosts: {} } }], { ok: false, status: 503 });
+    render(<TourScheduleFlow property={PROPERTY} returnAfterAuth="/rent" onSuccess={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: REQUEST_DAY }).length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText(/Couldn't check room availability/i)).toBeNull();
+    expect(screen.queryByLabelText("Room")).toBeNull();
   });
 });
 

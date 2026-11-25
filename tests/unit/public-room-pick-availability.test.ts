@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  applicableRooms,
-  publicRoomPick,
-  publicRoomPickFromRows,
-  tourableRooms,
-} from "@/lib/public-room-pick-availability";
+import { publicRoomPick, publicRoomPickFromRows } from "@/lib/public-room-pick-availability";
 import { prospectContactMayPrefill } from "@/lib/prospect-contact-prefill";
 import { roomAvailabilityDisplay } from "@/lib/public-listing-available-count";
 import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
@@ -88,24 +83,7 @@ describe("publicRoomPick", () => {
   });
 });
 
-describe("tourableRooms / applicableRooms", () => {
-  it("lists only rooms the listing shows as open, in the given order", () => {
-    expect(tourableRooms(rooms, occupancy, HOUSE, TODAY).map((e) => e.room.id)).toEqual(["r4", "r7"]);
-  });
-
-  it("applicable keeps a far dated opening but drops rooms held past the 60-day window (r5 reads Leased until) and closed rooms", () => {
-    expect(applicableRooms(rooms, occupancy, HOUSE, TODAY).map((e) => e.room.id)).toEqual(["r4", "r7", "r8"]);
-  });
-
-  it("each entry carries the listing's label", () => {
-    const [first] = tourableRooms(rooms, occupancy, HOUSE, TODAY);
-    expect(first?.pick.label).toMatch(/^Opens /);
-  });
-
-  it("a house whose rooms are all leased lists none", () => {
-    expect(tourableRooms([rooms[2]], occupancy, HOUSE, TODAY)).toEqual([]);
-  });
-
+describe("one house's spans only", () => {
   it("never reads another house's spans for the same room id", () => {
     const rows: PublicRoomOccupancy[] = [
       ...occupancy,

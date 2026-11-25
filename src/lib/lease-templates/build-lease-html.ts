@@ -701,7 +701,12 @@ export function buildLeaseHtml(ctxIn: LeaseGenerationContext, config: LeaseJuris
   // same resolver the ledger reads, so a fee prorated here is a fee the ledger prorates.
   const separatelyBilledMonthlyFees = filterFeeLinesForResidentSlot(
     subNorm && !propertyTemplatePreview
-      ? monthlyFeesBilledSeparately(subNorm, list, leaseFeeBillingContext, roomStartSurchargeRow(subNorm, specificRoom))
+      ? monthlyFeesBilledSeparately(
+          subNorm,
+          list,
+          leaseFeeBillingContext,
+          leasedBundle ? undefined : roomStartSurchargeRow(subNorm, specificRoom),
+        )
       : [],
     subNorm,
     a.residentSlot,

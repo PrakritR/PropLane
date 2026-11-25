@@ -429,7 +429,14 @@ export function buildLeaseBillingSnapshot(
     rentalType: applicant.application?.rentalType,
   };
   const separatelyBilledFees = filterFeeLinesForResidentSlot(
-    !isShortTerm && sub ? monthlyFeesBilledSeparately(sub, listing, feeBillingCtx, roomStartSurchargeRow(sub, selectedRoom)) : [],
+    !isShortTerm && sub
+      ? monthlyFeesBilledSeparately(
+          sub,
+          listing,
+          feeBillingCtx,
+          applicant.application?.bundleId?.trim() ? undefined : roomStartSurchargeRow(sub, selectedRoom),
+        )
+      : [],
     sub,
     residentSlot,
   );

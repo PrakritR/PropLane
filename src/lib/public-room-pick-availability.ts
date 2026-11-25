@@ -75,27 +75,3 @@ export function publicRoomPickFromRows(
 ): PublicRoomPick {
   return publicRoomPick(room, findPublicRoomOccupancy(rows, propertyId, room.id)?.spans ?? [], today);
 }
-
-/** The rooms a prospect can tour, in their given order, each with the listing's availability wording. */
-export function tourableRooms<T extends PickRoom>(
-  rooms: readonly T[],
-  rows: readonly PublicRoomOccupancy[],
-  propertyId: string,
-  today: string,
-): { room: T; pick: PublicRoomPick }[] {
-  return rooms
-    .map((room) => ({ room, pick: publicRoomPickFromRows(room, rows, propertyId, today) }))
-    .filter((entry) => entry.pick.tourable);
-}
-
-/** The rooms a renter can apply for, in their given order, each with the listing's availability wording. */
-export function applicableRooms<T extends PickRoom>(
-  rooms: readonly T[],
-  rows: readonly PublicRoomOccupancy[],
-  propertyId: string,
-  today: string,
-): { room: T; pick: PublicRoomPick }[] {
-  return rooms
-    .map((room) => ({ room, pick: publicRoomPickFromRows(room, rows, propertyId, today) }))
-    .filter((entry) => entry.pick.applicable);
-}

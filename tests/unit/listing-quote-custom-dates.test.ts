@@ -114,11 +114,19 @@ function surchargeCharges(email: string) {
  * approval runs. A Jan 15 start is 17 of 31 days, so the monthly amount lands prorated on the same day count the
  * quote prints.
  */
-function billedFirstMonthSurcharge(sub: ManagerListingSubmissionV1, email: string): number | undefined {
+function billedFirstMonthSurcharge(
+  sub: ManagerListingSubmissionV1,
+  email: string,
+  over: { bundleId?: string } = {},
+): number | undefined {
   const propertyId = `prop-${email.split("@")[0]}`;
   removeResidentHouseholdPaymentData(email);
   publish(propertyId, sub);
-  recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
+  const row = applicant(propertyId, email);
+  const withBundle = over.bundleId
+    ? ({ ...row, application: { ...row.application, bundleId: over.bundleId } } as typeof row)
+    : row;
+  recordApprovedApplicationCharges(withBundle, MANAGER_ID, true, { leaseExecuted: true });
   const line = surchargeCharges(email).find((charge) => charge.kind === "prorated_fee");
   return line ? Number(line.amountLabel.replace(/[^0-9.]/g, "")) : undefined;
 }
@@ -214,6 +222,34 @@ describe("the room's own custom-dates surcharge", () => {
 
     expect(billedFirstMonthSurcharge(sub, "typed-zero@example.com")).toBeUndefined();
     expect(surchargeCharges("typed-zero@example.com")).toEqual([]);
+  });
+
+  // A bundle placement has no arrangement row of its own, which `submissionWithRoomTermFees` and
+  // `resolveRoomTermFees` both already encode (`ctx.bundle ? undefined : ...`). The ledger has to read the same
+  // way: a member room's Private row is not the bundle's price. Oracle: the listing's own custom-dates row ($75),
+  // which is what the fee schedule on a bundle lease prints. Wrong behaviour this rejects: billing the $250 that
+  // one member room carries, which would disagree with the document's own schedule.
+  it("a bundle placement reads the listing's row, never a member room's", () => {
+    const base = listing("75");
+    const sub = normalizeManagerListingSubmissionV1({
+      ...base,
+      rooms: [{ ...base.rooms[0]!, occupancyPrices: [{ count: 1, customStartSurcharge: "250" }] }],
+      bundles: [
+        {
+          id: "bundle-1",
+          label: "Both rooms",
+          price: "",
+          strikethrough: "",
+          promo: "",
+          roomsLine: "",
+          includedRoomIds: ["room-1"],
+        },
+      ],
+    });
+    expect(billedFirstMonthSurcharge(sub, "bundle-lease@example.com", { bundleId: "bundle-1" })).toBeCloseTo(
+      PRORATED(75),
+      2,
+    );
   });
 
   it("falls back to the listing's own row", () => {
