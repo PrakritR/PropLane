@@ -1,8 +1,19 @@
 import "server-only";
 
-import { buildListingSlugIndex, EMPTY_LISTING_SLUG_INDEX, type ListingSlugIndex } from "@/lib/listing-slug";
+import type { MockProperty } from "@/data/types";
+import {
+  buildListingSlugIndex,
+  EMPTY_LISTING_SLUG_INDEX,
+  isMintedListingIdToken,
+  listingCanonicalSlug,
+  listingTokenOfParam,
+  resolveListingParam,
+  type ListingParamResolution,
+  type ListingSlugIndex,
+} from "@/lib/listing-slug";
 import { listingPublicPath } from "@/lib/listing-public-path";
 import { getCrawlPublicListings } from "@/lib/seo/public-catalog.server";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 /**
  * The slug index of the published public catalog: the SAME hourly read `/sitemap.xml` and `/rent/listings/*` already share
@@ -27,6 +38,52 @@ export async function getListingSlugIndex(): Promise<ListingSlugIndex> {
   } catch {
     return EMPTY_LISTING_SLUG_INDEX;
   }
+}
+
+/** The stored listing behind one minted id token, from one indexed read of the live public records. */
+async function liveListingForIdToken(token: string): Promise<{ id: string; slug: string } | null> {
+  try {
+    const { data, error } = await createSupabaseServiceRoleClient()
+      .from("manager_property_records")
+      .select("id, property_data")
+      .eq("status", "live")
+      .is("test_workspace_id", null)
+      // `listingIdToken` lower-cases the id it took the token from, so the match has to.
+      .ilike("id", `%-${token}`)
+      .limit(2);
+    // Two ids ending in one token name neither listing, exactly as `buildListingSlugIndex` drops a shared token.
+    if (error || !data || data.length !== 1) return null;
+    const row = data[0] as { id?: unknown; property_data?: unknown };
+    const id = typeof row.id === "string" ? row.id.trim() : "";
+    if (!id) return null;
+    const stored =
+      row.property_data && typeof row.property_data === "object" && !Array.isArray(row.property_data)
+        ? (row.property_data as MockProperty)
+        : null;
+    return { id, slug: listingCanonicalSlug({ ...(stored ?? {}), id, address: stored?.address ?? "" }) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The listing a `/rent/listings/<param>` segment names.
+ *
+ * The catalog index answers it for nothing when that hourly read is in hand, but a slug URL is DURABLE — texted,
+ * syndicated, shared, indexed — so it may not depend on the whole catalog being readable (or on the listing being
+ * inside the rows that read returned). When the index cannot answer and the param carries a minted id token, one
+ * indexed read of the live public records resolves that token on its own; a token no single live listing owns
+ * leaves the param alone, which is the id form that resolved before slugs existed.
+ */
+export async function resolvePublicListingParam(param: string): Promise<ListingParamResolution> {
+  const index = await getListingSlugIndex();
+  const resolution = resolveListingParam(index, param);
+  if (resolution.kind !== "id") return resolution;
+  const token = listingTokenOfParam(param);
+  if (!isMintedListingIdToken(token)) return resolution;
+  const hit = await liveListingForIdToken(token);
+  if (!hit) return resolution;
+  return hit.slug === param.trim() ? { kind: "slug", id: hit.id } : { kind: "stale", slug: hit.slug, id: hit.id };
 }
 
 /** The public URL of one listing, readable when it has a slug, the id URL otherwise. Never throws. */

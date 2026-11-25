@@ -57,6 +57,16 @@ export function listingSlugFor(listing: SlugListing): string | null {
 }
 
 /**
+ * True when a segment is the random token an id minted by the app ends in (`7mdlyj0h2vfg`): long enough to be
+ * unique, letters and digits only, and both present. The one shape `listingIdToken` takes as is, so the one shape
+ * a slug's trailing segment can be matched back to an id by.
+ */
+export function isMintedListingIdToken(segment: string): boolean {
+  const value = segment.trim().toLowerCase();
+  return value.length >= 8 && /^[a-z0-9]+$/.test(value) && /\d/.test(value) && /[a-z]/.test(value);
+}
+
+/**
  * The stable token of a property id. Ids minted by the app end in a random token (`...-7mdlyj0h2vfg`): that token is used
  * as is. An id without one (`prop-b-0001`, a hand-made id) gets `h` plus a 64-bit FNV hash of the whole id in base36, so the
  * token is always present, URL-safe, and depends on the id alone (never on the title, the address or the rest of the catalog).
@@ -64,7 +74,7 @@ export function listingSlugFor(listing: SlugListing): string | null {
 export function listingIdToken(id: string): string {
   const clean = id.trim().toLowerCase();
   const tail = clean.split("-").pop() ?? "";
-  if (tail.length >= 8 && /^[a-z0-9]+$/.test(tail) && /\d/.test(tail) && /[a-z]/.test(tail)) return tail;
+  if (isMintedListingIdToken(tail)) return tail;
   let h1 = 0x811c9dc5;
   let h2 = 0x01000193 ^ clean.length;
   for (let i = 0; i < clean.length; i += 1) {
