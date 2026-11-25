@@ -2514,3 +2514,9 @@ Cleanup of stored rows: `20261016100000_strip_lease_application_identity.sql`.
 Resident edit Save awaits the authoritative application upsert, then stages and awaits only changed resident lease writes; a failed lease write triggers reconciliation before retry. These writes are not one transaction.
 
 New application approvals require a loaded, owner-scoped property and resolvable placement; a negotiated rent must be confirmed before billing, resident access, notifications, or automation run. Guards: `src/lib/application-approval-placement.server.ts`, `src/lib/application-review.ts`.
+
+## Managed staff resident creation and lease sends
+
+`resolveManagedApplicationOwner` derives the application owner from the active managed workspace and checks every referenced house plus the staff edit grant. Staff (including admin accounts) never choose that owner in a body. Onboarding, lease stubs and welcome setup tokens use that resolved owner; managed welcome recipients come from the persisted resident. Public listing projections carry enough room identifiers for the client placement check; the server still checks the owner-scoped full property before approval.
+
+Lease-send validation normalizes the persisted resident with `syncSignedRentFields`, the same rent normalization the browser uses, before comparing terms. A manager-added resident may store rent in `signedMonthlyRent`; this must not produce a false rent mismatch. Actual differences still refuse the send. Quick Add defers document generation when Add the lease later is selected, and draft PDF filing reports reading/confirmation persistence failures before sending. Coverage: `managed-application-owner`, `managed-resident-welcome`, `resident-wizard-lease-filing`, `lease-pipeline-route-signed-document` unit suites.

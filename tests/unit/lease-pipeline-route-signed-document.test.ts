@@ -959,14 +959,14 @@ describe("POST /api/portal-lease-pipeline: signed documents are immutable server
 
   // Sendable with no application named, but it is not an imported document either: a link it DOES name is
   // still measured, so the two gates read the same one classification of the stored row.
-  it("measures the terms of a legacy lease that names an application", async () => {
+  it.each([false, true])("measures a linked lease's terms (rent stored only on resident=%s)", async (manualRent) => {
     const applicationId = "application_legacy_1";
     state.applications = [{
       id: applicationId,
       manager_user_id: state.user!.id,
       resident_email: "jordan.lee@example.com",
       property_id: "property_legacy_1",
-      row_data: { application: { leaseStart: "2026-12-01", leaseEnd: "2027-11-30", managerRentOverride: "1800", managerSecurityDepositOverride: "0" } },
+      row_data: { ...(manualRent ? { signedMonthlyRent: 1800 } : {}), application: { leaseStart: "2026-12-01", leaseEnd: "2027-11-30", managerRentOverride: manualRent ? undefined : "1800", managerSecurityDepositOverride: "0" } },
     }];
     const legacy = executedRow({
       bucket: "manager",
@@ -994,6 +994,8 @@ describe("POST /api/portal-lease-pipeline: signed documents are immutable server
     });
     expect(tampered.status).toBe(409);
     expect(((await tampered.json()) as Row).blocked).toBe("terms-differ");
+    const correct = await post({ action: "upsert", row: { ...legacy, status: "Resident Signature Pending", bucket: "resident", sentToResidentAt: "2026-09-24T01:00:00.000Z" } });
+    expect(correct.status).toBe(200);
   });
 
   it("refuses a PropLane-generated send that is linked to no application (terms-unlinked)", async () => {

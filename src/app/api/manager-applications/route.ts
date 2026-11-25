@@ -1,3 +1,4 @@
+import { resolveManagedApplicationOwner } from "@/lib/auth/managed-application-owner.server";
 import { freezeSignedTermsForApplication } from "@/lib/rental-application/freeze-signed-terms.server";
 import { approvalPlacementServerBlocker } from "@/lib/application-approval-placement.server";
 import { shortStayApprovalBlocker } from "@/lib/short-stay-pricing-gate.server";
@@ -432,7 +433,8 @@ function anchorServerOwnedWithdrawal(
  * allowed. A role-only gate previously trusted the client-supplied
  * `managerUserId`, letting any manager persist rows under another manager's id
  * (cross-tenant write hole) and letting a read-only co-manager edit an owner's
- * applications/residents. Rules (non-admin):
+ * applications/residents. Managed staff (including admins) always use the active workspace owner.
+ * Other non-admin rules:
  *  - New row or the caller's own row → forced to the caller (ignore any forged id).
  *  - A FOREIGN existing row (owned by a linked owner) → writable only with the
  *    applications OR residents EDIT grant on the row's property; owner preserved.
@@ -487,7 +489,7 @@ async function resolveApplicationWriteOwner(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   callerId: string,
   row: DemoApplicantRow,
-  prefetched?: { record: StoredApplicationRecord | null },
+  prefetched?: { record: StoredApplicationRecord | null; admin?: boolean },
 ): Promise<{ ok: boolean; owner: string | null }> {
   const ids = idVariants(String(row.id ?? ""));
   // Use .in() (parameterized) rather than interpolating the client-controlled id
@@ -507,6 +509,18 @@ async function resolveApplicationWriteOwner(
     existing = (existingRows?.[0] as StoredApplicationRecord | undefined) ?? null;
   }
   const existingOwner = existing?.manager_user_id ? String(existing.manager_user_id) : null;
+  const managed = await resolveManagedApplicationOwner(db, callerId, new Set([
+    ...applicationReferencedPropertyIds(row),
+    ...applicationReferencedPropertyIds({
+      ...(existing?.row_data ?? {}),
+      propertyId: existing?.property_id ?? undefined,
+      assignedPropertyId: existing?.assigned_property_id ?? undefined,
+    } as DemoApplicantRow),
+  ]), existingOwner);
+  if (managed) return managed;
+  // Preserve the existing oversight behavior outside managed staff mode; a
+  // missing owner must stay missing so pricing checks refuse it.
+  if (prefetched?.admin) return { ok: true, owner: row.managerUserId ?? null };
 
   const canEditProperty = async (pid: string): Promise<boolean> =>
     Boolean(pid) &&
@@ -1079,12 +1093,12 @@ export async function POST(req: Request) {
       let stayPricingError: string | null = null;
       for (const row of rows) {
         // Attribute each row to its correct owner and enforce edit access on
-        // foreign (linked-owner) rows. Admins keep the client-supplied owner.
+        // foreign (linked-owner) rows. Managed staff never supply their own owner.
         const stored = storedRecordForRow(storedBatch.byId, row);
-        if (!replaceAdmin) {
-          const gate = await resolveApplicationWriteOwner(db, user.id, row, { record: stored });
+        {
+          const gate = await resolveApplicationWriteOwner(db, user.id, row, { record: stored, admin: replaceAdmin });
           if (!gate.ok) continue;
-          row.managerUserId = gate.owner ?? user.id;
+          if (gate.owner) row.managerUserId = gate.owner;
         }
         const guarded = anchorServerOwnedWithdrawal(row, stored);
         if (guarded.blockedApproval) {
@@ -1555,15 +1569,15 @@ export async function POST(req: Request) {
       if (storedLoad.error) {
         return NextResponse.json({ error: "Could not load the existing application." }, { status: 500 });
       }
-      if (!(await isAdminUser(user.id))) {
-        const gate = await resolveApplicationWriteOwner(db, user.id, row, { record: storedLoad.record });
+      {
+        const gate = await resolveApplicationWriteOwner(db, user.id, row, { record: storedLoad.record, admin: await isAdminUser(user.id) });
         if (!gate.ok) {
           return NextResponse.json(
             { error: "You do not have edit access to this property's applications." },
             { status: 403 },
           );
         }
-        row.managerUserId = gate.owner ?? user.id;
+        if (gate.owner) row.managerUserId = gate.owner;
       }
       authorizedWriteRecord = storedLoad.record;
       const guarded = anchorServerOwnedWithdrawal(row, storedLoad.record);
@@ -1650,7 +1664,7 @@ export async function POST(req: Request) {
       const onboarding = await runExistingResidentOnboarding(
         db,
         {
-          userId: user.id,
+          userId: row.managerUserId ?? user.id,
           email: user.email ?? null,
           managerName: String(profile?.full_name ?? ""),
         },
@@ -1671,6 +1685,7 @@ export async function POST(req: Request) {
       return NextResponse.json({
         ok: true,
         residentAccess: "invitation_required",
+        row: onboarding.row,
         existingResidentOnboarding: {
           leaseId: onboarding.leaseId,
           welcomeEmailSent: onboarding.welcomeEmailSent,

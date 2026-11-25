@@ -1,5 +1,7 @@
 import { shortStayPricingBlocker } from "@/lib/short-stay-pricing-gate";
 import { leaseTermsDriftFromApplication } from "@/lib/lease-terms-drift";
+import { syncSignedRentFields } from "@/lib/manager-applications-storage";
+import type { DemoApplicantRow } from "@/data/demo-portal";
 import { loadShortStayPricingSubmission } from "@/lib/short-stay-pricing-gate.server";
 import { residentNoticeChannel } from "@/lib/resident-notice-channel.server";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
@@ -1436,7 +1438,8 @@ export async function POST(req: Request) {
           .eq("manager_user_id", termsOwner)
           .limit(1);
         if (appError) return termsUnreadable;
-        const appRow = ((appRecords ?? [])[0]?.row_data ?? null) as { application?: Record<string, string | undefined> } | null;
+        const storedApplication = ((appRecords ?? [])[0]?.row_data ?? null) as DemoApplicantRow | null;
+        const appRow = storedApplication ? syncSignedRentFields(storedApplication) : null;
         if (!appRow) return termsUnreadable;
         const drift = leaseTermsDriftFromApplication(nextRow.application, appRow.application);
         if (drift.length > 0) {

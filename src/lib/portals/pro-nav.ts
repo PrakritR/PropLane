@@ -20,6 +20,7 @@ import type { PortalDefinition } from "@/lib/portal-types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { proPortal } from "./pro";
 import { cache } from "react";
+import { loadServiceStaffScope } from "@/lib/service/service-mode.server";
 
 export const getProPortalRenderContext = cache(async () => {
   const ctx = await getPortalAccessContext();
@@ -50,7 +51,10 @@ export const getProPortalRenderContext = cache(async () => {
   const effectiveUserId = await getEffectiveUserIdForPortal("manager");
   if (!effectiveUserId) redirect("/admin/dashboard");
 
-  const subscriptionTier = await getManagerPortalNavSubscriptionTier(effectiveUserId);
+  // The section renderer consumes this context too. The layout's paid rail alone
+  // cannot unlock a managed-workspace page for staff with a free personal plan.
+  const serviceScope = await loadServiceStaffScope(createSupabaseServiceRoleClient(), effectiveUserId);
+  const subscriptionTier = serviceScope ? "paid" : await getManagerPortalNavSubscriptionTier(effectiveUserId);
   // Read the display snapshot after authoritative provider reconciliation. The
   // request-scoped purchase cache must not be primed with a stale row first.
   const purchase = await getManagerPurchaseSku(effectiveUserId);

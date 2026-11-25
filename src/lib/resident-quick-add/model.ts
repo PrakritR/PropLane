@@ -345,6 +345,7 @@ export type QuickAddLeaseChoice = "none" | "signed" | "draft";
 export function quickAddFormPatch(
   r: QuickAddResident,
   lease: { choice: QuickAddLeaseChoice; file: File | null; dataUrl: string },
+  generateLease = true,
 ): Record<string, unknown> {
   const hasPdf = lease.choice !== "none" && Boolean(lease.dataUrl);
   return {
@@ -365,7 +366,7 @@ export function quickAddFormPatch(
     leaseFile: hasPdf ? lease.file : null,
     leaseDataUrl: hasPdf ? lease.dataUrl : "",
     leaseFileName: hasPdf ? (lease.file?.name ?? "lease.pdf") : "",
-    alsoCreate: ["lease", "payments"],
+    alsoCreate: hasPdf || generateLease ? ["lease", "payments"] : ["payments"],
     depositPaid: false,
     moveInFeePaid: false,
     billingStart: "move_in" as const,

@@ -16,6 +16,12 @@ const { getUser, runExistingResidentOnboarding } = vi.hoisted(() => ({
   getUser: vi.fn(),
   runExistingResidentOnboarding: vi.fn(),
 }));
+const { serviceScope, settingsAccess, managedOwner } = vi.hoisted(() => ({
+  serviceScope: vi.fn(), settingsAccess: vi.fn(), managedOwner: vi.fn(),
+}));
+vi.mock("@/lib/service/service-mode.server", () => ({ loadServiceStaffScope: serviceScope }));
+vi.mock("@/lib/scope/settings-scope", () => ({ serviceStaffSettingsAccess: settingsAccess }));
+vi.mock("@/lib/auth/managed-application-owner.server", () => ({ resolveManagedApplicationOwner: managedOwner }));
 
 /** Applications this manager actually owns, keyed by id. */
 let OWNED_APPLICATIONS: Record<string, Record<string, unknown>>;
@@ -78,6 +84,9 @@ function makeServiceClient() {
 describe("POST /api/portal/onboard-existing-resident", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    serviceScope.mockResolvedValue(null);
+    settingsAccess.mockResolvedValue({ kind: "ok", ownerUserId: "workspace-owner", fullGrant: true });
+    managedOwner.mockResolvedValue({ ok: true, owner: "workspace-owner" });
     SELECT_FILTERS = [];
     OWNED_APPLICATIONS = {
       "PROPLANE-MINE01": {
@@ -127,6 +136,28 @@ describe("POST /api/portal/onboard-existing-resident", () => {
     );
 
     expect(SELECT_FILTERS).toContainEqual(["manager_user_id", "mgr-attacker"]);
+  });
+
+  it("uses the authorized managed workspace owner for lookup and lease onboarding", async () => {
+    serviceScope.mockResolvedValue({ workspaceId: "workspace", propertyIds: ["house"] });
+    OWNED_APPLICATIONS["PROPLANE-MINE01"]!.propertyId = "house";
+    const res = await onboardExistingResident(jsonRequest("http://localhost/api/portal/onboard-existing-resident", {
+      method: "POST", body: { applicationId: "PROPLANE-MINE01", sendWelcomeEmail: false },
+    }));
+    expect(res.status).toBe(200);
+    expect(SELECT_FILTERS).toContainEqual(["manager_user_id", "workspace-owner"]);
+    expect(managedOwner).toHaveBeenCalledWith(expect.anything(), "mgr-attacker", new Set(["house"]), "workspace-owner");
+    expect(runExistingResidentOnboarding).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ userId: "workspace-owner" }), expect.anything(), expect.anything());
+  });
+
+  it("refuses managed staff who cannot edit the resident's house", async () => {
+    serviceScope.mockResolvedValue({ workspaceId: "workspace", propertyIds: [] });
+    managedOwner.mockResolvedValue({ ok: false, owner: null });
+    const res = await onboardExistingResident(jsonRequest("http://localhost/api/portal/onboard-existing-resident", {
+      method: "POST", body: { applicationId: "PROPLANE-MINE01", sendWelcomeEmail: false },
+    }));
+    expect(res.status).toBe(403);
+    expect(runExistingResidentOnboarding).not.toHaveBeenCalled();
   });
 
   it("onboards an application the caller does own", async () => {

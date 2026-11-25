@@ -83,6 +83,8 @@ describe("runExistingResidentOnboarding", () => {
     const db = mockDb();
     const row: DemoApplicantRow = {
       id: "PROPLANE-TEST02",
+      assignedRoomChoice: "house::room-2",
+      residentUserId: "11111111-2222-4333-8444-555555555555",
       name: "Jane Smith",
       email: "jane.onboard@test.proplane.local",
       property: "Ballard House",
@@ -109,8 +111,10 @@ describe("runExistingResidentOnboarding", () => {
     expect(result.welcomeEmailSent).toBe(true);
     expect(db._upsert).toHaveBeenCalled();
     expect(deliverExistingResidentWelcome).toHaveBeenCalled();
-    const upsertPayload = db._upsert.mock.calls[0]?.[0] as { row_data?: { bucket?: string } };
+    const upsertPayload = db._upsert.mock.calls[0]?.[0] as { resident_user_id?: string; row_data?: { bucket?: string; roomChoice?: string } };
     expect(upsertPayload.row_data?.bucket).toBe("signed");
+    expect(upsertPayload.row_data?.roomChoice).toBe("house::room-2");
+    expect(upsertPayload.resident_user_id).toBe("11111111-2222-4333-8444-555555555555");
     const welcomeArgs = deliverExistingResidentWelcome.mock.calls[0]?.[2] as { axisId?: string };
     expect(welcomeArgs?.axisId).toBe("PROPLANE-TEST02");
   });

@@ -159,6 +159,14 @@ describe("quick add maps onto the one Add resident form", () => {
     expect(quickAddFormPatch(m2m.value, { choice: "none", file: null, dataUrl: "" })).toMatchObject({ leaseTerm: "Month-to-Month", leaseTermCustomMode: true, moveOutDate: "" });
   });
 
+  it("Add the lease later keeps payments without generating a document", () => {
+    expect(quickAddFormPatch(value, { choice: "none", file: null, dataUrl: "" }, false))
+      .toMatchObject({ alsoCreate: ["payments"], leaseDocument: "later" });
+    const file = new File(["%PDF"], "lease.pdf", { type: "application/pdf" });
+    expect(quickAddFormPatch(value, { choice: "signed", file, dataUrl: "data:application/pdf;base64,AAAA" }, false))
+      .toMatchObject({ alsoCreate: ["lease", "payments"], leaseDocument: "signed" });
+  });
+
   it("a signed PDF files as signed; without the PDF's bytes it falls back to no filing", () => {
     const file = new File(["%PDF"], "lease.pdf", { type: "application/pdf" });
     expect(quickAddFormPatch(value, { choice: "signed", file, dataUrl: "data:application/pdf;base64,AAAA" })).toMatchObject({ leaseDocument: "signed", leaseFileName: "lease.pdf" });

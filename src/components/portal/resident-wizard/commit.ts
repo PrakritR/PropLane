@@ -42,7 +42,6 @@ import { uploadApplicationPhoto } from "@/components/marketing/application-photo
 import { createManualPlannedTourClient } from "@/lib/manual-planned-tour.client";
 import { createScheduledWorkTask, scheduledTaskTitleForTour } from "@/lib/manager-scheduled-work-tasks";
 import { compactTaskPropertyLabel } from "@/lib/manager-task-display";
-import { getPropertyById } from "@/lib/rental-application/data";
 import type { WorkAssignee } from "@/lib/work-assignment";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import type { AttachedDocument } from "@/components/portal/add-workspace/parts";
@@ -121,8 +120,10 @@ async function fileLeaseForAddResident(
   if (form.leaseDocument === "draft" && form.leaseFile) {
     const uploaded = await uploadAndParseLeasePdf(leaseId, form.leaseFile, managerUserId);
     if (!uploaded.ok) return { leaseId, error: uploaded.error ?? "The draft lease PDF could not be filed." };
+    if (uploaded.saveError) return { leaseId, error: uploaded.saveError };
     // Create is the confirmation of the uploaded lease; no separate review step.
-    await confirmUploadedLeaseOnCreate(leaseId, managerUserId);
+    const confirmed = await confirmUploadedLeaseOnCreate(leaseId, managerUserId);
+    if (!confirmed.ok) return { leaseId, error: confirmed.error ?? "The uploaded lease could not be confirmed." };
     return { leaseId };
   }
 
@@ -171,6 +172,8 @@ export async function commitResident(
   if (!persisted.ok && persisted.leaseId) {
     failures.message = persisted.error ?? "The notice could not be sent.";
   }
+  // Managed staff write on behalf of the workspace owner resolved by the server.
+  if (persisted.row?.id === row.id) row = persisted.row;
   let leaseId = persisted.leaseId ?? null;
   const welcomeEmailSent = persisted.welcomeEmailSent === true;
 

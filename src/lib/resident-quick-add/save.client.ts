@@ -81,7 +81,7 @@ export async function saveQuickAddResident(
   ctx: QuickAddSaveContext,
 ): Promise<QuickAddSaveResult> {
   const problems: string[] = [];
-  const form: AddPersonForm = { ...emptyAddPersonForm("resident"), ...(quickAddFormPatch(resident, extras.lease) as Partial<AddPersonForm>) };
+  const form: AddPersonForm = { ...emptyAddPersonForm("resident"), ...(quickAddFormPatch(resident, extras.lease, ctx.sendGeneratedLease) as Partial<AddPersonForm>) };
   const built = buildManualResidentRow(form, { userId: ctx.userId, propertyLabelFor: ctx.propertyLabelFor, idSuffix: randomSuffix });
   if (!built.ok) return { ok: false, applicationId: null, problems: [built.error], emailed: false, texted: false };
 

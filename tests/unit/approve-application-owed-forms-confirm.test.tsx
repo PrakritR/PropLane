@@ -22,8 +22,8 @@ vi.mock("@/hooks/use-manager-communication-deliver-via", () => ({
 }));
 vi.mock("@/lib/demo-property-pipeline", () => ({ syncPropertyPipelineFromServer: () => mocks.syncProperty() }));
 vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => mocks.demo }));
-vi.mock("@/lib/rental-application/data", () => ({ getPropertyById: () => ({ listingSubmission: {} }) }));
-vi.mock("@/lib/application-approval-placement", () => ({ approvalPlacementBlocker: () => null }));
+vi.mock("@/lib/rental-application/data", () => ({ getPropertyById: () => ({ publicProjection: true, listingSubmission: {} }) }));
+vi.mock("@/lib/application-approval-placement", () => ({ approvalPlacementBlocker: (_row: unknown, submission: unknown) => submission ? null : "Could not verify this property's pricing." }));
 vi.mock("@/lib/rental-application/placement-values", () => ({ resolvePlacementValuesForRow: () => ({ signedMonthlyRent: 1250, roomLabel: "" }) }));
 vi.mock("@/lib/application-approval-slots", () => ({
   applicationRoomPricesPerResident: () => mocks.sharedReady, approvalBedOptions: () => mocks.sharedReady && !mocks.noBeds ? [{ slot: 1, label: "Bed A · $1,250/mo", monthlyRent: 1250 }] : [], bedLabelForSlot: () => "Bed A",

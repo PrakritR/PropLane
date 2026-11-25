@@ -11,6 +11,10 @@ import {
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
+import { loadServiceStaffScope } from "@/lib/service/service-mode.server";
+import { serviceStaffSettingsAccess } from "@/lib/scope/settings-scope";
+import { resolveManagedApplicationOwner } from "@/lib/auth/managed-application-owner.server";
+import { proplaneIdLookupVariants } from "@/lib/manager-id";
 
 export const runtime = "nodejs";
 
@@ -36,8 +40,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
     }
 
-    const to = normalizeEmail(body.to);
-    const residentName = typeof body.residentName === "string" ? body.residentName.trim() : "";
+    let to = normalizeEmail(body.to);
+    let residentName = typeof body.residentName === "string" ? body.residentName.trim() : "";
     const axisId = typeof body.axisId === "string" ? body.axisId.trim() : "";
     const note = typeof body.note === "string" ? body.note : "";
 
@@ -73,9 +77,28 @@ export async function POST(req: Request) {
       return NextResponse.json(communicationRefusalBody(communication), { status: communication.status });
     }
 
+    let ownerId = user.id;
+    const scope = await loadServiceStaffScope(svc, user.id);
+    if (scope) {
+      const access = await serviceStaffSettingsAccess(svc, user.id, scope.workspaceId, "read");
+      if (access.kind !== "ok") return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      const { data, error } = await svc.from("manager_application_records")
+        .select("id, manager_user_id, property_id, assigned_property_id, resident_email, row_data")
+        .in("id", proplaneIdLookupVariants(axisId)).eq("manager_user_id", access.ownerUserId).limit(1);
+      const record = data?.[0];
+      if (error || !record) return NextResponse.json({ error: "Resident record not found." }, { status: 404 });
+      const propertyIds = new Set([record.property_id, record.assigned_property_id]
+        .filter((id): id is string => typeof id === "string" && Boolean(id.trim())));
+      const authorized = await resolveManagedApplicationOwner(svc, user.id, propertyIds, record.manager_user_id);
+      if (!authorized?.ok || authorized.owner !== access.ownerUserId) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      ownerId = authorized.owner;
+      to = normalizeEmail(record.resident_email);
+      residentName = String(record.row_data?.name ?? "").trim();
+      if (!RESIDENT_WELCOME_EMAIL_RE.test(to)) return NextResponse.json({ error: "A valid resident email is required on the record." }, { status: 400 });
+    }
     const result = await deliverResidentWelcome(
       svc,
-      { userId: user.id, email: user.email ?? null },
+      { userId: ownerId, email: user.email ?? null },
       { to, residentName: residentName || undefined, axisId, note: note || undefined },
     );
 

@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 import { buildLeaseBillingSnapshot } from "@/lib/lease-billing-snapshot";
 import { leaseSendSchedule, leaseSendTermsFor } from "@/lib/lease-send-terms";
 import { leaseTermsDriftFromApplication } from "@/lib/lease-terms-drift";
-import type { DemoApplicantRow } from "@/lib/manager-applications-storage";
+import { syncSignedRentFields } from "@/lib/manager-applications-storage";
+import type { DemoApplicantRow } from "@/data/demo-portal";
 
 const MANAGER = "mgr-terms-schedule";
 
@@ -37,5 +38,12 @@ describe("Send lease: the terms card and the Payments schedule read the same fig
   it("the server-side drift check compares the stored inputs, so a correct send is not refused", () => {
     // Neither the application nor the lease carries a deposit override: equal, no 409.
     expect(leaseTermsDriftFromApplication(manual.application, manual.application)).toEqual([]);
+  });
+
+  it("accepts a manager-added resident whose canonical rent is stored outside the application", () => {
+    const stored = { ...manual, application: { ...manual.application, managerRentOverride: undefined } } as DemoApplicantRow;
+    const canonical = syncSignedRentFields(stored);
+    expect(leaseTermsDriftFromApplication(manual.application, canonical.application)).toEqual([]);
+    expect(leaseTermsDriftFromApplication({ ...manual.application, managerRentOverride: "900" }, canonical.application)).toEqual(["rent"]);
   });
 });

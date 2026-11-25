@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
+import { publicListingProjection } from "@/lib/public-listings.server";
 import { approvalPlacementBlocker } from "@/lib/application-approval-placement";
 import { approvalPlacementServerBlocker } from "@/lib/application-approval-placement.server";
 
@@ -16,6 +17,11 @@ function db(data: unknown, error: unknown = null) {
 describe("approval property readiness", () => {
   it("allows a resolved room with explicitly zero rent", () => {
     expect(approvalPlacementBlocker(placed, listing)).toBeNull();
+  });
+  it("can verify room placement from the public projection without exposing private lease templates", () => {
+    const projection = publicListingProjection({ id: "p", listingSubmission: listing } as never);
+    expect(projection.publicProjection).toBe(true);
+    expect(approvalPlacementBlocker(placed, projection.listingSubmission)).toBeNull();
   });
   it("refuses absent listing or an unknown room", () => {
     expect(approvalPlacementBlocker(placed, null)).toMatch(/verify/);

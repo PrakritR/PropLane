@@ -10,14 +10,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
+vi.mock("@/lib/service/service-mode.server", () => ({ loadServiceStaffScope: async () => MANAGED ? { workspaceId: "managed-workspace", propertyIds: [VICTIM_HOUSE] } : null }));
+vi.mock("@/lib/scope/settings-scope", () => ({ serviceStaffSettingsAccess: async () => ({ kind: "ok", ownerUserId: "mgr-victim", fullGrant: true }) }));
 const getUser = vi.fn();
-let PROPERTIES: { id: string; manager_user_id: string }[];
+const { onboard } = vi.hoisted(() => ({ onboard: vi.fn() }));
+vi.mock("@/lib/existing-resident-onboarding.server", () => ({ runExistingResidentOnboarding: onboard }));
+let PROPERTIES: { id: string; manager_user_id: string; workspace_id?: string }[];
 let UPSERTS: { id: string; manager_user_id: string | null }[];
 let EDIT_GRANTS: Record<string, string[]>;
 let ROLE = "manager";
+let MANAGED = false;
+let ADMIN = false;
 let STORED: Record<string, unknown>[] = [];
 
-vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: vi.fn(async () => false) }));
+vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: vi.fn(async () => ADMIN) }));
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({
   linkedPropertyIdsForModule: vi.fn(async () => new Set<string>()),
   linkedOwnerForProperty: vi.fn(async (_db: unknown, userId: string, propertyId: string) => (EDIT_GRANTS[userId] ?? []).includes(propertyId) ? "mgr-victim" : null),
@@ -38,6 +44,7 @@ function makeDb() {
     storage: { from: () => ({ list: async () => ({ data: [], error: null }), remove: async () => ({ error: null }) }) },
     from(table: string) {
       const filters: Record<string, string> = {};
+      let ids: string[] | null = null;
       const builder: Record<string, unknown> = {
         select: () => builder,
         insert(values: { id: string; manager_user_id: string | null }) {
@@ -52,7 +59,7 @@ function makeDb() {
           return Promise.resolve({ error: null });
         },
         eq: (column: string, value: string) => { filters[column] = value; return builder; },
-        in: () => builder,
+        in: (column: string, values: string[]) => { if (column === "id") ids = values; return builder; },
         is: () => builder,
         neq: () => builder,
         ilike: () => builder,
@@ -70,7 +77,7 @@ function makeDb() {
         },
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
           if (table === "profile_roles") return Promise.resolve({ data: ROLE ? [{ role: ROLE }] : [], error: null }).then(resolve);
-          return Promise.resolve({ data: table === "manager_property_records" ? PROPERTIES : table === "manager_application_records" ? STORED : [], error: null }).then(resolve);
+          return Promise.resolve({ data: table === "manager_property_records" ? PROPERTIES.filter(p => !ids || ids.includes(p.id)) : table === "manager_application_records" ? STORED : [], error: null }).then(resolve);
         },
       };
       return builder;
@@ -98,13 +105,13 @@ function approved(extra: Record<string, unknown> = {}): DemoApplicantRow {
   } as unknown as DemoApplicantRow;
 }
 
-async function upsert(row: DemoApplicantRow) {
+async function upsert(row: DemoApplicantRow, onboarding = false) {
   const { POST } = await import("@/app/api/manager-applications/route");
   const res = await POST(
     new Request("http://localhost/api/manager-applications", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "upsert", row }),
+      body: JSON.stringify({ action: "upsert", row, ...(onboarding ? { existingResidentOnboarding: { sendWelcomeEmail: false } } : {}) }),
     }),
   );
   return res.status;
@@ -115,6 +122,9 @@ beforeEach(() => {
   UPSERTS = [];
   EDIT_GRANTS = {};
   ROLE = "manager";
+  MANAGED = false;
+  ADMIN = false;
+  onboard.mockReset().mockImplementation(async (_db, _actor, row) => ({ ok: true, leaseId: "lease-1", welcomeEmailSent: false, axisId: row.id, row }));
   STORED = [];
   PROPERTIES = [
     { id: OWN_HOUSE, manager_user_id: ATTACKER },
@@ -181,6 +191,32 @@ describe("an applicant's own write cannot become a resident slot", () => {
     ROLE = "resident";
     const row = approved({ email: "mgr@test.local", assignedRoomChoice: `${VICTIM_HOUSE}::room-1`, assignedPropertyId: VICTIM_HOUSE });
     expect(await upsert(row)).toBe(403);
+    expect(UPSERTS).toHaveLength(0);
+  });
+});
+
+
+describe("managed staff approval attribution", () => {
+  it("files the onboarding lease under the resolved owner, not the staff actor", async () => {
+    MANAGED = true;
+    ADMIN = true;
+    PROPERTIES[1]!.workspace_id = "managed-workspace";
+    expect(await upsert(approved({ managerUserId: ATTACKER, propertyId: VICTIM_HOUSE, assignedPropertyId: VICTIM_HOUSE, assignedRoomChoice: `${VICTIM_HOUSE}::room-1` }), true)).toBe(200);
+    expect(onboard).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ userId: "mgr-victim" }), expect.objectContaining({ managerUserId: "mgr-victim" }), expect.anything());
+  });
+  it.each([false, true])("uses the workspace owner even when admin=%s and the body names staff", async (admin) => {
+    MANAGED = true;
+    ADMIN = admin;
+    PROPERTIES[1]!.workspace_id = "managed-workspace";
+    const status = await upsert(approved({ managerUserId: ATTACKER, propertyId: VICTIM_HOUSE, assignedPropertyId: VICTIM_HOUSE, assignedRoomChoice: `${VICTIM_HOUSE}::room-1` }));
+    expect(status).toBe(200);
+    expect(UPSERTS).toHaveLength(1);
+    expect(UPSERTS[0]!.manager_user_id).toBe("mgr-victim");
+  });
+  it("refuses a house outside the active managed workspace even for an admin", async () => {
+    MANAGED = true;
+    ADMIN = true;
+    expect(await upsert(approved({ managerUserId: "mgr-victim" }))).toBe(403);
     expect(UPSERTS).toHaveLength(0);
   });
 });

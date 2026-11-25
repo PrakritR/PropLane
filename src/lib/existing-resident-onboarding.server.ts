@@ -119,11 +119,11 @@ export async function runExistingResidentOnboarding(
         managerAttestedTenancyAt: iso,
         thread: [],
       });
-  if (opts?.preserveExistingLease) {
-    leaseRow.residentUserId = row.residentUserId ?? null;
-    leaseRow.roomChoice = row.assignedRoomChoice;
-    leaseRow.application = row.application;
-  }
+  // Both uploaded and generated leases retain the resident's placement. These
+  // fields are needed on the first filing too, not only a preserve/retry call.
+  leaseRow.residentUserId = row.residentUserId ?? null;
+  leaseRow.roomChoice = row.assignedRoomChoice;
+  leaseRow.application = row.application;
 
   // `leaseId` is derived from the application's axis id, which is the SAME id
   // space real approved-application leases use, so two managers can arrive at

@@ -196,7 +196,8 @@ export async function transitionApplicationBucket(
     if (!unchanged()) return changed();
     if (!synced) return { row, welcomeSent: false, blocked: "error", message: "Could not verify this property's pricing. Refresh and try again." };
     const property = getPropertyById(propertyId);
-    const placementError = approvalPlacementBlocker(updatedRow, property?.publicProjection ? undefined : property?.listingSubmission);
+    // This is a placement check, not permission to read private templates or to approve.
+    const placementError = approvalPlacementBlocker(updatedRow, property?.listingSubmission);
     if (placementError) return { row, welcomeSent: false, blocked: "error", message: placementError };
   }
   // Reserve the bed on the server BEFORE local publication, charges or lease sync.

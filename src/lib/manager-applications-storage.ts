@@ -277,7 +277,8 @@ function parseSignedRentValue(value: unknown): number | null {
   return null;
 }
 
-function syncSignedRentFields(row: DemoApplicantRow): DemoApplicantRow {
+/** Canonical rent shared by browser normalization and server lease-send validation. */
+export function syncSignedRentFields(row: DemoApplicantRow): DemoApplicantRow {
   const signedMonthlyRent = parseSignedRentValue(row.signedMonthlyRent);
   const applicationRent = parseSignedRentValue(row.application?.managerRentOverride);
   const canonicalRent = signedMonthlyRent ?? applicationRent;

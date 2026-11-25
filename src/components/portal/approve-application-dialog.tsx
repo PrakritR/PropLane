@@ -120,7 +120,8 @@ function ApproveApplicationDialogBody({ row, userId, automation, onClose, onAppr
       const demo = isDemoModeActive();
       const synced = demo || await syncPropertyPipelineFromServer({ force: true, userId, linkedPropertyIds: propertyId ? [propertyId] : [] }).catch(() => false);
       const property = getPropertyById(propertyId);
-      const issue = demo ? null : synced ? approvalPlacementBlocker(row, property?.publicProjection ? undefined : property?.listingSubmission) : "Could not verify this property's pricing. Refresh and try again.";
+      // Public projections retain room ids and prices; approval is authorized again by the write route.
+      const issue = demo ? null : synced ? approvalPlacementBlocker(row, property?.listingSubmission) : "Could not verify this property's pricing. Refresh and try again.";
       if (cancelled) return;
       setPropertyError(issue ?? "");
       setPropertyState(issue ? "error" : "ready");

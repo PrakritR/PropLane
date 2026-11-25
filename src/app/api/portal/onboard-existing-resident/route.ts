@@ -7,6 +7,9 @@ import { assertManagerCommunicationAllowedForActiveWorkspace } from "@/lib/manag
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
+import { loadServiceStaffScope } from "@/lib/service/service-mode.server";
+import { serviceStaffSettingsAccess } from "@/lib/scope/settings-scope";
+import { resolveManagedApplicationOwner } from "@/lib/auth/managed-application-owner.server";
 
 export const runtime = "nodejs";
 
@@ -66,11 +69,18 @@ export async function POST(req: Request) {
     const sendWelcomeEmail = wantsWelcome && !communicationBlocked;
 
     const ids = [applicationId, normalizeApplicationAxisId(applicationId)];
+    const serviceScope = await loadServiceStaffScope(svc, user.id);
+    let ownerId = user.id;
+    if (serviceScope) {
+      const access = await serviceStaffSettingsAccess(svc, user.id, serviceScope.workspaceId, "read");
+      if (access.kind !== "ok") return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      ownerId = access.ownerUserId;
+    }
     const { data: records } = await svc
       .from("manager_application_records")
-      .select("id, row_data")
+      .select("id, row_data, property_id, manager_user_id")
       .in("id", [...new Set(ids)])
-      .eq("manager_user_id", user.id)
+      .eq("manager_user_id", ownerId)
       .limit(1);
 
     // The lookup above is the ONLY source of the row we go on to write. This
@@ -82,11 +92,17 @@ export async function POST(req: Request) {
     // reason to trust their payload.
     const row = (records?.[0]?.row_data ?? null) as DemoApplicantRow | null;
     if (!row) return NextResponse.json({ error: "Resident record not found." }, { status: 404 });
+    if (serviceScope) {
+      const propertyIds = new Set([records?.[0]?.property_id, row.propertyId, row.assignedPropertyId]
+        .filter((id): id is string => typeof id === "string" && Boolean(id.trim())));
+      const access = await resolveManagedApplicationOwner(svc, user.id, propertyIds, ownerId);
+      if (!access?.ok || access.owner !== ownerId) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
 
     const result = await runExistingResidentOnboarding(
       svc,
       {
-        userId: user.id,
+        userId: ownerId,
         email: user.email ?? null,
         managerName: String(requestor?.full_name ?? ""),
       },
