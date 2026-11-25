@@ -1,5 +1,7 @@
 import "server-only";
 
+import { cache } from "react";
+
 import type { MockProperty } from "@/data/types";
 import {
   buildListingSlugIndex,
@@ -40,7 +42,10 @@ export async function getListingSlugIndex(): Promise<ListingSlugIndex> {
   }
 }
 
-/** The stored listing behind one minted id token, from one indexed read of the live public records. */
+/**
+ * The stored listing behind one minted id token. A trailing match on the id can use no index, so this is a scan of
+ * the property table: the one caller fires it only while the catalog read that normally answers is down.
+ */
 async function liveListingForIdToken(token: string): Promise<{ id: string; slug: string } | null> {
   try {
     const { data, error } = await createSupabaseServiceRoleClient()
@@ -67,24 +72,25 @@ async function liveListingForIdToken(token: string): Promise<{ id: string; slug:
 }
 
 /**
- * The listing a `/rent/listings/<param>` segment names.
+ * The listing a `/rent/listings/<param>` segment names. Cached per request, so `generateMetadata` and the page body
+ * resolve the param once between them.
  *
- * The catalog index answers it for nothing when that hourly read is in hand, but a slug URL is DURABLE — texted,
- * syndicated, shared, indexed — so it may not depend on the whole catalog being readable (or on the listing being
- * inside the rows that read returned). When the index cannot answer and the param carries a minted id token, one
- * indexed read of the live public records resolves that token on its own; a token no single live listing owns
- * leaves the param alone, which is the id form that resolved before slugs existed.
+ * The hourly catalog index answers it for nothing, and an unknown param against a readable index is simply not
+ * found. But a slug URL is DURABLE — texted, syndicated, shared, indexed — so when that read FAILED and there is no
+ * index at all, the param's own id token is resolved by a single bounded read of the live public records instead.
+ * That read is a table scan, so it stays inside the outage: a token no single live listing owns leaves the param
+ * alone, which is the id form that resolved before slugs existed.
  */
-export async function resolvePublicListingParam(param: string): Promise<ListingParamResolution> {
+export const resolvePublicListingParam = cache(async (param: string): Promise<ListingParamResolution> => {
   const index = await getListingSlugIndex();
   const resolution = resolveListingParam(index, param);
-  if (resolution.kind !== "id") return resolution;
+  if (resolution.kind !== "id" || index.idToSlug.size > 0) return resolution;
   const token = listingTokenOfParam(param);
   if (!isMintedListingIdToken(token)) return resolution;
   const hit = await liveListingForIdToken(token);
   if (!hit) return resolution;
   return hit.slug === param.trim() ? { kind: "slug", id: hit.id } : { kind: "stale", slug: hit.slug, id: hit.id };
-}
+});
 
 /** The public URL of one listing, readable when it has a slug, the id URL otherwise. Never throws. */
 export async function buildReadableListingUrl(origin: string, propertyId: string): Promise<string> {

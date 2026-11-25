@@ -70,7 +70,7 @@ export type ChannelConnectionStatus = {
  * "Error:" in red) composes them instead of cutting segments back off a formatted string.
  */
 export type ChannelStatusParts = {
-  /** "Not linked", "Synced" or "Waiting for <channel>"; "" when the error is the state. */
+  /** "Not linked", "Synced", "Not pulling" or "<channel> has not fetched PropLane yet"; "" when the error is the state. */
   state: string;
   /** The last error, without a leading "Error:", or null. */
   error: string | null;
@@ -96,10 +96,7 @@ export function channelStatusParts(
   now: Date = new Date(),
   provider: ChannelCalendarProvider = "airbnb",
   label?: string | null,
-  /**
-   * With a threshold the line is the platform's own truth: "Synced" only while the platform fetched PropLane inside
-   * it, "Not pulling" once it has been quiet longer, and "<Platform> has not fetched PropLane yet" before its first read.
-   */
+  /** How long since the platform's last fetch counts as having stopped: past it the line reads "Not pulling". */
   opts?: { staleAfterMs?: number },
 ): ChannelStatusParts {
   const channel = channelCalendarProviderLabel(provider, label);
@@ -108,11 +105,10 @@ export function channelStatusParts(
   const synced = formatCheckedAt(connection.lastSyncedAt, now);
   const error = connection.lastError?.trim().replace(/^Error:\s*/, "") || null;
   const fetchedMs = connection.exportLastFetchedAt ? Date.parse(connection.exportLastFetchedAt) : NaN;
-  const truthful = opts?.staleAfterMs !== undefined;
-  const stale = truthful && Number.isFinite(fetchedMs) && now.getTime() - fetchedMs > (opts?.staleAfterMs ?? 0);
-  const waiting = truthful ? `${channel} has not fetched PropLane yet` : `Waiting for ${channel}`;
+  const stale =
+    opts?.staleAfterMs !== undefined && Number.isFinite(fetchedMs) && now.getTime() - fetchedMs > opts.staleAfterMs;
   return {
-    state: error ? "" : fetched ? (stale ? "Not pulling" : "Synced") : waiting,
+    state: error ? "" : fetched ? (stale ? "Not pulling" : "Synced") : `${channel} has not fetched PropLane yet`,
     error,
     details: [fetched && `${channel} ${fetched}`, synced && `PropLane ${synced}`].filter(
       (part): part is string => Boolean(part),

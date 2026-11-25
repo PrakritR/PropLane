@@ -216,9 +216,16 @@ describe("a canonical slug resolves without the catalog index", () => {
     expect(await clientListingId(MINTED_SLUG)).toBe(MINTED_SLUG);
   });
 
-  it("is not read at all when the index answers, nor for a param carrying no minted id token", async () => {
+  /*
+   * A trailing match on the id can use no index, so this read is a scan of the property table. It belongs to the
+   * outage and nothing else: a readable index that simply does not know a param is a not-found answer, and the page
+   * is public, unauthenticated and ISR-keyed per path, so unlimited junk params must not each buy a scan.
+   */
+  it("is not read for an unknown param while the index is readable, nor without a minted id token", async () => {
     db.rows = [liveRow];
     expect(await clientListingId(SLUG)).toBe("listing-1");
+    expect(await clientListingId("x-abcd1234")).toBe("x-abcd1234");
+    expect(await clientListingId(MINTED_SLUG)).toBe(MINTED_SLUG);
     expect(db.queries).toEqual([]);
     reads.fail = true;
     expect(await clientListingId("4709a-8th-ave-ne")).toBe("4709a-8th-ave-ne");
