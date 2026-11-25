@@ -21,7 +21,9 @@ UI `plaid-link-button.tsx` + `pro-bank-reconciliation-panel.tsx` +
 `resident-bank-account-form.tsx` + `application-income-verify.tsx`. Schema:
 `20261118120000_plaid_items.sql`, `20261118130000_applicant_income_verifications.sql`,
 `20261118140000_bank_statement_source.sql`,
-`20261121120000_plaid_items_one_live_feed.sql`.
+`20261118150000_managed_mover_classify_plaid_items.sql`,
+`20261121120000_plaid_items_one_live_feed.sql`,
+`20261123120000_plaid_items_last_sync_attempt.sql`.
 
 **One path, one purpose where the lock cares.** The managed read-only allowlist
 (`MANAGED_READ_ONLY_ALLOWED_PATHS`) is a pure PATH policy, so the resident's own bank
@@ -77,15 +79,20 @@ micro-deposits stay as "Enter numbers instead"; phone-bound links and saved-bank
   update mode and keeps the `item_id`), and the partial unique index
   `plaid_items_one_live_bank_feed_key` holds the same invariant for the double-click, so a race answers
   that refusal and never a 502. A `revoked` item is excluded: the account can be linked again.
-- **A line is never dropped to keep a closed month closed.** `statementForMonth` opens ANOTHER feed-owned
-  statement for a month whose every statement is already reconciled, because the cursor advances once a
-  batch is applied and Plaid never re-delivers it — a late-posting item would be lost for good. The
-  reconciled statement itself is never written.
+- **A line is never dropped to keep a closed month closed, and a closed month never gains a second
+  statement.** The cursor advances once a batch is applied and Plaid never re-delivers, so a late-posting
+  item would be lost for good; a second statement sharing the reconciled one's month end would instead
+  leave `fillFeedStatementBalances` two rows with the same `statement_date` to chain through in an
+  arbitrary order, which is a wrong balance on a money screen. So when every statement in a line's month
+  is reconciled, `statementForMonth` hands it to `openStatementAfterMonth`: the EARLIEST open statement
+  after that month, with the line keeping its own `line_date`, and only when nothing open follows is one
+  created, dated after every statement the account has. The reconciled statement itself is never written.
 - **A statement line is found through its own owner.** `loadExisting` inner-joins
   `manager_bank_statements` on `manager_user_id`, so the update and delete that name rows by id can only
   ever reach this owner's lines: a collided or replayed Plaid transaction id is simply not found.
 - **Sync is idempotent and suggestion-only.** `/transactions/sync` by cursor; lines upsert on
-  `manager_bank_statement_lines.plaid_transaction_id` into the open statement for that month.
+  `manager_bank_statement_lines.plaid_transaction_id` into that month's open statement, or - when the month
+  is closed - the open one after it (rule above).
   A modified transaction updates only a line nobody matched or cleared; a removed one deletes only
   an unmatched, uncleared line on an unreconciled statement. `added` counts rows the upsert really
   inserted, never the attempt. Matching stays the manager's (`suggest_bank_statement_matches`, then

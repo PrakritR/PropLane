@@ -183,27 +183,18 @@ function money(raw: string | undefined | null): number {
   return n > 0 ? n : 0;
 }
 
-/** The arrangement row a room's fees live on (Private = count 1), or the whole-house row. */
-export function roomFeeRow(
-  sub: Pick<ManagerListingSubmissionV1, "entireHomeArrangementFees">,
-  room: Pick<ManagerRoomSubmission, "occupancyPrices"> | null | undefined,
-  arrangementCount = 1,
-): RoomFeeRow | undefined {
-  if (!room) return sub.entireHomeArrangementFees;
-  return room.occupancyPrices?.find((row) => row.count === arrangementCount);
-}
-
 /**
  * The row the two START surcharges live on - month-to-month and custom dates - which is the Private (count 1)
- * arrangement, or the whole-house row. `mergeLongTermPrivateArrangementRow` pins them there, and the quote, the
- * lease rider and the monthly charge all read them here whatever arrangement is being priced, so the figure a
- * manager types is the figure all three say.
+ * arrangement, or the whole-house row. `mergeLongTermPrivateArrangementRow` is their one writer and pins them
+ * there, so there is no count to pick: the quote, the lease rider and the monthly charge all read this row
+ * whatever arrangement is being priced, and the figure a manager types is the figure all three say.
  */
 export function roomStartSurchargeRow(
   sub: Pick<ManagerListingSubmissionV1, "entireHomeArrangementFees">,
   room: Pick<ManagerRoomSubmission, "occupancyPrices"> | null | undefined,
 ): RoomFeeRow | undefined {
-  return roomFeeRow(sub, room, 1);
+  if (!room) return sub.entireHomeArrangementFees;
+  return room.occupancyPrices?.find((row) => row.count === 1);
 }
 
 type FeeRoom = Pick<ManagerRoomSubmission, "occupancyPrices" | "termPricing">;

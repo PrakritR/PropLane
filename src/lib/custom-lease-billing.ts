@@ -34,7 +34,7 @@ export function shouldBillCustomLeaseSurcharge(
   return isCustomCalendarLease(input.leaseStart, input.leaseEnd);
 }
 
-/** The one setting a manager can make per ROOM arrangement; `roomFeeRow` in `room-term-fees.ts` resolves it. */
+/** The one setting a manager can make per ROOM; `roomStartSurchargeRow` in `room-term-fees.ts` resolves it. */
 export type CustomStartSurchargeRow = { customStartSurcharge?: string | null };
 
 export function customLeaseSurchargeAmount(

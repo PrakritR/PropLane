@@ -17,7 +17,7 @@ import {
   type MonthlyFeeLine,
 } from "@/lib/rent-fold-in";
 import { feeAppliesToResidentSlot, listingFeeCadence, type ListingFeeRow } from "@/lib/listing-fees";
-import { roomFeeRow, submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
+import { roomStartSurchargeRow, submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
 import type { RentRuleAddress } from "@/lib/seattle-rent-rule";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { parseRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
@@ -4378,7 +4378,7 @@ function buildApprovedStandardChargeDrafts(
             leaseTerm: row.application?.leaseTerm,
             rentalType: row.application?.rentalType,
           },
-          roomFeeRow(sub, room),
+          roomStartSurchargeRow(sub, room),
         )
       : [],
     sub,
@@ -4706,7 +4706,7 @@ function upsertRecurringRentProfileForApprovedRow(
       sub,
       prop,
       { leaseStart, leaseEnd, leaseTerm: row.application?.leaseTerm, rentalType: row.application?.rentalType },
-      roomFeeRow(sub, room),
+      roomStartSurchargeRow(sub, room),
     ),
     sub,
     row.application?.residentSlot,
@@ -5306,7 +5306,7 @@ export function recordApprovedApplicationCharges(
       sub,
       prop,
       { leaseStart, leaseEnd, leaseTerm: row.application?.leaseTerm, rentalType: row.application?.rentalType },
-      sub ? roomFeeRow(sub, room) : undefined,
+      sub ? roomStartSurchargeRow(sub, room) : undefined,
     ),
     sub,
     row.application?.residentSlot,
