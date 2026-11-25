@@ -9,8 +9,9 @@ export { LISTING_PATH_PREFIX, listingPublicPath } from "@/lib/listing-public-pat
  * Readable listing URLs: `/rent/listings/4709a-8th-ave-ne` instead of `/rent/listings/<propertyId>`.
  *
  * The slug is DERIVED from the listing's current street address plus a stable token of its id, never stored: no database
- * id changes, an address edit moves only the readable part, and the old id URL keeps working through a permanent
- * redirect. Resolution reads the trailing id token, so a rename never breaks a link; a slug minted before the token
+ * id changes, an address edit moves only the readable part, and an old id URL keeps working: the page renders that
+ * listing in place and names the readable slug as its canonical. Resolution reads the trailing id token, so a rename
+ * never breaks a link; a slug minted before the token
  * existed (the one form it was published under: `4709a-8th-ave-ne`, or `4709a-8th-ave-ne-<id tail>` when another
  * listing shared that street line) still resolves when exactly one listing owns it.
  * This module is pure; the one server read that maps a slug back to an id is `src/lib/seo/listing-slugs.server.ts`.

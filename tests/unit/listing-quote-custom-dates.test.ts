@@ -149,6 +149,50 @@ describe("the room's own custom-dates surcharge", () => {
     expect(billedFirstMonthSurcharge(sub, "per-room@example.com")).toBeCloseTo(PRORATED(250), 2);
   });
 
+  // The manager's own Pricing preview prices one arrangement at a time and passes that count. The two start
+  // surcharges are stored on the Private row whatever band is open (`mergeLongTermPrivateArrangementRow`), so
+  // the oracle is the figure they typed there ($250 custom dates, $40 month-to-month). Plausible wrong behaviour
+  // this rejects: a "Shared by 2" preview reading the count-2 row and showing the $100 default (and $0
+  // month-to-month) while the lease rider and the monthly charge bill what was typed.
+  it("is the same figure when a shared arrangement is the one being priced", () => {
+    const sub = normalizeManagerListingSubmissionV1({
+      ...listing(),
+      rooms: [
+        {
+          ...listing().rooms[0]!,
+          occupancyCapacity: 2,
+          offeredResidentCounts: [1, 2],
+          occupancyPrices: [
+            { count: 1, customStartSurcharge: "250", monthToMonthSurcharge: "40" },
+            { count: 2, monthlyRent: 600 },
+          ],
+        },
+      ],
+    });
+    const shared = buildListingQuote(sub, {
+      roomId: "room-1",
+      leaseTerm: "Long-term",
+      leaseStart: LEASE_START,
+      leaseEnd: LEASE_END,
+      arrangementCount: 2,
+    });
+    expect(shared.customLeaseSurcharge).toBe(250);
+
+    const m2m = buildListingQuote(sub, {
+      roomId: "room-1",
+      leaseTerm: "Month-to-Month",
+      leaseStart: LEASE_START,
+      startKind: "m2m",
+      arrangementCount: 2,
+    });
+    // Rent is the shared band's own $600; only the surcharge comes from the Private row.
+    expect(m2m.monthlyRent - 600).toBe(40);
+
+    const rider = resolveApplicationRoomTermFees(sub, { listingRoomId: "room-1" }, { leaseTerm: "Long-term" });
+    expect(rider?.customStartSurcharge).toBe(250);
+    expect(billedFirstMonthSurcharge(sub, "shared-by-two@example.com")).toBeCloseTo(PRORATED(250), 2);
+  });
+
   it("falls back to the listing's own row", () => {
     const listingLevel = listing("75");
     expect(quote(listingLevel, LEASE_START, LEASE_END).customLeaseSurcharge).toBe(75);

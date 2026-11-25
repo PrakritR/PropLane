@@ -48,15 +48,26 @@ function monthBounds(date: string): { first: string; last: string } {
   return { first: `${y}-${mm}-01`, last: `${y}-${mm}-${String(last).padStart(2, "0")}` };
 }
 
+/** The month-end of the month that follows this date's month. */
+function nextMonthEnd(date: string): string {
+  const [y, m] = date.split("-").map(Number) as [number, number];
+  const year = m === 12 ? y + 1 : y;
+  const month = m === 12 ? 1 : m + 1;
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${year}-${String(month).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
+}
+
 /**
  * The open statement for this account and month, or a new empty one the feed owns (`source: 'plaid_feed'`,
  * the only marker that lets `fillFeedStatementBalances` derive its balances). An existing statement keeps
  * whatever source it already has: a month the manager created or imported stays theirs even once feed lines
  * land in it, so their typed opening / closing are never rewritten.
  *
- * A month whose every statement is already reconciled gets ANOTHER feed-owned statement rather than no
- * statement at all: the cursor advances once a batch is applied, so a bank item that posts late into a
- * closed month would otherwise be dropped for good. The reconciled statement is never touched.
+ * A bank item that posts late into a month whose every statement is already reconciled lands on the EARLIEST
+ * open statement after that month instead, keeping its own line date. The cursor advances once a batch is
+ * applied, so the line would otherwise be dropped for good - and a second statement sharing the reconciled
+ * one's month end would leave `fillFeedStatementBalances` two rows with the same date to chain through, which
+ * is how a money screen ends up showing a balance matching nothing. The reconciled statement is never touched.
  */
 async function statementForMonth(
   db: SupabaseClient,
@@ -78,13 +89,55 @@ async function statementForMonth(
   const rows = (data ?? []) as { id: string; reconciled_at: string | null }[];
   const open = rows.find((r) => !r.reconciled_at);
   if (open) return { id: open.id };
+  if (rows.length > 0) return openStatementAfterMonth(db, ownerId, bankAccountId, last);
+  return createFeedStatement(db, ownerId, bankAccountId, last);
+}
 
+/** The earliest open statement after a closed month, else a new feed statement dated after every statement there is. */
+async function openStatementAfterMonth(
+  db: SupabaseClient,
+  ownerId: string,
+  bankAccountId: string,
+  monthEnd: string,
+): Promise<{ id: string }> {
+  const afterMonth = nextMonthEnd(monthEnd).slice(0, 8) + "01";
+  const { data, error } = await db
+    .from("manager_bank_statements")
+    .select("id, statement_date")
+    .eq("manager_user_id", ownerId)
+    .eq("bank_account_id", bankAccountId)
+    .gte("statement_date", afterMonth)
+    .is("reconciled_at", null)
+    .order("statement_date", { ascending: true })
+    .limit(1);
+  if (error) throw new Error(error.message);
+  const next = (data ?? []) as { id: string }[];
+  if (next[0]) return { id: String(next[0].id) };
+
+  const { data: newest, error: newestError } = await db
+    .from("manager_bank_statements")
+    .select("statement_date")
+    .eq("manager_user_id", ownerId)
+    .eq("bank_account_id", bankAccountId)
+    .order("statement_date", { ascending: false })
+    .limit(1);
+  if (newestError) throw new Error(newestError.message);
+  const latest = String(((newest ?? []) as { statement_date: string }[])[0]?.statement_date ?? monthEnd).slice(0, 10);
+  return createFeedStatement(db, ownerId, bankAccountId, nextMonthEnd(latest >= monthEnd ? latest : monthEnd));
+}
+
+async function createFeedStatement(
+  db: SupabaseClient,
+  ownerId: string,
+  bankAccountId: string,
+  statementDate: string,
+): Promise<{ id: string }> {
   const { data: created, error: createError } = await db
     .from("manager_bank_statements")
     .insert({
       manager_user_id: ownerId,
       bank_account_id: bankAccountId,
-      statement_date: last,
+      statement_date: statementDate,
       opening_balance_cents: 0,
       closing_balance_cents: 0,
       source: "plaid_feed",
@@ -226,7 +279,7 @@ export async function applyPlaidChanges(
         continue;
       }
       // A modified transaction can post in another month; the line follows it. `statementForMonth` never
-      // returns a reconciled statement (it opens a feed-owned one instead), the same as the insert path.
+      // returns a reconciled statement (it carries the line to the next open one), the same as the insert path.
       const patch: Record<string, unknown> = { line_date: line.lineDate, description: line.description, amount_cents: line.amountCents };
       if (String(current.line_date ?? "").slice(0, 7) !== line.lineDate.slice(0, 7)) {
         const monthKey = line.lineDate.slice(0, 7);

@@ -56,23 +56,44 @@ describe("applyPlaidChanges", () => {
     expect(tables.manager_bank_statement_lines!.map((l) => l.id).sort()).toEqual(["l2", "l3", "l4"]);
   });
 
-  it("never drops a transaction that posts into a fully reconciled month", async () => {
+  // A late line is kept (the cursor has moved on, so dropping it loses it for good) and goes onto the OPEN period
+  // after the closed month, keeping its own date. Oracle: double-entry bookkeeping - a closed period's figures do
+  // not change, and one period has one opening and one closing balance. Plausible wrong behaviour this rejects: a
+  // second statement sharing the reconciled one's month end, which leaves the balance chain
+  // (`fillFeedStatementBalances`, ordered by statement_date) two rows with the same date and an arbitrary order.
+  it("carries a transaction that posts into a fully reconciled month onto the next open statement", async () => {
     const { db, tables } = createFakeDb({
       manager_bank_statements: [
-        { id: "s-closed", manager_user_id: "u1", bank_account_id: "ba-1", statement_date: "2026-10-31", reconciled_at: "2026-11-02", source: "manual" },
+        { id: "s-closed", manager_user_id: "u1", bank_account_id: "ba-1", statement_date: "2026-10-31", reconciled_at: "2026-11-02", source: "manual", opening_balance_cents: 1000, closing_balance_cents: 2000 },
+        { id: "s-open-nov", manager_user_id: "u1", bank_account_id: "ba-1", statement_date: "2026-11-30", reconciled_at: null, source: "plaid_feed", opening_balance_cents: 2000, closing_balance_cents: 2000 },
       ],
     });
     const result = await applyPlaidChanges(db, item, { added: [txn("late", "2026-10-28", 44)], modified: [], removed: [] });
     expect(result).toMatchObject({ added: 1, skipped: 0 });
     const line = tables.manager_bank_statement_lines![0]!;
-    expect(line.plaid_transaction_id).toBe("late");
-    // Its own feed-owned statement for that month; the reconciled one is untouched.
+    expect(line).toMatchObject({ plaid_transaction_id: "late", line_date: "2026-10-28", statement_id: "s-open-nov" });
+    // No second statement for October, and the closed month keeps its own figures.
+    expect(tables.manager_bank_statements).toHaveLength(2);
+    expect(tables.manager_bank_statements!.find((s) => s.id === "s-closed")).toMatchObject({
+      reconciled_at: "2026-11-02",
+      opening_balance_cents: 1000,
+      closing_balance_cents: 2000,
+    });
+  });
+
+  it("opens the month after the closed one when nothing open follows it", async () => {
+    const { db, tables } = createFakeDb({
+      manager_bank_statements: [
+        { id: "s-closed", manager_user_id: "u1", bank_account_id: "ba-1", statement_date: "2026-10-31", reconciled_at: "2026-11-02", source: "manual" },
+      ],
+    });
+    await applyPlaidChanges(db, item, { added: [txn("late", "2026-10-28", 44)], modified: [], removed: [] });
+    const line = tables.manager_bank_statement_lines![0]!;
     expect(line.statement_id).not.toBe("s-closed");
     const created = tables.manager_bank_statements!.find((s) => s.id === line.statement_id)!;
-    expect(created).toMatchObject({ source: "plaid_feed", statement_date: "2026-10-31" });
+    expect(created).toMatchObject({ source: "plaid_feed", statement_date: "2026-11-30" });
     expect(created.reconciled_at ?? null).toBeNull();
-    expect(tables.manager_bank_statements!.find((s) => s.id === "s-closed")).toMatchObject({ reconciled_at: "2026-11-02" });
-    // And a second pass reuses that open statement instead of making another.
+    // A second late line reuses that one rather than opening another.
     await applyPlaidChanges(db, item, { added: [txn("late2", "2026-10-27", 5)], modified: [], removed: [] });
     expect(tables.manager_bank_statements).toHaveLength(2);
   });
@@ -108,7 +129,8 @@ describe("applyPlaidChanges", () => {
     expect(line).toMatchObject({ line_date: "2026-11-02", amount_cents: -900 });
     expect(line.statement_id).not.toBe("s-oct");
     expect(line.statement_id).not.toBe("s-nov-done");
-    expect(tables.manager_bank_statements!.find((s) => s.id === line.statement_id)).toMatchObject({ statement_date: "2026-11-30", source: "plaid_feed" });
+    // November is closed, so the line lands on the period after it rather than beside the reconciled statement.
+    expect(tables.manager_bank_statements!.find((s) => s.id === line.statement_id)).toMatchObject({ statement_date: "2026-12-31", source: "plaid_feed" });
     // Same month: stays put.
     await applyPlaidChanges(db, item, { added: [], modified: [txn("t", "2026-11-05", 9)], removed: [] });
     expect(tables.manager_bank_statements).toHaveLength(3);

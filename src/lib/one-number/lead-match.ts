@@ -235,7 +235,8 @@ export function offerFromRow(row: RoomListingRow, n: number, tier?: LineTier): L
 }
 
 /**
- * The home's own public path: the canonical slug the row carried, else the id URL (which 308s to it). The offer's
+ * The home's own public path: the canonical slug the row carried, else the id URL (which serves the same page and
+ * names the slug as its canonical). The offer's
  * `label` is a display line - a neighbourhood, or "this house" - so it never builds a URL.
  */
 export function offerListingPath(offer: Pick<LeadOffer, "propertyId" | "listingPath">): string {

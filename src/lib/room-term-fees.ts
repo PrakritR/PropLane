@@ -193,13 +193,26 @@ export function roomFeeRow(
   return room.occupancyPrices?.find((row) => row.count === arrangementCount);
 }
 
+/**
+ * The row the two START surcharges live on - month-to-month and custom dates - which is the Private (count 1)
+ * arrangement, or the whole-house row. `mergeLongTermPrivateArrangementRow` pins them there, and the quote, the
+ * lease rider and the monthly charge all read them here whatever arrangement is being priced, so the figure a
+ * manager types is the figure all three say.
+ */
+export function roomStartSurchargeRow(
+  sub: Pick<ManagerListingSubmissionV1, "entireHomeArrangementFees">,
+  room: Pick<ManagerRoomSubmission, "occupancyPrices"> | null | undefined,
+): RoomFeeRow | undefined {
+  return roomFeeRow(sub, room, 1);
+}
+
 type FeeRoom = Pick<ManagerRoomSubmission, "occupancyPrices" | "termPricing">;
 
 /**
  * The fees one placement sets for a lease term. Lease / Application / Move-in all come from
  * `listing-placement-standard-fees.ts` -- the ONE resolver (a stay type's own value replaces the
  * house fee, empty inherits) that the quote, the application fee charged, the signing charges and
- * the lease snapshot also read. Only the two start surcharges are read here, off the arrangement row.
+ * the lease snapshot also read. Only the two start surcharges are read here, off the Private arrangement row.
  */
 export function resolveRoomTermFees(input: {
   sub: ManagerListingSubmissionV1;
@@ -232,11 +245,7 @@ export function resolveRoomTermFees(input: {
     applicationTemplateId: input.applicationTemplateId,
   });
   const fees = resolvePlacementStandardFees(input.sub, opts);
-  const row = input.bundle
-    ? undefined
-    : input.wholeHouse
-      ? input.sub.entireHomeArrangementFees
-      : roomFeeRow(input.sub, input.room, input.arrangementCount ?? 1);
+  const row = input.bundle ? undefined : roomStartSurchargeRow(input.sub, input.wholeHouse ? null : input.room);
   return {
     scope,
     applicationFee: fees.applicationFee,
@@ -325,13 +334,7 @@ export function submissionWithRoomTermFees<T extends ManagerListingSubmissionV1>
   ctx: RoomFeeOverlayContext,
 ): T | null | undefined {
   if (!sub || (!room && !ctx.wholeHouse && !ctx.bundle && !hasAnyTemplateFee(sub))) return sub;
-  const row = ctx.bundle
-    ? undefined
-    : ctx.wholeHouse
-      ? sub.entireHomeArrangementFees
-      : room
-        ? roomFeeRow(sub, room, ctx.arrangementCount ?? 1)
-        : undefined;
+  const row = ctx.bundle || (!ctx.wholeHouse && !room) ? undefined : roomStartSurchargeRow(sub, ctx.wholeHouse ? null : room);
   // A stay type's own fees live on the room's term entry, not the arrangement row, so a room
   // with no row can still carry them. A template fee needs no room at all.
   const hasTemplateFee = hasAnyTemplateFee(sub);

@@ -26,7 +26,7 @@
 import { shortTermStayNightCount, shortTermStayCanBePriced, shortTermStayTotalAmount, shortTermStayTierNote } from "@/lib/short-term-stay-pricing";
 import { parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
 import { parseMoneyAmount } from "@/lib/parse-money";
-import { roomFeeRow } from "@/lib/room-term-fees";
+import { roomStartSurchargeRow } from "@/lib/room-term-fees";
 import {
   feeAppliesToResidentSlot,
   isListingFeeAmountFilled,
@@ -284,11 +284,10 @@ export function buildListingQuote(
   const staySlot = room && residentSlot ? roomStayPriceForSlot(room, residentSlot) : undefined;
   const arrangementPrice =
     room && arrangementCount ? roomPriceForResidentCount(room, arrangementCount) : undefined;
-  // The one arrangement-row lookup (`roomFeeRow`): the count a caller names (the wizard's own preview), else the
-  // Private (count 1) row - which is the row the lease rider and the monthly charge read too, so the three agree
-  // on whatever is typed there. An amount typed on a SHARED arrangement is still not reached by any of them:
-  // nothing records which arrangement an applicant took.
-  const arrangementRow = roomFeeRow(sub, room, arrangementCount ?? 1);
+  // The two start surcharges are stored on the Private arrangement row whatever arrangement is being priced
+  // (`roomStartSurchargeRow`), so this quote, the lease rider and the monthly charge read the one figure the
+  // manager typed - a "Shared by 2" preview quoted the $100 default while the lease billed their $250.
+  const startSurchargeRow = roomStartSurchargeRow(sub, room);
   const placementFees = resolvePlacementStandardFees(sub, {
     leaseTerm,
     room,
@@ -430,7 +429,7 @@ export function buildListingQuote(
     ))
   );
   if (billsCustomLease) {
-    const amount = customLeaseSurchargeAmount(sub, arrangementRow);
+    const amount = customLeaseSurchargeAmount(sub, startSurchargeRow);
     if (amount > 0) {
       customLeaseSurcharge = amount;
       (foldMonthlyIntoRent ? folded : recurring).push({
@@ -441,8 +440,8 @@ export function buildListingQuote(
 
   const foldedTotal = folded.reduce((sum, f) => sum + f.amount, 0);
   let monthlyRent = baseMonthlyRent + foldedTotal;
-  if (!isStay && startKind === "m2m" && arrangementRow?.monthToMonthSurcharge && !foldMonthlyIntoRent) {
-    monthlyRent += parseMoneyAmount(arrangementRow.monthToMonthSurcharge);
+  if (!isStay && startKind === "m2m" && startSurchargeRow?.monthToMonthSurcharge && !foldMonthlyIntoRent) {
+    monthlyRent += parseMoneyAmount(startSurchargeRow.monthToMonthSurcharge);
   }
   const recurringTotal = recurring.reduce(
     (sum, f) => sum + listingFeeMonthlyEquivalent(f.amount, f.cadence ?? "monthly"),

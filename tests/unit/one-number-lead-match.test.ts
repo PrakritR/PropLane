@@ -109,7 +109,7 @@ describe("the offer text", () => {
     expect(bubbles[0]!.body).toContain(canonical);
   });
 
-  it("an offer stored before the path was carried falls back to the id URL, which redirects", () => {
+  it("an offer stored before the path was carried falls back to the id URL, which serves the same listing", () => {
     expect(offerListingPath({ propertyId: "l-uw-a" })).toBe("/rent/listings/l-uw-a");
     expect(offerListingPath({ propertyId: "l-uw-a", listingPath: "  " })).toBe("/rent/listings/l-uw-a");
   });
