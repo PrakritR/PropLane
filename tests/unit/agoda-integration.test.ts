@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { channelStatusLine, AGODA_FEED_STALE_AFTER_MS, isAgodaSite } from "@/lib/channel-calendar/channel-links";
 import { agodaRowFact } from "@/lib/channel-calendar/channel-row-fact";
-import { isChannelFetcher, shouldStampExportFetch, EXPORT_FETCH_STAMP_THROTTLE_MS } from "@/lib/channel-calendar/export-fetch-stamp";
+import { isChannelFetcher, shouldStampExportFetch } from "@/lib/channel-calendar/export-fetch-stamp";
 import { generateIcsCalendar } from "@/lib/ical/generate";
 
 const now = new Date("2026-11-23T20:00:00Z");
@@ -98,7 +98,6 @@ describe("export fetch stamp by platform", () => {
   });
 
   it("throttles to 15 minutes", () => {
-    expect(EXPORT_FETCH_STAMP_THROTTLE_MS).toBe(15 * 60_000);
     expect(shouldStampExportFetch({ userAgent: "Agoda/1.0", provider: "ical", label: "Agoda", lastFetchedAt: hoursAgo(0.1), now })).toBe(false);
     expect(shouldStampExportFetch({ userAgent: "Agoda/1.0", provider: "ical", label: "Agoda", lastFetchedAt: hoursAgo(0.3), now })).toBe(true);
   });

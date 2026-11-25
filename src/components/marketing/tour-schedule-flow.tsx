@@ -204,6 +204,8 @@ function roomOptionsForProperty(p: MockProperty, availability?: TourRoomAvailabi
 /**
  * The room a tour starts with. A prospect never has to pick one: several rooms default to "not sure yet",
  * one room is that room. `room` is the URL param (`<roomId>` or `any`) when a pick travelled through sign-in.
+ * A listing that names several rooms but offers none to choose from - the occupancy read was refused, or every
+ * room is leased - stays "not sure yet" too: the house is not one of its own rooms.
  */
 export function defaultTourRoomKey(property: MockProperty, room?: string | null, availability?: TourRoomAvailability): string {
   const rooms = roomOptionsForProperty(property, availability);
@@ -212,7 +214,10 @@ export function defaultTourRoomKey(property: MockProperty, room?: string | null,
     const hit = rooms.find((option) => option.key === `${property.id}::${wanted}`);
     if (hit) return hit.key;
   }
-  return rooms.length > 1 ? TOUR_ROOM_UNDECIDED_KEY : (rooms[0]?.key ?? property.id);
+  if (rooms.length > 1) return TOUR_ROOM_UNDECIDED_KEY;
+  const only = rooms[0]?.key;
+  if (only && only !== property.id) return only;
+  return namedRoomCount(property) > 1 ? TOUR_ROOM_UNDECIDED_KEY : property.id;
 }
 
 /**

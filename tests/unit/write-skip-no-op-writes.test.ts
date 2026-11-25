@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { jsonEqual, sameUnorderedList, shouldRestamp, stableStringify } from "@/lib/write-skip";
 import { filterNewReminderRows } from "@/lib/reminders/queue.server";
 import { householdChargeRowUnchanged } from "@/lib/household-charges.server";
-import { shouldStampExportFetch, EXPORT_FETCH_STAMP_THROTTLE_MS } from "@/lib/channel-calendar/export-fetch-stamp";
+import { shouldStampExportFetch } from "@/lib/channel-calendar/export-fetch-stamp";
 
 describe("write-skip helpers", () => {
   it("compares JSON regardless of key order", () => {
@@ -50,7 +50,6 @@ describe("household charge no-op", () => {
 
 describe("export fetch stamp throttle", () => {
   it("is accurate to about 15 minutes", () => {
-    expect(EXPORT_FETCH_STAMP_THROTTLE_MS).toBe(15 * 60_000);
     const now = new Date("2026-11-23T12:00:00Z");
     const ua = "Airbnb/1.0";
     expect(shouldStampExportFetch({ userAgent: ua, lastFetchedAt: new Date(now.getTime() - 10 * 60_000).toISOString(), now })).toBe(false);

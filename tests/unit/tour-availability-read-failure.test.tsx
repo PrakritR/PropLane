@@ -42,7 +42,11 @@ vi.mock("@/lib/supabase/browser", () => ({
   }),
 }));
 
-import { TourScheduleFlow } from "@/components/marketing/tour-schedule-flow";
+import {
+  defaultTourRoomKey,
+  TOUR_ROOM_UNDECIDED_KEY,
+  TourScheduleFlow,
+} from "@/components/marketing/tour-schedule-flow";
 import { invalidateSharedGets } from "@/lib/shared-get-cache";
 
 afterEach(() => {
@@ -152,6 +156,51 @@ describe("a failed room-occupancy read offers no room rather than every room", (
     });
     expect(screen.queryByText(/Couldn't check room availability/i)).toBeNull();
     expect(screen.queryByLabelText("Room")).toBeNull();
+  });
+});
+
+/*
+ * The room the request is FILED with, not just the one drawn. Both filing paths submit
+ * `tourRoomLabelForKey(selectedRoomKey)`, which reads the house's own title for the whole-property key - so a
+ * multi-room listing whose rooms cannot be offered must default to the undecided sentinel instead. Oracle: the
+ * sentinel the product already uses when a prospect has several rooms to choose between and has not picked one.
+ * Plausible wrong behaviour this rejects: defaulting to the property key, which files "Ballard House" as the
+ * room on the manager's Tours row, the calendar event and the guest's own text.
+ */
+describe("the room a tour defaults to when no room can be offered", () => {
+  const TODAY = "2026-11-25";
+  const leased = (rooms: readonly { id: string }[]) => ({
+    ...ROOMS_PROPERTY,
+    listingSubmission: normalizeManagerListingSubmissionV1({
+      ...ROOMS_PROPERTY.listingSubmission!,
+      rooms: (ROOMS_PROPERTY.listingSubmission as { rooms: { id: string }[] }).rooms.map((room) =>
+        rooms.some((r) => r.id === room.id) ? { ...room, availability: "Not available" } : room,
+      ),
+    } as never),
+  });
+
+  it("stays undecided when the occupancy read was refused", () => {
+    expect(defaultTourRoomKey(ROOMS_PROPERTY, null, { rows: [], today: TODAY, checked: false })).toBe(
+      TOUR_ROOM_UNDECIDED_KEY,
+    );
+  });
+
+  it("stays undecided when every room is leased", () => {
+    const property = leased([{ id: "room-a" }, { id: "room-b" }]);
+    expect(defaultTourRoomKey(property, null, { rows: [], today: TODAY, checked: true })).toBe(
+      TOUR_ROOM_UNDECIDED_KEY,
+    );
+  });
+
+  it("names the one room that is still tourable", () => {
+    const property = leased([{ id: "room-b" }]);
+    expect(defaultTourRoomKey(property, null, { rows: [], today: TODAY, checked: true })).toBe(
+      `${property.id}::room-a`,
+    );
+  });
+
+  it("is the home itself on a listing with no room choice to withhold", () => {
+    expect(defaultTourRoomKey(PROPERTY, null, { rows: [], today: TODAY, checked: false })).toBe(PROPERTY.id);
   });
 });
 

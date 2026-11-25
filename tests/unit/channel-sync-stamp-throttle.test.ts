@@ -24,6 +24,7 @@ vi.mock("@/lib/channel-calendar/airbnb-residents.server", () => ({
   releaseAirbnbResidentsAbsentFromFeed: async () => undefined,
 }));
 
+import { buildSyncRows, SYNC_STALE_AFTER_MS } from "@/lib/channel-calendar/channel-health";
 import { syncChannelCalendarConnection } from "@/lib/channel-calendar/sync.server";
 
 const MANAGER = "mgr-1";
@@ -123,18 +124,46 @@ describe("an unchanged channel feed on the cron's own cadence", () => {
     }
   });
 
-  it("restamps once the stamp is genuinely old, so Last synced never reads stale", async () => {
+  /*
+   * The window has to sit between the two: above the cron cadence (or it skips nothing) and below the age
+   * `channel-health.ts` calls a stale sync (or a feed pulled on every run reports itself broken). Oracle: that
+   * module's own `state` for the stamp the sync left behind. Plausible wrong behaviour this rejects: a window
+   * raised past the staleness threshold, which puts a perfectly healthy connection in the attention list.
+   */
+  it("keeps a feed pulled on every run out of the stale list, and still does not write every run", async () => {
     const { db, stamp } = setup();
-    await syncChannelCalendarConnection(db, "conn-1");
-    const first = stamp();
+    const cadence = cronCadenceMs("/api/cron/sync-channel-calendars");
+    const health = (lastSyncedAt: string, nowMs: number) =>
+      buildSyncRows({
+        connections: [
+          {
+            id: "conn-1",
+            propertyId: "prop-1",
+            roomId: "room-1",
+            roomLabel: "Room 1",
+            provider: "airbnb",
+            label: "Room 1",
+            lastSyncedAt,
+            lastError: null,
+            exportLastFetchedAt: null,
+            ranges: [],
+          },
+        ],
+        now: new Date(nowMs),
+        today: new Date(nowMs).toISOString().slice(0, 10),
+      })[0]!;
 
-    const later = T0 + 61 * 60_000;
-    vi.setSystemTime(later);
-    await syncChannelCalendarConnection(db, "conn-1");
-    expect(stamp()).not.toBe(first);
-    expect(stamp()).toBe(new Date(later).toISOString());
-    // Under the two hours `channel-health.ts` calls a stale sync, every run through.
-    expect(later - Date.parse(first)).toBeLessThan(2 * 60 * 60_000);
+    const written = new Set<string>();
+    let runs = 0;
+    for (let elapsed = 0; elapsed <= SYNC_STALE_AFTER_MS * 2; elapsed += cadence) {
+      vi.setSystemTime(T0 + elapsed);
+      await syncChannelCalendarConnection(db, "conn-1");
+      runs += 1;
+      written.add(stamp());
+      expect(health(stamp(), T0 + elapsed).state, `after ${elapsed / 60_000} min`).toBe("ok");
+    }
+    expect(written.size).toBeGreaterThan(1);
+    expect(written.size).toBeLessThan(runs);
   });
 
   it("writes at once when the feed actually changed, window or no window", async () => {
