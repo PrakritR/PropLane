@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   compute: vi.fn(),
   save: vi.fn(),
   load: vi.fn(),
+  limit: vi.fn(async () => ({ ok: true }) as { ok: boolean }),
 }));
 
 vi.mock("@/lib/plaid/income.server", () => ({
@@ -19,7 +20,7 @@ vi.mock("@/lib/plaid/income.server", () => ({
   createIncomeLinkToken: vi.fn(async () => "link-sandbox-1"),
 }));
 vi.mock("@/lib/plaid/client.server", () => ({ plaidEnabled: () => true, logPlaidFailure: vi.fn() }));
-vi.mock("@/lib/rate-limit", () => ({ rateLimit: vi.fn(async () => ({ ok: true })), clientIpFrom: () => "1.1.1.1" }));
+vi.mock("@/lib/rate-limit", () => ({ rateLimit: h.limit, clientIpFrom: () => "1.1.1.1" }));
 
 import { POST as verify } from "@/app/api/plaid/income/verify/route";
 import { POST as linkToken } from "@/app/api/plaid/income/link-token/route";
@@ -33,6 +34,7 @@ beforeEach(() => {
   h.offered.mockReset().mockResolvedValue(true);
   h.save.mockReset().mockResolvedValue(undefined);
   h.load.mockReset().mockResolvedValue(null);
+  h.limit.mockReset().mockResolvedValue({ ok: true });
   h.compute.mockReset().mockResolvedValue({
     ok: true,
     verification: { source: "plaid", monthlyIncomeCents: 485000, months: 3, depositCount: 6, verifiedAt: "2026-11-18T00:00:00.000Z" },
@@ -112,6 +114,20 @@ describe("GET /api/screening/income", () => {
     expect(incomeVerifiedLine({ source: "plaid", ...(body.verified as never) })).toBe(
       "✓ $4,850/mo avg of payroll deposits, last 90 days (6 deposits) · as of Nov 3, 2026",
     );
+  });
+
+  // Oracle: the ceiling docs/agents/plaid.md § Invariants puts on every income route - "being signed in is not a
+  // budget". This one reads rows rather than calling Plaid, so it carries the read ceiling, but a session that loops
+  // it must still be refused before the listing and verification reads run. Plausible wrong behaviour this rejects:
+  // an unbounded authenticated read, which is what the route shipped with.
+  it("refuses a looping session before it reads the listing or the figure", async () => {
+    h.load.mockResolvedValue(stored);
+    h.limit.mockResolvedValue({ ok: false });
+    const res = await readBack(new Request("http://localhost/api/screening/income?propertyId=prop-1"));
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ offered: false, verified: null });
+    expect(h.offered).not.toHaveBeenCalled();
+    expect(h.load).not.toHaveBeenCalled();
   });
 
   it("answers nothing when there is no stored figure, and never leaks one to a guest", async () => {

@@ -8,7 +8,7 @@ import { formatPacificDate } from "@/lib/pacific-time";
 
 export type IncomeVerification = {
   source: "plaid";
-  /** The payroll deposits of the last `INCOME_WINDOW_DAYS`, divided by `months`. An average, never a pay rate. */
+  /** The payroll deposits of the last `INCOME_WINDOW_DAYS`, divided by the whole months that window covers. An average, never a pay rate. */
   monthlyIncomeCents: number;
   months: number;
   depositCount: number;

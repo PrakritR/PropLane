@@ -25,9 +25,15 @@ export type IncomeTransactionInput = {
   personal_finance_category?: { primary?: string | null; detailed?: string | null } | null;
 };
 
-/** The window the bank is asked for, and the one the figure is divided by. Both halves are shown to the manager. */
-export const INCOME_LOOKBACK_MONTHS = 3;
+/**
+ * The ONE window: the days of bank history the figure is measured over, and - as the whole months that window
+ * covers - the number it is divided by. Both are shown to the manager, so they are one constant: a shorter window
+ * with the old divisor left behind would scale every verified figure away from the truth while the line still
+ * named the new window. Whole months because the recorded basis is a smallint
+ * (`applicant_income_verifications.months`), and a stored basis that disagrees with the divisor is the same defect.
+ */
 export const INCOME_WINDOW_DAYS = 90;
+export const INCOME_WINDOW_MONTHS = Math.max(1, Math.round(INCOME_WINDOW_DAYS / (365.25 / 12)));
 /**
  * Three deposits in the window, or no figure — which costs an applicant nothing: the check never blocks a
  * submit. One or two deposits are a single pay run, not a month of pay, and dividing them by the window would
@@ -89,13 +95,11 @@ function dayNumber(value: string | null | undefined): number | null {
  */
 export function estimateMonthlyIncome(
   transactions: readonly IncomeTransactionInput[],
-  months: number = INCOME_LOOKBACK_MONTHS,
   now: Date = new Date(),
 ): IncomeEstimateOutcome {
   const deposits = transactions.filter(looksLikePayrollDeposit);
   const depositCount = deposits.length;
   if (depositCount === 0) return { ok: false, reason: "no_payroll_deposits", depositCount };
-  if (!(months > 0)) return { ok: false, reason: "not_enough_history", depositCount };
   const today = Math.floor(now.getTime() / 86_400_000);
   const windowStart = today - INCOME_WINDOW_DAYS;
   const counted = deposits.filter((txn) => {
@@ -104,7 +108,7 @@ export function estimateMonthlyIncome(
   });
   if (counted.length < INCOME_MIN_DEPOSITS) return { ok: false, reason: "not_enough_history", depositCount };
   const totalCents = counted.reduce((sum, txn) => sum + Math.round(Math.abs(txn.amount) * 100), 0);
-  const monthlyIncomeCents = Math.round(totalCents / months);
+  const monthlyIncomeCents = Math.round(totalCents / INCOME_WINDOW_MONTHS);
   if (monthlyIncomeCents <= 0) return { ok: false, reason: "no_payroll_deposits", depositCount };
-  return { ok: true, estimate: { monthlyIncomeCents, months, depositCount: counted.length } };
+  return { ok: true, estimate: { monthlyIncomeCents, months: INCOME_WINDOW_MONTHS, depositCount: counted.length } };
 }

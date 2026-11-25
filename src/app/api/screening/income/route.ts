@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authorizeIncomeActor, incomeCheckOffered, loadIncomeVerification } from "@/lib/plaid/income.server";
 import { plaidEnabled } from "@/lib/plaid/client.server";
+import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { incomeVerifiedPayload } from "@/lib/screening/income-verification";
 
 export const runtime = "nodejs";
@@ -22,6 +23,8 @@ export async function GET(req: Request) {
     if (!propertyId) return none;
     const actor = await authorizeIncomeActor();
     if (!actor.ok) return none;
+    const limit = await rateLimit(`plaid-income-read:${actor.userId}:${clientIpFrom(req)}`, 30, 10 * 60_000);
+    if (!limit.ok) return NextResponse.json({ offered: false, verified: null }, { status: 429, headers: NO_STORE });
     if (!(await incomeCheckOffered(actor.db, propertyId))) return none;
     const verified = await loadIncomeVerification(actor.db, actor.userId, propertyId);
     return NextResponse.json(

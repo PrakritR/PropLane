@@ -5,7 +5,13 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: vi.fn() }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
 
-import { estimateMonthlyIncome, looksLikePayrollDeposit, type IncomeTransactionInput } from "@/lib/plaid/income-calc";
+import {
+  INCOME_WINDOW_DAYS,
+  INCOME_WINDOW_MONTHS,
+  estimateMonthlyIncome,
+  looksLikePayrollDeposit,
+  type IncomeTransactionInput,
+} from "@/lib/plaid/income-calc";
 import {
   computeIncomeFromPublicToken,
   incomeCheckOffered,
@@ -26,7 +32,26 @@ describe("income calc", () => {
   // docs/agents/plaid.md § Income check owns the contract. Each case also names the figure the old rate estimator
   // reported, so the test rejects it.
   const NOW = new Date("2026-11-30T00:00:00.000Z");
-  const observe = (rows: IncomeTransactionInput[]) => estimateMonthlyIncome(rows, 3, NOW);
+  const observe = (rows: IncomeTransactionInput[]) => estimateMonthlyIncome(rows, NOW);
+
+  // The window and the divisor are one fact: the manager's line names the days, the figure divides by the months
+  // that window covers. Oracle: the Gregorian average month, 365.25 / 12 days. The wrong behaviour this rejects is
+  // the pair drifting apart - a 90-day line over a divisor that no longer matches it scales every figure.
+  it("divides by the whole months its own window covers", () => {
+    expect(INCOME_WINDOW_MONTHS).toBe(Math.round(INCOME_WINDOW_DAYS / (365.25 / 12)));
+    const paychecks = ["2026-09-11", "2026-09-25", "2026-10-09", "2026-10-23", "2026-11-06", "2026-11-20"].map(
+      (date) => dated(2500, date),
+    );
+    // $15,000 of payroll inside the window, so the figure is $15,000 divided by those whole months.
+    expect(observe(paychecks)).toEqual({
+      ok: true,
+      estimate: {
+        monthlyIncomeCents: Math.round(1_500_000 / INCOME_WINDOW_MONTHS),
+        months: INCOME_WINDOW_MONTHS,
+        depositCount: 6,
+      },
+    });
+  });
 
   it("recognises payroll by name when the category is missing", () => {
     expect(looksLikePayrollDeposit({ amount: -1800, name: "GUSTO DIRECT DEP 4412" })).toBe(true);

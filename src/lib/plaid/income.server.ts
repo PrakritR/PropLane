@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { CountryCode, Products, type PlaidApi, type Transaction } from "plaid";
-import { estimateMonthlyIncome, INCOME_LOOKBACK_MONTHS, type IncomeEstimateRefusal } from "@/lib/plaid/income-calc";
+import { estimateMonthlyIncome, type IncomeEstimateRefusal } from "@/lib/plaid/income-calc";
 import { getPlaidClient, plaidEnabled, plaidFailure } from "@/lib/plaid/client.server";
 import { resolveApplicantScreeningSettings } from "@/lib/screening/applicant-screening-settings.server";
 import {
@@ -152,7 +152,7 @@ export async function computeIncomeFromPublicToken(
   const accessToken = exchanged.data.access_token;
   try {
     const transactions = await readTransactions(client, accessToken, now, wait);
-    const outcome = estimateMonthlyIncome(transactions, INCOME_LOOKBACK_MONTHS, now);
+    const outcome = estimateMonthlyIncome(transactions, now);
     if (!outcome.ok) return { ok: false, status: 422, error: INCOME_REFUSAL_MESSAGE[outcome.reason] };
     const estimate = outcome.estimate;
     return {

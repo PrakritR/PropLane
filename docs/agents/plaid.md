@@ -128,7 +128,9 @@ micro-deposits stay as "Enter numbers instead"; phone-bound links and saved-bank
 - **Every Plaid route is rate limited.** Link token, exchange, the resident's bank pay and the manager's own
   Retry carry the same ceiling as the income routes (`plaid-link-token` / `plaid-exchange` /
   `plaid-resident-pay` 10, `plaid-sync` 20, per user + IP per ten minutes): each is an outbound Plaid call,
-  and being signed in is not a budget.
+  and being signed in is not a budget. The income read-back (`GET /api/screening/income`) calls Plaid for
+  nothing, so it carries the read ceiling instead (`plaid-income-read` 30 per user + IP per ten minutes, a 429
+  in the same `{ offered: false }` shape) - a loop there is still two indexed reads per request.
 - **One failing item is its own failure.** `syncPlaidItem` answers a claim it could not take as a result,
   never a throw, and `/api/cron/plaid-sync` guards each item — a single unreadable row never costs every
   connection behind it that day's transactions (the webhook is the only other trigger, and a deployment
@@ -149,7 +151,10 @@ group never waits on it.
 - **Method.** Link with the Transactions product (90 days), then `/transactions/get` and `income-calc.ts`: the figure is
   the **observed 90-day average of payroll deposits** — every payroll-style deposit (Plaid `INCOME_WAGES`, or a payroll
   name; never a transfer, refund, peer payment or pending line) dated inside the window, summed and divided by the
-  `INCOME_LOOKBACK_MONTHS` the window covers. Nothing is inferred: no pay cycle read off the gaps, no amount band, no
+  whole months that window covers. `INCOME_WINDOW_DAYS` is the ONE constant: `INCOME_WINDOW_MONTHS` is derived from
+  it (`round(days / (365.25 / 12))`, whole months because the recorded basis
+  `applicant_income_verifications.months` is a smallint), so the days the manager's line names and the divisor
+  behind the figure can never disagree. Nothing is inferred: no pay cycle read off the gaps, no amount band, no
   per-payer streams, no scaling of a short history. A bonus, a variable hourly week and the final checks of a job just
   left all count, because they are money that arrived and a window average claims nothing about them repeating. That is
   a deliberate retreat from estimating a pay RATE, which was wrong in both directions on ordinary histories (a $3,000
