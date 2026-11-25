@@ -34,6 +34,7 @@ import type { LeaseGenerationContext } from "@/lib/generated-lease";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
 import { resolveStayPricing } from "@/lib/room-pricing";
+import { bundleIdForApplication } from "@/lib/bundle-group/bundle-group-application";
 import { roomStartSurchargeRow, submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
 import { intraMonthStaySpan, shortTermStayNightCount, shortTermStayCanBePriced, shortTermStayTotalAmount } from "@/lib/short-term-stay-pricing";
 
@@ -434,7 +435,7 @@ export function buildLeaseBillingSnapshot(
           sub,
           listing,
           feeBillingCtx,
-          applicant.application?.bundleId?.trim() ? undefined : roomStartSurchargeRow(sub, selectedRoom),
+          bundleIdForApplication(applicant.application) ? undefined : roomStartSurchargeRow(sub, selectedRoom),
         )
       : [],
     sub,

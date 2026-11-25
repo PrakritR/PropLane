@@ -56,6 +56,7 @@ import {
   type ProratedLastMonthTotals,
 } from "@/lib/lease-first-period-proration";
 import { monthlyFeesBilledSeparately } from "@/lib/rent-fold-in";
+import { bundleIdForApplication } from "@/lib/bundle-group/bundle-group-application";
 import { roomStartSurchargeRow, submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
 import { resolveStayPricing, roomShortLeaseSurcharge, tenancyPaysShortLeaseSurcharge } from "@/lib/room-pricing";
 import { listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
@@ -705,7 +706,7 @@ export function buildLeaseHtml(ctxIn: LeaseGenerationContext, config: LeaseJuris
           subNorm,
           list,
           leaseFeeBillingContext,
-          leasedBundle ? undefined : roomStartSurchargeRow(subNorm, specificRoom),
+          bundleIdForApplication(a) ? undefined : roomStartSurchargeRow(subNorm, specificRoom),
         )
       : [],
     subNorm,
