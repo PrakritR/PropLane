@@ -169,6 +169,7 @@ export function buildScheduledTourMeetings(
             return null;
           }
           const durationMinutes = durationMinutesBetweenIso(window.start, window.end);
+          const requestName = row.name?.trim() || "Tour request";
           return {
             id: tourInquiryRowId(row.id, index),
             source: "inquiry",
@@ -179,10 +180,10 @@ export function buildScheduledTourMeetings(
             startSlot: Math.max(0, Math.floor((start.getHours() * 60 + start.getMinutes()) / SLOT_DURATION_MINUTES)),
             span: Math.max(1, Math.ceil(durationMinutes / SLOT_DURATION_MINUTES)),
             durationMinutes,
-            title: row.kind === "tour" ? `Tour · ${row.name}` : `${row.name} request`,
+            title: row.kind === "tour" ? `Tour · ${requestName}` : `${requestName} request`,
             color: MEETING_PENDING_COLOR,
             statusLabel: row.kind === "tour" ? "Tour requested" : "Requested",
-            name: row.name,
+            name: requestName,
             email: row.email,
             phone: row.phone,
             notes: row.notes,

@@ -41,6 +41,23 @@ beforeEach(() => {
   window.sessionStorage.setItem("axis_sched_cache_v1:axis_admin_partner_inquiries_v1", JSON.stringify([inquiry]));
 });
 
+describe("a calendar block of a request the free/busy projection stripped", () => {
+  it("still carries a title", () => {
+    const nameless = { ...(inquiry as unknown as Record<string, unknown>) };
+    delete nameless.name;
+    window.sessionStorage.setItem(
+      "axis_sched_cache_v1:axis_admin_partner_inquiries_v1",
+      JSON.stringify([nameless]),
+    );
+    const meetings = buildScheduledTourMeetings({ viewerUserId: VIEWER, propertyId: null, peers: [] }, null);
+    expect(meetings).toHaveLength(3);
+    for (const meeting of meetings) {
+      expect(meeting.title).toBe("Tour · Tour request");
+      expect(meeting.name).toBe("Tour request");
+    }
+  });
+});
+
 describe("a calendar block of a multi-window tour request", () => {
   it("opens the window that was clicked, not the first one", () => {
     const rows = tourRowsFromInquiries([inquiry]);

@@ -216,16 +216,36 @@ describe("the receipt and the overlay read the same fees", () => {
   });
 
   /*
-   * Oracle: the manager's own $150 preset in the unified Fees table, which is the one amount owed per month on a
-   * month-to-month start. Plausible wrong behaviour this rejects: quoting it twice - once folded into the rent
-   * figure and once as a "Month-to-month surcharge" line - so the receipt reads $300/month.
+   * Oracle: what approval actually bills each month for this listing - `monthlyFeesBilledSeparately`, the ledger's
+   * own resolver, which owes $150 on a Month-to-Month lease and nothing on a 12-month one. Plausible wrong
+   * behaviour this rejects: quoting the preset row on every lease term (a Long-term receipt $150/mo too high), or
+   * quoting it twice on a month-to-month start (once in the rent figure, once as a line).
    */
-  it("quotes a listing-level month-to-month surcharge exactly once", () => {
+  it("quotes the month-to-month surcharge on the terms that bill it, and once", () => {
     const sub = listing({}, { monthToMonthSurcharge: "150" });
-    const std = buildListingQuote(sub, { roomId: "room-7", leaseTerm: "Long-term", arrangementCount: 1 });
-    const m2m = buildListingQuote(sub, { roomId: "room-7", leaseTerm: "Long-term", arrangementCount: 1, startKind: "m2m" });
-    expect(m2m.monthlyRent - std.monthlyRent).toBe(150);
-    expect(m2m.monthlyFees.filter((f) => f.label.startsWith("Month-to-month"))).toEqual([]);
+    const row = roomStartSurchargeRow(sub, sub.rooms[0]);
+    const billed = (leaseTerm: string) =>
+      monthlyFeesBilledSeparately(sub, null, { leaseTerm }, row)
+        .filter((f) => f.label.startsWith("Month-to-month"))
+        .map((f) => f.amount);
+    expect(billed("Long-term")).toEqual([]);
+    expect(billed("Month-to-Month")).toEqual([150]);
+
+    const quoted = (leaseTerm: string, startKind?: "m2m") =>
+      buildListingQuote(sub, { roomId: "room-7", leaseTerm, arrangementCount: 1, ...(startKind ? { startKind } : {}) });
+    const std = quoted("Long-term");
+    expect(std.monthlyFees.filter((f) => f.label.startsWith("Month-to-month"))).toEqual([]);
+
+    const term = quoted("Month-to-Month");
+    expect(term.monthlyFees.filter((f) => f.label.startsWith("Month-to-month")).map((f) => f.amount)).toEqual([150]);
+    expect(term.monthlyRent).toBe(std.monthlyRent);
+    expect(term.monthlyTotal - std.monthlyTotal).toBe(150);
+
+    // The Pricing panel's "Month-to-month" START preview carries the same one amount inside the rent it previews.
+    const preview = quoted("Long-term", "m2m");
+    expect(preview.monthlyRent - std.monthlyRent).toBe(150);
+    expect(preview.monthlyFees.filter((f) => f.label.startsWith("Month-to-month"))).toEqual([]);
+    expect(preview.monthlyTotal - std.monthlyTotal).toBe(150);
   });
 
   it("the overlay hands the room's surcharges and Lease fee to everything that reads the listing", () => {

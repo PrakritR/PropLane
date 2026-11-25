@@ -921,7 +921,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
         .flatMap((r) =>
           getPartnerInquiryWindows(r).map((w) => ({
             id: `${r.id}-${w.start}`,
-            label: r.name,
+            label: r.name?.trim() || "Tour request",
             propertyTitle: r.propertyTitle ?? "",
             status: "pending" as const,
             startMs: new Date(w.start).getTime(),
