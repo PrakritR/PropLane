@@ -284,9 +284,10 @@ export function buildListingQuote(
   const staySlot = room && residentSlot ? roomStayPriceForSlot(room, residentSlot) : undefined;
   const arrangementPrice =
     room && arrangementCount ? roomPriceForResidentCount(room, arrangementCount) : undefined;
-  // The one arrangement-row lookup (`roomFeeRow`), on the count the applicant picked or the single-resident row:
-  // the lease rider and the monthly charge read it the same way, so a fee typed per room cannot be quoted at one
-  // figure and billed at another.
+  // The one arrangement-row lookup (`roomFeeRow`): the count a caller names (the wizard's own preview), else the
+  // Private (count 1) row - which is the row the lease rider and the monthly charge read too, so the three agree
+  // on whatever is typed there. An amount typed on a SHARED arrangement is still not reached by any of them:
+  // nothing records which arrangement an applicant took.
   const arrangementRow = roomFeeRow(sub, room, arrangementCount ?? 1);
   const placementFees = resolvePlacementStandardFees(sub, {
     leaseTerm,

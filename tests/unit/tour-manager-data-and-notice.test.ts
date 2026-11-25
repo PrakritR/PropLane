@@ -140,9 +140,17 @@ describe("manager tour-request notification (A3)", () => {
     );
   });
 
+  // Oracle: Crockford base32 (the alphabet without I, L, O and U, so a code read aloud cannot become another one)
+  // plus this reference's own contract - a label a person quotes back, never a lookup key. Plausible wrong behaviour
+  // this rejects: printing the head of the record id, which is half an id and shared one code between any two tours
+  // whose ids start alike.
   it("the guest confirmation carries the reference, time, property, room and address", () => {
     const ref = tourConfirmationReference(ID);
-    expect(ref).toBe("T-3F9A2C");
+    expect(ref).toMatch(/^T-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/);
+    expect(tourConfirmationReference(ID)).toBe(ref);
+    expect(ref).not.toContain(ID.slice(0, 4).toUpperCase());
+    expect(tourConfirmationReference(`${ID.slice(0, -1)}c`)).not.toBe(ref);
+    expect(tourConfirmationReference("")).toBe("");
     const body = buildTourRequestTenantBody(ctx);
     expect(body).toContain(`Reference: ${ref}`);
     expect(body).toContain("5257 Brooklyn");

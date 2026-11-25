@@ -13,8 +13,8 @@
   ],
   "reviewed_change": {
     "date": "2026-11-24",
-    "reason": "20261123130000_sms_inbound_reply_conversation_owner.sql adds the nullable columns sms_inbound_receipts.reply_owner_user_id and reply_workspace_id plus a 12-argument prepare_sms_inbound_reply overload beside the existing 10-argument one (which it leaves in place, so an inbound reply still works between db:push and the deploy). No table is added or removed, no trigger or recovery hook is touched, and sms_inbound_receipts stays classified as before in account-purge-manifest.ts. The selected path count rises by one because that migration's ALTER TABLE puts it in the selection.",
+    "reason": "20261123130000_sms_inbound_reply_conversation_owner.sql adds the nullable columns sms_inbound_receipts.reply_owner_user_id and reply_workspace_id plus a 12-argument prepare_sms_inbound_reply overload beside the existing 10-argument one (which it leaves in place, so an inbound reply still works between db:push and the deploy). A later review round reverted its own 20261124120000_income_verification_history_days.sql, so that migration is no longer part of the change and the digest returns to the value this file carried before it (dddb3385...), with 49b739bd... - the digest while that migration existed - as the predecessor. No table is added or removed, no trigger or recovery hook is touched, and sms_inbound_receipts stays classified as before in account-purge-manifest.ts. The selected path count rises by one because that SMS migration's ALTER TABLE puts it in the selection.",
     "selected_source_paths": 361,
-    "previous_sha256": "4f23a072be1117dfaf23a7278a80efff8b3d8ca5155622af9b43c3ecb0183dcc"
+    "previous_sha256": "49b739bd8a16d74ab5bca71a1d92b422baf6fc4c6ee55d12eb2f2f8124c46a34"
   }
 }

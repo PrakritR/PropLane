@@ -1193,6 +1193,60 @@ describe("managed Twilio inbound retry", () => {
     expect(mocks.inboundBodies[0]).toMatchObject({ manager_user_id: "11111111-1111-4111-8111-111111111111", message_sid: "SM11111111111111111111111111111111" });
   });
 
+  // A prospect's prepared reply belongs to the workspace it was prepared under, not to whoever owns the work number
+  // the text arrived on (a pure co-manager can own that row). Oracle: docs/agents/one-number.md - "The receipt stores
+  // that owner and workspace, so a Twilio retry replays the prepared reply there and never under the number's
+  // owner", the rule the manager and resident branches already follow. Plausible wrong behaviour this rejects:
+  // re-sending under the number's owner, which writes and BILLS the prospect conversation in the wrong workspace.
+  it("stores the workspace the prospect reply was prepared under", async () => {
+    const replyBody = "Room 6 is open on the 1st.";
+    mocks.handleInbound.mockImplementationOnce(async (args: {
+      managerUserId: string;
+      onPreparedReply: (prepared: Record<string, unknown>) => Promise<boolean>;
+    }) => {
+      await args.onPreparedReply({ routeKind: "leasing_agent", replyBody });
+      return { ok: true, replied: true };
+    });
+    mocks.deliverLeasing.mockResolvedValue({ ok: true, durablyAccepted: true });
+
+    const response = await POST(inboundRequest());
+
+    expect(response.status).toBe(200);
+    const preparedOwner = mocks.handleInbound.mock.calls[0]![0].managerUserId as string;
+    expect(preparedOwner).toBeTruthy();
+    expect(mocks.rpc).toHaveBeenCalledWith("prepare_sms_inbound_reply", expect.objectContaining({
+      p_reply_body: replyBody,
+      p_reply_owner_user_id: preparedOwner,
+    }));
+  });
+
+  it("replays a prepared prospect reply under the stored workspace, and only falls back for a receipt stored without one", async () => {
+    const workspaceOwner = "99999999-9999-4999-8999-999999999999";
+    const replyBody = "Yes, it is still available.";
+    mocks.deliverLeasing.mockResolvedValue({ ok: true, durablyAccepted: true });
+    mocks.receipt = {
+      status: "processing",
+      first_received_at: "2026-09-25T12:00:00.000Z",
+      route_kind: "leasing_agent",
+      reply_body: replyBody,
+      reply_owner_user_id: workspaceOwner,
+      reply_workspace_id: "ws-prospect",
+    };
+
+    expect((await POST(inboundRequest())).status).toBe(200);
+    expect(mocks.handleInbound).not.toHaveBeenCalled();
+    expect(mocks.deliverLeasing).toHaveBeenCalledWith(expect.objectContaining({
+      landlordId: workspaceOwner,
+      workspaceId: "ws-prospect",
+      text: replyBody,
+    }));
+
+    mocks.deliverLeasing.mockClear();
+    mocks.receipt = { ...mocks.receipt, reply_owner_user_id: null, reply_workspace_id: null };
+    expect((await POST(inboundRequest())).status).toBe(200);
+    expect(mocks.deliverLeasing).toHaveBeenCalledWith(expect.objectContaining({ landlordId: OWNER, text: replyBody }));
+  });
+
   it("completes without re-entering the handler once its durable outbox owns the reply", async () => {
     mocks.receipt = {
       ...mocks.receipt,

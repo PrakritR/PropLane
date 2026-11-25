@@ -90,10 +90,30 @@ export function formatTourTimeRange(startIso: string, endIso: string): string {
   return `${startLabel} – ${endLabel}`;
 }
 
-/** The short reference shown to the guest and quoted to the manager: "T-" + the first 6 hex chars of the record id. */
+/** Crockford base32: no I, L, O or U, so a person reading a code aloud cannot turn it into another one. */
+const REFERENCE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/**
+ * The short reference the guest sees on the confirmation screen and quotes back, and the manager's alert carries:
+ * "T-XXXX-XXXX", 40 bits of a hash of the WHOLE tour record id. It is a label for a person to say out loud, never a
+ * lookup key - no reader resolves a tour by it, and nothing derives the record id back out of it. Hashing the whole
+ * id (rather than printing a prefix of it) is what keeps it from being half an id, and 40 bits keeps two live tours
+ * from sharing one the way a 6-character prefix did.
+ */
 export function tourConfirmationReference(inquiryId: string | null | undefined): string {
-  const hex = String(inquiryId ?? "").replace(/[^0-9a-fA-F]/g, "").slice(0, 6).toUpperCase();
-  return hex.length >= 4 ? `T-${hex}` : "";
+  const id = String(inquiryId ?? "").trim();
+  if (!id) return "";
+  let a = 0x811c9dc5;
+  let b = 0x01000193;
+  for (let i = 0; i < id.length; i += 1) {
+    const code = id.charCodeAt(i);
+    a = Math.imul(a ^ code, 0x01000193) >>> 0;
+    b = Math.imul(b + code, 0x85ebca6b) >>> 0;
+  }
+  const chars: string[] = [];
+  for (let i = 0; i < 6; i += 1) chars.push(REFERENCE_ALPHABET.charAt((a >>> (i * 5)) & 31));
+  for (let i = 0; i < 2; i += 1) chars.push(REFERENCE_ALPHABET.charAt((b >>> (i * 5)) & 31));
+  return `T-${chars.slice(0, 4).join("")}-${chars.slice(4).join("")}`;
 }
 
 /**

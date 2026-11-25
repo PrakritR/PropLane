@@ -998,13 +998,13 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     if (replay.receipt.routeKind === "leasing_agent" || replay.receipt.routeKind === "leasing_template") {
       const { deliverLeasingSmsReply } = await import("@/lib/agent/leasing-sms-agent.server");
       const delivered = await deliverLeasingSmsReply({
-        landlordId: managerId,
+        landlordId: replay.receipt.replyOwnerUserId ?? managerId,
         toPhone: fromPhone,
         text: replay.receipt.replyBody,
         workNumber: normalizeE164(toPhone) ?? toPhone,
         inboundMessageSid: messageSid,
         traceId: replay.receipt.turnTraceId,
-        workspaceId: workspaceId ?? null,
+        workspaceId: replay.receipt.replyWorkspaceId ?? workspaceId ?? null,
         bubbles: feel.bubbleReplies,
         inboundText: body,
       });
@@ -2385,6 +2385,8 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
           assistantAgentMessageId: prepared.assistantAgentMessageId,
           turnTraceId: prepared.turnTraceId,
           replyBody: prepared.replyBody,
+          replyOwnerUserId: workspace.ownerUserId,
+          replyWorkspaceId: workspaceId ?? null,
         });
       },
     });
