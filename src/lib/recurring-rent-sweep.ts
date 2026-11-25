@@ -29,6 +29,7 @@ import {
   type RecurringRentProfile,
 } from "@/lib/household-charges";
 import { formatRoomPriceAmount, weeklyRentForBillableDays } from "@/lib/room-pricing";
+import { extensionCoversRecurring } from "@/lib/lease-stay-extension";
 
 export type RecurringRentSweepPlan = {
   newCharges: HouseholdCharge[];
@@ -119,6 +120,10 @@ export function planRecurringRentCharges(input: {
       // When the last month is partial, recordApprovedApplicationCharges creates upfront prorated_last_month_rent
       // charges so residents can see them from approval time. Skip the recurring-generated version.
       const emailLower = profile.residentEmail.trim().toLowerCase();
+      const extensionCovers = (key: string) => extensionCoversRecurring(activeExisting, {
+        managerUserId: profile.managerUserId, residentEmail: profile.residentEmail,
+        propertyId: profile.propertyId, month: rentMonth, key,
+      });
       const hasUpfrontLastRent =
         isPartialLastMonth && hasUpfrontProratedLastCharge(profile.residentEmail, profile.propertyId, "prorated_last_month_rent");
       const hasUpfrontLastUtil =
@@ -160,7 +165,7 @@ export function planRecurringRentCharges(input: {
           newCharges.some((c) => chargeBusinessKey(c) === chargeKey) ||
           rentPeriodAlreadyCovered(activeExisting, coverTarget) ||
           rentPeriodAlreadyCovered(newCharges, coverTarget);
-        if (!alreadyExists) {
+        if (!alreadyExists && !extensionCovers("rent")) {
           // Daily-priced rooms bill actual days-in-month × daily rate (partial last month
           // bills leaseEndDay × rate); monthly rooms keep the flat monthlyRent × factor.
           const daysBilled = isPartialLastMonth ? leaseEndDay! : daysInCandidateMonth;
@@ -216,7 +221,7 @@ export function planRecurringRentCharges(input: {
         const alreadyUtil =
           activeExisting.some((c) => chargeBusinessKey(c) === utilKey) ||
           newCharges.some((c) => chargeBusinessKey(c) === utilKey);
-        if (!alreadyUtil) {
+        if (!alreadyUtil && !extensionCovers("utilities")) {
           const utilSplit = applyBundleGroupSplit(
             Number((utilAmt * proratedFactor).toFixed(2)),
             isPartialLastMonth ? "Prorated utilities" : "Utilities",
@@ -257,6 +262,7 @@ export function planRecurringRentCharges(input: {
       // syncs; an amount change only affects months not yet emitted.
       for (const fee of profile.monthlyFees ?? []) {
         if (!(fee.amount > 0)) continue;
+        if (extensionCovers(`fee:${fee.id}`)) continue;
         // A partial last month is billed up front by `prorated_last_month_fee` — never also
         // the flat month here.
         if (isPartialLastMonth && hasUpfrontProratedLastFeeCharge(profile.residentEmail, profile.propertyId, fee.id)) continue;

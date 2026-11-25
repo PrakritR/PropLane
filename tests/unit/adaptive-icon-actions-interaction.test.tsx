@@ -7,7 +7,12 @@ import { portalIconActionSpec } from "@/components/portal/portal-icon-action-spe
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { RecordActionMenu } from "@/components/ui/record-action-menu";
 
-afterEach(cleanup);
+afterEach(async () => {
+  cleanup();
+  // Radix restores focus on a zero-delay timer. Let that callback use this test's
+  // CustomEvent realm before Vitest replaces jsdom for the next file.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+});
 
 describe("adaptive header icon handlers", () => {
   it("keeps the primary accessible while overflow invokes the same action and closes", async () => {

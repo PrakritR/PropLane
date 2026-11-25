@@ -17,6 +17,7 @@ import { createChargesForExecutedLease } from "@/lib/lease-signing-charges.clien
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 
 import { LeasePrimaryHeaderActions } from "@/components/portal/lease-primary-header-actions";
+import { LeaseExtendStayModal } from "@/components/portal/lease-extend-stay-modal";
 import {
   RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN,
 } from "@/components/portal/portal-data-table";
@@ -202,6 +203,7 @@ export function ManagerLeasesPipelinePanel({
     body: string;
   } | null>(null);
   const [amendLeaseRow, setAmendLeaseRow] = useState<LeasePipelineRow | null>(null);
+  const [extendStayRow, setExtendStayRow] = useState<LeasePipelineRow | null>(null);
   const [editLeaseRowId, setEditLeaseRowId] = useState<string | null>(null);
   const [attachLibraryOpen, setAttachLibraryOpen] = useState(false);
   const [generateLeaseRow, setGenerateLeaseRow] = useState<LeasePipelineRow | null>(null);
@@ -637,6 +639,7 @@ export function ManagerLeasesPipelinePanel({
           onMarkSigned={leaseCanBeMarkedSignedOffPlatform(row) ? () => setMarkSignedRowId(row.id) : undefined}
           markSignedDataAttr="lease-mark-signed"
           onNewTerms={() => setAmendLeaseRow(row)}
+          onExtendStay={row.axisId && row.roomChoice ? () => setExtendStayRow(row) : undefined}
         />
       </div>
     );
@@ -895,6 +898,12 @@ export function ManagerLeasesPipelinePanel({
           }}
         />
       ) : null}
+
+      {extendStayRow ? <LeaseExtendStayModal row={extendStayRow} onClose={() => setExtendStayRow(null)} onSaved={async () => {
+        const { syncManagerApplicationsFromServer } = await import("@/lib/manager-applications-storage");
+        await syncManagerApplicationsFromServer({ force: true });
+        await handleAmendLeaseSuccess();
+      }} /> : null}
 
       {editLeaseRow ? (
         <ManagerPipelineLeaseEditModal

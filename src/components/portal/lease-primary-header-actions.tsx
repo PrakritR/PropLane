@@ -3,6 +3,7 @@
 import { cloneElement, isValidElement, useMemo, useRef, type ReactNode } from "react";
 import {
   BadgeCheck,
+  CalendarPlus,
   Bell,
   Download,
   FileCheck2,
@@ -84,6 +85,7 @@ type LeasePrimaryHeaderActionsProps = {
   moveToManagerReviewDataAttr?: string;
   /** Opens Send new lease for a fully signed lease (e-sign or off-platform). */
   onNewTerms?: () => void;
+  onExtendStay?: () => void;
   /** @deprecated Use onNewTerms. */
   onRenewLease?: () => void;
   /** @deprecated Folded into onNewTerms. */
@@ -154,6 +156,7 @@ export function LeasePrimaryHeaderActions({
   markSignedDataAttr = "lease-primary-mark-signed",
   onReviewImportedLease,
   onNewTerms,
+  onExtendStay,
   onRenewLease,
   onExtendMoveOut,
   onEditLease,
@@ -197,6 +200,9 @@ export function LeasePrimaryHeaderActions({
 
   const headerActions = useMemo(() => {
     const actions: LeaseIconAction[] = [];
+    if (onExtendStay && row.status !== "Voided") {
+      actions.push({ id: "extend-stay", node: <LeaseHeaderIcon icon={CalendarPlus} label="Extend stay" dataAttr="lease-extend-stay" onClick={onExtendStay} /> });
+    }
 
     if (hasDocument) {
       actions.push({
@@ -454,6 +460,8 @@ export function LeasePrimaryHeaderActions({
     signLeaseLabel,
     showNewTerms,
     openNewTerms,
+    onExtendStay,
+    row.status,
     onReviewImportedLease,
     deleteDataAttr,
     deleteLabel,

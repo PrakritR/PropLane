@@ -2520,3 +2520,47 @@ New application approvals require a loaded, owner-scoped property and resolvable
 `resolveManagedApplicationOwner` derives the application owner from the active managed workspace and checks every referenced house plus the staff edit grant. Staff (including admin accounts) never choose that owner in a body. Onboarding, lease stubs and welcome setup tokens use that resolved owner; managed welcome recipients come from the persisted resident. Public listing projections carry enough room identifiers for the client placement check; the server still checks the owner-scoped full property before approval.
 
 Lease-send validation normalizes the persisted resident with `syncSignedRentFields`, the same rent normalization the browser uses, before comparing terms. A manager-added resident may store rent in `signedMonthlyRent`; this must not produce a false rent mismatch. Actual differences still refuse the send. Quick Add defers document generation when Add the lease later is selected, and draft PDF filing reports reading/confirmation persistence failures before sending. Coverage: `managed-application-owner`, `managed-resident-welcome`, `resident-wizard-lease-filing`, `lease-pipeline-route-signed-document` unit suites.
+
+## Extend stay (Nov 24, 2026)
+
+The manager lease header's **Extend stay** action is separate from Send new lease. It accepts a
+**checkout date**; storage and occupancy use the preceding final occupied night. The authenticated
+active managed workspace supplies the owner; a limited staff seat needs `leases: edit`. Neither a
+body owner id nor an admin role alone grants access.
+
+`lease-stay-extension.server.ts` reads the resident placement and the shared occupancy snapshot,
+refuses a named conflicting booking, and quotes only the added interval through `resolveStayPricing`,
+the shared proration/short-stay ladder and listing monthly fee resolvers. Imported leases may omit
+`application.leaseEnd`: the bound approved resident's move-out date is authoritative, with a uniquely
+bound finite booking as fallback. Conflicting or unknown dates refuse the write. Bundled household
+changes remain on Send new lease.
+
+`commit_stay_extension` locks the house, checks the quoted occupancy revision and expected resident,
+lease and billing snapshots, and commits the operational end dates, incremental charge rows, rent
+profile end and an immutable `lease_stay_extensions` amendment together. The original HTML/PDF,
+signatures, document hashes, lease status and deposit are never rewritten. A lease + checkout pair
+has one deterministic extension identity. This operational amendment does **not** assert new
+resident consent or a newly executed signature; use Send new lease when new signatures are required.
+Calendar/channel writes advance the same revision only when availability inputs change.
+
+Charges retain their explicit added-period coverage and their own amendment identities; separate
+extensions in one month never collapse into a rent cycle or the original move-in charge group.
+Confirmed extension charges are visible immediately to the resident, with their original due dates.
+The recurring sweep recognizes that coverage
+for rent, utilities and monthly fees; it does not generate another charge for an extension period.
+A pre-billed future cycle is credited. An old current-month charge with no reliable covered dates
+fails closed for billing review rather than rewriting its receipt or guessing its coverage. A voided
+or refunded row does not cover future billing. No deposit, application fee or move-in fee is generated.
+
+Ledger write-through runs immediately after the atomic commit, reading the persisted charge state
+(including any intervening payment), then the idempotent action-event bus records the resident notice
+with checkout, itemized amounts and a portal link. A reconciliation failure returns HTTP 202 and
+**Retry delivery**; repeating the same request resumes delivery without inserting charges again.
+Normal notification retries remain on the action-event bus. Replays read stored delivery status;
+a duplicate event with a previously failed notice still reports that failure. Pending delivery is never reported as sent.
+The manager refreshes resident/lease data after success. Existing external calendar exports use the
+new operational occupancy; no live listing content is edited.
+
+Tests: `lease-stay-extension.test.ts`, `lease-stay-extension-access.test.ts`,
+`lease-stay-extension-route.test.ts`, `extension-charge-resident-visibility.test.ts`. Dev QA uses labelled QA records only; production data changes
+(including Riko's February 1 checkout) require the later authorized production action.

@@ -81,6 +81,7 @@ export const EMAIL_COLUMNS = [
  *     workspace can only go once its properties are gone
  */
 export const DELETE_ORDER = [
+  "lease_stay_extensions",
   "email_onboarding_handoffs",
   "tour_signup_capabilities",
   // Identity children and return attempts precede their referenced subject or deposit.

@@ -17,7 +17,11 @@ vi.mock("@/hooks/use-work-assignment-directory", () => ({
   useWorkAssignmentDirectory: () => ({ teamMembers: [], vendors: [] }),
 }));
 
-afterEach(() => cleanup());
+afterEach(async () => {
+  cleanup();
+  // Let Radix finish restoring focus before this file's jsdom realm is replaced.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+});
 
 const req = (status: ServiceRequest["status"]): ServiceRequest => ({
   id: "SR-1", offerId: "storage", offerName: "Storage locker", offerDescription: "", price: "$40", deposit: "", residentEmail: "liam@example.com",

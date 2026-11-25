@@ -327,6 +327,8 @@ export type ResidentChargeMessage = {
 };
 
 export type HouseholdCharge = {
+  /** Added nights billed by an operational lease amendment, separate from move-in charges. */
+  stayExtension?: { start: string; end: string; key: string; extensionId: string };
   migrationSourceId?: string;
   sourceUtilityBillId?: string;
   utilityAllocationId?: string;
@@ -1494,8 +1496,9 @@ const PENDING_UPFRONT_MOVE_IN_KINDS = new Set<HouseholdChargeKind>([
  * regenerator does; a second copy of this set is how the two drift.
  */
 export function isPendingUpfrontMoveInCharge(
-  charge: Pick<HouseholdCharge, "kind" | "recurringRentProfileId" | "rentMonth" | "utilityAllocationId" | "migrationSourceId">,
+  charge: Pick<HouseholdCharge, "kind" | "recurringRentProfileId" | "rentMonth" | "utilityAllocationId" | "migrationSourceId" | "stayExtension">,
 ): boolean {
+  if (charge.stayExtension) return false;
   if (charge.utilityAllocationId || charge.migrationSourceId || charge.recurringRentProfileId) return false;
   if (charge.kind === "rent") return false;
   if (charge.kind === "utilities" && charge.rentMonth) return false;
@@ -1506,8 +1509,9 @@ export function isPendingUpfrontMoveInCharge(
 }
 
 function upfrontApprovedChargeSlotKey(
-  charge: Pick<HouseholdCharge, "kind" | "applicationId" | "recurringRentProfileId" | "residentEmail" | "propertyId" | "rentMonth" | "utilityAllocationId" | "migrationSourceId">,
+  charge: Pick<HouseholdCharge, "kind" | "applicationId" | "recurringRentProfileId" | "residentEmail" | "propertyId" | "rentMonth" | "utilityAllocationId" | "migrationSourceId" | "stayExtension">,
 ): string | null {
+  if (charge.stayExtension) return null;
   if (charge.utilityAllocationId || charge.migrationSourceId || charge.recurringRentProfileId) return null;
   const email = charge.residentEmail.trim().toLowerCase();
   if (!email || !charge.propertyId) return null;
@@ -1554,6 +1558,7 @@ export function rentPeriodAlreadyCovered(
 }
 
 export function chargeBusinessKey(charge: HouseholdCharge): string {
+  if (charge.stayExtension) return `stay_extension|${charge.managerUserId}|${charge.id}`;
   if (charge.migrationSourceId || charge.utilityAllocationId) return `source_record|${charge.managerUserId}|${charge.id}`;
   if (charge.kind === "rent") {
     const room = rentRoomKeyPart(charge.roomLabel);
@@ -2012,7 +2017,7 @@ function dueLabelForLeaseStart(leaseStart?: string | null): string {
 }
 
 function shouldDisplayChargeInPayments(charge: HouseholdCharge, now = new Date()): boolean {
-  if (charge.status === "paid") return true;
+  if (charge.status === "paid" || charge.residentVisibleAt) return true;
   const due = householdChargeDueDate(charge);
   if (!due) return true;
   // Show upcoming unpaid charges through the END OF NEXT MONTH (current + next
