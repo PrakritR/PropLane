@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { CountryCode, Products, type PlaidApi, type Transaction } from "plaid";
-import { estimateMonthlyIncome, type IncomeEstimateRefusal } from "@/lib/plaid/income-calc";
+import { INCOME_WINDOW_DAYS, estimateMonthlyIncome, type IncomeEstimateRefusal } from "@/lib/plaid/income-calc";
 import { getPlaidClient, plaidEnabled, plaidFailure } from "@/lib/plaid/client.server";
 import { resolveApplicantScreeningSettings } from "@/lib/screening/applicant-screening-settings.server";
 import {
@@ -15,7 +15,8 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 /**
  * Applicant income check (Plaid purpose `income`). Method: Plaid Link with the Transactions product, then
- * `/transactions/get` over the last 3 months, then payroll-style deposits averaged per month (`income-calc.ts`).
+ * `/transactions/get` over `INCOME_WINDOW_DAYS` - the one window `income-calc.ts` owns, asked for here, measured
+ * there and printed to the manager - then payroll-style deposits averaged per month (`income-calc.ts`).
  * Plaid's own Income products (`/credit/bank_income/get`) need separate product access; this works on a plain
  * Transactions-enabled account, sandbox included.
  *
@@ -55,7 +56,11 @@ export async function incomeCheckOffered(db: SupabaseClient, propertyId: string)
   }
 }
 
-/** Link token for the income check: transactions product, 90 days, no webhook (the item is removed straight away). */
+/**
+ * Link token for the income check: transactions product, `INCOME_WINDOW_DAYS` of history, no webhook (the item is
+ * removed straight away). The days ASKED for are the days measured: a window the bank never shared would divide a
+ * short history by a long one.
+ */
 export async function createIncomeLinkToken(userId: string, client: Pick<PlaidApi, "linkTokenCreate"> = getPlaidClient()): Promise<string> {
   const res = await client.linkTokenCreate({
     user: { client_user_id: userId },
@@ -63,7 +68,7 @@ export async function createIncomeLinkToken(userId: string, client: Pick<PlaidAp
     language: "en",
     country_codes: [CountryCode.Us],
     products: [Products.Transactions],
-    transactions: { days_requested: 90 },
+    transactions: { days_requested: INCOME_WINDOW_DAYS },
   });
   return res.data.link_token;
 }
@@ -96,7 +101,7 @@ async function readInstitutionName(client: IncomeClient, accessToken: string): P
 }
 
 async function readTransactions(client: IncomeClient, accessToken: string, now: Date, wait: (ms: number) => Promise<void>): Promise<Transaction[]> {
-  const start = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+  const start = new Date(now.getTime() - INCOME_WINDOW_DAYS * 24 * 60 * 60 * 1000);
   const all: Transaction[] = [];
   for (let attempt = 0; ; attempt += 1) {
     try {
@@ -139,7 +144,7 @@ const INCOME_REFUSAL_MESSAGE: Record<IncomeEstimateRefusal, string> = {
 };
 
 /**
- * Exchange the Link public token, read 90 days of transactions, compute the figure, remove the Item. The Item is
+ * Exchange the Link public token, read `INCOME_WINDOW_DAYS` of transactions, compute the figure, remove the Item. The Item is
  * removed in a `finally`: a failure at any step still leaves no access token behind.
  */
 export async function computeIncomeFromPublicToken(

@@ -14,6 +14,7 @@ import {
 } from "@/lib/plaid/income-calc";
 import {
   computeIncomeFromPublicToken,
+  createIncomeLinkToken,
   incomeCheckOffered,
   loadIncomeVerification,
 } from "@/lib/plaid/income.server";
@@ -204,6 +205,26 @@ describe("computeIncomeFromPublicToken", () => {
       ...wages(amount),
       date: ["2026-09-04", "2026-09-18", "2026-10-02", "2026-10-16", "2026-10-30", "2026-11-13"][i]!,
     }));
+
+  // The window the bank is ASKED for has to be the window the figure is measured over and the manager's line names.
+  // Oracle: docs/agents/plaid.md § Income check - "Link with the Transactions product (90 days)" over the same
+  // window the deposits are counted in. Wrong behaviour this rejects: a read window pinned at its own literal, so
+  // raising the measured window divides a 90-day history by a longer one and understates every verified figure.
+  it("asks the bank for exactly the window the figure is measured over", async () => {
+    const linkTokenCreate = vi.fn(async () => ({ data: { link_token: "link-sandbox-1" } }));
+    await createIncomeLinkToken("user-1", { linkTokenCreate } as never);
+    expect(linkTokenCreate.mock.calls[0]![0]).toMatchObject({
+      transactions: { days_requested: INCOME_WINDOW_DAYS },
+    });
+
+    const client = fakePlaid(paychecks());
+    await computeIncomeFromPublicToken({ publicToken: "public-sandbox-x", now, wait }, client as never);
+    const asked = client.transactionsGet.mock.calls[0]![0] as { start_date: string; end_date: string };
+    expect(asked.end_date).toBe("2026-11-18");
+    expect((Date.parse(`${asked.end_date}T00:00:00Z`) - Date.parse(`${asked.start_date}T00:00:00Z`)) / 86_400_000).toBe(
+      INCOME_WINDOW_DAYS,
+    );
+  });
 
   it("computes the figure on the server and removes the Item", async () => {
     const client = fakePlaid(paychecks());
