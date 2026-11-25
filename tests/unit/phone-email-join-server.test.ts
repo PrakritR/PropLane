@@ -3,8 +3,8 @@ import {
   createPhoneEmailEvidenceCache,
   loadPhoneEmailEvidence,
   phoneDigitsLikePattern,
-  resetInquiryEvidenceCache,
 } from "@/lib/sms/phone-email-join.server";
+import { resetCachedInquiryRows } from "@/lib/tour-resident-link.server";
 import { emailForPhoneInWorkspace } from "@/lib/sms/phone-email-join";
 import { INQUIRIES_RECORD_ID } from "@/lib/tour-inquiry.server";
 
@@ -64,7 +64,7 @@ function fakeDb(apps: AppRow[], inquiries: Record<string, unknown>[] = []) {
   return { db: db as never, reads };
 }
 
-beforeEach(() => resetInquiryEvidenceCache());
+beforeEach(() => resetCachedInquiryRows());
 
 describe("phoneDigitsLikePattern", () => {
   it("matches any formatting of the same number", () => {

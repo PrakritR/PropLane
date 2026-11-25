@@ -14,7 +14,7 @@ import {
   type ListingSlugIndex,
 } from "@/lib/listing-slug";
 import { listingPublicPath } from "@/lib/listing-public-path";
-import { getCrawlPublicListings } from "@/lib/seo/public-catalog.server";
+import { getCrawlPublicListings, resetCrawlPublicListingsCache } from "@/lib/seo/public-catalog.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 /**
@@ -40,6 +40,38 @@ export async function getListingSlugIndex(): Promise<ListingSlugIndex> {
   } catch {
     return EMPTY_LISTING_SLUG_INDEX;
   }
+}
+
+/**
+ * The hourly catalog memo is why a listing published since that read is missing from a perfectly readable index, so
+ * a slug it does not know gets ONE more catalog read before the answer stands - at most one per minute for the
+ * whole instance, shared by everyone waiting on it, and it refills the memo every other surface reads.
+ */
+const INDEX_REFRESH_COOLDOWN_MS = 60_000;
+let lastIndexRefreshAt = 0;
+let indexRefresh: Promise<ListingSlugIndex> | null = null;
+
+async function refreshedListingSlugIndex(): Promise<ListingSlugIndex | null> {
+  if (indexRefresh) return indexRefresh;
+  const now = Date.now();
+  if (now - lastIndexRefreshAt < INDEX_REFRESH_COOLDOWN_MS) return null;
+  lastIndexRefreshAt = now;
+  const run = (async () => {
+    resetCrawlPublicListingsCache();
+    return getListingSlugIndex();
+  })();
+  indexRefresh = run;
+  try {
+    return await run;
+  } finally {
+    if (indexRefresh === run) indexRefresh = null;
+  }
+}
+
+/** Tests only: forget when the slug index was last refreshed. */
+export function resetListingSlugIndexRefresh(): void {
+  lastIndexRefreshAt = 0;
+  indexRefresh = null;
 }
 
 /**
@@ -75,18 +107,22 @@ async function liveListingForIdToken(token: string): Promise<{ id: string; slug:
  * The listing a `/rent/listings/<param>` segment names. Cached per request, so `generateMetadata` and the page body
  * resolve the param once between them.
  *
- * The hourly catalog index answers it for nothing, and an unknown param against a readable index is simply not
- * found. But a slug URL is DURABLE — texted, syndicated, shared, indexed — so when that read FAILED and there is no
- * index at all, the param's own id token is resolved by a single bounded read of the live public records instead.
- * That read is a table scan, so it stays inside the outage: a token no single live listing owns leaves the param
- * alone, which is the id form that resolved before slugs existed.
+ * A slug URL is DURABLE — texted, syndicated, shared, indexed — and every builder mints it from the listing in hand,
+ * so it exists before the hourly catalog read knows the listing. The index answers for nothing; a slug it does not
+ * know buys one throttled catalog refresh; and only when the catalog cannot be read AT ALL is the param's own id
+ * token resolved by a scan of the live public records. A param no listing owns after all that keeps the id form,
+ * which is what resolved before slugs existed.
  */
 export const resolvePublicListingParam = cache(async (param: string): Promise<ListingParamResolution> => {
-  const index = await getListingSlugIndex();
-  const resolution = resolveListingParam(index, param);
-  if (resolution.kind !== "id" || index.idToSlug.size > 0) return resolution;
+  const memoized = await getListingSlugIndex();
+  const resolution = resolveListingParam(memoized, param);
+  if (resolution.kind !== "id") return resolution;
   const token = listingTokenOfParam(param);
   if (!isMintedListingIdToken(token)) return resolution;
+  const index = (await refreshedListingSlugIndex()) ?? memoized;
+  const refreshed = resolveListingParam(index, param);
+  if (refreshed.kind !== "id") return refreshed;
+  if (index.idToSlug.size > 0) return resolution;
   const hit = await liveListingForIdToken(token);
   if (!hit) return resolution;
   return hit.slug === param.trim() ? { kind: "slug", id: hit.id } : { kind: "stale", slug: hit.slug, id: hit.id };

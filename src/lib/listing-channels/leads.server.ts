@@ -6,6 +6,7 @@ import { normalizeLeadSource } from "@/lib/listing-channels/lead-source";
 import { applicantDisplayName } from "@/lib/rental-application/applicant-name";
 import { openApplicantRow } from "@/lib/security/applicant-identity";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { readCachedInquiryRows } from "@/lib/tour-resident-link.server";
 import type { ListingSiteLead } from "@/lib/listing-channels/leads";
 import type { ListingChannelId } from "@/lib/listing-channels/registry";
 
@@ -15,29 +16,26 @@ const ID_CHUNK = 200;
 const PAGE = 500;
 /** The newest leads a site's page lists; a page of leads, not an export. */
 export const LISTING_SITE_LEADS_LIMIT = 100;
-/** The one record that carries each tour request's CURRENT status; the per-window rows keep the payload they were created with. */
-const INQUIRIES_RECORD_ID = "axis_admin_partner_inquiries_v1";
-
-
-/** The status each named tour request carries NOW, from the one record that holds it. */
+/**
+ * The status each named tour request carries NOW: the per-window rows keep the payload they were created with, so
+ * the one singleton record decides. Read through the shared minute-long cache - it is a whole-platform blob, and a
+ * Leads page wants one field off a handful of its rows.
+ */
 async function inquiryStatuses(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   ids: readonly string[],
 ): Promise<Map<string, string>> {
   const out = new Map<string, string>();
-  const { data, error } = await db
-    .from("portal_schedule_records")
-    .select("row_data")
-    .eq("id", INQUIRIES_RECORD_ID)
-    .maybeSingle();
-  if (error || !data) return out;
-  const payload = asObject(data.row_data)?.payload;
-  if (!Array.isArray(payload)) return out;
   const wanted = new Set(ids);
-  for (const entry of payload) {
-    const item = asObject(entry);
-    const id = text(item?.id);
-    if (id && wanted.has(id)) out.set(id, text(item?.status) || "pending");
+  let rows: Record<string, unknown>[];
+  try {
+    rows = await readCachedInquiryRows(db);
+  } catch {
+    return out;
+  }
+  for (const row of rows) {
+    const id = text(row.id);
+    if (id && wanted.has(id)) out.set(id, text(row.status) || "pending");
   }
   return out;
 }

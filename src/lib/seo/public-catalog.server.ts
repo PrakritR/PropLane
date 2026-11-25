@@ -63,7 +63,7 @@ export async function getCrawlPublicListings(): Promise<MockProperty[]> {
   }
 }
 
-/** Tests only: drop the memo so the next read hits the catalog. */
+/** Drop the memo so the next read hits the catalog: the slug index's throttled refresh, and tests. */
 export function resetCrawlPublicListingsCache(): void {
   cached = null;
   inFlight = null;

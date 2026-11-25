@@ -8,7 +8,13 @@
 import { listingCanonicalSlug } from "@/lib/listing-slug";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const reads = vi.hoisted(() => ({ count: 0, fail: false, gate: null as Promise<void> | null }));
+const reads = vi.hoisted(() => ({
+  count: 0,
+  fail: false,
+  gate: null as Promise<void> | null,
+  /** Listings the catalog answers with RIGHT NOW: a publish between two reads is this list growing. */
+  extra: [] as Record<string, unknown>[],
+}));
 
 vi.mock("@/lib/public-listings.server", () => ({
   getPublicListings: async () => {
@@ -27,6 +33,7 @@ vi.mock("@/lib/public-listings.server", () => ({
         buildingName: "4709A 8th Ave NE",
         unitLabel: "Room 1",
       },
+      ...reads.extra,
     ];
   },
 }));
@@ -60,10 +67,13 @@ vi.mock("@/lib/supabase/service", () => ({
 
 afterEach(async () => {
   const { resetCrawlPublicListingsCache } = await import("@/lib/seo/public-catalog.server");
+  const { resetListingSlugIndexRefresh } = await import("@/lib/seo/listing-slugs.server");
   resetCrawlPublicListingsCache();
+  resetListingSlugIndexRefresh();
   reads.count = 0;
   reads.fail = false;
   reads.gate = null;
+  reads.extra = [];
   db.queries.length = 0;
   db.rows = [];
   db.fail = false;
@@ -186,6 +196,64 @@ describe("a canonical slug resolves without the catalog index", () => {
     const client = tree.props.children.find((child) => child?.props && "listingId" in child.props);
     return client?.props?.listingId;
   };
+
+  /** The page as a later visitor gets it: the instance's own memo stands, exactly as it would in production. */
+  const listingIdFromPage = async (param: string) => {
+    const tree = (await (await import("@/app/(rent)/rent/listings/[id]/page")).default({
+      params: Promise.resolve({ id: param }),
+    })) as { props: { children: { props?: Record<string, unknown> }[] } };
+    const client = tree.props.children.find((child) => child?.props && "listingId" in child.props);
+    return client?.props?.listingId;
+  };
+
+  const PUBLISHED_ID = "mgr-5257-brooklyn-ave-1x3tiu8k2mnq";
+  const PUBLISHED_SLUG = listingCanonicalSlug({ id: PUBLISHED_ID, address: "5257 Brooklyn Ave NE" });
+  const publish = () => {
+    reads.extra = [{
+      id: PUBLISHED_ID,
+      title: "Room 1 · 5257 Brooklyn Ave NE",
+      address: "5257 Brooklyn Ave NE",
+      zip: "98105",
+      rentLabel: "$1,200/mo",
+      available: "Now",
+      buildingId: "b-2",
+      buildingName: "5257 Brooklyn Ave NE",
+      unitLabel: "Room 1",
+    }];
+  };
+
+  /*
+   * The memo is an HOUR long, so a listing published at 10:00 is missing from an instance whose memo filled at
+   * 09:30 - and every link builder mints that listing's canonical slug from the listing in hand, with no reference
+   * to the index. Oracle: `listingCanonicalSlug`, the builder the sitemap and every link printer use. Plausible
+   * wrong behaviour this rejects: handing the client the slug string, so a live home reads "Listing not found" -
+   * ISR-cached for the hour, outliving the memo that caused it.
+   */
+  it("resolves a listing published since the memoized catalog read, on one refresh", async () => {
+    const { getCrawlPublicListings } = await import("@/lib/seo/public-catalog.server");
+    await getCrawlPublicListings();
+    expect(reads.count).toBe(1);
+    publish();
+
+    expect(await listingIdFromPage(PUBLISHED_SLUG)).toBe(PUBLISHED_ID);
+    expect(reads.count).toBe(2);
+    // The refreshed index answered, so the property table was never scanned.
+    expect(db.queries).toEqual([]);
+  });
+
+  it("buys at most one refresh a minute, whatever arrives", async () => {
+    const { getCrawlPublicListings } = await import("@/lib/seo/public-catalog.server");
+    await getCrawlPublicListings();
+    publish();
+
+    for (const param of ["a-abcd1234", "b-efgh5678", PUBLISHED_SLUG, "c-ijkl9012"]) {
+      await listingIdFromPage(param);
+    }
+    expect(reads.count).toBe(2);
+    expect(await listingIdFromPage("d-mnop3456")).toBe("d-mnop3456");
+    expect(reads.count).toBe(2);
+    expect(db.queries).toEqual([]);
+  });
 
   it("names the listing, and its canonical URL, when the catalog read fails", async () => {
     reads.fail = true;

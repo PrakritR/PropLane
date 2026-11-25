@@ -10,6 +10,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { tourRowsFromInquiries } from "@/lib/manager-tour-list";
+import { resetCachedInquiryRows } from "@/lib/tour-resident-link.server";
 import type { PartnerInquiry } from "@/lib/demo-admin-scheduling";
 
 const INQUIRIES_RECORD_ID = "axis_admin_partner_inquiries_v1";
@@ -22,6 +23,7 @@ const WINDOWS = [
 const store = vi.hoisted(() => ({
   events: [] as Record<string, unknown>[],
   inquiries: [] as Record<string, unknown>[],
+  blobReads: 0,
 }));
 
 vi.mock("@/lib/supabase/service", () => ({
@@ -31,6 +33,7 @@ vi.mock("@/lib/supabase/service", () => ({
       const answer = () => {
         if (table !== "portal_schedule_records") return { data: [], error: null };
         if (filters["eq:id"] === INQUIRIES_RECORD_ID) {
+          store.blobReads += 1;
           return { data: { row_data: { payload: store.inquiries } }, error: null };
         }
         return { data: store.events, error: null };
@@ -71,6 +74,8 @@ beforeEach(() => {
     row_data: { payload: { ...(inquiry("pending") as unknown as Record<string, unknown>) } },
   }));
   store.inquiries = [];
+  store.blobReads = 0;
+  resetCachedInquiryRows();
 });
 
 const lead = async () => {
@@ -101,6 +106,19 @@ describe("a tour lead links to the row the Tours list gives its request", () => 
     const entry = await lead();
     expect(entry.rowId).toBe(row!.id);
     expect(entry.bucket).toBe(row!.bucket);
+  });
+
+  /*
+   * That singleton row is a whole-platform blob (every workspace's tour requests), and a Leads page wants one field
+   * off a handful of its rows - AGENTS.md section Performance & egress. Oracle: the same minute-long contract
+   * `phone-email-join.server.ts` reads it under. Plausible wrong behaviour this rejects: one blob read per page load.
+   */
+  it("reads that whole-platform blob once a minute, not once a page load", async () => {
+    store.inquiries = [inquiry("pending") as unknown as Record<string, unknown>];
+    await lead();
+    await lead();
+    await lead();
+    expect(store.blobReads).toBe(1);
   });
 
   it("a confirmed tour names no inquiry row, so the lead carries none", async () => {

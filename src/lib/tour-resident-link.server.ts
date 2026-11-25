@@ -4,6 +4,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeTourFormat, type TourFormat } from "@/lib/tour-format";
+import { createTtlCache } from "@/lib/server-ttl-cache";
 import { INQUIRIES_RECORD_ID } from "@/lib/tour-inquiry.server";
 import { normalizeE164 } from "@/lib/twilio";
 
@@ -27,6 +28,32 @@ function textField(row: Record<string, unknown> | null | undefined, key: string)
 export function inquiryRowsFromRecord(rowData: unknown): Record<string, unknown>[] {
   const payload = asObject(rowData)?.payload;
   return Array.isArray(payload) ? payload.filter((item): item is Record<string, unknown> => Boolean(asObject(item))) : [];
+}
+
+/**
+ * Every tour request on the platform, from the ONE singleton row that holds them. That row is a whole-platform
+ * jsonb blob, so a surface that only needs a field or two off some of them reads it through here: one answer for
+ * every caller, at most one read a minute per instance.
+ */
+const INQUIRY_ROWS_TTL_MS = 60_000;
+const inquiryRowsCache = createTtlCache<Record<string, unknown>[]>(INQUIRY_ROWS_TTL_MS);
+
+export function readCachedInquiryRows(db: Db): Promise<Record<string, unknown>[]> {
+  return inquiryRowsCache.get("all", async () => {
+    const { data, error } = await db
+      .from("portal_schedule_records")
+      .select("row_data")
+      .eq("id", INQUIRIES_RECORD_ID)
+      .maybeSingle();
+    // Throws so the TTL cache never remembers a failed read as "no tour requests".
+    if (error) throw new Error(String(error.message ?? "read failed"));
+    return inquiryRowsFromRecord(data?.row_data);
+  });
+}
+
+/** Test hook: forget the cached inquiry rows. */
+export function resetCachedInquiryRows(): void {
+  inquiryRowsCache.clear();
 }
 
 /** Load a single tour inquiry by id from the singleton record. */

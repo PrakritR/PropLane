@@ -1,10 +1,8 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeE164 } from "@/lib/phone-e164";
-import { inquiryRowsFromRecord } from "@/lib/tour-resident-link.server";
-import { INQUIRIES_RECORD_ID } from "@/lib/tour-inquiry.server";
+import { readCachedInquiryRows } from "@/lib/tour-resident-link.server";
 import type { PhoneEmailEvidence } from "@/lib/sms/phone-email-join";
-import { createTtlCache } from "@/lib/server-ttl-cache";
 
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -35,16 +33,10 @@ function noteEvidenceReadFailure(label: string, error: unknown): void {
   console.warn(`[inbox] phone/email evidence read failed: ${label}`, code || "UNKNOWN", message);
 }
 
-/** The platform-wide tour-inquiry blob parsed into phone+email pairings (every owner). One answer for everyone. */
-const INQUIRY_EVIDENCE_TTL_MS = 60_000;
-const inquiryEvidenceCache = createTtlCache<PhoneEmailEvidence[]>(INQUIRY_EVIDENCE_TTL_MS);
-
+/** The platform-wide tour-inquiry blob parsed into phone+email pairings (every owner). One cached read for everyone. */
 async function readInquiryEvidence(db: SupabaseClient): Promise<PhoneEmailEvidence[]> {
-  const { data, error } = await db.from("portal_schedule_records").select("row_data").eq("id", INQUIRIES_RECORD_ID).maybeSingle();
-  // Throws so the TTL cache never remembers a failed read as "no evidence".
-  if (error) throw new Error(String(error.message ?? "read failed"));
   const out: PhoneEmailEvidence[] = [];
-  for (const row of inquiryRowsFromRecord(data?.row_data)) {
+  for (const row of await readCachedInquiryRows(db)) {
     const phone = normalizeE164(text(row.phone));
     const email = text(row.email).toLowerCase();
     if (!phone || !email.includes("@")) continue;
@@ -53,11 +45,6 @@ async function readInquiryEvidence(db: SupabaseClient): Promise<PhoneEmailEviden
     out.push({ ownerUserId: host, phone, email, atMs: Date.parse(text(row.createdAt)) || 0 });
   }
   return out;
-}
-
-/** Test hook: forget the cached inquiry evidence. */
-export function resetInquiryEvidenceCache(): void {
-  inquiryEvidenceCache.clear();
 }
 
 /**
@@ -86,7 +73,7 @@ async function readOwnerEvidence(db: SupabaseClient, owners: string[], phones: s
   const wanted = new Set(phones);
   const out: PhoneEmailEvidence[] = [];
   try {
-    const all = await inquiryEvidenceCache.get("all", () => readInquiryEvidence(db));
+    const all = await readInquiryEvidence(db);
     for (const item of all) if (ownerSet.has(item.ownerUserId) && wanted.has(item.phone)) out.push(item);
   } catch (error) {
     /* fewer merges, not fewer conversations */
