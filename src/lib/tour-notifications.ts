@@ -5,6 +5,7 @@
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { normalizeTourFormat, tourFormatDescription, type TourFormat } from "@/lib/tour-format";
 import { buildRentalApplyHref } from "@/lib/rental-application/apply-from-listing";
+import { managerTourDetailHref, tourInquiryRowId } from "@/lib/portal-detail-routes";
 import { formatRequestedTourWhen } from "@/lib/tour-request-time";
 
 export const TOUR_REQUEST_MANAGER_SUBJECT = "New tour request — PropLane";
@@ -117,13 +118,13 @@ export function tourConfirmationReference(inquiryId: string | null | undefined):
 }
 
 /**
- * The portal route that opens one tour request. `inquiry-<id>-0` is the row id `tourRowsFromInquiries` gives the
- * request's first window, and `/portal/tours/<bucket>/<rowId>` is the Tours detail route (`managerTourDetailHref`).
+ * The portal route that opens one tour request: the Pending bucket's detail route for the row id
+ * `tourInquiryRowId` gives the request's first window, which is what the Tours list resolves by.
  */
 export function managerTourRequestDeepLink(origin: string, inquiryId: string | null | undefined): string {
   const base = origin.replace(/\/$/, "");
   const id = String(inquiryId ?? "").trim();
-  return id ? `${base}/portal/tours/pending/${encodeURIComponent(`inquiry-${id}-0`)}` : `${base}/portal/tours`;
+  return id ? `${base}${managerTourDetailHref("/portal", "pending", tourInquiryRowId(id, 0))}` : `${base}/portal/tours`;
 }
 
 /** "Sat, Nov 21, 2026, 2:00 PM PT" (the start) in Pacific, the zone every tour slot is published in. */

@@ -74,7 +74,6 @@ import {
 /** 1 = Date & time (room rides along as a dropdown that defaults to "any"), 2 = Your details. */
 type TourStep = 1 | 2;
 
-/** Banner when a prospect picks a room that is fully booked (PRP-398 tour half). */
 /**
  * How many rooms this listing names. A home with none - and one with a single room - never draws a room
  * dropdown, so a refused occupancy read withholds nothing there and says nothing.
@@ -88,6 +87,7 @@ function namedRoomCount(p: MockProperty): number {
 export const TOUR_ROOM_AVAILABILITY_UNKNOWN =
   "Couldn't check room availability just now. Reload to try again, or ask about a room when the host replies - this request is for the home.";
 
+/** Banner when a prospect picks a room that is fully booked (PRP-398 tour half). */
 export function tourRoomAvailabilityMessage(roomKey: string | null | undefined): string | null {
   if (!roomKey || isTourRoomUndecided(roomKey)) return null;
   if (isRoomChoiceAvailable(roomKey, "")) return null;

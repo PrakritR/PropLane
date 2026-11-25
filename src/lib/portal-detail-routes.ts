@@ -617,6 +617,20 @@ export function parseTourDetailTab(raw: string | undefined | null): TourDetailTa
   return (raw && TOUR_DETAIL_TAB_ALIASES[raw]) || "overview";
 }
 
+/**
+ * The Tours row id a confirmed planned tour carries (`tourRowsFromPlannedEvents`). The detail view resolves strictly
+ * by row id, so every link to a planned tour — in the portal, a notification, or a Google Calendar event — is built
+ * from this, never the raw planned-event id.
+ */
+export function plannedTourRowId(plannedEventId: string): string {
+  return `planned-${plannedEventId}`;
+}
+
+/** The Tours row id a pending request's nth window carries (`tourRowsFromInquiries`); windows start at 0. */
+export function tourInquiryRowId(inquiryId: string, windowIndex: number): string {
+  return `inquiry-${inquiryId}-${windowIndex}`;
+}
+
 export function managerTourDetailHref(
   basePath: string,
   bucket: ManagerTourBucketId,

@@ -13,7 +13,7 @@ import {
   type PartnerInquiry,
   type PlannedEvent,
 } from "@/lib/demo-admin-scheduling";
-import type { ManagerTourBucketId } from "@/lib/portal-detail-routes";
+import { plannedTourRowId, tourInquiryRowId, type ManagerTourBucketId } from "@/lib/portal-detail-routes";
 import { normalizeTourFormat, type TourFormat } from "@/lib/tour-format";
 import {
   type PropertyCluster,
@@ -112,7 +112,7 @@ export function tourRowsFromInquiries(rows: PartnerInquiry[]): ManagerTourRow[] 
           const endMs = Date.parse(window.end);
           if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
           return {
-            id: `inquiry-${row.id}-${index}`,
+            id: tourInquiryRowId(row.id, index),
             source: "inquiry" as const,
             sourceId: row.id,
             guestName: row.name?.trim() || "Prospect",
@@ -206,7 +206,7 @@ function plannedRow(event: PlannedEvent): ManagerTourRow | null {
   const canceled = Boolean(event.canceledAt?.trim());
   const upcoming = !canceled && isUpcomingEnd(endMs);
   return {
-    id: `planned-${event.id}`,
+    id: plannedTourRowId(event.id),
     source: "planned",
     sourceId: event.id,
     guestName: event.attendeeName?.trim() || "Confirmed tour",

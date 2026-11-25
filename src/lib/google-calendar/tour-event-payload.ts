@@ -1,5 +1,5 @@
 import { PROPLANE_GOOGLE_CALENDAR_MARKER, PROPLANE_TOUR_TYPE_MARKER } from "@/lib/google-calendar/markers";
-import { managerTourDetailHref } from "@/lib/portal-detail-routes";
+import { managerTourDetailHref, plannedTourRowId } from "@/lib/portal-detail-routes";
 import { normalizeTourFormat, tourFormatLabel } from "@/lib/tour-format";
 
 /** What a Google Calendar tour event is built from: the planned-tour record's own facts. */
@@ -18,12 +18,12 @@ export type TourEventFacts = {
 };
 
 /**
- * The link that opens this CONFIRMED tour in the manager's portal Tours. A planned event's id is its row id in the
- * Upcoming bucket (`managerTourDetailHref`, the same builder the calendar's Reschedule uses); a request that is not
- * confirmed yet opens by `managerTourRequestDeepLink` instead.
+ * The link that opens this CONFIRMED tour in the manager's portal Tours: the Upcoming bucket's detail route for the
+ * row id `plannedTourRowId` mints, which is what the Tours list resolves by. A request that is not confirmed yet opens
+ * by `managerTourRequestDeepLink` instead.
  */
 export function tourEventDeepLink(origin: string, plannedEventId: string): string {
-  return `${origin.replace(/\/$/, "")}${managerTourDetailHref("/portal", "upcoming", plannedEventId)}`;
+  return `${origin.replace(/\/$/, "")}${managerTourDetailHref("/portal", "upcoming", plannedTourRowId(plannedEventId))}`;
 }
 
 /** "Tour · Ana · 5257 Room 6 (virtual)": who, where and how, so the calendar grid says it without opening the event. */
