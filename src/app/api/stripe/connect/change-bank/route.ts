@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { assertCoManagerBankAccountAccess } from "@/lib/auth/co-manager-bank-account-access";
 import {
   resolveStripePayoutContext,
   stripePayoutContextStatus,
@@ -55,8 +54,6 @@ export async function POST(req: Request) {
         { status: stripePayoutContextStatus(payout.unresolvedReason) },
       );
     }
-    const access = await assertCoManagerBankAccountAccess(service, user.id, payout.payoutOwnerUserId, "edit");
-    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     if (user.id !== payout.payoutOwnerUserId) {
       return NextResponse.json(
         {

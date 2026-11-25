@@ -34,22 +34,19 @@ describe("income calc", () => {
   const NOW = new Date("2026-11-30T00:00:00.000Z");
   const observe = (rows: IncomeTransactionInput[]) => estimateMonthlyIncome(rows, NOW);
 
-  // The window and the divisor are one fact: the manager's line names the days, the figure divides by the months
-  // that window covers. Oracle: the Gregorian average month, 365.25 / 12 days. The wrong behaviour this rejects is
-  // the pair drifting apart - a 90-day line over a divisor that no longer matches it scales every figure.
-  it("divides by the whole months its own window covers", () => {
-    expect(INCOME_WINDOW_MONTHS).toBe(Math.round(INCOME_WINDOW_DAYS / (365.25 / 12)));
+  // The window and the divisor are one fact. Oracle: docs/agents/plaid.md § Income check - 90 days of history is
+  // three whole months, so $15,000 of payroll inside the window is $5,000/mo on a basis of 3. The wrong behaviour
+  // this rejects is the pair drifting apart: a window the line names in days over a divisor that no longer matches
+  // it scales every verified figure, and a fractional basis cannot be stored in the smallint that records it.
+  it("divides 90 days of payroll by the three whole months it covers", () => {
+    expect(INCOME_WINDOW_DAYS).toBe(90);
+    expect(INCOME_WINDOW_MONTHS).toBe(3);
     const paychecks = ["2026-09-11", "2026-09-25", "2026-10-09", "2026-10-23", "2026-11-06", "2026-11-20"].map(
       (date) => dated(2500, date),
     );
-    // $15,000 of payroll inside the window, so the figure is $15,000 divided by those whole months.
     expect(observe(paychecks)).toEqual({
       ok: true,
-      estimate: {
-        monthlyIncomeCents: Math.round(1_500_000 / INCOME_WINDOW_MONTHS),
-        months: INCOME_WINDOW_MONTHS,
-        depositCount: 6,
-      },
+      estimate: { monthlyIncomeCents: 500_000, months: 3, depositCount: 6 },
     });
   });
 

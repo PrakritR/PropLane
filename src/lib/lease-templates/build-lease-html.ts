@@ -56,7 +56,7 @@ import {
   type ProratedLastMonthTotals,
 } from "@/lib/lease-first-period-proration";
 import { monthlyFeesBilledSeparately } from "@/lib/rent-fold-in";
-import { submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
+import { roomStartSurchargeRow, submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
 import { resolveStayPricing, roomShortLeaseSurcharge, tenancyPaysShortLeaseSurcharge } from "@/lib/room-pricing";
 import { listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
 import { resolveSubmissionRoom, submissionRoomRentLabel } from "@/lib/listing-room-resolution";
@@ -700,7 +700,9 @@ export function buildLeaseHtml(ctxIn: LeaseGenerationContext, config: LeaseJuris
   // The monthly fees that bill as their OWN charge, for the partial-month lines below. The
   // same resolver the ledger reads, so a fee prorated here is a fee the ledger prorates.
   const separatelyBilledMonthlyFees = filterFeeLinesForResidentSlot(
-    subNorm && !propertyTemplatePreview ? monthlyFeesBilledSeparately(subNorm, list, leaseFeeBillingContext) : [],
+    subNorm && !propertyTemplatePreview
+      ? monthlyFeesBilledSeparately(subNorm, list, leaseFeeBillingContext, roomStartSurchargeRow(subNorm, specificRoom))
+      : [],
     subNorm,
     a.residentSlot,
   );

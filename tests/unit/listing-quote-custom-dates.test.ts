@@ -11,7 +11,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { buildListingQuote } from "@/lib/listing-quote";
 import { readHouseholdCharges, recordApprovedApplicationCharges, removeResidentHouseholdPaymentData } from "@/lib/household-charges";
-import { resolveApplicationRoomTermFees } from "@/lib/room-term-fees";
+import { resolveApplicationRoomTermFees, submissionWithRoomTermFees } from "@/lib/room-term-fees";
+import { customLeaseSurchargeAmount } from "@/lib/custom-lease-billing";
 import { applyListingFeesToSubmission } from "@/lib/listing-fees";
 import { cachePublicExtraListings } from "@/lib/demo-property-pipeline";
 import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
@@ -191,6 +192,28 @@ describe("the room's own custom-dates surcharge", () => {
     const rider = resolveApplicationRoomTermFees(sub, { listingRoomId: "room-1" }, { leaseTerm: "Long-term" });
     expect(rider?.customStartSurcharge).toBe(250);
     expect(billedFirstMonthSurcharge(sub, "shared-by-two@example.com")).toBeCloseTo(PRORATED(250), 2);
+  });
+
+  // "Free for a custom start" is an amount the manager typed, so every reader has to say it. The lease document
+  // and the billing snapshot read the surcharge off the OVERLAID submission (`submissionWithRoomTermFees` ->
+  // `customLeaseSurchargeAmount`), which is the oracle here along with the quote and the ledger. Wrong behaviour
+  // this rejects: treating a typed 0 as "nothing typed", which printed the $100 default on a lease the ledger
+  // never billed.
+  it("honours a typed 0: nothing quoted, nothing billed, nothing on the lease", () => {
+    const sub = normalizeManagerListingSubmissionV1({
+      ...listing(),
+      rooms: [{ ...listing().rooms[0]!, occupancyPrices: [{ count: 1, customStartSurcharge: "0" }] }],
+    });
+    expect(quote(sub, LEASE_START, LEASE_END).customLeaseSurcharge).toBeUndefined();
+
+    const rider = resolveApplicationRoomTermFees(sub, { listingRoomId: "room-1" }, { leaseTerm: "Long-term" });
+    expect(rider?.customStartSurcharge).toBe(0);
+
+    const overlaid = submissionWithRoomTermFees(sub, sub.rooms[0]!, { leaseTerm: "Long-term" });
+    expect(customLeaseSurchargeAmount(overlaid, undefined)).toBe(0);
+
+    expect(billedFirstMonthSurcharge(sub, "typed-zero@example.com")).toBeUndefined();
+    expect(surchargeCharges("typed-zero@example.com")).toEqual([]);
   });
 
   it("falls back to the listing's own row", () => {

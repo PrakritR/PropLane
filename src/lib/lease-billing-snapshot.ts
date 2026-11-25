@@ -34,7 +34,7 @@ import type { LeaseGenerationContext } from "@/lib/generated-lease";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
 import { resolveStayPricing } from "@/lib/room-pricing";
-import { submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
+import { roomStartSurchargeRow, submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
 import { intraMonthStaySpan, shortTermStayNightCount, shortTermStayCanBePriced, shortTermStayTotalAmount } from "@/lib/short-term-stay-pricing";
 
 /** One monthly fee's prorated line, as the ledger bills it. */
@@ -429,7 +429,7 @@ export function buildLeaseBillingSnapshot(
     rentalType: applicant.application?.rentalType,
   };
   const separatelyBilledFees = filterFeeLinesForResidentSlot(
-    !isShortTerm && sub ? monthlyFeesBilledSeparately(sub, listing, feeBillingCtx) : [],
+    !isShortTerm && sub ? monthlyFeesBilledSeparately(sub, listing, feeBillingCtx, roomStartSurchargeRow(sub, selectedRoom)) : [],
     sub,
     residentSlot,
   );

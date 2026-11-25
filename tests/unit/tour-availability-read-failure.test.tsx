@@ -14,6 +14,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { MockProperty } from "@/data/types";
+import {
+  createDefaultListingSubmission,
+  normalizeManagerListingSubmissionV1,
+} from "@/lib/manager-listing-submission";
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useConfirm: () => (req: { description?: unknown }) =>
@@ -65,12 +69,15 @@ const PROPERTY: MockProperty = {
 const EMPTY_STATE = /No tour times yet/i;
 
 /** Every availability fetch in one test, newest response last. */
-function stubAvailability(responses: { ok: boolean; status: number; body: unknown }[]) {
+function stubAvailability(
+  responses: { ok: boolean; status: number; body: unknown }[],
+  occupancy: { ok: boolean; status: number } = { ok: true, status: 200 },
+) {
   const fetchMock = vi.fn(async (input?: unknown) => {
     // The room picker reads the listing's occupancy through its own route; it must not consume a scripted
     // tour-availability response (that would hide the failure this suite is about).
     if (String(input).includes("/api/public/approved-room-occupancy")) {
-      return { ok: true, status: 200, json: async () => ({ rooms: [] }) } as unknown as Response;
+      return { ok: occupancy.ok, status: occupancy.status, json: async () => ({ rooms: [] }) } as unknown as Response;
     }
     const next = responses.length > 1 ? responses.shift()! : responses[0]!;
     return {
@@ -90,6 +97,43 @@ async function renderAtDateStep() {
 
 /** Request mode: no open slot, so every upcoming day is offered as "request a tour". */
 const REQUEST_DAY = /request a tour/i;
+
+/** A two-room house, so the room dropdown has something to offer when availability is known. */
+const ROOMS_PROPERTY: MockProperty = (() => {
+  const sub = createDefaultListingSubmission();
+  sub.listingPlaceCategoryId = "shared_home";
+  sub.rentalModelStamp = "shared_home";
+  sub.rooms = [
+    { ...sub.rooms[0]!, id: "room-a", name: "Room A", monthlyRent: 900, availability: "Now" },
+    { ...sub.rooms[0]!, id: "room-b", name: "Room B", monthlyRent: 950, availability: "Now" },
+  ];
+  return { ...PROPERTY, id: "mgr-ballard-rooms", listingSubmission: normalizeManagerListingSubmissionV1(sub) };
+})();
+
+// A refused occupancy read says NOTHING about which rooms are taken, and an empty snapshot is not an empty
+// house. Oracle: the same invariant this suite holds for tour windows, and `/api/public/approved-room-occupancy`
+// answers 503 on a loader error and 429 on the shared-NAT rate limit. Wrong behaviour this rejects: offering -
+// and letting a prospect book a tour for - a room whose only unavailability lives in that unread occupancy.
+describe("a failed room-occupancy read offers no room rather than every room", () => {
+  it("drops the room dropdown and says the check failed; a known read still offers the rooms", async () => {
+    stubAvailability([{ ok: true, status: 200, body: { slotHosts: {} } }], { ok: false, status: 503 });
+    render(<TourScheduleFlow property={ROOMS_PROPERTY} returnAfterAuth="/rent" onSuccess={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Couldn't check room availability/i)).toBeTruthy();
+    });
+    expect(screen.queryByLabelText("Room")).toBeNull();
+
+    cleanup();
+    stubAvailability([{ ok: true, status: 200, body: { slotHosts: {} } }], { ok: true, status: 200 });
+    render(<TourScheduleFlow property={ROOMS_PROPERTY} returnAfterAuth="/rent" onSuccess={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Room")).toBeTruthy();
+    });
+    expect(screen.queryByText(/Couldn't check room availability/i)).toBeNull();
+  });
+});
 
 describe("a failed tour-availability read is never a booking page with zero slots", () => {
   it("shows a try-again message rather than the empty state when the route throttles", async () => {

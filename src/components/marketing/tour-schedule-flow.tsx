@@ -75,6 +75,10 @@ import {
 type TourStep = 1 | 2;
 
 /** Banner when a prospect picks a room that is fully booked (PRP-398 tour half). */
+/** Shown in place of the room dropdown when the occupancy read was refused: no room is claimed either way. */
+export const TOUR_ROOM_AVAILABILITY_UNKNOWN =
+  "Couldn't check room availability just now. Reload to try again, or ask about a room when the host replies - this request is for the home.";
+
 export function tourRoomAvailabilityMessage(roomKey: string | null | undefined): string | null {
   if (!roomKey || isTourRoomUndecided(roomKey)) return null;
   if (isRoomChoiceAvailable(roomKey, "")) return null;
@@ -145,15 +149,19 @@ function tourRoomLabelForKey(property: MockProperty, roomKey: string | null, ava
   return hit?.label ?? property.title;
 }
 
-/** The live occupancy a room list is judged against; without it every named room is listed (resident portal). */
-type TourRoomAvailability = { rows: readonly PublicRoomOccupancy[]; today: string };
+/**
+ * The live occupancy a room list is judged against; without it every named room is listed (resident portal).
+ * `checked` is false when the public read was REFUSED: no row then means "unknown", never "nothing booked", so
+ * no room is offered. A rate-limited or failing read must not put a leased room on a prospect's tour request.
+ */
+type TourRoomAvailability = { rows: readonly PublicRoomOccupancy[]; today: string; checked: boolean };
 
 /**
  * With `availability`, only rooms the public listing itself shows as tourable (open now, or opening inside its
  * window) are listed, each carrying the listing's wording. Leased and "Not available" rooms never appear.
  */
 function roomOptionsForProperty(p: MockProperty, availability?: TourRoomAvailability): TourRoomOption[] {
-  if (p.listingSubmission?.v === 1) {
+  if (p.listingSubmission?.v === 1 && availability?.checked !== false) {
     const sub = normalizeManagerListingSubmissionV1(p.listingSubmission);
     const rooms = sub.rooms.filter((r) => r.name.trim());
     if (rooms.length > 0) {
@@ -1186,6 +1194,18 @@ function RoomSelect({
   const listedRooms = availability ? roomOptionsForProperty(property, availability) : [];
   void occupancySyncEpoch;
   const roomAvailabilityWarning = tourRoomAvailabilityMessage(value);
+  if (availability && !availability.checked) {
+    return (
+      <p
+        role="status"
+        data-attr="tour-room-availability-unknown"
+        className={pub ? "ps-j-note" : "rounded-xl border px-4 py-3 text-sm portal-banner-pending"}
+        style={pub ? { margin: 0 } : undefined}
+      >
+        {TOUR_ROOM_AVAILABILITY_UNKNOWN}
+      </p>
+    );
+  }
   if (listedRooms.length <= 1) return null;
   const select = (
     <select
@@ -1225,11 +1245,15 @@ function RoomSelect({
 
 /**
  * The listing page's own occupancy read (one shared request) as the room list's availability, or `undefined`
- * while it loads. A failed read judges rooms by their saved copy alone, as the listing does.
+ * while it loads. A REFUSED read answers `checked: false`, which offers no room rather than reading an empty
+ * snapshot as an empty house - the tour is then about the home, which needs no availability to ask for.
  */
 function useTourRoomAvailability(propertyId: string): TourRoomAvailability | undefined {
-  const { rooms, loading } = useListingPublicOccupancy(propertyId);
-  return useMemo(() => (loading ? undefined : { rows: rooms, today: pacificTodayKey() }), [loading, rooms]);
+  const { rooms, loading, failed } = useListingPublicOccupancy(propertyId);
+  return useMemo(
+    () => (loading ? undefined : { rows: rooms, today: pacificTodayKey(), checked: !failed }),
+    [loading, rooms, failed],
+  );
 }
 
 function Step2({

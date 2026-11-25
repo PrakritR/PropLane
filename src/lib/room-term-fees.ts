@@ -286,6 +286,16 @@ function cleanMoneyText(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
 }
 
+/**
+ * What the manager typed on the arrangement row, or null when they typed nothing. A typed `0` is an amount -
+ * "free for a custom start" - and the lease document, the billing snapshot and the ledger all have to say it;
+ * treating it as absent is how the quote showed nothing while the document printed the $100 default.
+ */
+function typedRowAmount(raw: string | null | undefined): number | null {
+  const text = String(raw ?? "").trim();
+  return text ? money(text) : null;
+}
+
 function syncPresetRow(
   sub: ManagerListingSubmissionV1,
   presetId: "mtm_surcharge" | "custom_lease_surcharge",
@@ -338,15 +348,15 @@ export function submissionWithRoomTermFees<T extends ManagerListingSubmissionV1>
   let removedChanged = false;
 
   if (scope === "long" && row) {
-    const mtm = listingFoldsAllMonthlyFeesIntoRent(sub, ctx.listingProperty) ? 0 : money(row.monthToMonthSurcharge);
-    if (mtm > 0) {
+    const mtm = listingFoldsAllMonthlyFeesIntoRent(sub, ctx.listingProperty) ? null : typedRowAmount(row.monthToMonthSurcharge);
+    if (mtm !== null) {
       const text = cleanMoneyText(mtm);
       removedChanged = removed.delete("monthToMonthSurcharge") || removedChanged;
       next = { ...next, monthToMonthSurcharge: text, customFees: syncPresetRow(next, "mtm_surcharge", text) };
       changed = true;
     }
-    const custom = money(row.customStartSurcharge);
-    if (custom > 0) {
+    const custom = typedRowAmount(row.customStartSurcharge);
+    if (custom !== null) {
       const text = cleanMoneyText(custom);
       removedChanged = removed.delete("customLeaseSurcharge") || removedChanged;
       next = { ...next, customLeaseSurcharge: text, customFees: syncPresetRow(next, "custom_lease_surcharge", text) };

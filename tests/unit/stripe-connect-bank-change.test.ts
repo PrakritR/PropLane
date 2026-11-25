@@ -71,7 +71,6 @@ vi.mock("@/lib/auth/manager-stripe-payout-access.server", () => ({
   stripePayoutContextStatus: () => 403,
   stripePayoutContextError: () => "Payout setup belongs to the owner.",
 }));
-vi.mock("@/lib/auth/co-manager-bank-account-access", () => ({ assertCoManagerBankAccountAccess: async () => ({ ok: true }) }));
 vi.mock("@/lib/managed-finance/payout-setup.server", () => ({ activeWorkspaceIdFromCookie: async () => "ws-1" }));
 vi.mock("@/lib/stripe", () => ({
   getStripe: () => ({ accounts: { createLoginLink: state.loginLink }, accountLinks: { create: state.accountLink } }),
