@@ -464,8 +464,8 @@ function LeaseTypeAndDates(props: LeaseTypeAndDatesProps) {
   const implicitMoveOut = longTermHasImplicitMoveOut(offeredStored, fixedLengths);
   const needsMoveOut =
     lengthValue === CUSTOM_DATES_LENGTH_VALUE || (implicitMoveOut && lengthValue !== MONTH_TO_MONTH_LENGTH_VALUE);
-  // Custom dates and Month-to-month are checkboxes under Long-term, offered only when the listing ticked them;
-  // the select holds the fixed lengths. A sole choice needs no question at all.
+  // One "Lease length" dropdown holds the fixed lengths and, as further entries, Custom dates and
+  // Month-to-month, offered only when the listing ticked them. A sole choice needs no question at all.
   // The two sides and their labels come from the one picker table, so the applicant reads the
   // same words the listing's own lease-type picker shows.
   const termOptions = applicantTermOptions(offeredStored).map((option) => ({

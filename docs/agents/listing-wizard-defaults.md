@@ -53,7 +53,13 @@ listing and the lease read exactly what the card shows.
   `listingTotalBathroomsId`). The preview panel's Bathrooms fact reads that
   helper, never `sub.bathrooms.length`, so the preview and the stepper can never
   disagree — a listing that only ever answered the stepper previews its answer
-  instead of 0. Guard: `tests/unit/listing-side-panel-bathrooms.test.tsx`.
+  instead of 0. The PUBLIC listing's key-facts tile follows the same declared
+  total (`property.baths`, the cards only when there is none), because it counts
+  a half bath as 0.5 where counting bathroom entries would read 4 against the
+  listing's own "3.5 baths"; the "N private" clause is capped at that total, so
+  the label can never claim more private baths than the house has. Guards:
+  `tests/unit/listing-side-panel-bathrooms.test.tsx`,
+  `tests/unit/listing-key-facts.test.ts`.
 - **Shared spaces** (PLAN-0920-0631): Type, Floor and Who may use it on the
   card; What is in it, Size (sq ft, `sizeSqft`, like a room's — labelled "Lot
   size" for an outdoor space), Description, Photos and Video behind More ▾. A
@@ -238,7 +244,11 @@ prints "from $0/mo." When **Different rent per resident** is on,
 Partial months moves inside each Resident N block and writes
 `residentPrices[n].prorateMethod` / daily rates (PLAN-0922-1748). Charges and
 the lease read that slot via `resolveRoomProrationForSlot` and
-`roomResidentPriceForSlot`. A house-wide fee
+`roomResidentPriceForSlot` — through `resolveListingProrationForSlot`
+(`lease-first-period-proration.ts`), the ONE decision the ledger, the lease
+document and the applicant quote share, which answers a whole-unit listing from
+its own `entireHomeProrateMethod` and day rates (that listing's room rows do not
+describe a house) and every other listing from the room's slot row. A house-wide fee
 from an older listing still lists on every room card as an inherited row: ✕
 takes it off that room only (`roomIds` = every other room), typing splits a
 room-only copy (labelled "<Fee> – <Room>" when the label is a preset's,

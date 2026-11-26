@@ -71,7 +71,7 @@ micro-deposits stay as "Enter numbers instead"; phone-bound links and saved-bank
 - **The webhook is JWT-verified.** `verifyPlaidWebhook`: ES256 `Plaid-Verification`, key by `kid`
   from `/webhook_verification_key/get`, `iat` within 5 minutes, `request_body_sha256` equals the
   SHA-256 of the raw body. Anything else is a 401 that does nothing. URL: `PLAID_WEBHOOK_URL`, else
-  the canonical origin on a production runtime; with neither, the daily cron covers it.
+  the canonical origin on a production runtime; with neither, the daily catch-up cron covers it (`/api/cron/plaid-sync`, registered in `vercel.json` at 14:02 UTC; it orders items on `last_sync_attempt_at`, so one that keeps failing rotates instead of starving the rest).
 - **One live bank feed per bank account.** Plaid mints a FRESH `item_id` for every Link session, so the
   `item_id` dedupe cannot see a second "Connect bank" on an account that already has a feed — and two items
   post the same real transactions under their own transaction ids, doubling every line and every balance

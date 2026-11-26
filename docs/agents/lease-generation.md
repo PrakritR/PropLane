@@ -46,7 +46,7 @@ filter legitimately offers all four `LEASE_TYPES` and is the one file that test 
   section, an item that applies to both stays is listed in each, and a section only shows when the
   listing offers the stay (hiding one never deletes anything). Applicant: the same two top-level types
   (`applicantTermOptions` — a property offering only Custom or Month-to-month still reads as Long-term),
-  with Long-term's children as checkboxes (`applicantLongTermChildren`) and no question at all when one
+  with Long-term's children offered by `applicantLongTermChildren` and no question at all when one
   stored type is all that is offered (`onlyOfferedStoredTerm`). The wizard step that draws it is owned by
   [`application-questions.md`](application-questions.md) § Your lease, not restated here.
 - Everything is server-derived from the stored term and dates through `resolveStayPricing`, the ledger and
@@ -54,8 +54,12 @@ filter legitimately offers all four `LEASE_TYPES` and is the one file that test 
   `validateSubmittedApplication` (the wizard's own validator, `leaseTermIsOfferedType` is the pure test).
 - **The month-to-month surcharge is an optional long-term charge** (captain, Oct 4 2026, restored after a brief
   removal). It is a row of the Long term pricing section ("Month-to-month surcharge", blank or 0 = none; there is no
-  Month-to-month section, only Long term and Short term), stored on the room / bundle / whole-house arrangement row
-  and resolved through the one resolver (`resolveRoomTermFees` / `submissionWithRoomTermFees` in `room-term-fees.ts`),
+  Month-to-month section, only Long term and Short term), stored on the room's **Private (count 1)** arrangement row
+  or the whole-house row — `roomStartSurchargeRow` is the one row both start surcharges are read from, whatever
+  arrangement is being priced, because `mergeLongTermPrivateArrangementRow` is their one writer and pins them there —
+  and resolved through the one resolver (`resolveRoomTermFees` / `submissionWithRoomTermFees` in `room-term-fees.ts`,
+  over the one amount resolver in `custom-lease-billing.ts`: an amount typed on that row, **0 included**, outranks the
+  listing's own preset row and decides the quote, the lease rider and the monthly charge alike),
   so the quote (`startKind: "m2m"`), the lease document, the ledger and the public listing agree (the listing's
   **Costs** section carries it as its own "Month-to-month" row, and the custom-start surcharge as "Custom term ·
   starts any day", behind that same predicate — `listingPriceRows`, so a surcharge that is never billed is never
@@ -70,7 +74,9 @@ filter legitimately offers all four `LEASE_TYPES` and is the one file that test 
   day other than the 1st, OR ends on a day that is neither the 1st (the checkout morning of an aligned term) nor the
   month's last day. Both ends off-cycle together are still ONE surcharge, billed once per month; with no end date
   (month-to-month) only the start counts, and no start is never custom. `customLeaseSurchargeAmount`
-  (`custom-lease-billing.ts`) reads the listing's `custom_lease_surcharge` row: an amount the manager typed is theirs
+  (`custom-lease-billing.ts`) is the one amount: the arrangement row's own typed figure first (the most specific
+  setting the manager made — pricing a room at $250 and billing the $100 default is how the quote and the document
+  came apart), else the listing's `custom_lease_surcharge` row — an amount the manager typed is theirs
   (0 included), a row they REMOVED bills nothing, and a BLANK amount means "not priced yet" and defaults to
   `DEFAULT_CUSTOM_LEASE_SURCHARGE` ($100/month) — but only when the listing actually offers the Custom (calendar)
   term. The per-term checkbox is deliberately not consulted, because it is derived from the amount being filled. **The jurisdiction is resolved from the stored

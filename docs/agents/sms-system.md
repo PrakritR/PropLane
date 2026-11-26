@@ -985,6 +985,15 @@ never a global phone search, so a random verified manager cannot hop onto
 someone else's number. `detectManagerSelfReply` still handles the owner-cell
 match inside that resolver; do not remove it.
 
+**The To number pins the identity, not necessarily the workspace.** A verified sender
+who holds more than one context (their own workspaces, a seat on a PropLane-managed
+one, a home they rent, PropLane admin) is routed by one decision per text — switch
+words, a home the text names, the workspace of the notice being answered, their last
+pick, or ONE question — and whichever context answers owns the turn: its conversation
+records it, it pays for the reply and its own work line sends it. That rule, its order
+and its state are owned by [`one-number.md`](one-number.md) § Who is the sender texting
+as; a sender with a single context is unchanged by it.
+
 Fork order on an owned number is manager (above) → vendor session, scoped by
 sender AND destination owner (`resolveVendorAgentSessionForInbound(db, from,
 body, managerId)`) → resident → leasing prospect. Before any wallet read the

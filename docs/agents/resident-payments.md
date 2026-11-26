@@ -106,8 +106,11 @@ without a new slot require review before another debit. A historical co-manager
 charge booked under someone other than the actual listing owner also needs
 books review; the new source never reassigns that charge or its journals.
 
-Residents enter a bank account inside Payments or the move-in pay step. Stripe.js
-receives account and routing numbers directly; the app server receives only a
+Residents reach a bank account inside Payments or the move-in pay step either by
+logging in to the bank (Plaid, offered above the typed form — owned by
+[`plaid.md`](plaid.md) § Resident bank pay, which keeps the same gate order and
+ends in the same manual-ACH PaymentIntent) or by typing the numbers. On the typed
+path Stripe.js receives account and routing numbers directly; the app server receives only a
 marked PaymentIntent ID and later microdeposit code or cent amounts. The custom
 form displays one-time debit terms for the exact quoted amount before calling
 `confirmUsBankAccountPayment`. Saved-bank setup uses a customer-owned SetupIntent,

@@ -122,6 +122,13 @@ and the batched `syncDedupedCharges`) coalesce `stripe_checkout_session_id` to t
 already-stored value — never let a re-sync blank it; it is the only link back to
 the Stripe Checkout session that settled the payment
 (regression coverage: `tests/unit/reports/ledger-sync.test.ts`).
+**A failed ledger line is reported, never raised.** `upsertManagerCharges` throws only when the
+CHARGE ROW write fails; a charge whose row landed but whose ledger line did not comes back in
+`ledgerFailures` (the charge tools surface it as `LEDGER_RETRY_NOTE`), because a caller told "it
+failed" after the row exists bills the resident twice on the retry. The write-through heals that line
+on the next upsert of the same charge; a charge written once by a path that discards the return value
+(the application-fee row, a lease amendment) leaves only a logged error and is repaired by the
+admin-gated `/api/admin/backfill-ledger`.
 **Offline receipts** use `POST /api/portal-household-charges` with
 `action: "recordOfflinePayment"`, charge id, receipt date, method and note only.
 The server re-reads the charge, checks owner/co-manager and active workspace,
@@ -797,7 +804,7 @@ gates on the owner's repair threshold and posts the vendor bill, on a self-serve
 
 # Finance Phase A: manual entries, Paid/Due, receipts, recurring payables, duplicate protection (Nov 15 2026)
 
-Migration `20261115110000_finance_phase_a.sql`: `manager_expense_entries` gains `payment_status` (`paid`|`due`), `due_date`, `paid_date`, `payment_method`, `payee_label`, `billing_period_start/end`, `receipt_document_id`, `recurring_payable_id`, `duplicate_override_reason`; new `manager_recurring_payables` (RLS on, owner SELECT only, no client write grant; classified in `account-purge-manifest.ts`). Vocabulary and date math: `src/lib/finance/payment-fields.ts`. PropLane records these payments; it moves no money here and holds none (Plaid feeds and utility portals are Phase B). Paying a bill from a PropLane-held balance exists only on a PropLane-managed workspace, through the party ledger ([`owner-management.md`](owner-management.md) § Payouts and splits — Bill pay); a self-serve workspace's bills stay Due / Paid entries here, with "paid outside PropLane" as the method.
+Migration `20261115110000_finance_phase_a.sql`: `manager_expense_entries` gains `payment_status` (`paid`|`due`), `due_date`, `paid_date`, `payment_method`, `payee_label`, `billing_period_start/end`, `receipt_document_id`, `recurring_payable_id`, `duplicate_override_reason`; new `manager_recurring_payables` (RLS on, owner SELECT only, no client write grant; classified in `account-purge-manifest.ts`). Vocabulary and date math: `src/lib/finance/payment-fields.ts`. PropLane records these payments; it moves no money here and holds none (the bank feed that reads a manager's real transactions into Bank rec is [`plaid.md`](plaid.md), and it moves no money either; utility portals are still Phase B). Paying a bill from a PropLane-held balance exists only on a PropLane-managed workspace, through the party ledger ([`owner-management.md`](owner-management.md) § Payouts and splits — Bill pay); a self-serve workspace's bills stay Due / Paid entries here, with "paid outside PropLane" as the method.
 
 - **A manual entry and its journal land together or not at all.** `recordManualExpense` / `recordManualIncome` post the balanced GL journal (keyed by the entry id) in the same call and roll the entry back when the journal cannot be written. An edit that moves money (amount, date, category, house, vendor, status) re-derives the journals (`rebuildExpenseRowGl`); a delete removes them (`deleteExpenseRowGl`). Only a row that OWNS its journals is touched: an expense settled by a paid bill (`manager_bills.paid_expense_entry_id`), a work-order expense and a Stripe-sourced one are posted by their own writers, and posting them here would double-book.
 - **Due is an accrual.** An entry with a due date posts DR expense / CR accounts payable on the bill date; marking it Paid adds DR accounts payable / CR operating cash on the paid date (`postExpenseRowGl`). A Due entry therefore counts on the P&L before it moves cash; the cash view (`financial-activity`) leaves it out. Outgoing payments reads it as Due / Overdue.

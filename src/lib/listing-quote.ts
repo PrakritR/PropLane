@@ -18,7 +18,14 @@
  * - what is collected at signing comes from `isPaymentDueAtSigning`, the same
  *   matrix the signing table writes;
  * - in Seattle every recurring monthly fee is folded into rent rather than billed
- *   beside it, which is `listingFoldsAllMonthlyFeesIntoRent`.
+ *   beside it, which is `listingFoldsAllMonthlyFeesIntoRent`;
+ * - the two start surcharges (custom dates, month-to-month) come from
+ *   `custom-lease-billing.ts` — one predicate for whether the lease owes one and
+ *   one amount, off the Private arrangement row (`roomStartSurchargeRow`), which is
+ *   what the lease rider and the monthly charge bill;
+ * - a partial first or last calendar month is counted by the one proration module
+ *   (`lease-first-period-proration.ts`, through `resolveListingProrationForSlot`),
+ *   the same day counts the ledger and the lease document print.
  *
  * If any of those change, this follows them. It must never grow a rule of its own.
  */
