@@ -3376,24 +3376,6 @@ export function InboxThreadEmpty({
   );
 }
 
-/** How long a thread pane may show its skeleton before it says the conversation is not there. */
-export const THREAD_LOAD_DEADLINE_MS = 12_000;
-
-/**
- * True once `waitingFor` (the id of a conversation the pane is trying to show) has been unresolved for
- * `THREAD_LOAD_DEADLINE_MS`. The skeleton used to be unconditional, so a conversation the list never returned (a thread
- * the server refused, or one a refresh dropped) read "Loading conversation..." forever. Null = nothing is being waited on.
- */
-export function useThreadLoadExpired(waitingFor: string | null, deadlineMs: number = THREAD_LOAD_DEADLINE_MS): boolean {
-  const [expiredFor, setExpiredFor] = useState<string | null>(null);
-  useEffect(() => {
-    if (!waitingFor) return;
-    const timer = setTimeout(() => setExpiredFor(waitingFor), deadlineMs);
-    return () => clearTimeout(timer);
-  }, [waitingFor, deadlineMs]);
-  return Boolean(waitingFor) && expiredFor === waitingFor;
-}
-
 /** Thread pane while a clicked conversation is still resolving. */
 export function InboxThreadSkeleton() {
   return (

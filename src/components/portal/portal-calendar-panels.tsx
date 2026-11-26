@@ -50,6 +50,7 @@ import { TourReminderTourPanel } from "@/components/portal/tour-reminder-tour-pa
 import { PORTAL_CALENDAR_FRAME, PortalSegmentedControl } from "./portal-metrics";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { useTourAssigneeCandidates } from "@/components/portal/tour-assignee";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
@@ -1215,7 +1216,7 @@ export function PortalCalendarPanels({
   // vendor calendar passes once Flexible / Add work are gone; `vendorDayFlexibility`
   // still means the old vendor-only chrome.
   const isVendorViewer = vendorViewer || Boolean(vendorDayFlexibility);
-  const { teamMembers, vendors } = useWorkAssignmentDirectory({
+  const { vendors } = useWorkAssignmentDirectory({
     managerUserId: userId,
     enabled: !isVendorViewer,
   });
@@ -1396,6 +1397,12 @@ export function PortalCalendarPanels({
   const [durationChoice, setDurationChoice] = useState<number | "custom">(DEFAULT_EVENT_DURATION_MINUTES);
   const [customDurationText, setCustomDurationText] = useState(String(DEFAULT_EVENT_DURATION_MINUTES));
   const [tourGuestNotifyPreview, setTourGuestNotifyPreview] = useState<TourGuestNotifyPreview | null>(null);
+  // Confirming a tour writes an assignee the server re-checks against THIS house's tour team
+  // (`resolveTourAssigneeForCreate`, 403 otherwise), so that picker is offered the server's list, never the directory.
+  // Undefined (loading, or an unreadable team) hides it and the server's default assignee stands.
+  const tourConfirmAssigneeTeam = useTourAssigneeCandidates(
+    tourGuestNotifyPreview?.action === "confirm" ? tourGuestNotifyPreview.meeting.propertyId ?? null : null,
+  );
   const [tourNotifyPreviewBusy, setTourNotifyPreviewBusy] = useState(false);
   const [guestMessagePreview, setGuestMessagePreview] = useState<GuestMessagePreview | null>(null);
   const [guestMessageBusy, setGuestMessageBusy] = useState(false);
@@ -3594,7 +3601,7 @@ export function PortalCalendarPanels({
       confirmBusy={tourNotifyPreviewBusy}
       confirmBusyLabel={TOUR_GUEST_NOTIFY_PREVIEW_COPY[tourGuestNotifyPreview.action].confirmBusyLabel}
       assigneeKind={tourGuestNotifyPreview.action === "confirm" ? "tour" : undefined}
-      assigneeTeamMembers={tourGuestNotifyPreview.action === "confirm" ? teamMembers : undefined}
+      assigneeTeamMembers={tourGuestNotifyPreview.action === "confirm" ? tourConfirmAssigneeTeam : undefined}
       assigneeVendors={tourGuestNotifyPreview.action === "confirm" ? vendors : undefined}
       panelClassName="z-[90]"
       onConfirm={(skipMessage, _channels, draft) => void submitTourGuestNotifyPreview(skipMessage, _channels, draft)}

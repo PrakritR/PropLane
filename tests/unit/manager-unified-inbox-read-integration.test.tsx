@@ -119,7 +119,6 @@ vi.mock("@/components/portal/portal-inbox-ui", () => ({
   INBOX_THREAD_ICON_BTN: "",
   INBOX_THREAD_ICON_BTN_DANGER: "",
   useInboxDetailsPanelMode: () => false,
-  useThreadLoadExpired: () => false,
   useRegisterInboxContactEdit: () => {},
   PortalInboxEmptyState: ({ title }: { title: string }) => <div>{title}</div>,
   CommunicationInboxInitialState: () => <div>Loading</div>,
@@ -362,6 +361,29 @@ describe("routed SMS and list continuation", () => {
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled routeThreadId="old-notice" onRouteThreadChange={routeChanged} />);
     await waitFor(() => expect(screen.getByTestId("sms-thread").getAttribute("data-id")).toBe(id));
     expect(routeChanged).toHaveBeenCalledWith(id);
+  });
+
+  // A routed thread whose authorized detail read is merely SLOW is not a missing one: the pane keeps its skeleton until
+  // the read answers, however long that takes. ("Conversation not found." is what a 404/403 or an unresolvable id earns,
+  // asserted below.)
+  it("keeps the skeleton while a slow routed read is still in flight, however long it takes", async () => {
+    state.rows = [];
+    state.sms = [];
+    const slow = deferred<Response>();
+    vi.stubGlobal("fetch", vi.fn(() => slow.promise));
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled routeThreadId="old-notice" />);
+    expect(await screen.findByTestId("inbox-thread-skeleton")).toBeTruthy();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await act(async () => { vi.advanceTimersByTime(60_000); });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(screen.getByTestId("inbox-thread-skeleton")).toBeTruthy();
+    expect(screen.queryByText("Conversation not found.")).toBeNull();
+    const resident = { ...sms("K1", "SLOW BODY"), projectionId: "11111111-1111-4111-8111-111111111111", residentEmail: null, unread: false };
+    slow.resolve(Response.json({ resident, messages: resident.messages, nextCursor: null }));
+    await waitFor(() => expect(screen.getByTestId("sms-thread").getAttribute("data-id")).toBe(resident.projectionId));
   });
 
   it.each([[409, "ambiguous"], [404, "not found"]])("shows an honest %s routed-link result", async (status, text) => {

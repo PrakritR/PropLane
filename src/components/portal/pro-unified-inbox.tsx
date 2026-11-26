@@ -51,7 +51,6 @@ import {
   InboxListSegmentTabs,
   InboxThreadEmpty,
   InboxThreadSkeleton,
-  useThreadLoadExpired,
   InboxTwoPane,
   type InboxListSegment,
 } from "@/components/portal/portal-inbox-ui";
@@ -1377,7 +1376,6 @@ export function ManagerUnifiedInbox({
 
   const pendingThread = Boolean(routeThreadId || selectedKey) && !selectedRow;
   const threadOpen = Boolean(selectedRow) || pendingThread;
-  const pendingThreadExpired = useThreadLoadExpired(pendingThread ? (routeThreadId || selectedKey || null) : null);
   const canDeleteAllArchived =
     listSegment === "archived" &&
     listRows.some((row) => !isAssistantUnifiedInboxRow(row, emailThreads));
@@ -1836,7 +1834,7 @@ export function ManagerUnifiedInbox({
     });
   }, [adapter, appUi, renderedViewerAuthority, selectedSmsResidents, viewerId]);
   const threadPane = pendingThread ? (
-    routedSmsError || pendingThreadExpired ? <InboxThreadEmpty title={routedSmsError ?? "Conversation not found."} /> : <InboxThreadSkeleton />
+    routedSmsError ? <InboxThreadEmpty title={routedSmsError} /> : <InboxThreadSkeleton />
   ) : AdapterThreadPane && selection ? (
     <AdapterThreadPane
       selection={selection}

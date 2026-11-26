@@ -31,6 +31,37 @@ export function useTourAssignee(plannedEventId: string | null) {
   return { info, reload: load };
 }
 
+/**
+ * The team a tour at this house may be assigned to, as the assignment pickers want it. `undefined` until the server has
+ * answered (and on a failed read): the picker is then not offered at all, and the server's own default assignee applies
+ * — never a name from the local directory, which `resolveTourAssigneeForCreate` would refuse with a 403.
+ */
+export function useTourAssigneeCandidates(propertyId: string | null | undefined): { userId: string; name: string }[] | undefined {
+  const [loaded, setLoaded] = useState<{ id: string; members: { userId: string; name: string }[] } | null>(null);
+  const id = propertyId?.trim() || "";
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/portal-tour-inquiries/assignee?propertyId=${encodeURIComponent(id)}`, { credentials: "include" });
+        if (!res.ok) return;
+        const body = (await res.json()) as { candidates?: { id: string; name: string }[] };
+        if (!cancelled && Array.isArray(body.candidates)) {
+          setLoaded({ id, members: body.candidates.map((c) => ({ userId: c.id, name: c.name })) });
+        }
+      } catch {
+        /* no list: the picker stays hidden and the server default applies */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+  // Another house's answer is never this house's list.
+  return loaded && loaded.id === id ? loaded.members : undefined;
+}
+
 export function TourReassignDialog({
   open,
   onClose,

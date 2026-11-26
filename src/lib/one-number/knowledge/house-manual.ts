@@ -1,6 +1,6 @@
 /**
  * The house manual: the manager's free-text "house rules" and "general house info" on the listing. It is where the
- * fees and policies live (lockout fee, luggage storage, extension pricing, guests, ESA, deposit return), so a resident
+ * fees and policies live (lockout fee, luggage storage, extension pricing, guests, deposit return), so a resident
  * asking about one is answered FROM it, never with "I don't have that". Pure.
  *
  * Only the passes of the manual that carry no secret go out: a line that quotes a door code, gate code or the Wi-Fi
@@ -38,8 +38,8 @@ export function houseManualForScope(
 
 /**
  * Words that make a fee/policy question a DISPUTE rather than a question: those still go to the team whatever the
- * manual says. A plain question about a written policy ("when is my deposit returned", "is a service animal allowed")
- * is answered from the manual.
+ * manual says. A plain question about a written MONEY policy ("when is my deposit returned") is answered from the
+ * manual; a fair-housing question (a protected class, a voucher, children, a service or support animal) never is.
  */
 const DISPUTE_RE = /\b(dispute|chargeback|overcharg\w*|double charged|waive|waiver|reduce (?:my )?rent|rent reduction|payment plan|collections|owe me|lawyer|attorney|sue|legal|evict\w*|discriminat\w*)\b/i;
 

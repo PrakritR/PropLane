@@ -33,6 +33,7 @@ vi.mock("@/lib/tour-schedule-persistence.server", () => ({
 import { syncPlannedTourToGoogleCalendar } from "@/lib/google-calendar/sync.server";
 import {
   getTourAssigneeInfo,
+  listTourAssigneeCandidatesForProperty,
   reassignPlannedTour,
   resolveTourAssigneeForCreate,
 } from "@/lib/tour-assignee.server";
@@ -109,6 +110,34 @@ describe("default tour assignee", () => {
       assignee: { type: "team", id: OUTSIDER, name: "x" }, propertyId: "prop-1", hostUserId: AMBIKA,
     });
     expect(r).toMatchObject({ ok: false, status: 403 });
+  });
+});
+
+// What the confirm / manual-booking pickers offer. The oracle is the create gate itself: every name offered must be one
+// `resolveTourAssigneeForCreate` accepts, and a name it refuses must not be offered — a picker drawn from the manager's
+// whole directory (an accepted co-manager with no grant on this house) failed the confirm with a 403.
+describe("who a new tour may be offered to", () => {
+  it("offers exactly the property's tour team, and the create gate takes every one of them", async () => {
+    team.hosts.mockResolvedValue([AMBIKA]);
+    const db = makeDb(plannedTour());
+    const out = await listTourAssigneeCandidatesForProperty(db as never, { propertyId: "prop-1", actorUserId: AMBIKA });
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.candidates.map((c) => c.id).sort()).toEqual([AMBIKA, PRAKRIT].sort());
+    expect(out.candidates.find((c) => c.id === PRAKRIT)?.name).toBe("Prakrit");
+    expect(out.defaultUserId).toBe(PRAKRIT);
+    for (const candidate of out.candidates) {
+      const accepted = await resolveTourAssigneeForCreate(db as never, {
+        assignee: { type: "team", id: candidate.id, name: candidate.name }, propertyId: "prop-1", hostUserId: AMBIKA,
+      });
+      expect(accepted.ok, candidate.id).toBe(true);
+    }
+    expect(out.candidates.map((c) => c.id)).not.toContain(OUTSIDER);
+  });
+
+  it("offers nobody to an actor who is not on the team", async () => {
+    const out = await listTourAssigneeCandidatesForProperty(makeDb(plannedTour()) as never, { propertyId: "prop-1", actorUserId: OUTSIDER });
+    expect(out).toMatchObject({ ok: false, status: 403 });
   });
 });
 

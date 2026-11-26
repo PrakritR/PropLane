@@ -68,6 +68,7 @@ describe("dispose_security_deposit: itemized deduction and net, from the tool", 
     mocks.get.mockResolvedValue(deposit({}));
     const preview = (await (disposeSecurityDepositTool as unknown as { preview: (c: unknown, i: unknown) => Promise<{ fields: Array<{ label: string; value: string }> }> }).preview(ctx, {
       depositId: "d1",
+      withholdCents: 5000,
       itemization: [{ label: "Cleaning", amountCents: 5000 }],
       offlineReturn: { method: "check", reference: "1042" },
     }));
@@ -83,15 +84,19 @@ describe("dispose_security_deposit: itemized deduction and net, from the tool", 
     expect(resolveDepositDeduction({})).toEqual({ withholdCents: 0, lines: [] });
   });
 
-  it("an itemization alone sets the withheld amount; one that disagrees with it is refused", () => {
-    expect(resolveDepositDeduction({ itemization: [{ label: "Cleaning", amountCents: 5000 }, { label: "Key", amountCents: 2500 }] }).withholdCents).toBe(7500);
-    expect(() => resolveDepositDeduction({ withholdCents: 4000, itemization: [{ label: "Cleaning", amountCents: 5000 }] })).toThrow(/add up to \$50\.00/);
+  it("withholdCents is the one amount: an itemization only names its lines and never sets it", () => {
+    expect(resolveDepositDeduction({ withholdCents: 7500, itemization: [{ label: "Cleaning", amountCents: 5000 }, { label: "Key", amountCents: 2500 }] })).toEqual({
+      withholdCents: 7500,
+      lines: [{ label: "Cleaning", amountCents: 5000 }, { label: "Key", amountCents: 2500 }],
+    });
+    // Lines with no withheld amount are a full refund: the resident keeps everything held.
+    expect(resolveDepositDeduction({ itemization: [{ label: "Cleaning", amountCents: 5000 }] }).withholdCents).toBe(0);
   });
 
   it("refuses deductions larger than the amount held", async () => {
     mocks.get.mockResolvedValue(deposit({ amountHeldCents: 3000 }));
     await expect(
-      (disposeSecurityDepositTool as unknown as { preview: (c: unknown, i: unknown) => Promise<unknown> }).preview(ctx, { depositId: "d1", itemization: [{ label: "Cleaning", amountCents: 5000 }], offlineReturn: { method: "cash", reference: "r" } }),
+      (disposeSecurityDepositTool as unknown as { preview: (c: unknown, i: unknown) => Promise<unknown> }).preview(ctx, { depositId: "d1", withholdCents: 5000, itemization: [{ label: "Cleaning", amountCents: 5000 }], offlineReturn: { method: "cash", reference: "r" } }),
     ).rejects.toThrow(/more than the \$30\.00 held/);
   });
 });

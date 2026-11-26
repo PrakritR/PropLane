@@ -35,20 +35,17 @@ function money(cents: number | null | undefined): string {
 }
 
 /**
- * The deduction the confirmation card itemizes: the withheld amount comes from `withholdCents`, or from the sum of the
- * itemization when only that was given; both together must agree. Pure, so the card and the handler can never differ.
+ * The deduction the confirmation card itemizes. `withholdCents` is the ONE statement of the withheld amount (omitted or
+ * 0 = full refund); `itemization` only names its lines, and with none the memo becomes the single line. Pure, so the
+ * card and the handler can never differ.
  */
 export function resolveDepositDeduction(input: {
   withholdCents?: number;
   itemization?: Array<{ label: string; amountCents: number }>;
   memo?: string;
 }): { withholdCents: number; lines: Array<{ label: string; amountCents: number }> } {
+  const withholdCents = input.withholdCents ?? 0;
   const listed = (input.itemization ?? []).filter((l) => l.amountCents > 0);
-  const listedTotal = listed.reduce((n, l) => n + l.amountCents, 0);
-  if (input.withholdCents !== undefined && listed.length > 0 && listedTotal !== input.withholdCents) {
-    throw new Error(`The itemized deductions add up to ${money(listedTotal)} but the amount withheld is ${money(input.withholdCents)}. Make them agree.`);
-  }
-  const withholdCents = input.withholdCents ?? listedTotal;
   const lines = listed.length > 0 ? listed : withholdCents > 0 ? [{ label: input.memo?.trim() || "Deduction", amountCents: withholdCents }] : [];
   return { withholdCents, lines };
 }
@@ -300,7 +297,7 @@ export const disposeSecurityDepositTool = defineWriteTool({
       dispositionType: split.dispositionType,
       refundCents: split.refundCents,
       withholdCents: split.withholdCents,
-      itemization: deduction.lines.length > 0 ? deduction.lines : input.itemization,
+      itemization: deduction.lines,
       memo: input.memo,
       offlineReturn: input.offlineReturn,
     });

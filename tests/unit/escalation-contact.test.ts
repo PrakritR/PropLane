@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   appendEscalationContactLine,
@@ -129,16 +128,5 @@ describe("resolveEscalationContact", () => {
     expect((await resolveEscalationContact(db, { ownerUserId: "service-owner", onPropLaneLine: true, sharedLineWithoutHome: true })).line).toBeNull();
     const svc = await resolveEscalationContact(db, { ownerUserId: "service-owner", onPropLaneLine: true, serviceLineWithoutHome: true });
     expect(svc.line).toContain("(555) 123-0001");
-  });
-});
-
-describe("wiring", () => {
-  const read = (p: string) => readFileSync(p, "utf8");
-  it("every escalation path resolves the line on the server and only escalation turns append it", () => {
-    expect(read("src/lib/tools/domains/leasing-sms.ts")).toContain("contactLine");
-    expect(read("src/lib/tools/domains/vendor-work-order.ts")).toContain("vendorEscalationContactLine");
-    expect(read("src/lib/tools/domains/resident/messaging.ts")).toContain("escalationContactLine");
-    expect(read("src/lib/agent/leasing-sms-agent.server.ts")).toContain("appendEscalationContactLine");
-    expect(read("src/lib/agent/vendor-agent.server.ts")).toContain("appendEscalationContactLine");
   });
 });

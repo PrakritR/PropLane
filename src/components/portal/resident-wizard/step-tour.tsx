@@ -3,7 +3,7 @@
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { Input, Textarea } from "@/components/ui/input";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
-import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
+import { useTourAssigneeCandidates } from "@/components/portal/tour-assignee";
 import type { WorkAssignee } from "@/lib/work-assignment";
 import { WizardChip, WizardField, WizardLine, WizardRow, WizardSection,
   WizardSelect,
@@ -23,18 +23,19 @@ export function TourStep({
   form,
   patch,
   derived,
-  managerUserId,
   assignee,
   onAssignee,
 }: {
   form: AddPersonForm;
   patch: (next: Partial<AddPersonForm>) => void;
   derived: ResidentWizardDerived;
-  managerUserId: string;
   assignee: WorkAssignee | null;
   onAssignee: (next: WorkAssignee | null) => void;
 }) {
-  const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId });
+  // The server re-checks a manual tour's assignee against THIS house's tour team (`resolveTourAssigneeForCreate`, 403
+  // otherwise), so the picker offers that list, not the manager's whole directory. Until it is known (no house picked
+  // yet, still loading, or an unreadable team) there is nobody to offer and the server's default assignee applies.
+  const tourTeam = useTourAssigneeCandidates(form.propertyId);
   const noTour = form.tourFormat === "none";
   return (
     <StepColumn>
@@ -63,7 +64,7 @@ export function TourStep({
               <WizardSelect label="Duration" value={form.tourDurationMinutes} onChange={(next) => patch({ tourDurationMinutes: next })} options={DURATIONS} dataAttr="residents-wizard-tour-duration" />
             </WizardRow>
             <div className="mt-3">
-              <WorkAssignmentPicker kind="tour" value={assignee} teamMembers={teamMembers} vendors={vendors} label="Shown by" dataAttr="residents-wizard-tour-assignee" onChange={onAssignee} />
+              <WorkAssignmentPicker kind="tour" value={assignee} teamMembers={tourTeam ?? []} vendors={[]} label="Shown by" dataAttr="residents-wizard-tour-assignee" onChange={onAssignee} />
             </div>
           </div>
         ) : null}

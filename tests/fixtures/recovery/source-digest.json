@@ -13,8 +13,8 @@
   ],
   "reviewed_change": {
     "date": "2026-11-25",
-    "reason": "account-purge-manifest.ts now classifies the column 20261123130000_sms_inbound_reply_conversation_owner.sql added: sms_inbound_receipts.reply_owner_user_id is a manager-scope `detachIds`, because the workspace owner a prepared reply was delivered to can be a different manager than the work number's owner, so that manager's purge nulls the reference while the number owner's receipt row (deleted by manager_user_id) is untouched. No table, migration, trigger or recovery hook changes, so the selected path count stays 361 and the only input to the digest that moved is the manifest file. The predecessor is the digest this file carried for that migration alone (dddb3385...). Round B: sms_managed_home_redirects and mcp_oauth_portal tables classified in the purge manifest; one-number runbook rows added.",
-    "selected_source_paths": 361,
+    "reason": "account-purge-manifest.ts now classifies the column 20261123130000_sms_inbound_reply_conversation_owner.sql added: sms_inbound_receipts.reply_owner_user_id is a manager-scope `detachIds`, because the workspace owner a prepared reply was delivered to can be a different manager than the work number's owner, so that manager's purge nulls the reference while the number owner's receipt row (deleted by manager_user_id) is untouched. No table, migration, trigger or recovery hook changes, so the manifest file was the only input to the digest that moved by that change. The predecessor is the digest this file carried for that migration alone (dddb3385...). Round B: sms_managed_home_redirects and mcp_oauth_portal tables classified in the purge manifest; one-number runbook rows added. Both of those migrations match the selection rule (create table / alter table), so the selected path count is 363.",
+    "selected_source_paths": 363,
     "previous_sha256": "872363338fb88cfd4abcd0c2b71630d03b6b9c1c1e1adc1a46936224ba338795"
   }
 }

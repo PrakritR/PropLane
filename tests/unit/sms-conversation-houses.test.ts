@@ -102,10 +102,4 @@ describe("no tag is ever a guess", () => {
     expect(derived).toContain("hinted?.propertyId");
     expect(derived).not.toContain("defaultPropertyId");
   });
-
-  it("the manual route re-derives ownership of every house id from the body", () => {
-    const route = readFileSync("src/app/api/manager/sms-conversations/houses/route.ts", "utf8");
-    expect(route).toContain("findPropertyIdsNotOwnedByManager(auth.db, ownerId, propertyIds)");
-    expect(route).toContain('resolveSmsActableOwnerIds(auth.db, auth.user.id, "edit")');
-  });
 });

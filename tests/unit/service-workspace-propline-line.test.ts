@@ -63,6 +63,7 @@ const AMBIKA_OLD = "+18146793694";
 const AMBIKA_OWN = AMBIKA_OLD;
 const VINOD = "00000000-0000-4000-8000-0000000000a3";
 const SELF_OWN = "+15025550142";
+const VINOD_OWN = "+14155550199";
 
 const numberRow = (over: Record<string, unknown>) => ({
   phone_number_sid: "PN1", messaging_service_sid: "MGdefault", campaign_sid: "CP1", provision_state: "active", registration_state: "approved",
@@ -70,7 +71,10 @@ const numberRow = (over: Record<string, unknown>) => ({
   grace_started_at: null, grace_expires_at: null, quarantined_at: null, quarantine_reason: null, ...over,
 });
 
-function world(mode: "shared" | "per_workspace" | "shadow", over: { noServiceOwner?: boolean; releasedLine?: boolean; noAmbikaNumber?: boolean; ambikaUnregistered?: boolean } = {}) {
+function world(
+  mode: "shared" | "per_workspace" | "shadow",
+  over: { noServiceOwner?: boolean; releasedLine?: boolean; noAmbikaNumber?: boolean; ambikaUnregistered?: boolean; vinodNumberRequestedEarlier?: boolean } = {},
+) {
   return createMemoryDb({
     sms_runtime_config: [{
       singleton: true, mode: "automatic", pilot_manager_user_ids: [],
@@ -85,12 +89,18 @@ function world(mode: "shared" | "per_workspace" | "shadow", over: { noServiceOwn
     ],
     manager_sms_numbers: [
       numberRow({ id: "n-206", manager_user_id: SVC_OWNER, workspace_id: "ws-svc-home", phone_number: LINE_206, released_at: over.releasedLine ? "2026-10-01" : null }),
-      ...(over.noAmbikaNumber ? [] : [numberRow({ id: "n-ambika", manager_user_id: AMBIKA, workspace_id: "ws-ambika", phone_number: AMBIKA_OLD, ...(over.ambikaUnregistered ? { registration_state: "pending" } : {}) })]),
+      ...(over.noAmbikaNumber ? [] : [numberRow({ id: "n-ambika", manager_user_id: AMBIKA, workspace_id: "ws-ambika", phone_number: AMBIKA_OLD, requested_at: "2026-01-01T00:00:00.000Z", ...(over.ambikaUnregistered ? { registration_state: "pending" } : {}) })]),
       numberRow({ id: "n-self", manager_user_id: SELF, workspace_id: "ws-self", phone_number: SELF_OWN }),
+      // A second managed workspace whose own number was REQUESTED first (a grandfathered or re-attached row is dated
+      // when it was first asked for, not when it was attached).
+      ...(over.vinodNumberRequestedEarlier
+        ? [numberRow({ id: "n-vinod", manager_user_id: VINOD, workspace_id: "ws-vinod", phone_number: VINOD_OWN, requested_at: "2024-01-01T00:00:00.000Z" })]
+        : []),
     ],
     workspace_work_numbers: [
       { workspace_id: "ws-ambika", number_id: "n-ambika", is_primary: true },
       { workspace_id: "ws-self", number_id: "n-self", is_primary: true },
+      ...(over.vinodNumberRequestedEarlier ? [{ workspace_id: "ws-vinod", number_id: "n-vinod", is_primary: true }] : []),
     ],
     manager_property_records: [
       { id: "h-ambika", manager_user_id: AMBIKA, workspace_id: "ws-ambika" },
@@ -119,6 +129,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   delete process.env.SMS_PROVISIONING_ENABLED;
+  delete process.env.PROPLANE_ADMIN_SMS_LINE;
 });
 
 describe("outbound: a managed workspace with its own registered number sends from it; one without sends from the 206", () => {
@@ -253,6 +264,24 @@ describe("the admin line: the portal always operates the managed operator's regi
     expect(await resolveAdminLine(world("shared") as never)).toMatchObject({ ok: true, phoneNumber: AMBIKA_OWN });
     expect(await resolveAdminLine(world("per_workspace") as never)).toMatchObject({ ok: true, phoneNumber: AMBIKA_OWN });
     expect(await resolveAdminLine(world("shared", { noAmbikaNumber: true }) as never)).toMatchObject({ ok: true, kind: "shared", phoneNumber: SHARED });
+    expect(await resolveAdminLine(world("shared", { ambikaUnregistered: true }) as never)).toMatchObject({ ok: true, kind: "shared", phoneNumber: SHARED });
+  });
+
+  // The inference is row order, so a second managed workspace holding an earlier-REQUESTED number moves the admin line
+  // onto that other client's phone. `PROPLANE_ADMIN_SMS_LINE` is what makes the answer the captain's, not the table's.
+  it("a pinned number wins over an earlier-requested managed number", async () => {
+    expect(await resolveAdminLine(world("per_workspace", { vinodNumberRequestedEarlier: true }) as never)).toMatchObject({ phoneNumber: VINOD_OWN });
+    process.env.PROPLANE_ADMIN_SMS_LINE = AMBIKA_OWN;
+    expect(await resolveAdminLine(world("per_workspace", { vinodNumberRequestedEarlier: true }) as never)).toMatchObject({ ok: true, phoneNumber: AMBIKA_OWN, source: "workspace" });
+  });
+
+  it("ignores a pin that is not a managed workspace's live registered number", async () => {
+    // A self-serve manager's number, and a number nobody holds: neither may be sent from, so the inference stands.
+    for (const pinned of [SELF_OWN, "+19995550000"]) {
+      process.env.PROPLANE_ADMIN_SMS_LINE = pinned;
+      expect(await resolveAdminLine(world("per_workspace") as never), pinned).toMatchObject({ ok: true, phoneNumber: AMBIKA_OWN });
+    }
+    process.env.PROPLANE_ADMIN_SMS_LINE = AMBIKA_OWN;
     expect(await resolveAdminLine(world("shared", { ambikaUnregistered: true }) as never)).toMatchObject({ ok: true, kind: "shared", phoneNumber: SHARED });
   });
 

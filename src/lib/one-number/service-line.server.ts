@@ -222,14 +222,37 @@ export async function resolveManagedSendTarget(
   return { managed: false, workspaceId: candidates[0] ?? null };
 }
 
+/** One line per distinct problem per process: this resolves on every admin send. */
+const warnedAdminLine = new Set<string>();
+function warnAdminLineOnce(message: string): void {
+  if (warnedAdminLine.has(message)) return;
+  warnedAdminLine.add(message);
+  console.warn(message);
+}
+
 /**
- * The line the ADMIN portal operates and shows (captain, Nov 24: "use the 814 number for the admin portal always"): the
- * managed operator's registered number, i.e. the first PropLane-managed (`is_service`) workspace that holds a live, active,
- * registered number of its own (earliest requested first, so the answer is stable). With none, or when anything cannot be
- * read, it is the PropLane line (`resolveServiceLine` with no workspace): fail closed, never a self-serve manager's number.
- * Conversations that arrived on the PropLane line stay listed; this decides only what NEW admin texts leave on and show.
+ * The line the ADMIN portal operates and shows (captain, Nov 24: "use the 814 number for the admin portal always").
+ *
+ * `PROPLANE_ADMIN_SMS_LINE` (E.164) pins it, and is honoured only when that number is the live, active, registered OWN
+ * number of a PropLane-managed (`is_service`) workspace (`managedWorkspaceOwningLine`) — an env value that is not one is
+ * ignored, never sent from. Unpinned, it is inferred: the first managed workspace holding such a number, earliest
+ * requested first. The inference is only as stable as that row order, so it warns once; pin the number to fix it.
+ * With none, or when anything cannot be read, it is the PropLane line (`resolveServiceLine` with no workspace): fail
+ * closed, never a self-serve manager's number. Conversations that arrived on the PropLane line stay listed; this decides
+ * only what NEW admin texts leave on and show.
  */
 export async function resolveAdminLine<T = Record<string, unknown>>(db: SupabaseClient, columns = "phone_number"): Promise<ServiceLine<T>> {
+  const pinned = normalizeE164(process.env.PROPLANE_ADMIN_SMS_LINE ?? "");
+  if (pinned) {
+    const workspaceId = await managedWorkspaceOwningLine(db, pinned);
+    if (workspaceId) {
+      const own = await resolveWorkspaceOwnLine<T>(db, columns, workspaceId);
+      if (own?.ok && own.phoneNumber === pinned) return own;
+    }
+    warnAdminLineOnce("PROPLANE_ADMIN_SMS_LINE is not a managed workspace's live registered number; ignoring it");
+  } else {
+    warnAdminLineOnce("PROPLANE_ADMIN_SMS_LINE is unset; the admin line is inferred from the earliest-requested managed number");
+  }
   try {
     const { data, error } = await db.from("portal_workspaces").select("id").eq("is_service", true);
     if (!error) {

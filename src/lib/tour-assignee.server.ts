@@ -64,6 +64,34 @@ export async function tourAssigneeNames(db: Db, userIds: readonly string[]): Pro
 }
 
 /**
+ * Everyone a NEW tour at this property may be offered to, for the picker that creates one (the confirm modal, the manual
+ * booking). It is the same set `resolveTourAssigneeForCreate` enforces, so a name the picker offers is never refused by
+ * the server. The actor must already be on that team (or the house owner, or an admin): an unreadable team, or one the
+ * actor is not on, offers nobody and the server's own default applies.
+ */
+export async function listTourAssigneeCandidatesForProperty(
+  db: Db,
+  input: { propertyId: string; actorUserId: string; isAdmin?: boolean },
+): Promise<{ ok: true; defaultUserId: string; candidates: { id: string; name: string }[] } | { ok: false; status: number; error: string }> {
+  const propertyId = input.propertyId.trim();
+  if (!propertyId) return { ok: false, status: 400, error: "propertyId required" };
+  let team: Awaited<ReturnType<typeof listTourAssigneeUserIds>>;
+  try {
+    team = await listTourAssigneeUserIds(db, { propertyId });
+  } catch {
+    return { ok: false, status: 500, error: "Could not read the team for this property." };
+  }
+  const allowed = input.isAdmin || input.actorUserId === team.ownerUserId || team.userIds.includes(input.actorUserId);
+  if (!allowed) return { ok: false, status: 403, error: "Unauthorized." };
+  const names = await tourAssigneeNames(db, team.userIds);
+  return {
+    ok: true,
+    defaultUserId: team.operatorUserId || team.ownerUserId,
+    candidates: team.userIds.map((id) => ({ id, name: names.get(id) ?? "Team member" })),
+  };
+}
+
+/**
  * The assignee a NEW tour is written with. A supplied team assignee must be on the property's team (403 otherwise);
  * none supplied becomes the default (operator on a managed house, the house owner otherwise). An unreadable team
  * read never blocks a booking: the stored assignee is then simply left off and the resolver's own default applies.

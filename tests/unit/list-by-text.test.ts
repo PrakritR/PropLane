@@ -34,6 +34,7 @@ import { handleSmsSignupText, type SignupDeps } from "@/lib/one-number/signup/fl
 import { readSignupIntent } from "@/lib/one-number/signup/intent";
 import { createNewListingWizardSubmission } from "@/lib/manager-listing-submission";
 import { listingPublicPathFor } from "@/lib/listing-slug";
+import { OPERATIONS_SETTINGS_KEY } from "@/lib/settings/property-overrides.server";
 
 const PHOTO = "https://x.supabase.co/storage/v1/object/public/listing-photos/u1/a.jpg";
 const USER = "user-landlord";
@@ -97,6 +98,21 @@ describe("the publish core is the wizard's publish", () => {
     expect(await publishOwnedDraftListing(db as never, { userId: USER, propertyId: noDate })).toMatchObject({ ok: false, reason: "incomplete", missing: expect.arrayContaining(["availability"]) });
     expect(db.tables.manager_property_records!.every((r) => r.status === "draft")).toBe(true);
     expect(missingForPublish(createNewListingWizardSubmission())).toEqual(expect.arrayContaining(["address", "rent", "availability", "photo"]));
+  });
+
+  // The house's Operations overrides (reminders / automated messages / task automation) are written only by their own
+  // gated routes, live on the same row, and are never part of a listing payload. `POST /api/property-records` carries
+  // them across a listing write for exactly that reason; PUBLISH by text rebuilds the same row and must do the same.
+  it("keeps a house's Operations overrides across the publish", async () => {
+    const db = createFakeDb({ manager_property_records: [] });
+    const id = await draft(db);
+    const override = { reminderRules: { rentDue: { daysBefore: 7 } } };
+    const stored = db.tables.manager_property_records!.find((r) => r.id === id)!;
+    stored.row_data = { ...(stored.row_data as Row), [OPERATIONS_SETTINGS_KEY]: override };
+    expect(await publishOwnedDraftListing(db as never, { userId: USER, propertyId: id })).toMatchObject({ ok: true });
+    const live = db.tables.manager_property_records!.find((r) => r.id === id)!;
+    expect(live.status).toBe("live");
+    expect((live.row_data as Row)[OPERATIONS_SETTINGS_KEY]).toEqual(override);
   });
 
   it("another account cannot publish or even see someone else's draft", async () => {

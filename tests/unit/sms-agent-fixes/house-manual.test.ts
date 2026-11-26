@@ -44,11 +44,24 @@ describe("house manual: fees and policies come from the tool", () => {
     expect(out.guidance).toMatch(/houseManual/);
   });
 
-  it("a deposit-return or service-animal POLICY question is answered from the manual instead of escalated", async () => {
-    for (const q of ["When do I get my deposit back after I move out?", "I have an emotional support animal with a letter. Is that ok?"]) {
+  it("a deposit-return POLICY question is answered from the manual instead of escalated", async () => {
+    const out = await lookupPropertyKnowledge({} as never, scope(), "When do I get my deposit back after I move out?");
+    expect(out.mustEscalate).toBeNull();
+    expect(out.houseManual?.length).toBeGreaterThan(0);
+  });
+
+  // Fair housing is never softened by what a manager typed into a house manual: a protected-class question goes to a
+  // person whatever is on file (the captain's rule; `money` is the only arm the manual may answer).
+  it("a fair-housing question always hands off, even with a manual that mentions the policy", async () => {
+    for (const q of [
+      "do you take Section 8 vouchers?",
+      "do you allow children?",
+      "I have an emotional support animal with a letter. Is that ok?",
+    ]) {
       const out = await lookupPropertyKnowledge({} as never, scope(), q);
-      expect(out.mustEscalate, q).toBeNull();
-      expect(out.houseManual?.length, q).toBeGreaterThan(0);
+      expect(out.mustEscalate, q).toBe("fair_housing");
+      expect(out.guidance, q).toMatch(/Always hand it to the team/);
+      expect(out.guidance, q).not.toMatch(/Answer fees and policies from houseManual/);
     }
   });
 

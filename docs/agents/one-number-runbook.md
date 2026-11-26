@@ -28,6 +28,12 @@ only on the machine of the person running this, and never commit it.
 
 In every command below `PROD="--target production --env-file <prod env file> --confirm-ref qahnczmilgptcedaqype"`.
 
+**`PROPLANE_ADMIN_SMS_LINE` (Vercel env, every deployed environment).** The number the admin portal operates and shows,
+in E.164 (production today: the managed operator's registered `+18146793694`). `resolveAdminLine` honours it only when
+it is the live, active, registered own number of an `is_service` workspace, so a stale value is ignored rather than sent
+from. Leave it unset only knowingly: the line is then inferred from the earliest-requested managed number, which another
+managed workspace getting its own number can move. Set it in the same step as a managed workspace's number.
+
 ## 0. Before anything (humans)
 
 1. Production code with the one-number build is deployed. It is safe before the migrations: every read of a new

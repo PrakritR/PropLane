@@ -1287,9 +1287,11 @@ for the admin portal always." This replaces the Oct 25 rule ("every managed work
 An own number that is not sendable, or whose read fails, is NOT the line: the decision falls to the PropLane line, never to another workspace's number.
 A PropLane line that cannot be resolved refuses the send (`workspace_has_no_work_number`, or `control_plane_unreadable` for a failed read).
 
-**The admin line (Nov 24, "use the 814 for the admin portal ALWAYS").** `resolveAdminLine` (same module) is the operator's registered number: the
-first `is_service` workspace (earliest `requested_at`) holding an own sendable row; none or unreadable falls to `resolveServiceLine` with no workspace
-(the PropLane line). It is what Admin Communication's number card shows and what every ADMIN-INITIATED send leaves on. One decision,
+**The admin line (Nov 24, "use the 814 for the admin portal ALWAYS").** `resolveAdminLine` (same module) is the operator's registered number.
+Pin it with `PROPLANE_ADMIN_SMS_LINE` (E.164): it is honoured only when that number is the live, active, registered OWN number of an `is_service`
+workspace (`managedWorkspaceOwningLine`), so a value that is not one is ignored rather than sent from. Unset, it is INFERRED — the
+first `is_service` workspace (earliest `requested_at`) holding an own sendable row, which is only as stable as that row order, so it warns once;
+none or unreadable falls to `resolveServiceLine` with no workspace (the PropLane line). It is what Admin Communication's number card shows and what every ADMIN-INITIATED send leaves on. One decision,
 `isAdminSurfaceSend` (`src/lib/sms/admin-surface.server.ts`), computed by the dispatcher on the queued row's `actor_user_id`, `manager_user_id`,
 workspace and `counterparty_role` (so it survives retries and the final recheck): the actor is a platform admin or holds a staff seat, AND either
 (a) the actor is not the sending account and the workspace is PropLane-managed (the operator or staff typing in, or acting on, a workspace they do

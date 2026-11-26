@@ -103,10 +103,9 @@ export async function lookupPropertyKnowledge(
     appliesTo: e.propertyId ? "this house" : "all houses",
   }));
   const found = answers.length > 0 || houseDetails.length > 0 || houseManual.length > 0;
-  // A plain question about a WRITTEN policy (service animal, deposit return, a fee) is answered from the manual; only
-  // a dispute, a waiver, a legal or a safety matter is handed to the team whatever the manual says.
-  const answerFromManual =
-    houseManual.length > 0 && (mustEscalate === "money" || mustEscalate === "fair_housing") && !isDisputeText(question);
+  // A plain question about a WRITTEN fee or money policy (deposit return, a lockout fee) is answered from the manual; a
+  // dispute, a waiver, a legal, a safety or a FAIR-HOUSING matter is handed to the team whatever the manual says.
+  const answerFromManual = houseManual.length > 0 && mustEscalate === "money" && !isDisputeText(question);
   const escalate = answerFromManual ? null : mustEscalate;
   return {
     found,

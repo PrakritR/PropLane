@@ -40,7 +40,6 @@ import {
   InboxAvatar,
   InboxComposer,
   InboxThreadEmpty,
-  useThreadLoadExpired,
   InboxThreadSkeleton,
   InboxTwoPane,
   PortalInboxEmptyState,
@@ -530,7 +529,9 @@ export const ManagerSmsPanel = forwardRef<
     };
   }, [activeId, archivedConversationIds, hiddenConversationIds, openedSmsIds, residents, rows, selectedDetailResident, threadPages, visibleRows]);
 
-  const smsThreadLoadExpired = useThreadLoadExpired(!active && controlledActiveId ? controlledActiveId : null);
+  // "Not found" only once the conversation list has settled (not loading, no error) without this id in it; a list still
+  // loading, or one that failed, keeps the skeleton rather than claiming the conversation does not exist.
+  const smsThreadNotFound = Boolean(controlledActiveId) && !active && !loading && !error;
   const selectedResident = residents.find((resident) => conversationId(resident) === activeId)
     ?? (selectedDetailResident?.projectionId === activeId ? selectedDetailResident : null);
   const selectedSummaryTuple = selectedResident?.projectionId
@@ -1363,7 +1364,7 @@ export const ManagerSmsPanel = forwardRef<
 
   const threadPane = !active ? (
     controlledActiveId ? (
-      smsThreadLoadExpired ? <InboxThreadEmpty title="Conversation not found." /> : <InboxThreadSkeleton />
+      smsThreadNotFound ? <InboxThreadEmpty title="Conversation not found." /> : <InboxThreadSkeleton />
     ) : (
       <InboxThreadEmpty />
     )

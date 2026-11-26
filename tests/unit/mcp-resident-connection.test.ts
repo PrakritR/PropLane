@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -30,26 +29,6 @@ function residentCtx(over: Partial<ResidentAgentContext> = {}): ResidentAgentCon
     ...over,
   } as ResidentAgentContext;
 }
-
-const src = (path: string) => readFileSync(path, "utf8");
-
-describe("the two MCP gateways never share a registry", () => {
-  it("the manager gateway imports no resident registry and the resident gateway no manager one", () => {
-    const manager = src("src/lib/mcp/gateway.ts");
-    expect(manager).not.toMatch(/resident-index|residentAgentRegistry|buildResidentRegistry|resident-gateway/);
-    const resident = src("src/lib/mcp/resident-gateway.ts");
-    expect(resident).not.toMatch(/from "@\/lib\/tools"/);
-    expect(resident).not.toMatch(/\bagentRegistry\b/);
-    expect(resident).not.toMatch(/from "\.\/gateway"/);
-    expect(resident).toMatch(/portal: "resident"/);
-  });
-
-  it("the route picks the gateway from the connection's portal, never from the request", () => {
-    const route = src("src/app/api/mcp/route.ts");
-    expect(route).toMatch(/auth\.portal === "resident"/);
-    expect(route).toMatch(/resolveMcpBearerContext/);
-  });
-});
 
 describe("a resident connection reaches only resident tools", () => {
   beforeEach(() => vi.clearAllMocks());

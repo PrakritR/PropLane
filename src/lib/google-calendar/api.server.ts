@@ -1055,7 +1055,7 @@ type GoogleCalendarConditionalWrite = {
   validateCurrent: () => Promise<boolean>;
 };
 
-function googleCalendarEventBody(input: GoogleCalendarEventWriteInput) {
+function googleCalendarEventBody(input: GoogleCalendarEventWriteInput, revive = false) {
   return {
     summary: input.title,
     description: input.description,
@@ -1063,6 +1063,11 @@ function googleCalendarEventBody(input: GoogleCalendarEventWriteInput) {
     start: { dateTime: input.start },
     end: { dateTime: input.end },
     ...(input.transparency ? { transparency: input.transparency } : {}),
+    // Only when reconciling our own 409: the id is ours and Google already holds it, which includes holding it as a
+    // CANCELLED event after an earlier delete (a tour reassigned away and back). A PATCH that does not say `confirmed`
+    // cannot revive it, so the create would report success over an event nobody can see. Never sent on an ordinary
+    // update: a person's own deletion in Google stays deleted.
+    ...(revive ? { status: "confirmed" } : {}),
   };
 }
 
@@ -1101,7 +1106,7 @@ export async function createGoogleCalendarEvent(
     // rather than merely accepting the id: the local tour may have moved to a
     // new window while the first create was in flight.
     if (res.status === 409 && input.id) {
-      return updateGoogleCalendarEvent(db, managerUserId, input.id, input, conditionalWrite);
+      return updateGoogleCalendarEvent(db, managerUserId, input.id, input, conditionalWrite, { revive: true });
     }
     throw new Error(data.error?.message ?? "Could not create Google Calendar event.");
   }
@@ -1114,6 +1119,8 @@ export async function updateGoogleCalendarEvent(
   eventId: string,
   input: GoogleCalendarEventWriteInput,
   conditionalWrite?: GoogleCalendarConditionalWrite,
+  /** Set only by the create path reconciling its own 409: the event may be a cancelled one of ours. */
+  opts?: { revive?: boolean },
 ): Promise<string | null> {
   const trimmedId = eventId.trim();
   if (!trimmedId) return null;
@@ -1145,7 +1152,7 @@ export async function updateGoogleCalendarEvent(
         "Content-Type": "application/json",
         ...(ifMatch ? { "If-Match": ifMatch } : {}),
       },
-      body: JSON.stringify(googleCalendarEventBody(input)),
+      body: JSON.stringify(googleCalendarEventBody(input, opts?.revive === true)),
       signal: googleCalendarFetchSignal(),
     },
   );

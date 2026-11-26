@@ -13,6 +13,8 @@ import { MANAGER_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/manager-access";
 import { normalizeManagerListingSubmissionV1, withOfferedLeaseTermsFilled, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { assertManagerPropertyListingQuota } from "@/lib/manager-property-quota.server";
 import { emptyLeaseTermsWrite } from "@/lib/property-records/listing-write-guards";
+import { preserveServerOwnedApplicationVersions } from "@/lib/rental-application/server-owned-template-versions";
+import { OPERATIONS_SETTINGS_KEY } from "@/lib/settings/property-overrides.server";
 
 /**
  * Publish an owner's saved DRAFT listing as a live one, from a server caller with no browser (the by-text walkthrough's
@@ -62,7 +64,7 @@ export async function publishOwnedDraftListing(
 
   const { data, error } = await db
     .from("manager_property_records")
-    .select("manager_user_id, status, row_data, workspace_id")
+    .select("manager_user_id, status, row_data, property_data, workspace_id")
     .eq("id", id)
     .maybeSingle();
   if (error) {
@@ -109,10 +111,18 @@ export async function publishOwnedDraftListing(
 
   const pending: ManagerPendingPropertyRow = { ...legacy, id, submittedAt: new Date().toISOString(), submission, submittedByUserId: userId };
   const prop = { ...buildMockPropertyFromDraft(pending, id), adminPublishLive: true, managerUserId: userId };
-  const liveRowData = { ...legacy, adminRefId: id, listingId: id, managerUserId: userId };
+  // The live row is rebuilt from the submission, so the two keys `POST /api/property-records` carries forward are carried
+  // here too: a house's Operations overrides (reminders / automated messages / task automation, written by their own
+  // gated routes and never by a listing write) and the server-owned application-template history.
+  const liveRowData: Record<string, unknown> = { ...legacy, adminRefId: id, listingId: id, managerUserId: userId };
+  if (rowData && OPERATIONS_SETTINGS_KEY in rowData) liveRowData[OPERATIONS_SETTINGS_KEY] = rowData[OPERATIONS_SETTINGS_KEY];
   let reconciled: { rowData: unknown; propertyData: unknown };
   try {
-    const fee = await reconcileListingServiceFeeOnWrite(db, { ownerUserId: userId, rowData: liveRowData, propertyData: prop });
+    const fee = await reconcileListingServiceFeeOnWrite(db, {
+      ownerUserId: userId,
+      rowData: preserveServerOwnedApplicationVersions(liveRowData, existing.row_data),
+      propertyData: preserveServerOwnedApplicationVersions(prop, existing.property_data),
+    });
     reconciled = await reconcileListingApplicationFormOnWrite(db, { ownerUserId: userId, rowData: fee.rowData, propertyData: fee.propertyData });
   } catch (reconcileError) {
     console.error("publish listing reconcile failed", reconcileError instanceof Error ? reconcileError.name : "unknown");

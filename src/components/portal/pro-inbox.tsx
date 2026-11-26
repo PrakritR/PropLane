@@ -93,7 +93,6 @@ import {
   InboxScheduledCard,
   InboxScheduledThreadList,
   InboxThreadEmpty,
-  useThreadLoadExpired,
   InboxThreadSkeleton,
   InboxThreadView,
   PORTAL_INBOX_LIST_TOOLBAR_CLASS,
@@ -1286,7 +1285,9 @@ export const ManagerInbox = forwardRef<
       ),
     [expandedId, emailThreads, local, userId],
   );
-  const threadLoadExpired = useThreadLoadExpired(expandedId && !activeThread ? expandedId : null);
+  // "Not found" only once the conversation list itself has finished loading and this id is not in it; while the list is
+  // still arriving the pane keeps its skeleton (a slow load is not a missing thread).
+  const threadNotFound = Boolean(expandedId) && !activeThread && inboxSynced;
   const activeAiDraftAdopted = Boolean(
     activeThread?.aiDraft?.status === "pending_approval"
       && activeThread.aiDraft.text.trim()
@@ -2926,7 +2927,7 @@ export const ManagerInbox = forwardRef<
   ) : emptyThreadFallback && suppressListPane ? (
     emptyThreadFallback
   ) : expandedId ? (
-    threadLoadExpired ? <InboxThreadEmpty title="Conversation not found." /> : <InboxThreadSkeleton />
+    threadNotFound ? <InboxThreadEmpty title="Conversation not found." /> : <InboxThreadSkeleton />
   ) : (
     <InboxThreadEmpty />
   );
