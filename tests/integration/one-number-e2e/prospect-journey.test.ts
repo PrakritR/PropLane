@@ -51,6 +51,7 @@ vi.mock("@/lib/sms/manager-sms-contacts.server", () => ({
   }),
 }));
 
+import { buildListingSlugIndex, resolveListingParam } from "@/lib/listing-slug";
 import { publicListingProjection } from "@/lib/public-listings.server";
 import { handleSharedLineInbound } from "@/lib/one-number/inbound-seam.server";
 import { NEUTRAL_REPLY } from "@/lib/one-number/lead-qualifying";
@@ -131,10 +132,11 @@ describe("a prospect with no code", () => {
   it("the offer reaches the prospect as one text per room, each with its own photo and listing link, then how to pick", async () => {
     const photo = (owner: string, id: string, street: string, name: string, rent: number, url: string) =>
       publicListingProjection(storedListing(id, { manager: owner, neighborhood: "University District", beds: 4, rent, street, name, photo: url }));
-    sim.listings = [
+    const offered = [
       photo(OWNER_A, "prop-uw-a", "4000 15th Ave NE", "Brooklyn House", 900, "https://cdn.example.com/a.jpg"),
       photo(OWNER_B, "prop-uw-d", "4200 17th Ave NE", "Seventeenth House", 950, "https://cdn.example.com/d.jpg"),
     ];
+    sim.listings = offered;
     const fake = world();
     await say(fake, "hi");
     await say(fake, "looking for a room");
@@ -145,7 +147,14 @@ describe("a prospect with no code", () => {
     // Two rooms + the pick prompt, welcome notice not repeated (it was sent with the first reply).
     expect(bubbles).toHaveLength(3);
     expect(bubbles[0]!.body).toContain("4000 15th Ave NE");
-    expect(bubbles[0]!.body).toContain("/rent/listings/prop-uw-a");
+    // The link is the home's readable canonical URL (the street line, not the record id), and the public
+    // listing page's own resolver reads it back as exactly this home: an id URL would resolve "stale".
+    const link = bubbles[0]!.body.match(/\/rent\/listings\/\S+/)?.[0] ?? "";
+    expect(link).toMatch(/^\/rent\/listings\/4000-15th-ave-ne-/);
+    expect(resolveListingParam(buildListingSlugIndex(offered), link.split("/").pop()!)).toEqual({
+      kind: "slug",
+      id: "prop-uw-a",
+    });
     expect(bubbles[0]!.mediaUrl).toBe("https://cdn.example.com/a.jpg");
     expect(bubbles[1]!.body).toContain("4200 17th Ave NE");
     expect(bubbles[1]!.mediaUrl).toBe("https://cdn.example.com/d.jpg");

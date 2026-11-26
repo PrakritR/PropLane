@@ -1,5 +1,5 @@
 {
-  "sha256": "dddb338588365a604775177c5f53526dfe8b4e985d050672334d6249f3148b40",
+  "sha256": "872363338fb88cfd4abcd0c2b71630d03b6b9c1c1e1adc1a46936224ba338795",
   "selection": "SQL migrations containing account_recovery_, resident_move_in_forms, CREATE/DROP/ALTER TABLE and admin_team_atomic_revoke; plus purge manifest and recovery policy",
   "missing_dev_catalog": [
     "applicant_preapply_checks",
@@ -12,9 +12,9 @@
     "scheduled_inbox_channel_deliveries"
   ],
   "reviewed_change": {
-    "date": "2026-11-24",
-    "reason": "20261123130000_sms_inbound_reply_conversation_owner.sql adds the nullable columns sms_inbound_receipts.reply_owner_user_id and reply_workspace_id plus a 12-argument prepare_sms_inbound_reply overload beside the existing 10-argument one (which it leaves in place, so an inbound reply still works between db:push and the deploy). A later review round reverted its own 20261124120000_income_verification_history_days.sql, so that migration is no longer part of the change and the digest returns to the value this file carried before it (dddb3385...), with 49b739bd... - the digest while that migration existed - as the predecessor. No table is added or removed, no trigger or recovery hook is touched, and sms_inbound_receipts stays classified as before in account-purge-manifest.ts. The selected path count rises by one because that SMS migration's ALTER TABLE puts it in the selection.",
+    "date": "2026-11-25",
+    "reason": "account-purge-manifest.ts now classifies the column 20261123130000_sms_inbound_reply_conversation_owner.sql added: sms_inbound_receipts.reply_owner_user_id is a manager-scope `detachIds`, because the workspace owner a prepared reply was delivered to can be a different manager than the work number's owner, so that manager's purge nulls the reference while the number owner's receipt row (deleted by manager_user_id) is untouched. No table, migration, trigger or recovery hook changes, so the selected path count stays 361 and the only input to the digest that moved is the manifest file. The predecessor is the digest this file carried for that migration alone (dddb3385...).",
     "selected_source_paths": 361,
-    "previous_sha256": "49b739bd8a16d74ab5bca71a1d92b422baf6fc4c6ee55d12eb2f2f8124c46a34"
+    "previous_sha256": "dddb338588365a604775177c5f53526dfe8b4e985d050672334d6249f3148b40"
   }
 }

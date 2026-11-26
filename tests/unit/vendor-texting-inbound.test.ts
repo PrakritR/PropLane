@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryDb } from "./support/memory-supabase";
 import { createConsentLedger } from "./support/consent-ledger-fake";
 
@@ -69,7 +69,15 @@ const roster = (over: Record<string, unknown> = {}, rowOver: Record<string, unkn
 });
 
 beforeEach(() => {
+  // Every row below is dated relative to NOW, while the routing reads its own "now" from the
+  // clock: without pinning it, the 40-days-ago vendor text drifts out of the 90-day window as
+  // the real date advances and this file starts failing on a day nobody changed anything.
+  vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
   vi.stubEnv("TWILIO_MESSAGING_SERVICE_SID", "MGtest");
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("who a vendor text is from", () => {

@@ -113,12 +113,12 @@ describe("the listing page and the browse card agree with the label", () => {
 describe("source guards", () => {
   const read = (path: string) => readFileSync(path, "utf8");
 
-  it("every catalog reader goes through the live resolver: getPublicListings applies it and only the occupancy snapshot opts out", () => {
+  // That the occupancy route is the one reader which opts out is asserted over the route itself,
+  // on both of its branches, in tests/unit/public-room-occupancy-route.test.ts.
+  it("getPublicListings applies the live resolver unless the caller opts out", () => {
     const catalog = read("src/lib/public-listings.server.ts");
     expect(catalog).toMatch(/applyLiveRoomAvailability\(projected/);
     expect(catalog).toMatch(/opts\?\.liveAvailability === false/);
-    const route = read("src/app/api/public/approved-room-occupancy/route.ts");
-    expect(route.match(/getPublicListings\(/g)?.length).toBe(route.match(/getPublicListings\(\{ liveAvailability: false \}\)/g)?.length);
   });
 
   it("the browse card carries the catalog's label for a submission room instead of painting every room Available now", () => {

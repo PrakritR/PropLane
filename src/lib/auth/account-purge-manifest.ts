@@ -583,7 +583,10 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
   {
     table: "sms_inbound_receipts",
     phase: 1,
-    manager: { ids: ["manager_user_id"] },
+    // `reply_owner_user_id` is the workspace owner a prepared reply was delivered to, which for a
+    // multi-role sender is a DIFFERENT manager than the work number's owner. That manager is only
+    // referenced here, so their purge nulls the column and leaves the number owner's receipt row.
+    manager: { ids: ["manager_user_id"], detachIds: ["reply_owner_user_id"] },
     resident: { detachIds: ["counterparty_user_id"] },
     vendor: { detachIds: ["counterparty_user_id"] },
   },
