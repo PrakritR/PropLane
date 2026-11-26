@@ -756,10 +756,7 @@ export async function notifyAutopayDeclined(
     .eq("id", managerId)
     .maybeSingle();
   const managerName = managerProfile?.full_name?.trim() || managerProfile?.email?.trim() || "Your property manager";
-  const { resolveManagedAwareFromNumber } = await import("@/lib/sms/prospect-send-number.server");
-  const managerSmsFromNumber = String(
-    (await resolveManagedAwareFromNumber(db, managerId, async () => String(managerProfile?.sms_from_number ?? "").trim())) ?? "",
-  ).trim();
+  const managerSmsFromNumber = String(managerProfile?.sms_from_number ?? "").trim();
   const from = await managerOutboundFromHeader(db, managerId);
   const apiKey = process.env.RESEND_API_KEY?.trim() ?? "";
 

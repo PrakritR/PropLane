@@ -10,6 +10,10 @@
  * read scopes on `resident_user_id`. A write NEVER runs here: it builds its preview and parks an
  * `agent_pending_actions` row with `portal: "resident"`; the resident confirms it in PropLane, through the same
  * confirm route as the portal assistant. A bearer connection can never confirm its own proposal.
+ *
+ * It is still an EXTERNAL client, so `RESIDENT_EXTERNAL_EXCLUDED_TOOL_NAMES` (the resident twin of the manager
+ * gateway's exclusion set) keeps the tools that carry house secrets off this surface. The catalog and the dispatch
+ * both apply it, so a name that is never listed cannot be called either.
  */
 import "server-only";
 
@@ -19,6 +23,7 @@ import { createPendingAction } from "@/lib/tools/pending-actions";
 import { previewWriteTool, runReadTool, toAnthropicTools, type ToolRegistry } from "@/lib/tools/registry";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 import { buildResidentRegistry, residentAgentRegistry } from "@/lib/tools/resident-index";
+import { RESIDENT_EXTERNAL_EXCLUDED_TOOL_NAMES } from "./capabilities";
 import { CONFIRM_ACTION_TOOL_NAME, type CallToolResult, type McpToolSchema } from "./tool-types";
 
 /** Matches the pending-action row's 15-minute default expiry. */
@@ -30,11 +35,13 @@ function registryFor(ctx: ResidentAgentContext): ToolRegistry<ResidentAgentConte
 
 /** The resident catalog: every tool the portal assistant has, writes included (they only ever propose). */
 export function listResidentTools(ctx: ResidentAgentContext): McpToolSchema[] {
-  return toAnthropicTools(registryFor(ctx)).map((t) => ({
-    name: t.name,
-    description: t.description,
-    inputSchema: t.input_schema,
-  }));
+  return toAnthropicTools(registryFor(ctx))
+    .filter((t) => !RESIDENT_EXTERNAL_EXCLUDED_TOOL_NAMES.has(t.name))
+    .map((t) => ({
+      name: t.name,
+      description: t.description,
+      inputSchema: t.input_schema,
+    }));
 }
 
 async function dispatch(ctx: ResidentAgentContext, name: string, input: unknown): Promise<CallToolResult> {
@@ -45,7 +52,7 @@ async function dispatch(ctx: ResidentAgentContext, name: string, input: unknown)
     };
   }
   const registry = registryFor(ctx);
-  const tool = registry.get(name);
+  const tool = RESIDENT_EXTERNAL_EXCLUDED_TOOL_NAMES.has(name) ? undefined : registry.get(name);
   if (!tool) return { ok: false, error: `Unknown tool: ${name}` };
 
   if (tool.kind === "read") return runReadTool(registry, ctx, name, input);

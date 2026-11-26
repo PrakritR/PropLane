@@ -90,6 +90,10 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => {
   PORTAL_INBOX_CHANGED_EVENT: actual.PORTAL_INBOX_CHANGED_EVENT,
   loadPersistedInbox: (...args: Parameters<typeof actual.loadPersistedInbox>) => storageTest.realStorage ? actual.loadPersistedInbox(...args) : THREADS,
   syncPersistedInboxFromServer: (...args: Parameters<typeof actual.syncPersistedInboxFromServer>) => storageTest.realStorage ? actual.syncPersistedInboxFromServer(...args) : storageTest.pendingInboxSync ?? Promise.resolve(THREADS),
+  syncPersistedInboxFromServerWithStatus: async (...args: Parameters<typeof actual.syncPersistedInboxFromServerWithStatus>) =>
+    storageTest.realStorage
+      ? actual.syncPersistedInboxFromServerWithStatus(...args)
+      : { rows: await (storageTest.pendingInboxSync ?? Promise.resolve(THREADS)), ok: true },
   persistInbox: (...args: Parameters<typeof actual.persistInbox>) => storageTest.realStorage ? actual.persistInbox(...args) : storageTest.persistInbox(...args),
   persistInboxAwait: () => Promise.resolve(),
   invalidatePersistedInboxCache: () => {},

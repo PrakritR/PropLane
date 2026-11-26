@@ -29,6 +29,9 @@ export function ResidentStaySummaryCard({
           <RecordFactRow key={row.id} label={row.label} value={usd(row.cents)} />
         ))}
         <RecordFactRow label="Total due now" value={<span className="font-semibold">{usd(summary.totalDueCents)}</span>} />
+        {summary.remainingCount > 0 ? (
+          <RecordFactRow label="Due after this payment" value={usd(summary.totalDueCents - summary.payCents)} />
+        ) : null}
         <div className="flex justify-end border-t border-border px-[var(--portal-card-padding,14px)] py-3">
           <Button
             type="button"

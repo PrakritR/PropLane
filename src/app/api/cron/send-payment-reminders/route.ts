@@ -1,4 +1,3 @@
-import { resolveManagedAwareFromNumber } from "@/lib/sms/prospect-send-number.server";
 import { requireCronSecret } from "@/lib/cron-auth.server";
 import { NextResponse } from "next/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -204,10 +203,7 @@ export async function GET(req: Request) {
       db.from("manager_sms_numbers").select("phone_number").eq("manager_user_id", managerId).maybeSingle(),
     ]);
     const managerName = profile?.full_name?.trim() || profile?.email?.trim() || "Your property manager";
-    // A PropLane-managed workspace's reminders name its line from the one decision (own number, else the PropLane line).
-    const managerSmsFromNumber = String(
-      (await resolveManagedAwareFromNumber(db, managerId, async () => String(workNumber?.phone_number ?? "").trim())) ?? "",
-    ).trim();
+    const managerSmsFromNumber = String(workNumber?.phone_number ?? "").trim();
     // From is the work email of the workspace that holds the charge's house (the same line its
     // texts leave on), memoized per house so a large portfolio costs one lookup per property.
     const fromByProperty = new Map<string, Promise<string>>();

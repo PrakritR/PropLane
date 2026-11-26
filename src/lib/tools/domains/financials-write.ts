@@ -36,8 +36,9 @@ function money(cents: number | null | undefined): string {
 
 /**
  * The deduction the confirmation card itemizes. `withholdCents` is the ONE statement of the withheld amount (omitted or
- * 0 = full refund); `itemization` only names its lines, and with none the memo becomes the single line. Pure, so the
- * card and the handler can never differ.
+ * 0 = full refund); `itemization` only names its lines, and with none the memo becomes the single line. Lines that do
+ * not add up to that amount are refused rather than shown: the card states both, and the ledger stores both. Pure, so
+ * the card and the handler can never differ.
  */
 export function resolveDepositDeduction(input: {
   withholdCents?: number;
@@ -46,6 +47,10 @@ export function resolveDepositDeduction(input: {
 }): { withholdCents: number; lines: Array<{ label: string; amountCents: number }> } {
   const withholdCents = input.withholdCents ?? 0;
   const listed = (input.itemization ?? []).filter((l) => l.amountCents > 0);
+  const listedTotal = listed.reduce((sum, l) => sum + l.amountCents, 0);
+  if (listed.length > 0 && listedTotal !== withholdCents) {
+    throw new Error(`The itemized deductions add up to ${money(listedTotal)} but the amount withheld is ${money(withholdCents)}. Make them agree.`);
+  }
   const lines = listed.length > 0 ? listed : withholdCents > 0 ? [{ label: input.memo?.trim() || "Deduction", amountCents: withholdCents }] : [];
   return { withholdCents, lines };
 }

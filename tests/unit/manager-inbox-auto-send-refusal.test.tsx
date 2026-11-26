@@ -64,6 +64,7 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   PORTAL_INBOX_CHANGED_EVENT: "portal-inbox-changed",
   loadPersistedInbox: () => inboxRows,
   syncPersistedInboxFromServer: () => Promise.resolve(inboxRows),
+  syncPersistedInboxFromServerWithStatus: () => Promise.resolve({ rows: inboxRows, ok: true }),
   persistInbox: (_key: string, rows: typeof THREADS) => {
     inboxRows = rows;
     window.dispatchEvent(new CustomEvent("portal-inbox-changed", { detail: { key: "manager-inbox" } }));

@@ -31,9 +31,9 @@ them after the move.
   number falls to the PropLane line, and an unresolvable PropLane line refuses the send. The 206 tells a text about such a home to use
   the workspace's number. Nothing here releases or buys a number. Detail: [`one-number.md`](one-number.md) § W29.
 - Opening a workspace sets the portal workspace cookie after `authorizeOpenServiceWorkspace` re-derives membership.
-- Work number column: the row states `resolveServiceLine`'s number for that workspace (own, or the PropLane line) as
-  "(206) 678-1909 · PropLane line" (`workNumberFactLabel`), never a number the workspace once held; an unresolvable or unreadable line
-  shows "No number". A live number the workspace still holds besides the line is its **old number**: it keeps receiving (a text to it
+- Work number column: the row states `resolveServiceLine`'s number for that workspace (own, or the PropLane line) through
+  `workNumberFactLabel` — its own number plainly, "(206) 678-1909 · PropLane line" when the line is the shared one — never a number the
+  workspace once held; an unresolvable or unreadable line shows "No number". A live number the workspace still holds besides the line is its **old number**: it keeps receiving (a text to it
   lands in that workspace, the reply leaves from the 206, send paths refuse the old row) and the row carries one more fact,
   "Old (814) 679-3694 kept since Oct 25" (`oldNumber`, the date of the attach audit row). There is no automatic release. The per-row
   **Release old number** action (`action: "release-old-number"`, `releaseServiceWorkspaceOldNumber`) is platform-admin only

@@ -166,7 +166,7 @@ export async function getTourAssigneeInfo(
   const auth = await authorizeTourAssigneeActor(db, input);
   if (!auth.ok) return auth;
   const hostUserId = text(auth.event.managerUserId);
-  const stored = await readStoredTourCalendarHolder(db, input.plannedEventId);
+  const stored = await readStoredTourCalendarHolder(db, input.plannedEventId, hostUserId);
   const fresh = stored ? null : await resolveTourCalendarHolder(db, { houseManagerUserId: hostUserId, plannedEventId: input.plannedEventId });
   const assigneeUserId = plannedTourAssigneeUserId(auth.event) || stored?.assigneeUserId || fresh?.assigneeUserId || hostUserId;
   const holderUserId = stored?.connectionOwnerUserId ?? fresh?.holderUserId ?? assigneeUserId;
@@ -225,7 +225,7 @@ export async function reassignPlannedTour(
   }
 
   const googleEventId = text(event.googleCalendarEventId);
-  const storedHolder = await readStoredTourCalendarHolder(db, input.plannedEventId);
+  const storedHolder = await readStoredTourCalendarHolder(db, input.plannedEventId, hostUserId);
   const oldHolderUserId = storedHolder?.connectionOwnerUserId ?? hostUserId;
   const next = await resolveTourCalendarHolder(db, { houseManagerUserId: hostUserId, plannedEventId: input.plannedEventId, assigneeUserId });
 

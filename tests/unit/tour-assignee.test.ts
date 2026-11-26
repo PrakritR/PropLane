@@ -59,14 +59,20 @@ function makeDb(planned: Row) {
     }),
     from: vi.fn((table: string) => {
       let id = "";
+      const filters: [string, string][] = [];
       const q: Record<string, unknown> = {};
       q.select = () => q;
       q.in = () => Promise.resolve({
         data: table === "profiles" ? [{ id: AMBIKA, full_name: "Ambika" }, { id: PRAKRIT, full_name: "Prakrit" }] : [],
         error: null,
       });
-      q.eq = (_c: string, v: string) => { id = v; return q; };
-      q.maybeSingle = async () => ({ data: table === "portal_schedule_records" ? rows.get(id) ?? null : null, error: null });
+      // Every filter ANDs, as PostgREST does: a row is returned only when it matches all of them.
+      q.eq = (c: string, v: string) => { filters.push([c, v]); if (c === "id") id = v; return q; };
+      q.maybeSingle = async () => {
+        const row = table === "portal_schedule_records" ? rows.get(id) ?? null : null;
+        const matches = row ? filters.every(([c, v]) => c === "id" || (row as Record<string, unknown>)[c] === v) : false;
+        return { data: matches ? row : null, error: null };
+      };
       q.upsert = async (row: Row & { id: string }) => { rows.set(row.id, row as never); return { error: null }; };
       q.delete = () => q;
       q.then = (resolve: (v: unknown) => unknown) => Promise.resolve({ error: null }).then(resolve);
@@ -183,6 +189,55 @@ describe("where the event lives", () => {
     await syncPlannedTourToGoogleCalendar(b as never, PRAKRIT, facts("g-1"));
     expect(google.update.mock.calls.at(-1)?.[1]).toBe(PRAKRIT);
     expect(google.create).not.toHaveBeenCalled();
+  });
+});
+
+// `POST /api/portal-schedule-records` pins `manager_user_id` to the caller but takes the id and `row_data` from the
+// body, so the stored "whose calendar holds this tour" row is only as trustworthy as the read makes it. The oracle is
+// the property's own tour team (`listTourAssigneeUserIds`, mocked here as the owner + the operator): a user id outside
+// it may never receive the event, which carries the prospect's name, email and phone.
+describe("a planted calendar-owner row is not a Google connection grant", () => {
+  const OWNER_ROW_ID = "axis_gcal_tour_owner_t1";
+
+  it("ignores a holder who is not on the property's team, and books on the team's calendar instead", async () => {
+    const db = makeDb(plannedTour());
+    db.rows.set(OWNER_ROW_ID, {
+      id: OWNER_ROW_ID,
+      manager_user_id: AMBIKA,
+      record_type: "google_tour_calendar_owner",
+      row_data: { connectionOwnerUserId: OUTSIDER, assigneeUserId: OUTSIDER },
+    } as never);
+    google.connection.mockImplementation(connected({ [AMBIKA]: true, [PRAKRIT]: true, [OUTSIDER]: true }));
+    await syncPlannedTourToGoogleCalendar(db as never, AMBIKA, facts());
+    expect(google.create).toHaveBeenCalledOnce();
+    expect(google.create.mock.calls[0]?.[1]).not.toBe(OUTSIDER);
+    const info = await getTourAssigneeInfo(db as never, { plannedEventId: "t1", actorUserId: AMBIKA });
+    expect(info.ok && info.assigneeUserId).not.toBe(OUTSIDER);
+  });
+
+  it("ignores a row another account stamped, even when its holder would be allowed", async () => {
+    const db = makeDb(plannedTour());
+    db.rows.set(OWNER_ROW_ID, {
+      id: OWNER_ROW_ID,
+      manager_user_id: OUTSIDER,
+      record_type: "google_tour_calendar_owner",
+      row_data: { connectionOwnerUserId: PRAKRIT, assigneeUserId: PRAKRIT },
+    } as never);
+    google.connection.mockImplementation(connected({ [AMBIKA]: true }));
+    await syncPlannedTourToGoogleCalendar(db as never, AMBIKA, facts());
+    // Nothing stored applies to this tour, so the holder is resolved fresh (only Ambika has a calendar connected).
+    expect(google.create.mock.calls[0]?.[1]).toBe(AMBIKA);
+  });
+
+  it("still honours the row the server itself wrote", async () => {
+    const db = makeDb(plannedTour());
+    google.connection.mockImplementation(connected({ [PRAKRIT]: true, [AMBIKA]: true }));
+    await syncPlannedTourToGoogleCalendar(db as never, AMBIKA, facts());
+    expect(google.create.mock.calls[0]?.[1]).toBe(PRAKRIT);
+    expect(holderRow(db)).toMatchObject({ connectionOwnerUserId: PRAKRIT });
+    google.create.mockClear();
+    await syncPlannedTourToGoogleCalendar(db as never, AMBIKA, facts("g-1"));
+    expect(google.update.mock.calls.at(-1)?.[1]).toBe(PRAKRIT);
   });
 });
 

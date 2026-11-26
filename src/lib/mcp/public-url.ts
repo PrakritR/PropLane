@@ -1,5 +1,7 @@
+import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
+
 /** The one MCP address people paste into Claude. Never derived from the browser's origin: a staging or preview address is not a connector. */
-export const MCP_PUBLIC_URL = "https://proplane.ai/api/mcp";
+export const MCP_PUBLIC_URL = `${PRODUCTION_APP_ORIGIN}/api/mcp`;
 
 /** Claude Code's one-liner for the same server. */
 export const MCP_CLAUDE_CODE_COMMAND = `claude mcp add --transport http proplane ${MCP_PUBLIC_URL}`;

@@ -108,8 +108,15 @@ read scoped on `resident_user_id`. A resident write is previewed and parked as
 resident portal, as with the portal assistant. `/api/mcp` dispatches on the
 grant's portal to ONE gateway; `gateway.ts` never imports the resident registry
 and `resident-gateway.ts` never imports the manager one
-(`tests/unit/mcp-resident-connection.test.ts` fails a crossing, both ways). A
-resident can disconnect from the same `mcp-connections` routes.
+(`tests/unit/mcp-resident-connection.test.ts` fails a crossing, both ways).
+`RESIDENT_EXTERNAL_EXCLUDED_TOOL_NAMES` (`capabilities.ts`) is the resident twin of the
+manager gateway's exclusion set: `get_move_in_info` and the resident
+`lookup_property_knowledge` carry the door codes and the Wi-Fi password once the
+check-in reveal opens, so neither is listed or callable over a connection — the
+resident reads them in their own portal, exactly as a manager's own connection never
+gets `get_room_door_code`. A resident sees and disconnects their connection in
+Settings → Preferences → Connected apps (`McpConnectionsSection`, the same section the
+manager panel renders, over the same `mcp-connections` routes).
 
 **Connect Claude** (Settings → API & MCP for managers, Settings → Preferences for
 residents; `src/components/mcp/connect-claude-block.tsx`) shows the MCP URL

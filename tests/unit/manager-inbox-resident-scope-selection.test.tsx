@@ -70,6 +70,7 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   PORTAL_INBOX_CHANGED_EVENT: "portal-inbox-changed",
   loadPersistedInbox: () => THREADS,
   syncPersistedInboxFromServer: () => Promise.resolve(THREADS),
+  syncPersistedInboxFromServerWithStatus: () => Promise.resolve({ rows: THREADS, ok: true }),
   persistInbox: () => {},
   persistInboxAwait: () => Promise.resolve(),
   invalidatePersistedInboxCache: () => {},

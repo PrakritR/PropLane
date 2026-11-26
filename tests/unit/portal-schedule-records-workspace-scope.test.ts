@@ -9,6 +9,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * so these tests isolate exactly the new call sites in the route itself.
  */
 
+import { tourCalendarOwnerRecordId } from "@/lib/google-calendar/tour-calendar-owner.server";
+
 type Row = Record<string, unknown>;
 
 const state = vi.hoisted(() => ({
@@ -206,6 +208,44 @@ describe("GET /api/portal-schedule-records — narrows to the active workspace",
     const res = await GET();
     const body = (await res.json()) as { rows: { id: string }[] };
     expect(body.rows.map((r) => r.id)).toEqual(["cache-row"]);
+  });
+});
+
+// The Google sync owns the `axis_gcal_…` rows: a tour's calendar holder, the availability / vendor push state, a
+// pending event. The holder row decides whose Google connection a tour's event (with the prospect's name, email and
+// phone in its description) is written to and later deleted from, so a body may never name one — whatever record type
+// it claims. The oracle is `tourCalendarOwnerRecordId`'s own id shape.
+describe("POST /api/portal-schedule-records — server-owned ids are not writable by a client", () => {
+  it("refuses a planted tour calendar-owner row and stores nothing", async () => {
+    const { POST } = await import("@/app/api/portal-schedule-records/route");
+    const res = await POST(
+      post({
+        row: {
+          id: tourCalendarOwnerRecordId("planned-1"),
+          recordType: "event",
+          plannedEventId: "planned-1",
+          connectionOwnerUserId: "victim-manager",
+        },
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect(state.scheduleRows).toEqual([]);
+  });
+
+  it("refuses the other server-owned schedule ids too", async () => {
+    const { POST } = await import("@/app/api/portal-schedule-records/route");
+    for (const id of ["axis_gcal_avail_push_rec-1", "axis_gcal_pending_owner-a_evt-1", "axis_gcal_vendor_avail_push_v1"]) {
+      const res = await POST(post({ row: { id, recordType: "event" } }));
+      expect(res.status, id).toBe(403);
+    }
+    expect(state.scheduleRows).toEqual([]);
+  });
+
+  it("leaves an ordinary calendar event writable", async () => {
+    const { POST } = await import("@/app/api/portal-schedule-records/route");
+    const res = await POST(post({ row: { id: "ev-ok", propertyId: "house-a", recordType: "event" } }));
+    expect(res.status).toBe(200);
+    expect(state.scheduleRows.map((r) => r.id)).toEqual(["ev-ok"]);
   });
 });
 

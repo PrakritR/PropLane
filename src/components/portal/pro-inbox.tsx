@@ -50,6 +50,7 @@ import {
   runInboxMutation,
   stagePersistedInboxRows,
   syncPersistedInboxFromServer,
+  syncPersistedInboxFromServerWithStatus,
   upsertPersistedInboxRows,
   inboxThreadMessages,
   lastInboundChannelOf,
@@ -517,9 +518,9 @@ export const ManagerInbox = forwardRef<
 
   useEffect(() => {
     persistInboxRef.current = false;
-    void syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY).then((rows) => {
+    void syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY).then(({ rows, ok }) => {
       setLocal(rows as InboxThread[]);
-      setInboxSynced(true);
+      if (ok) setInboxSynced(true);
       persistInboxRef.current = true;
     });
   }, []);
@@ -1285,8 +1286,8 @@ export const ManagerInbox = forwardRef<
       ),
     [expandedId, emailThreads, local, userId],
   );
-  // "Not found" only once the conversation list itself has finished loading and this id is not in it; while the list is
-  // still arriving the pane keeps its skeleton (a slow load is not a missing thread).
+  // "Not found" only once the conversation list has been READ SUCCESSFULLY without this id in it; while the list is
+  // still arriving, or its read failed, the pane keeps its skeleton (neither slowness nor an error is a missing thread).
   const threadNotFound = Boolean(expandedId) && !activeThread && inboxSynced;
   const activeAiDraftAdopted = Boolean(
     activeThread?.aiDraft?.status === "pending_approval"

@@ -12,6 +12,7 @@ vi.mock("@/lib/google-calendar/api.server", () => ({
   updateGoogleCalendarEvent: google.update,
   deleteGoogleCalendarEvent: google.remove,
   GoogleCalendarWriteSupersededError: class extends Error {},
+  GOOGLE_CALENDAR_WRITE_OPERATION_TIMEOUT_MS: 5000,
 }));
 vi.mock("@/lib/google-calendar/settings", () => ({ loadGoogleCalendarConnection: google.connection }));
 vi.mock("@/lib/communication/manager-assistant-workspace.server", () => ({
@@ -47,10 +48,16 @@ function makeDb(planned = PLANNED) {
     }),
     from: vi.fn((table: string) => {
       let id = "";
+      const filters: [string, string][] = [];
       const q: Record<string, unknown> = {};
       q.select = () => q;
-      q.eq = (_c: string, v: string) => { id = v; return q; };
-      q.maybeSingle = async () => ({ data: table === "portal_schedule_records" ? rows.get(id) ?? null : null, error: null });
+      // Every filter ANDs, as PostgREST does: a row is returned only when it matches all of them.
+      q.eq = (c: string, v: string) => { filters.push([c, v]); if (c === "id") id = v; return q; };
+      q.maybeSingle = async () => {
+        const row = table === "portal_schedule_records" ? rows.get(id) ?? null : null;
+        const matches = row ? filters.every(([c, v]) => c === "id" || (row as Record<string, unknown>)[c] === v) : false;
+        return { data: matches ? row : null, error: null };
+      };
       q.upsert = async (row: Record<string, unknown>) => { rows.set(String(row.id), row); return { error: null }; };
       q.delete = () => q;
       q.then = (resolve: (v: unknown) => unknown) => Promise.resolve({ error: null }).then(resolve);
@@ -128,7 +135,13 @@ describe("managed-house tours write to the PropLane operator's Google connection
   it("delete resolves the stored connection; unstored deletes use the house manager", async () => {
     google.connection.mockImplementation(connectionFor({ [OPERATOR]: true, [HOUSE_OWNER]: true }));
     const db = makeDb({ ...PLANNED, googleCalendarEventId: "g-event-1" });
-    db.rows.set("axis_gcal_tour_owner_planned-1", { row_data: { connectionOwnerUserId: OPERATOR } });
+    // The row as `recordTourCalendarOwner` writes it: the house manager's own stamp and the owner record type.
+    db.rows.set("axis_gcal_tour_owner_planned-1", {
+      id: "axis_gcal_tour_owner_planned-1",
+      manager_user_id: HOUSE_OWNER,
+      record_type: "google_tour_calendar_owner",
+      row_data: { connectionOwnerUserId: OPERATOR },
+    });
     await deleteProplaneGoogleCalendarEvent(db as never, HOUSE_OWNER, "g-event-1");
     expect(google.remove).toHaveBeenCalledWith(db, OPERATOR, "g-event-1");
 

@@ -21,7 +21,7 @@ import {
   type ApiKeyTransport,
 } from "@/lib/mcp/capabilities";
 import { ConnectClaudeBlock } from "@/components/mcp/connect-claude-block";
-import { MCP_OAUTH_SCOPE_LABEL } from "@/lib/mcp/oauth-scope-label";
+import { McpConnectionsSection } from "@/components/mcp/mcp-connections-section";
 import { WEBHOOK_EVENT_TYPES, type WebhookEventType } from "@/lib/webhooks/events";
 
 function SettingsActions({ label, actions }: { label: string; actions: { label: string; run: () => Promise<void>; danger?: boolean }[] }) {
@@ -36,14 +36,6 @@ type ApiKey = {
   scopes: string[];
   allowedTools: string[];
   transport: ApiKeyTransport;
-  createdAt: string;
-  lastUsedAt: string | null;
-};
-
-type McpConnection = {
-  clientId: string;
-  portal?: "manager" | "resident";
-  clientName: string | null;
   createdAt: string;
   lastUsedAt: string | null;
 };
@@ -305,7 +297,6 @@ function ManagerWebhooksBlock() {
  */
 export function ManagerApiKeysPanel() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
-  const [connections, setConnections] = useState<McpConnection[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
@@ -313,21 +304,14 @@ export function ManagerApiKeysPanel() {
   const [freshToken, setFreshToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<{ kind: "key" | "app"; id: string; name: string } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [keysResponse, connectionsResponse] = await Promise.all([
-        fetch("/api/manager/api-keys", { cache: "no-store" }),
-        fetch("/api/manager/mcp-connections", { cache: "no-store" }),
-      ]);
-      if (!keysResponse.ok || !connectionsResponse.ok) throw new Error("Could not load your connections.");
-      const [keysBody, connectionsBody] = await Promise.all([
-        keysResponse.json() as Promise<{ keys?: ApiKey[] }>,
-        connectionsResponse.json() as Promise<{ connections?: McpConnection[] }>,
-      ]);
+      const keysResponse = await fetch("/api/manager/api-keys", { cache: "no-store" });
+      if (!keysResponse.ok) throw new Error("Could not load your API keys.");
+      const keysBody = (await keysResponse.json()) as { keys?: ApiKey[] };
       setKeys(keysBody.keys ?? []);
-      setConnections(connectionsBody.connections ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load your API keys.");
     } finally {
@@ -423,18 +407,7 @@ export function ManagerApiKeysPanel() {
     const target = pendingDelete;
     if (!target) return;
     setPendingDelete(null);
-    if (target.kind === "key") await revokeKey(target.id);
-    else await revokeMcpConnection(target.id);
-  };
-
-  const revokeMcpConnection = async (clientId: string) => {
-    setError(null);
-    const res = await fetch(`/api/manager/mcp-connections/${encodeURIComponent(clientId)}`, { method: "DELETE" });
-    if (!res.ok) {
-      setError("Could not disconnect that MCP client.");
-      return;
-    }
-    setConnections((current) => current.filter((connection) => connection.clientId !== clientId));
+    await revokeKey(target.id);
   };
 
 
@@ -584,7 +557,7 @@ export function ManagerApiKeysPanel() {
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onSelect={() => void navigator.clipboard.writeText(`${key.tokenPrefix}…`)}>Copy key prefix</DropdownMenuItem>
                       {key.transport === "api" ? <DropdownMenuItem onSelect={() => void rotateKey(key)}>Rotate</DropdownMenuItem> : null}
-                      <DropdownMenuItem className="text-danger" onSelect={() => setPendingDelete({ kind: "key", id: key.id, name: key.name })}>Delete</DropdownMenuItem>
+                      <DropdownMenuItem className="text-danger" onSelect={() => setPendingDelete({ id: key.id, name: key.name })}>Delete</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -594,35 +567,7 @@ export function ManagerApiKeysPanel() {
         </PortalSettingsGroup>
       </PortalSettingsSection>
 
-      <PortalSettingsSection title="Connected apps">
-        <PortalSettingsGroup>
-          {!loaded ? (
-            <PortalSettingsRow label="Loading…" />
-          ) : connections.length === 0 ? (
-            <PortalSettingsRow label="Claude">
-              <span className="text-[13px] text-foreground/80" data-attr="settings-mcp-claude-status">Not connected</span>
-            </PortalSettingsRow>
-          ) : (
-            connections.map((connection) => (
-              <PortalSettingsRow key={connection.clientId} label={connection.clientName || "MCP client"}>
-                <div className="flex flex-wrap items-center justify-end gap-x-2">
-                  <span className="text-[13px] text-foreground/80" data-attr="mcp-connection-row-value">
-                    {formatWhen(connection.createdAt)} · {connection.portal === "resident" ? "As resident" : MCP_OAUTH_SCOPE_LABEL}
-                  </span>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <PortalIconAction icon={MoreHorizontal} label={`${connection.clientName || "MCP client"} actions`} />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem className="text-danger" onSelect={() => setPendingDelete({ kind: "app", id: connection.clientId, name: connection.clientName || "MCP client" })}>Disconnect</DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </PortalSettingsRow>
-            ))
-          )}
-        </PortalSettingsGroup>
-      </PortalSettingsSection>
+      <McpConnectionsSection />
 
       <ConnectClaudeBlock includeClaudeCode />
 
@@ -633,17 +578,17 @@ export function ManagerApiKeysPanel() {
           open
           tone="danger"
           onClose={() => setPendingDelete(null)}
-          title={pendingDelete.kind === "key" ? "Delete API key" : "Disconnect app"}
+          title="Delete API key"
           fullScreenMobile={false}
           primaryAction={{
-            label: pendingDelete.kind === "key" ? "Delete key" : "Disconnect",
+            label: "Delete key",
             onClick: () => confirmDelete(),
             dataAttr: "api-key-delete-confirm",
           }}
         >
           <div className="p-4">
             <PortalSettingsGroup>
-              <PortalSettingsRow label={pendingDelete.kind === "key" ? "Key" : "App"}>
+              <PortalSettingsRow label="Key">
                 <span className="text-[15px] font-medium text-foreground">{pendingDelete.name}</span>
               </PortalSettingsRow>
             </PortalSettingsGroup>

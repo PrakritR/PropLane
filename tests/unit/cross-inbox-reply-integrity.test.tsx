@@ -51,6 +51,8 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
     key === "manager-inbox" ? managerRows : vendorRows,
   syncPersistedInboxFromServer: (key: string) =>
     Promise.resolve(key === "manager-inbox" ? managerRows : vendorRows),
+  syncPersistedInboxFromServerWithStatus: (key: string) =>
+    Promise.resolve({ rows: key === "manager-inbox" ? managerRows : vendorRows, ok: true }),
   persistInbox: () => {},
   persistInboxAwait: () => Promise.resolve(true),
   invalidatePersistedInboxCache: () => {},

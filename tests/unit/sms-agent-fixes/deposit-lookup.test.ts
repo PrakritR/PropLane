@@ -84,13 +84,30 @@ describe("dispose_security_deposit: itemized deduction and net, from the tool", 
     expect(resolveDepositDeduction({})).toEqual({ withholdCents: 0, lines: [] });
   });
 
-  it("withholdCents is the one amount: an itemization only names its lines and never sets it", () => {
+  it("withholdCents is the one amount, and lines that do not add up to it are refused", () => {
     expect(resolveDepositDeduction({ withholdCents: 7500, itemization: [{ label: "Cleaning", amountCents: 5000 }, { label: "Key", amountCents: 2500 }] })).toEqual({
       withholdCents: 7500,
       lines: [{ label: "Cleaning", amountCents: 5000 }, { label: "Key", amountCents: 2500 }],
     });
-    // Lines with no withheld amount are a full refund: the resident keeps everything held.
-    expect(resolveDepositDeduction({ itemization: [{ label: "Cleaning", amountCents: 5000 }] }).withholdCents).toBe(0);
+    // The card states the lines AND the withheld total, and the ledger stores both: three figures that disagree
+    // ($200 of lines behind a $50 withholding) is not something a manager can be asked to confirm.
+    expect(() => resolveDepositDeduction({ withholdCents: 5000, itemization: [{ label: "Cleaning", amountCents: 20000 }] }))
+      .toThrow(/add up to \$200\.00 but the amount withheld is \$50\.00/);
+    // Lines with no withheld amount are the same contradiction: a full refund with a deduction printed on it.
+    expect(() => resolveDepositDeduction({ itemization: [{ label: "Cleaning", amountCents: 5000 }] }))
+      .toThrow(/add up to \$50\.00 but the amount withheld is \$0\.00/);
+  });
+
+  it("the card a manager confirms never shows lines that contradict the withheld total", async () => {
+    mocks.get.mockResolvedValue(deposit({}));
+    await expect(
+      (disposeSecurityDepositTool as unknown as { preview: (c: unknown, i: unknown) => Promise<unknown> }).preview(ctx, {
+        depositId: "d1",
+        withholdCents: 5000,
+        itemization: [{ label: "Cleaning", amountCents: 20000 }],
+        offlineReturn: { method: "check", reference: "1042" },
+      }),
+    ).rejects.toThrow(/Make them agree/);
   });
 
   it("refuses deductions larger than the amount held", async () => {

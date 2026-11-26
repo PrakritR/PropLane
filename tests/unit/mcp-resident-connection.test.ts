@@ -10,6 +10,7 @@ vi.mock("@/lib/observability/langfuse", () => ({
 
 import { callTool, listTools } from "@/lib/mcp/gateway";
 import { callResidentTool, listResidentTools } from "@/lib/mcp/resident-gateway";
+import { RESIDENT_EXTERNAL_EXCLUDED_TOOL_NAMES } from "@/lib/mcp/capabilities";
 import { agentRegistry } from "@/lib/tools";
 import { residentAgentRegistry } from "@/lib/tools/resident-index";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
@@ -63,6 +64,24 @@ describe("a resident connection reaches only resident tools", () => {
       const result = await callTool(ctx, [], ["read", "write"], name, {}, "mcp", "oauth:m1");
       expect(result.ok, name).toBe(false);
     }
+  });
+
+  // The secrets a resident reads in their own portal do not travel to an external client: the manager half already
+  // withholds `get_room_door_code` and its knowledge pair for this reason (`EXTERNAL_EXCLUDED_TOOL_NAMES`), and these
+  // two carry the front-door / room codes and the Wi-Fi password once the check-in reveal opens.
+  it("neither lists nor serves the tools that carry the door codes and the Wi-Fi password", async () => {
+    const names = listResidentTools(residentCtx()).map((t) => t.name);
+    for (const excluded of RESIDENT_EXTERNAL_EXCLUDED_TOOL_NAMES) {
+      expect(residentAgentRegistry.has(excluded), excluded).toBe(true);
+      expect(names, excluded).not.toContain(excluded);
+      expect(await callResidentTool(residentCtx(), excluded, {}, "oauth:t1")).toEqual({
+        ok: false,
+        error: `Unknown tool: ${excluded}`,
+      });
+    }
+    expect(createPendingAction).not.toHaveBeenCalled();
+    // The rest of the portal's toolset still travels.
+    expect(names).toContain("get_my_balance");
   });
 
   it("a resident cannot confirm its own proposal over MCP", async () => {
