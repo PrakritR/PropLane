@@ -309,6 +309,8 @@ export function ManagerUnifiedInbox({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [routedSmsError, setRoutedSmsError] = useState<string | null>(null);
   const resolvedSmsRouteRef = useRef<{ requested: string; canonical: string; context: string } | null>(null);
+  /** A routed id the detail read answered definitively (404/403/409): never re-fetched for the same id and scope. */
+  const failedSmsRouteRef = useRef<{ requested: string; context: string; error: string } | null>(null);
   const explicitlyOpened = useRef<{ key: string; context: string } | null>(null);
   const [mobileThreadOpen, setMobileThreadOpen] = useState(Boolean(routeThreadId));
   const requestedStatus =
@@ -1218,14 +1220,20 @@ export function ManagerUnifiedInbox({
   }, [adapter, viewerId, workspaceIdentity.id]);
 
   // SSR and the first client paint must agree — local inbox + contact rows load only after mount.
-  const listRows = initialListReady
-    ? mergedRows.filter((row) => {
-        if (statusFilter === "read") return !row.unread;
-        if (statusFilter === "unread") return row.unread;
-        if (statusFilter === "notDelivered") return row.notDelivered === true;
-        return true;
-      })
-    : [];
+  // Memoized: the routed-thread effects below depend on it, and a fresh array every render
+  // re-ran the detail read in a loop (about 170 requests a minute for a missing thread).
+  const listRows = useMemo(
+    () =>
+      initialListReady
+        ? mergedRows.filter((row) => {
+            if (statusFilter === "read") return !row.unread;
+            if (statusFilter === "unread") return row.unread;
+            if (statusFilter === "notDelivered") return row.notDelivered === true;
+            return true;
+          })
+        : [],
+    [initialListReady, mergedRows, statusFilter],
+  );
 
   const bulk = useUnifiedCommunicationBulk({
     mergedRows,
@@ -1419,6 +1427,11 @@ export function ManagerUnifiedInbox({
     const resolved = resolvedSmsRouteRef.current;
     if (resolved?.requested === routeThreadId && resolved.context === scope &&
         listRows.some((row) => row.threadId === resolved.canonical)) return;
+    const failed = failedSmsRouteRef.current;
+    if (failed?.requested === routeThreadId && failed.context === scope) {
+      setRoutedSmsError(failed.error);
+      return;
+    }
     const controller = new AbortController();
     setRoutedSmsError(null);
     void fetch(adapter.smsDetailPath(routeThreadId), {
@@ -1426,11 +1439,14 @@ export function ManagerUnifiedInbox({
     }).then(async (response) => {
       if (controller.signal.aborted) return;
       if (!response.ok) {
-        setRoutedSmsError(response.status === 409
+        const definitive = response.status === 409 || response.status === 404 || response.status === 403;
+        const error = response.status === 409
           ? "This older conversation link is ambiguous. Open it from the list."
-          : response.status === 404 || response.status === 403
+          : definitive
             ? "Conversation not found."
-            : "Could not load conversation.");
+            : "Could not load conversation.";
+        if (definitive) failedSmsRouteRef.current = { requested: routeThreadId, context: scope, error };
+        setRoutedSmsError(error);
         return;
       }
       const detail = await response.json() as { resident?: ManagerSmsResidentConversation };
