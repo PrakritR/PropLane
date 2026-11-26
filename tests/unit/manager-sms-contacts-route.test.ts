@@ -15,7 +15,7 @@ vi.mock("@/lib/auth/portal-access", () => ({
 }));
 vi.mock("@/lib/manager-sms-messages.server", () => ({
   fetchManagerSmsConversations: mocks.fetchConversations,
-  resolveSmsScopeManagerIds: mocks.resolveScope,
+  resolveSmsScopeManagerIds: mocks.resolveScope, resolveSmsActableOwnerIds: mocks.resolveScope,
 }));
 vi.mock("@/lib/sms/manager-sms-contacts.server", () => ({
   upsertManagerSmsContact: mocks.upsertContact,

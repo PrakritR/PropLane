@@ -11,6 +11,7 @@
  * Writes mirror the row `saveRoomDateBlock` stores (`room_date_block` in
  * `portal_schedule_records`) and require Calendar at EDIT on that house.
  */
+import { turnCached } from "../turn-cache";
 import { z } from "zod";
 import { normalizeE164 } from "@/lib/phone-e164";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -123,11 +124,7 @@ function propertyRooms(rec: PropertyRow): Map<string, string> {
   return rooms;
 }
 
-/**
- * Houses this actor can read the Calendar for, inside the active workspace.
- * Owner, or a co-manager holding Calendar (or the legacy Properties read grant).
- */
-export async function calendarReadableProperties(ctx: AgentContext): Promise<ScopedProperty[]> {
+async function loadPropertyRecordsForCalendar(ctx: AgentContext): Promise<Map<string, PropertyRow>> {
   const byId = new Map<string, PropertyRow>();
   for (const ownerId of smsDataOwnerIds(ctx)) {
     const { data, error } = await ctx.db
@@ -142,6 +139,17 @@ export async function calendarReadableProperties(ctx: AgentContext): Promise<Sco
       byId.set(rec.id, rec);
     }
   }
+  return byId;
+}
+
+/**
+ * Houses this actor can read the Calendar for, inside the active workspace.
+ * Owner, or a co-manager holding Calendar (or the legacy Properties read grant).
+ */
+export async function calendarReadableProperties(ctx: AgentContext): Promise<ScopedProperty[]> {
+  // The property records carry whole listing submissions (the heaviest read of a turn) and several tools of one
+  // turn ask for the same houses: that read is shared per turn context. The grants are checked on every call.
+  const byId = await turnCached(ctx, "calendar-property-records", () => loadPropertyRecordsForCalendar(ctx));
   // One batched grant read for the whole portfolio: the per-house call issues up
   // to four round trips each, which a 50-house portfolio paid on every tool call.
   const readable = await managerCalendarReadableProperties(ctx.db, ctx.userId, [...byId.keys()], { allowNotification: true });

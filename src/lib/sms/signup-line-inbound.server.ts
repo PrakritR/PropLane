@@ -3,7 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadSharedLineConfig, isSharedLineNumber } from "@/lib/one-number/config.server";
-import { handleFirstHomeText } from "@/lib/one-number/signup/first-home.server";
+import { handleFirstHomeTextSafely } from "@/lib/one-number/signup/first-home.server";
 import { handleSmsSignupText } from "@/lib/one-number/signup/flow.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { isPropLaneServiceLine } from "@/lib/service/service-catalog.server";
@@ -89,7 +89,7 @@ export async function handlePropLaneLineSignupInbound(
   // A landlord who just signed up by text is walked through their first home (address, rooms and rent, when, rules, photos).
   // It runs only for a phone with a live walkthrough whose account owns that VERIFIED phone, and ahead of the sign-up flow
   // because a free manager's own texts to the PropLane line are otherwise the role question / vendor / leasing fallbacks.
-  const firstHome = await handleFirstHomeText(db, { phoneE164: phone, body: args.body, messageSid: args.messageSid, hasMedia: args.hasMedia }).catch(() => ({ handled: false as const }));
+  const firstHome = await handleFirstHomeTextSafely(db, { phoneE164: phone, body: args.body, messageSid: args.messageSid, hasMedia: args.hasMedia });
   const turn = firstHome.handled ? firstHome : await handleSmsSignupText(db, { phoneE164: phone, body: args.body, messageSid: args.messageSid });
   if (!turn.handled) return { handled: false };
 

@@ -68,6 +68,10 @@ split remains:
   the checkout builder refuses a non-reconciling quote before provider work and
   adds the resident fee line item only when the resident pays.
 
+### "Your stay" summary and the one Pay
+
+Resident Payments opens with a **Your stay** card (`resident-stay-summary-card.tsx`): Stay, Deposit and Additional charges as plain fact rows, "Total due now", and ONE `Pay $X`. The figures are `buildResidentStaySummary` (`src/lib/resident-stay-summary.ts`) summing the balance of the charges the server already billed (rent and proration from `resolveStayPricing`, the custom-date surcharge inside the stay total); it prices nothing. Pay hands exactly those payable charge ids to the existing multi-charge checkout (one Stripe session, one line item per charge so the deposit is its own line, fee payer from `resolveHouseholdChargeFeePayer`, each charge marked paid by the webhook / claim settlement, never client-side). One checkout bills at most `RESIDENT_PAY_MAX_CHARGES` (= `MAX_BULK_CHARGES`) charges, soonest due first; any left over are paid with a second Pay. Coverage: `tests/unit/resident-stay-summary.test.ts`.
+
 ### Rent's processing fee is the resident's, always (captain, 2026-11-12)
 
 `resolveHouseholdChargeFeePayer` (`stripe-household-charge-checkout.server.ts`, the one resolver the pay page, the

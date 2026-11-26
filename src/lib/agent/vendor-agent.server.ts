@@ -19,6 +19,7 @@ import { normalizeRecordRef } from "@/lib/portals/record-kinds";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { track } from "@/lib/analytics/posthog";
 import { runAgentTurn } from "@/lib/agent/loop";
+import { appendEscalationContactLine } from "@/lib/one-number/escalation-contact";
 import { VENDOR_WORK_ORDER_SMS_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
 import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
 import { traceAgentTurn, type TraceActor } from "@/lib/observability/langfuse";
@@ -483,6 +484,7 @@ export async function runVendorAgentSessionTurn(
   const turnRegistry = channel === "sms"
     ? await withSharedLineTools(db, vendorWorkOrderAgentRegistry, [vendorSendMyLinkTool, vendorSetUpPayoutsTool])
     : vendorWorkOrderAgentRegistry;
+  let escalationContactLine: string | null = null;
   const result = await traceAgentTurn(
     vendorWorkOrderTraceActor(session, channel),
     history as { role: string; content: string }[],
@@ -491,7 +493,21 @@ export async function runVendorAgentSessionTurn(
         ctx,
         registry: turnRegistry,
         messages: history,
-        observer,
+        observer: {
+          ...(observer ?? {}),
+          onToolCall: (event) => {
+            // The server-resolved "who to text" line an escalation returned (never model input).
+            if (event.name === ESCALATE_TOOL_NAME && event.ok && event.output && typeof event.output === "object") {
+              const line = (event.output as { contactLine?: unknown }).contactLine;
+              if (typeof line === "string" && line.trim()) escalationContactLine = line.trim();
+            }
+            try {
+              observer?.onToolCall?.(event);
+            } catch {
+              /* observability is best-effort */
+            }
+          },
+        },
         system,
         model: smsTaskModel(session.landlord_id, channel),
         readOnly: true,
@@ -506,6 +522,9 @@ export async function runVendorAgentSessionTurn(
       },
     },
   );
+
+  // An escalation turn ends with ONE line naming who to text; a normal answer never carries it. Text channels only.
+  if (channel === "sms" && escalationContactLine) result.reply = appendEscalationContactLine(result.reply, escalationContactLine);
 
   await db.from("agent_messages").insert({
     session_id: session.id,

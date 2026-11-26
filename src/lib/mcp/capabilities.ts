@@ -120,6 +120,23 @@ export const EXTERNAL_EXCLUDED_TOOL_NAMES = new Set([
   "mark_room_rented",
   // One resident across applications, leases and charges in one answer: the balance would bypass a key's Payments area.
   "get_resident_snapshot",
+  // A held deposit by resident or room, and a room's door code (a secret): neither leaves the texting assistants.
+  "find_security_deposit",
+  "get_room_door_code",
+]);
+
+/**
+ * The resident half of the same rule: a resident OAuth connection is an EXTERNAL client, so the resident tools
+ * that carry house secrets stay in the product. `get_move_in_info` returns the front-door and room codes and the
+ * Wi-Fi password once the check-in reveal opens, `get_my_stay_check_in` returns a guest's door, gate and room codes
+ * and the Wi-Fi password the same way, and the resident `lookup_property_knowledge` returns the house
+ * manual and details with those same codes in them — the manager half already withholds its knowledge pair and
+ * `get_room_door_code` for this reason. Everything else a resident can see in their portal travels.
+ */
+export const RESIDENT_EXTERNAL_EXCLUDED_TOOL_NAMES = new Set([
+  "get_move_in_info",
+  "get_my_stay_check_in",
+  "lookup_property_knowledge",
 ]);
 
 export const API_KEY_TOOL_NAMES = new Set(

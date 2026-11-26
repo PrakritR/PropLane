@@ -3,7 +3,7 @@ import { getPortalAccessContext, hasAdminRole, hasRole } from "@/lib/auth/portal
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
 import {
   fetchManagerSmsConversations,
-  resolveSmsScopeManagerIds,
+  resolveSmsActableOwnerIds,
 } from "@/lib/manager-sms-messages.server";
 import { loadConversationHouseScope, setConversationHousesManually } from "@/lib/sms/conversation-houses.server";
 import { canReplaceConversationHouses, loadAssignableConversationHouses } from "@/lib/sms/conversation-house-access.server";
@@ -82,7 +82,7 @@ export async function PATCH(req: Request) {
   const ownerId = String(thread.ownerManagerUserId ?? "").trim();
   if (!ownerId) return NextResponse.json({ error: "Could not verify this workspace." }, { status: 503 });
   if (ownerId !== auth.user.id) {
-    const editScope = await resolveSmsScopeManagerIds(auth.db, auth.user.id, "edit");
+    const editScope = await resolveSmsActableOwnerIds(auth.db, auth.user.id, "edit");
     if (!editScope.includes(ownerId)) {
       return NextResponse.json({ error: "You do not have edit access to this conversation." }, { status: 403 });
     }

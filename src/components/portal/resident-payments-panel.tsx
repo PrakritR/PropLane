@@ -115,6 +115,8 @@ import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
+import { ResidentStaySummaryCard } from "@/components/portal/resident-stay-summary-card";
+import { buildResidentStaySummary } from "@/lib/resident-stay-summary";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import {
   buildMoveInChargeGroups,
@@ -948,6 +950,18 @@ export function ResidentPaymentsPanel({
     }
     return next;
   }, [moveInGroups, selectedIds]);
+
+  const staySummary = useMemo(() => buildResidentStaySummary(unpaidPayableCharges), [unpaidPayableCharges]);
+  // One Pay for everything currently owed: the same multi-charge checkout, one Stripe session.
+  const payStay = useCallback(() => {
+    const payable = new Set(filterChargesForPayMethod(unpaidPayableCharges).map((c) => c.id));
+    const ids = staySummary.payChargeIds.filter((id) => payable.has(id));
+    if (ids.length === 0) {
+      showToast(`Nothing due can be paid with ${residentPaymentMethodLabel(paymentMethod)}.`);
+      return;
+    }
+    openPayConfirm(ids, paymentMethod);
+  }, [openPayConfirm, paymentMethod, showToast, staySummary.payChargeIds, unpaidPayableCharges]);
 
   const payHeaderAction = useCallback(() => {
     const pool = filterChargesForPayMethod(unpaidPayableCharges);
@@ -1899,8 +1913,9 @@ export function ResidentPaymentsPanel({
             ) : (paymentsCommandActions ?? undefined)
           }
         />
+        {showPayActions ? <ResidentStaySummaryCard summary={staySummary} onPay={payStay} /> : null}
         {paymentsCards}
-        {showPayActions && selectedIds.size === 0 ? <div className="mb-3 flex justify-end">{payButton}</div> : null}
+        {showPayActions && selectedIds.size === 0 && staySummary.rows.length === 0 ? <div className="mb-3 flex justify-end">{payButton}</div> : null}
         <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={paySelectionActions.length > 0 ? <PortalAdaptiveActionRow actions={paySelectionActions} /> : undefined}>{paymentsBody}</PortalRecordListSurface>
       </ManagerPortalPageShell>
 

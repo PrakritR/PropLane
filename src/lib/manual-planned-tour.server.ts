@@ -10,6 +10,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { mutateConfirmedTourSchedule } from "@/lib/tour-schedule-persistence.server";
 import { formatRangeLabel } from "@/lib/tour-inquiry-confirm.server";
 import { canAssign, normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
+import { resolveTourAssigneeForCreate } from "@/lib/tour-assignee.server";
 import { isActivePlannedTourEvent, slotKeyForInstant } from "@/lib/tour-slot-math";
 import { PLANNED_RECORD_ID, rowsFromRecord } from "@/lib/tour-inquiry-confirm.server";
 import { assertPropertyInActiveWorkspace } from "@/lib/workspaces/scope.server";
@@ -149,10 +150,17 @@ export async function createManualPlannedTour(
     return { ok: false, status: 403, error: "That property is outside your active workspace." };
   }
 
-  const assignee = normalizeAssignee(input.assignee);
-  if (assignee && !canAssign(assignee.type, "tour")) {
+  const requestedAssignee = normalizeAssignee(input.assignee);
+  if (requestedAssignee && !canAssign(requestedAssignee.type, "tour")) {
     return { ok: false, status: 400, error: "This assignee cannot take tours." };
   }
+  const assigned = await resolveTourAssigneeForCreate(db, {
+    assignee: requestedAssignee,
+    propertyId,
+    hostUserId: managerUserId,
+  });
+  if (!assigned.ok) return assigned;
+  const assignee = assigned.assignee;
 
   const { data: plannedRecord, error: plannedReadError } = await db
     .from("portal_schedule_records")

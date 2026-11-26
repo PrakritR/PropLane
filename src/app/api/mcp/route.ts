@@ -20,8 +20,10 @@ import { NextResponse } from "next/server";
 
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { resolveRequestOrigin } from "@/lib/app-url";
-import { resolveApiKeyContext } from "@/lib/mcp/context.server";
+import { resolveMcpBearerContext } from "@/lib/mcp/context.server";
 import { callTool, listTools } from "@/lib/mcp/gateway";
+import { callResidentTool, listResidentTools } from "@/lib/mcp/resident-gateway";
+import { MCP_LIMITS } from "@/lib/mcp/rate-limits";
 
 export const runtime = "nodejs";
 
@@ -87,14 +89,25 @@ export async function GET() {
 
 export const DELETE = GET;
 
-export async function POST(req: Request) {
-  // Guards enumeration of the key space before any DB work happens.
-  if (!(await rateLimit(`mcp-auth:${clientIpFrom(req)}`, 60, 60_000)).ok) {
-    return NextResponse.json({ error: "Too many requests." }, { status: 429, headers: CORS_HEADERS });
-  }
+function limited(unavailable: boolean | undefined, windowMs: number) {
+  // A limiter that cannot answer fails closed, but says so: 503 is "try again shortly", 429 is "you are over".
+  return NextResponse.json(
+    { error: unavailable ? "Temporarily unavailable. Try again shortly." : "Too many requests." },
+    { status: unavailable ? 503 : 429, headers: { ...CORS_HEADERS, "Retry-After": String(Math.ceil(windowMs / 1000)) } },
+  );
+}
 
-  const auth = await resolveApiKeyContext(req, "mcp");
+export async function POST(req: Request) {
+  // No credential at all is a free answer: no lookup, no limiter, and it is the very first request an OAuth
+  // client makes (it learns where to register from the WWW-Authenticate reply), so it must never be refused.
+  const auth = await resolveMcpBearerContext(req);
   if (!auth.ok) {
+    // The per-IP limit guards guessing of credentials, so it counts FAILURES only (a normal client behind a
+    // shared egress address never spends it) and never an unauthenticated discovery probe.
+    if (req.headers.get("authorization")) {
+      const failed = await rateLimit(`mcp-auth-fail:${clientIpFrom(req)}`, MCP_LIMITS.authFailuresPerIp, MCP_LIMITS.windowMs);
+      if (!failed.ok) return limited(failed.unavailable, MCP_LIMITS.windowMs);
+    }
     return NextResponse.json(
       { error: auth.error },
       {
@@ -104,9 +117,9 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!(await rateLimit(`mcp:${auth.keyId}`, 120, 60_000)).ok) {
-    return NextResponse.json({ error: "Too many requests." }, { status: 429, headers: CORS_HEADERS });
-  }
+  // Authenticated traffic is limited per grant (the key or the OAuth token), never per address.
+  const grant = await rateLimit(`mcp:${auth.keyId}`, MCP_LIMITS.callsPerGrant, MCP_LIMITS.windowMs);
+  if (!grant.ok) return limited(grant.unavailable, MCP_LIMITS.windowMs);
 
   let body: unknown;
   try {
@@ -170,21 +183,19 @@ export async function POST(req: Request) {
       return rpcResult(id, {});
 
     case "tools/list":
-      return rpcResult(id, { tools: listTools(auth.allowedTools, auth.scopes) });
+      return rpcResult(id, {
+        tools: auth.portal === "resident" ? listResidentTools(auth.ctx) : listTools(auth.allowedTools, auth.scopes),
+      });
 
     case "tools/call": {
       const params = (message.params ?? {}) as { name?: unknown; arguments?: unknown };
       const name = typeof params.name === "string" ? params.name : "";
       if (!name) return rpcError(id, INVALID_REQUEST, "tools/call requires a tool name.", 400);
-      const result = await callTool(
-        auth.ctx,
-        auth.allowedTools,
-        auth.scopes,
-        name,
-        params.arguments ?? {},
-        "mcp",
-        auth.keyId,
-      );
+      // Role-scoped dispatch: the connection's portal picks the ONE gateway (and so the one registry).
+      const result =
+        auth.portal === "resident"
+          ? await callResidentTool(auth.ctx, name, params.arguments ?? {}, auth.keyId)
+          : await callTool(auth.ctx, auth.allowedTools, auth.scopes, name, params.arguments ?? {}, "mcp", auth.keyId);
       return rpcResult(id, result.ok ? toolContent(result.data, false) : toolContent(result.error, true));
     }
 

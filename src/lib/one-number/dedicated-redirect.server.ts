@@ -3,6 +3,8 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SharedLineCandidate } from "@/lib/one-number/contracts";
 import { spokenLabelFor } from "@/lib/one-number/router.server";
+import { isServiceWorkspace } from "@/lib/one-number/service-line.server";
+import { normalizeConsentPhone } from "@/lib/sms-consent";
 import { toGsm7 } from "@/lib/one-number/segments";
 import { logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
 import { normalizeE164, formatUsPhoneDisplay } from "@/lib/phone-e164";
@@ -18,6 +20,55 @@ import { resolveWorkspaceStatusLine } from "@/lib/sms/manager-workspace-role.ser
 export function buildDedicatedRedirectReply(label: string | null | undefined, ownNumber: string): string {
   const name = String(label ?? "").trim().replace(/\s+/g, " ").slice(0, 40) || "Your property team";
   return toGsm7(`${name} texts from ${formatUsPhoneDisplay(ownNumber)}. Please text that number.`);
+}
+
+/**
+ * A PropLane-managed home that has its own line (captain, Nov 24): "For 5257 Brooklyn, text us at (814) 679-3694 - that's the
+ * line for this home." Built from the resolved number, never typed here.
+ */
+export function buildManagedHomeRedirectReply(label: string | null | undefined, ownNumber: string): string {
+  const name = String(label ?? "").trim().replace(/\s+/g, " ").slice(0, 40) || "this home";
+  return toGsm7(`For ${name}, text us at ${formatUsPhoneDisplay(ownNumber)} - that's the line for this home.`);
+}
+
+/** A repeat text inside the 30 days is answered briefly, not redirected again. */
+export function buildManagedHomeRepeatReply(label: string | null | undefined, ownNumber: string): string {
+  const name = String(label ?? "").trim().replace(/\s+/g, " ").slice(0, 40) || "this home";
+  return toGsm7(`Thanks, we have your message about ${name}. The team will reply from ${formatUsPhoneDisplay(ownNumber)}.`);
+}
+
+export const MANAGED_HOME_REDIRECT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Claim the once-per-30-days redirect marker for (phone, workspace) BEFORE answering, so two overlapping texts cannot both
+ * redirect. Missing schema or an unreadable marker answers "first" (fail toward service: the person is told where to text).
+ */
+async function claimManagedHomeRedirect(db: SupabaseClient, input: { phoneKey: string; workspaceId: string; messageSid: string; now: Date }): Promise<"first" | "repeat"> {
+  try {
+    const nowIso = input.now.toISOString();
+    const row = { phone_key: input.phoneKey, workspace_id: input.workspaceId, notified_at: nowIso, message_sid: input.messageSid };
+    const inserted = await db.from("sms_managed_home_redirects").insert(row);
+    if (!inserted.error) return "first";
+    if (inserted.error.code !== "23505") return "first";
+    const cutoff = new Date(input.now.getTime() - MANAGED_HOME_REDIRECT_WINDOW_MS).toISOString();
+    const took = await db
+      .from("sms_managed_home_redirects")
+      .update({ notified_at: nowIso, message_sid: input.messageSid })
+      .eq("phone_key", input.phoneKey)
+      .eq("workspace_id", input.workspaceId)
+      .lt("notified_at", cutoff)
+      .select("phone_key");
+    if (took.error) return "first";
+    return took.data?.length ? "first" : "repeat";
+  } catch {
+    return "first";
+  }
+}
+
+async function redirectReplyFor(db: SupabaseClient, candidate: SharedLineCandidate, own: string): Promise<string> {
+  const label = spokenLabelFor(candidate);
+  const managed = await isServiceWorkspace(db, candidate.workspaceId).catch(() => null);
+  return managed === true ? buildManagedHomeRedirectReply(label, own) : buildDedicatedRedirectReply(label, own);
 }
 
 /**
@@ -45,9 +96,17 @@ export async function answerFromDedicatedWorkspace(
   input: { candidate: SharedLineCandidate; fromPhone: string; body: string; messageSid: string; sharedNumber: string | null },
 ): Promise<string | null> {
   const own = await ownNumberOf(db, input.candidate);
-  if (!own) return null;
+  // A "line of its own" that is the PropLane line itself is no redirect: never tell a text on the 206 to text the 206.
+  if (!own || own === normalizeE164(input.sharedNumber ?? "")) return null;
   // A vendor is named the general area, never the street: this redirect can reach one whose job is only offered.
-  const reply = buildDedicatedRedirectReply(spokenLabelFor(input.candidate), own);
+  const managed = (await isServiceWorkspace(db, input.candidate.workspaceId).catch(() => null)) === true;
+  const phoneKey = normalizeConsentPhone(input.fromPhone);
+  const mark = managed && phoneKey
+    ? await claimManagedHomeRedirect(db, { phoneKey, workspaceId: input.candidate.workspaceId, messageSid: input.messageSid, now: new Date() })
+    : "first";
+  const reply = mark === "repeat"
+    ? buildManagedHomeRepeatReply(spokenLabelFor(input.candidate), own)
+    : await redirectReplyFor(db, input.candidate, own);
   const from = normalizeE164(input.fromPhone) ?? input.fromPhone;
   const line = input.sharedNumber ?? own;
   const base = {
@@ -72,5 +131,5 @@ export async function answerFromDedicatedWorkspace(
  */
 export async function dedicatedRedirectReplyFor(db: SupabaseClient, candidate: SharedLineCandidate): Promise<string | null> {
   const own = await ownNumberOf(db, candidate);
-  return own ? buildDedicatedRedirectReply(spokenLabelFor(candidate), own) : null;
+  return own ? await redirectReplyFor(db, candidate, own) : null;
 }

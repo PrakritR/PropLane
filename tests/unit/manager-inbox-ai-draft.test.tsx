@@ -38,6 +38,7 @@ const THREADS = [
 ];
 
 let inboxRows = THREADS;
+let inboxReadOk = true;
 const showToast = vi.fn();
 
 vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
@@ -58,6 +59,7 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   PORTAL_INBOX_CHANGED_EVENT: "portal-inbox-changed",
   loadPersistedInbox: () => inboxRows,
   syncPersistedInboxFromServer: () => Promise.resolve(inboxRows),
+  syncPersistedInboxFromServerWithStatus: () => Promise.resolve({ rows: inboxRows, ok: inboxReadOk }),
   persistInbox: (_key: string, rows: typeof THREADS) => {
     inboxRows = rows;
     window.dispatchEvent(new CustomEvent("portal-inbox-changed", { detail: { key: "manager-inbox" } }));
@@ -134,6 +136,53 @@ function InboxChangeObserver() {
   }, []);
   return <output data-testid="inbox-change-count">{changeCount}</output>;
 }
+
+// "Conversation not found." is the wording reserved for an unauthorized or genuinely missing thread
+// (docs/agents/communication-inbox.md). A deep link opened while the list read FAILS has learned nothing about the
+// thread, so the pane keeps loading; only a successful read without the id in it is evidence of absence.
+describe("a deep-linked thread the list has not returned", () => {
+  afterEach(() => {
+    inboxRows = THREADS;
+    inboxReadOk = true;
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  const openMissing = () =>
+    render(
+      <ManagerInbox
+        tabId="unopened"
+        embeddedInCommunication
+        externalTitleActions
+        suppressCompose
+        suppressListPane
+        commBase="/portal/communication"
+        controlledExpandedId="thr-9999999999"
+      />,
+    );
+
+  it("keeps the skeleton when the list read failed", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 })));
+    inboxRows = [];
+    inboxReadOk = false;
+    openMissing();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.queryByText("Conversation not found.")).toBeNull();
+    expect(screen.getByRole("status").getAttribute("data-attr")).toBe("inbox-thread-skeleton");
+  });
+
+  it("says not found once the list has been read successfully without it", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 })));
+    inboxRows = [];
+    inboxReadOk = true;
+    openMissing();
+    expect(await screen.findByText("Conversation not found.")).toBeTruthy();
+  });
+});
 
 describe("AI draft in the unified Communication inbox", () => {
   afterEach(() => {

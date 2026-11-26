@@ -120,3 +120,25 @@ export async function saveReplyMode(topic: ReplyTopic, mode: TopicReplyMode): Pr
     return false;
   }
 }
+
+export type EscalationContactView = { enabled: boolean; phone: string | null; managed: boolean; canEdit: boolean };
+
+export async function fetchEscalationContact(): Promise<EscalationContactView | null> {
+  try {
+    const res = await fetchWithTimeout("/api/portal/one-number/escalation-contact", { credentials: "include", cache: "no-store" }, PORTAL_READ_TIMEOUT_MS);
+    if (!res.ok) return null;
+    return await readJson(res);
+  } catch {
+    return null;
+  }
+}
+
+export async function saveEscalationContact(enabled: boolean): Promise<EscalationContactView | null> {
+  try {
+    const res = await fetchWithTimeout("/api/portal/one-number/escalation-contact", { method: "PUT", credentials: "include", headers: JSON_HEADERS, body: JSON.stringify({ enabled }) }, PORTAL_READ_TIMEOUT_MS);
+    if (!res.ok) return null;
+    return await readJson(res);
+  } catch {
+    return null;
+  }
+}

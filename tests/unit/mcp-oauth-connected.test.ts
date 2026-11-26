@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const resolveAgentContext = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/tools/context", () => ({ resolveAgentContext }));
+const { loadMcpConsent, resolveMcpTarget } = vi.hoisted(() => ({ loadMcpConsent: vi.fn(), resolveMcpTarget: vi.fn() }));
+vi.mock("@/lib/mcp/consent.server", () => ({ loadMcpConsent, resolveMcpTarget }));
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 vi.mock("@/lib/mcp/oauth.server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/mcp/oauth.server")>()),
@@ -72,7 +72,8 @@ describe("MCP connected token", () => {
 describe("approve route -> connected screen (real signing)", () => {
   beforeEach(() => {
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-secret");
-    resolveAgentContext.mockResolvedValue({ userId: "u1", db: {}, workspace: { id: "w1", name: "Main Street" } });
+    loadMcpConsent.mockResolvedValue({ userId: "u1", db: {}, defaultValue: "ws:w1" });
+    resolveMcpTarget.mockResolvedValue({ portal: "manager", workspaceId: "w1", workspaceName: "Main Street" });
   });
   afterEach(() => vi.unstubAllEnvs());
 

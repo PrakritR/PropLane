@@ -9,6 +9,7 @@ import {
   syncPlannedTourToGoogleCalendarAttempt,
 } from "@/lib/google-calendar/sync.server";
 import { deleteGoogleCalendarEvent } from "@/lib/google-calendar/api.server";
+import { resolveStoredTourCalendarOwner } from "@/lib/google-calendar/tour-calendar-owner.server";
 import { buildConversationKey } from "@/lib/sms-conversation-identity";
 import { dispatchOwnerSmsOutbox, enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
 
@@ -264,7 +265,7 @@ export async function recoverPendingProspectTourGoogleCalendarCleanup(
       // stale cancellation cleanup delete a current rescheduled event.
       const live = await loadCurrentPlannedEvent(db, plannedEventId);
       if (!live || live.canceledAt) {
-        await deleteGoogleCalendarEvent(db, managerUserId, googleCalendarEventId);
+        await deleteGoogleCalendarEvent(db, await resolveStoredTourCalendarOwner(db, plannedEventId, managerUserId), googleCalendarEventId);
       }
       const { data: completedCleanup, error: completeError } = await db.rpc("complete_prospect_tour_google_calendar_cleanup", {
         p_planned_event_id: plannedEventId,
@@ -365,7 +366,7 @@ export async function recoverExpiredProspectTourGoogleCalendarCreates(
         );
         if (completeIntentError || completedIntent !== true) throw new Error("prospect_tour_google_create_reconciliation_lost");
       } else {
-        await deleteGoogleCalendarEvent(db, managerUserId, googleCalendarEventId);
+        await deleteGoogleCalendarEvent(db, await resolveStoredTourCalendarOwner(db, plannedEventId, managerUserId), googleCalendarEventId);
         const { data: completedIntent, error: completeIntentError } = await db.rpc(
           "complete_prospect_tour_google_calendar_create_reconciliation",
           {

@@ -38,6 +38,10 @@ type Turn = Record<string, unknown>;
  *  - `delegate`: another owner's conversation, reached through a Communication
  *    grant. They speak for the management side, so only OUTGOING turns, only
  *    about a house they hold.
+ *  - `staff`: PropLane Service staff answering in the managed workspace they run, on a row its client owner holds.
+ *    They speak for the management side like a delegate (only OUTGOING turns, attributed by the server), but hold the
+ *    whole workspace, not a house grant, so no house narrows what they may add. The route derives this from the
+ *    viewer's seat (`staffWorkspaceOwners`), never from the body.
  *  - `participant`: the person the conversation is WITH, on a row the other
  *    party owns (a resident or vendor on a manager-owned thread). They are the
  *    counterparty, so their turn is inbound from the owner's point of view and
@@ -53,6 +57,7 @@ export type ThreadAppendRule =
       authorUserId: string;
       authorName: string;
     }
+  | { kind: "staff"; authorUserId: string; authorName: string }
   | {
       kind: "participant";
       authorUserId: string;
@@ -197,6 +202,19 @@ function authorForeignTurn(
     };
   }
   if (turn.outbound !== true) return { ok: false, reason: "inbound_turn_not_authorable" };
+  if (rule.kind === "staff") {
+    const named = str(turn.houseId);
+    return {
+      ok: true,
+      turn: {
+        ...turn,
+        from: rule.authorName,
+        outbound: true,
+        authorUserId: rule.authorUserId,
+        ...(named ? { houseId: named } : {}),
+      },
+    };
+  }
   const house = delegateHouseFor(turn, rule, stored);
   if (!house.ok) return { ok: false, reason: "house_not_granted" };
   return {

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const enqueue = vi.hoisted(() => vi.fn());
 const dispatch = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/manager-sms-messages.server", () => ({ fetchManagerSmsConversations: vi.fn(), resolveSmsScopeManagerIds: vi.fn() }));
+vi.mock("@/lib/manager-sms-messages.server", () => ({ fetchManagerSmsConversations: vi.fn(), resolveSmsScopeManagerIds: vi.fn() , resolveSmsActableOwnerIds: vi.fn() }));
 vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({ enqueueOwnerSms: enqueue, dispatchOwnerSmsOutbox: dispatch }));
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 

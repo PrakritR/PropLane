@@ -15,7 +15,7 @@ vi.mock("@/lib/prospect-spine/delivery-issue.server", () => ({ recordDeliveryIss
 vi.mock("@/lib/prospect-spine/locate.server", () => ({ locateThreadId: mocks.locateThreadId }));
 vi.mock("@/lib/communication/conversation-key.server", () => ({ resolveWorkspaceContext: mocks.resolveWorkspaceContext }));
 // The core's other imports are not exercised by the settle step.
-vi.mock("@/lib/manager-sms-messages.server", () => ({ fetchManagerSmsConversations: vi.fn(), resolveSmsScopeManagerIds: vi.fn() }));
+vi.mock("@/lib/manager-sms-messages.server", () => ({ fetchManagerSmsConversations: vi.fn(), resolveSmsScopeManagerIds: vi.fn() , resolveSmsActableOwnerIds: vi.fn() }));
 vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({ enqueueOwnerSms: vi.fn(), dispatchOwnerSmsOutbox: vi.fn() }));
 vi.mock("@/lib/one-number/shared-line-number.server", () => ({ resolveSharedLineHumanSend: vi.fn() }));
 vi.mock("@/lib/sms/manager-workspace-role.server", () => ({ resolveConversationSendLine: vi.fn() }));

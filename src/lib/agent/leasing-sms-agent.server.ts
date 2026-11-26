@@ -41,7 +41,8 @@ import {
 } from "@/lib/prospect-tour-scheduling-context.server";
 import { stripLongDashes, stripSmsMarkdown } from "@/lib/agent/conversation-style-rules";
 import { summarizeLeasingEvidence } from "@/lib/agent/leasing-sms-fallback";
-import { buildProspectLinksTool, proplaneSiteLinks, publicOrigin } from "@/lib/tools/domains/leasing-sms";
+import { buildProspectLinksTool, proplaneSiteLinks, publicOrigin, warmLeasingCatalog } from "@/lib/tools/domains/leasing-sms";
+import { appendEscalationContactLine } from "@/lib/one-number/escalation-contact";
 import { isPropLaneServiceLine } from "@/lib/service/service-catalog.server";
 import { finalizeProspectReply, prospectContextFromEvidence } from "@/lib/prospect-replies";
 
@@ -479,18 +480,23 @@ export async function runLeasingSmsAgentTurn(
   const prospectPhone = normalizeE164(args.prospectPhoneE164 ?? "") ?? (args.prospectPhoneE164 ?? "").trim();
   // The PropLane line in per-workspace mode (a number the platform service owner holds): the catalog is the homes PropLane
   // manages, not this account's own other workspaces. Any other number keeps its workspace's homes only.
-  const serviceLine = !args.testActor && args.crossCatalog !== true
-    ? args.serviceCatalog === true || (await isPropLaneServiceLine(db, { ownerUserId: session.landlord_id, workNumber: args.workNumber }))
-    : false;
-  // A phone locked to one home on the PropLane line: the agent is told which, from the session row, never from the text.
-  const lockedHome = !args.testActor && channel === "sms"
-    ? await loadLockedHomeContext(db, { prospectPhone, landlordId: session.landlord_id, workspaceId: args.workspaceId })
-    : null;
-  const recentDeliveredReplies = args.testActor ? [] : await loadRecentDeliveredReplies(db, {
-    landlordId: session.landlord_id,
-    phone: prospectPhone,
-    originalInboundOccurredAt: args.prospectBurst?.originalInboundOccurredAt,
-  });
+  // These three reads are independent of one another: run them together rather than one after another.
+  const [serviceLine, lockedHome, recentDeliveredReplies] = await Promise.all([
+    !args.testActor && args.crossCatalog !== true
+      ? Promise.resolve(args.serviceCatalog === true || isPropLaneServiceLine(db, { ownerUserId: session.landlord_id, workNumber: args.workNumber }))
+      : Promise.resolve(false),
+    // A phone locked to one home on the PropLane line: the agent is told which, from the session row, never from the text.
+    !args.testActor && channel === "sms"
+      ? loadLockedHomeContext(db, { prospectPhone, landlordId: session.landlord_id, workspaceId: args.workspaceId })
+      : Promise.resolve(null),
+    args.testActor
+      ? Promise.resolve([] as Awaited<ReturnType<typeof loadRecentDeliveredReplies>>)
+      : loadRecentDeliveredReplies(db, {
+          landlordId: session.landlord_id,
+          phone: prospectPhone,
+          originalInboundOccurredAt: args.prospectBurst?.originalInboundOccurredAt,
+        }),
+  ]);
   const ctx = buildLeasingSmsAgentContext(db, {
     landlordId: session.landlord_id,
     actorUserId: args.testActor?.userId,
@@ -520,9 +526,15 @@ export async function runLeasingSmsAgentTurn(
     },
   });
 
+  // The first model call takes a second or two and its first tool call is almost always the listing search: read the
+  // catalog meanwhile (cached; the tool awaits the same read).
+  warmLeasingCatalog(ctx);
+
   let result: Awaited<ReturnType<typeof runAgentTurn>> | null = null;
   let traceId: string | null = null;
   let quietHandoffConfirmed = false;
+  // The server-resolved "who to text" line an escalation tool returned this turn (never model input).
+  let escalationContactLine: string | null = null;
   const observedToolTrace: Array<{ tool: string; ok: boolean }> = [];
   let shadowSystem = "";
   let turnPromptMeta: ReturnType<typeof resolvePromptMeta> | null = null;
@@ -604,6 +616,10 @@ export async function runLeasingSmsAgentTurn(
         const observeToolCall = (event: ToolCallEvent) => {
           observedToolTrace.push({ tool: event.name, ok: event.ok });
           toolsRan = true;
+          if (event.name === "escalate_to_manager" && event.ok && event.output && typeof event.output === "object") {
+            const line = (event.output as { contactLine?: unknown }).contactLine;
+            if (typeof line === "string" && line.trim() && (event.output as { ok?: unknown }).ok === true) escalationContactLine = line.trim();
+          }
           if (
             event.name === "escalate_to_manager" &&
             event.ok &&
@@ -771,7 +787,9 @@ export async function runLeasingSmsAgentTurn(
           return null;
         }
       })();
-  const reply = quietHandoff ? "" : stripLongDashes(finalized?.text ?? result!.reply).trim().slice(0, maxReplyChars);
+  const baseReply = quietHandoff ? "" : stripLongDashes(finalized?.text ?? result!.reply).trim().slice(0, maxReplyChars);
+  // An escalation turn ends with ONE line naming who to text; a normal answer never carries it.
+  const reply = channel === "sms" && !quietHandoff && escalationContactLine ? appendEscalationContactLine(baseReply, escalationContactLine) : baseReply;
   if (!reply && !quietHandoff) {
     console.warn("leasing-sms turn produced no reply", session.id, result?.terminationReason);
     return null;

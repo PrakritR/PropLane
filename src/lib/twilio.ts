@@ -5,6 +5,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { createTwilioRestClient } from "@/lib/twilio-client.server";
 import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+import { managedWorkspaceOwningLine } from "@/lib/one-number/service-line.server";
 import { isConfiguredSharedNumber } from "@/lib/one-number/shared-line-number.server";
 import { captureE2eSms } from "@/lib/sms/e2e-transport.server";
 
@@ -82,6 +83,12 @@ export async function sendSms(
      */
     expectedPayerUserId?: string;
     /**
+     * Set only by the dispatcher (an admin-initiated text) and by the platform lead reply: `from` is the ADMIN line, a
+     * PropLane-managed workspace's own number held by another account than the payer. Honoured only when `from` really is a
+     * managed workspace's own live line (`managedWorkspaceOwningLine`); the payer's hold alone then proves whose wallet pays.
+     */
+    adminLine?: boolean;
+    /**
      * `phone_verification`: the authenticated OTP route. `platform_lead`: a text from PropLane
      * itself on the shared number to a lead that has no workspace yet (no wallet to hold credit
      * from); it is valid ONLY from the configured shared number and keeps the shield, the
@@ -152,7 +159,8 @@ export async function sendSms(
   // The authenticated, rate-limited phone verification route is the sole exemption.
   if (opts?.purpose === "platform_lead") {
     const db = createSupabaseServiceRoleClient();
-    if (!(await isConfiguredSharedNumber(db, fromNorm))) {
+    const adminLineFrom = opts.adminLine === true && (await managedWorkspaceOwningLine(db, fromNorm).catch(() => null)) !== null;
+    if (!adminLineFrom && !(await isConfiguredSharedNumber(db, fromNorm))) {
       return { sent: false, providerAttempted: false, error: "Use the work-number dispatcher to send messages." };
     }
   } else if (opts?.purpose !== "phone_verification") {
@@ -169,13 +177,15 @@ export async function sendSms(
     // PropLane-managed workspace owned by anyone else (prod, Oct 26 - Nov 3). Only a non-shared number is owned by its
     // numbers row. An unreadable shared config reads as "not the shared number" (fail closed).
     const sharedFrom = await isConfiguredSharedNumber(db, fromNorm).catch(() => false);
-    const holdOwner = sharedFrom ? hold?.manager_user_id : number?.manager_user_id;
     const expectedPayer = String(opts.expectedPayerUserId ?? "").trim();
+    // The admin line is a managed workspace's own number held by another account: the payer's hold proves the wallet.
+    const adminLineFrom = !sharedFrom && opts.adminLine === true && Boolean(expectedPayer) && (await managedWorkspaceOwningLine(db, fromNorm).catch(() => null)) !== null;
+    const holdOwner = sharedFrom || adminLineFrom ? (adminLineFrom ? expectedPayer : hold?.manager_user_id) : number?.manager_user_id;
     // On the shared number the hold's owner must be the workspace being sent for; no stated payer fails closed.
     if (sharedFrom && (!expectedPayer || (hold && hold.manager_user_id !== expectedPayer))) {
       return { sent: false, providerAttempted: false, error: "Communication credit could not be verified." };
     }
-    if ((!sharedFrom && numberError) || creditError || (!number && !sharedFrom) || !hold || !holdOwner || hold.manager_user_id !== holdOwner || hold.meter !== "sms_outbound_segment"
+    if ((!sharedFrom && !adminLineFrom && numberError) || creditError || (!number && !sharedFrom && !adminLineFrom) || !hold || !holdOwner || hold.manager_user_id !== holdOwner || hold.meter !== "sms_outbound_segment"
       || hold.credit_state !== "reserved" || Number(hold.quantity) !== estimateSmsSegments(body).segmentCount) {
       return { sent: false, providerAttempted: false, error: "Communication credit could not be verified." };
     }

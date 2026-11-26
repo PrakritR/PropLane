@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { MCP_LIMITS } from "@/lib/mcp/rate-limits";
 import { exchangeMcpAuthorizationCode, refreshMcpAccessToken } from "@/lib/mcp/oauth.server";
 
 export const runtime = "nodejs";
@@ -8,7 +9,7 @@ export const runtime = "nodejs";
 function oauthError(error: string, status = 400) { return NextResponse.json({ error }, { status, headers: { "Cache-Control": "no-store" } }); }
 
 export async function POST(req: Request) {
-  if (!(await rateLimit(`mcp-oauth-token:${clientIpFrom(req)}`, 30, 60_000)).ok) return oauthError("slow_down", 429);
+  if (!(await rateLimit(`mcp-oauth-token:${clientIpFrom(req)}`, MCP_LIMITS.tokenPerIp, MCP_LIMITS.windowMs)).ok) return oauthError("slow_down", 429);
   const form = await req.formData().catch(() => null);
   if (!form) return oauthError("invalid_request");
   const grantType = String(form.get("grant_type") ?? "");

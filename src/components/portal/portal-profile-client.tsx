@@ -69,7 +69,7 @@ import { ManagerApiKeysPanel } from "@/components/portal/pro-api-keys-panel";
 import { AdminTeamPane } from "@/components/portal/admin-team-pane";
 import { SettingsScopeSwitcher } from "@/components/portal/settings-scope-switcher";
 import { ACCOUNT_PANE_IDS_IN_PROPLANE_SCOPE, type SettingsScope } from "@/lib/admin-team/settings-scope";
-import { AssistantReplyModesSection, TeamKnowledgeSection } from "@/components/portal/assistant-learning-settings";
+import { AssistantReplyModesSection, EscalationContactSection, TeamKnowledgeSection } from "@/components/portal/assistant-learning-settings";
 import { AutomationsSection } from "@/components/portal/automations-settings";
 import { AutoSendAiDraftsRow } from "@/components/portal/pro-portal-automation-settings-panel";
 import { CommunicationSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
@@ -223,6 +223,7 @@ function ManagerMessagingSettingsPane() {
         <AutoSendAiDraftsRow />
       </PortalSettingsSection>
       <AssistantReplyModesSection />
+      <EscalationContactSection />
       <TeamKnowledgeSection />
       <AutomationsSection />
       <CommunicationSettingsPanel />

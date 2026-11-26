@@ -107,6 +107,16 @@ reconnects, via `resolveGoogleCalendarWriteId`'s fallback
   tour's own Upcoming detail route (`tourEventDeepLink`), and the two PropLane
   markers. Facts come from the planned-tour record (`tourEventFactsFromRecord`),
   never re-derived at a call site.
+- **Which calendar holds a tour** is one module,
+  `src/lib/google-calendar/tour-calendar-owner.server.ts`. A confirmed tour goes
+  to its assignee's PropLane calendar (default the house manager; PropLane's
+  operator only on a PropLane-managed `is_service` house). The holder is pinned
+  in a server-owned `axis_gcal_tour_owner_*` row (the `axis_gcal_` prefix is
+  refused by `POST /api/portal-schedule-records`), and delete, cleanup and
+  recovery always trust it. The event moves (delete old, create new, rewrite
+  the row) only when a successful team read shows the holder left; a failed
+  read never moves it. Tests:
+  `tests/unit/google-calendar-managed-tour-operator.test.ts`.
 - **Vendor (new)**: `syncVendorServiceVisitToGoogleCalendar` and
   `syncVendorAvailabilityToGoogleCalendar`
   (`src/lib/google-calendar/vendor-calendar-push.server.ts`) push a vendor's

@@ -82,6 +82,15 @@ export function isAdminInboxScope(scope: string | null | undefined): boolean {
 /** May `managerUserId` act inside a workspace owned by `workspaceOwnerId`? Owner, or an accepted account link. */
 async function managerMayUseWorkspace(db: Db, managerUserId: string, workspaceOwnerId: string, workspaceId: string): Promise<boolean> {
   if (managerUserId === workspaceOwnerId) return true;
+  // PropLane Service staff run a managed workspace for its owner: re-derived from the seat (the one staff decision), so
+  // a conversation they start or answer there is keyed in THAT workspace instead of falling back to their own default.
+  try {
+    const { loadServiceStaffWorkspaces } = await import("@/lib/service/service-mode.server");
+    const staff = await loadServiceStaffWorkspaces(db, managerUserId);
+    if (staff.some((w) => w.id === workspaceId && w.ownerUserId === workspaceOwnerId)) return true;
+  } catch {
+    /* a failed staff read grants nothing; the membership check below still decides */
+  }
   const { data, error } = withoutOwnerLinks(await db
     .from("account_link_invites")
     .select("id, team_role")

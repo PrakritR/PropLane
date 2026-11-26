@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { MCP_LIMITS } from "@/lib/mcp/rate-limits";
 import { registerMcpOAuthClient } from "@/lib/mcp/oauth.server";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  if (!(await rateLimit(`mcp-oauth-register:${clientIpFrom(req)}`, 10, 60_000)).ok) return NextResponse.json({ error: "slow_down" }, { status: 429 });
+  if (!(await rateLimit(`mcp-oauth-register:${clientIpFrom(req)}`, MCP_LIMITS.registerPerIp, MCP_LIMITS.windowMs)).ok) return NextResponse.json({ error: "slow_down" }, { status: 429 });
   let body: { redirect_uris?: unknown; client_name?: unknown; token_endpoint_auth_method?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "invalid_client_metadata" }, { status: 400 }); }
   if (body.token_endpoint_auth_method !== undefined && body.token_endpoint_auth_method !== "none") return NextResponse.json({ error: "invalid_client_metadata" }, { status: 400 });

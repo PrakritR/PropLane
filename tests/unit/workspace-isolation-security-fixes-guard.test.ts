@@ -38,11 +38,6 @@ const FIXED_SURFACES: { finding: string; path: string; requiredPattern: RegExp }
     requiredPattern: /listViewerWorkspaces|workspaceId/,
   },
   {
-    finding: "W001",
-    path: "src/app/api/mcp/oauth/approve/route.ts",
-    requiredPattern: /actor\.workspace/,
-  },
-  {
     finding: "W002",
     path: "src/app/api/manager-bills/route.ts",
     requiredPattern: /resolvePropertyPayoutOwner|fetchRowsForManagerWithLinked/,

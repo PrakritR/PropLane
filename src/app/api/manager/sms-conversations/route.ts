@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import {
   deleteManagerSmsConversation,
   fetchManagerSmsConversations,
-  resolveSmsScopeManagerIds,
+  resolveSmsActableOwnerIds,
 } from "@/lib/manager-sms-messages.server";
 import { resolveManagerRouteActor } from "@/lib/auth/route-actor.server";
 import { sendManagerConversationSms } from "@/lib/manager-sms-send.server";
@@ -130,7 +130,7 @@ export async function DELETE(req: Request) {
   // Deleting an owner's conversation needs a delete-level inbox grant —
   // read-level co-manager access only allows viewing, edit allows replies.
   if (ownerManagerUserId !== auth.user.id) {
-    const deleteScope = await resolveSmsScopeManagerIds(
+    const deleteScope = await resolveSmsActableOwnerIds(
       auth.db,
       auth.user.id,
       "delete",

@@ -20,14 +20,10 @@ import { traceExternalToolCall } from "@/lib/observability/langfuse";
 import type { ApiKeyScope } from "./api-keys.server";
 import { EXTERNAL_EXCLUDED_TOOL_NAMES } from "./capabilities";
 
-/** MCP names the field `inputSchema`; the payload is the same JSON Schema. */
-export type McpToolSchema = {
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-};
+import { CONFIRM_ACTION_TOOL_NAME, type CallToolResult, type McpToolSchema } from "./tool-types";
 
-export const CONFIRM_ACTION_TOOL_NAME = "confirm_action";
+export { CONFIRM_ACTION_TOOL_NAME };
+export type { CallToolResult, McpToolSchema };
 
 /** Matches the pending-action row's 15-minute default expiry. */
 const PENDING_ACTION_TTL_SECONDS = 900;
@@ -69,8 +65,6 @@ export function listTools(allowedTools: readonly string[], scopes: readonly ApiK
       inputSchema: t.input_schema,
     }));
 }
-
-export type CallToolResult = { ok: true; data: unknown } | { ok: false; error: string };
 
 const WRITE_SCOPE_REFUSAL =
   "This API key is read-only. Create a key with the write scope in PropLane Settings → API & MCP to propose actions.";

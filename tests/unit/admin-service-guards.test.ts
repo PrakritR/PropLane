@@ -54,6 +54,7 @@ describe("no admin branch inside the manager side", () => {
     "src/app/api/portal/dispatch-proposals/route.ts",
     "src/app/api/portal/inbox-attachments/route.ts",
     "src/app/api/portal/inbox-eligible-contacts/route.ts",
+    "src/app/api/portal/one-number/escalation-contact/route.ts",
     "src/app/api/portal/payment-reminder-history/route.ts",
     "src/app/api/portal/purge-orphaned-records/route.ts",
     "src/app/api/portal/resident-approval/route.ts",

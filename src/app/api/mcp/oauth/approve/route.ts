@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { resolveAgentContext } from "@/lib/tools/context";
+import { loadMcpConsent, resolveMcpTarget } from "@/lib/mcp/consent.server";
 import { createMcpAuthorizationCode, getMcpOAuthClient, MCP_OAUTH_SCOPE, signMcpConnected, verifyMcpApproval } from "@/lib/mcp/oauth.server";
 import { track } from "@/lib/analytics/posthog";
 
@@ -8,32 +8,31 @@ export const runtime = "nodejs";
 function failure(): NextResponse { return NextResponse.json({ error: "invalid_request" }, { status: 400 }); }
 
 export async function POST(req: Request) {
-  const actor = await resolveAgentContext();
-  if (!actor) return NextResponse.redirect(new URL("/auth/sign-in", req.url), 303);
+  const session = await loadMcpConsent();
+  if (!session) return NextResponse.redirect(new URL("/auth/sign-in", req.url), 303);
   const form = await req.formData();
   const approval = verifyMcpApproval(String(form.get("approval") ?? ""));
-  if (!approval || approval.userId !== actor.userId) return failure();
+  if (!approval || approval.userId !== session.userId) return failure();
   const { clientId, redirectUri, codeChallenge: challenge, scope, state } = approval;
-  const client = await getMcpOAuthClient(actor.db, clientId);
+  const client = await getMcpOAuthClient(session.db, clientId);
   if (!client || !client.redirectUris.includes(redirectUri) || challenge.length < 43 || !scope.split(/\s+/).every((item) => item === MCP_OAUTH_SCOPE)) return failure();
-  // The manager's active workspace, read here because this is the only step
-  // in the whole OAuth dance with a real browser session/cookie to resolve it
-  // from (W001) — the token exchange and every later refresh just carry this
-  // value forward. `id: ""` is the resolution-FAILURE sentinel
-  // (`UNRESOLVED_AGENT_WORKSPACE_SCOPE`), never a real workspace, so it must
-  // refuse rather than mint a connection with no workspace to narrow it.
-  const workspaceId = actor.workspace?.id?.trim() || "";
-  if (!workspaceId) return NextResponse.json({ error: "server_error" }, { status: 500 });
-  const code = await createMcpAuthorizationCode(actor.db, {
-    userId: actor.userId,
+  // What this connection IS, re-derived here from membership: the posted choice is a name, never a grant
+  // (W001). Nothing posted means the workspace the person has open. A choice that does not resolve right now
+  // (a removed seat, a lapsed resident role) refuses rather than minting a connection with no scope.
+  const posted = String(form.get("target") ?? "").trim() || session.defaultValue;
+  const target = await resolveMcpTarget(session.db, session.userId, posted);
+  if (!target) return NextResponse.json({ error: "invalid_target" }, { status: 400 });
+  const code = await createMcpAuthorizationCode(session.db, {
+    userId: session.userId,
     clientId,
     redirectUri,
     codeChallenge: challenge,
     scopes: [MCP_OAUTH_SCOPE],
-    workspaceId,
+    workspaceId: target.portal === "manager" ? target.workspaceId : null,
+    portal: target.portal,
   });
   if (!code) return NextResponse.json({ error: "server_error" }, { status: 500 });
-  track("mcp_connection_authorized", actor.userId, { client: clientId.slice(-8) });
+  track("mcp_connection_authorized", session.userId, { client: clientId.slice(-8), portal: target.portal });
   const destination = new URL(redirectUri);
   destination.searchParams.set("code", code);
   if (state) destination.searchParams.set("state", state);
@@ -43,8 +42,8 @@ export async function POST(req: Request) {
   const token = signMcpConnected({
     destination: destination.toString(),
     clientName: client.clientName?.trim() || "your app",
-    workspaceName: actor.workspace?.name?.trim() || "your workspace",
-    userId: actor.userId,
+    workspaceName: target.portal === "manager" ? target.workspaceName : "Your residency",
+    userId: session.userId,
   });
   if (!token) return NextResponse.redirect(destination, 303);
   // A relative Location: the browser resolves it against the host it actually used. `req.url` can

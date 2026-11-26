@@ -8,7 +8,7 @@ import { buildOpenRoomsDigest } from "./open-rooms-digest";
 import { buildReadableListingUrl, getListingSlugIndex } from "@/lib/seo/listing-slugs.server";
 import { z } from "zod";
 import { defineTool, defineWriteTool } from "../registry";
-import type { AgentContext } from "../context";
+import type { AgentContext, LeasingSmsAgentScope } from "../context";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { track } from "@/lib/analytics/posthog";
 import {
@@ -54,6 +54,22 @@ import { isStandaloneSmsAcknowledgment } from "@/lib/sms/standalone-acknowledgme
 import { compareAreaMatches, matchHomeToPlace, resolveSeattlePlace, type AreaMatch, type ResolvedPlace } from "@/lib/places/seattle-places";
 import { getServicePublicListings } from "@/lib/service/service-catalog.server";
 import { updateAuditResult, writeAuditLog } from "../audit";
+
+async function resolveLeasingEscalationContactLine(ctx: AgentContext, scope: LeasingSmsAgentScope): Promise<string | null> {
+  try {
+    const { escalationContactLine } = await import("@/lib/one-number/escalation-contact.server");
+    const propertyId = scope.lockedHome?.propertyId ?? null;
+    return await escalationContactLine(ctx.db, {
+      ownerUserId: ctx.landlordId,
+      propertyId,
+      onPropLaneLine: Boolean(scope.crossCatalog || scope.serviceCatalog),
+      sharedLineWithoutHome: !propertyId && Boolean(scope.crossCatalog),
+      serviceLineWithoutHome: !propertyId && Boolean(scope.serviceCatalog),
+    });
+  } catch {
+    return null;
+  }
+}
 
 export const LEASING_ESCALATE_TOOL_NAME = "escalate_to_manager";
 export const LEASING_SMS_SUPPRESS_TOOL_NAME = "suppress_redundant_reply";
@@ -604,6 +620,23 @@ async function loadBrowsableListings(ctx: AgentContext): Promise<RawPropertyReco
 }
 
 /**
+ * Start the catalog read a prospect turn is about to need (the model's first call takes a second or two, and its
+ * first tool call is almost always the listing search). Only the catalogs that are cached in process (the PropLane
+ * line's and the shared public one) are warmed: the read is the same one the tool makes, its answer is memoized, and
+ * a failure is swallowed here and surfaces, as before, from the tool itself. Never awaited by the caller.
+ */
+export function warmLeasingCatalog(ctx: AgentContext): void {
+  try {
+    if (!isServiceCatalog(ctx) && !isCrossCatalog(ctx)) return;
+    void loadBrowsableListings(ctx).catch(() => undefined);
+    // The listing links need the slug index, which is a second read of the public catalog.
+    void getListingSlugIndex().catch(() => undefined);
+  } catch {
+    /* warming is best effort */
+  }
+}
+
+/**
  * Resolve one listing by id. Always tries the manager's own listings first (so a
  * per-manager line and a manager testing their own not-yet-fully-live listing
  * keep working); on the shared line, falls back to any public-catalog listing.
@@ -894,13 +927,21 @@ export const listLiveListingsTool = defineTool({
     const ownerScope = isCrossCatalog(ctx) || isServiceCatalog(ctx) ? undefined : ctx.landlordId;
     const checkedByHome = new Map<string, Map<string, CheckedRoomAvailability>>();
     const countsByHome = new Map<string, { roomCount: number; availableNowCount: number | null }>();
+    // The slug index does not depend on the availability reads: start it now. Within a home the checked read and the
+    // counts share one occupancy load (memoized in flight), so they run together too.
+    const slugIndexPromise = getListingSlugIndex();
+    slugIndexPromise.catch(() => undefined);
     await Promise.all(
       ranked.slice(0, CHECKED_AVAILABILITY_HOME_LIMIT).map(async ({ rec }) => {
-        checkedByHome.set(rec.id, await checkedAvailabilityForListing(rec, ownerScope).catch(() => new Map<string, CheckedRoomAvailability>()));
-        countsByHome.set(rec.id, await availabilityCountsForListing(rec, ownerScope).catch(() => ({ roomCount: summarizeRooms(propertySource(rec)).length, availableNowCount: null })));
+        const [checked, counts] = await Promise.all([
+          checkedAvailabilityForListing(rec, ownerScope).catch(() => new Map<string, CheckedRoomAvailability>()),
+          availabilityCountsForListing(rec, ownerScope).catch(() => ({ roomCount: summarizeRooms(propertySource(rec)).length, availableNowCount: null })),
+        ]);
+        checkedByHome.set(rec.id, checked);
+        countsByHome.set(rec.id, counts);
       }),
     );
-    const slugIndex = await getListingSlugIndex();
+    const slugIndex = await slugIndexPromise;
     const listings = ranked
       // Cap the payload the model sees (large catalogs); a needle narrows first.
       .slice(0, 40)
@@ -1464,10 +1505,12 @@ export const escalateLeasingToManagerTool = defineWriteTool({
         .maybeSingle();
       const summary = prior?.result_summary as { deliveryStatus?: string } | null;
       if (summary?.deliveryStatus === "delivered") {
+        const repeatLine = scope.channel === "email" ? null : await resolveLeasingEscalationContactLine(ctx, scope);
         return {
           ok: true,
           alreadyEscalated: true,
           message: "The manager was already notified about this a moment ago.",
+          ...(repeatLine ? { contactLine: repeatLine } : {}),
         };
       }
       if (summary?.deliveryStatus === "suppressed") {
@@ -1540,9 +1583,12 @@ export const escalateLeasingToManagerTool = defineWriteTool({
       .eq("id", scope.sessionId)
       .eq("landlord_id", ctx.landlordId);
     track("leasing_sms_escalated", ctx.landlordId, { channel: emailedIn ? "email" : "sms" });
+    // The one "who to text" line, resolved here from the home / workspace; the SMS runtime appends it to the reply. Never model input.
+    const contactLine = emailedIn ? null : await resolveLeasingEscalationContactLine(ctx, scope);
     return {
       ok: true,
       message: "The manager has been notified and will follow up.",
+      ...(contactLine ? { contactLine } : {}),
       // An audit record only prevents repeat notices. It is never proof that a
       // manager can see this handoff, so only the notifier's explicit delivery
       // result may authorize the SMS runtime to stay quiet.

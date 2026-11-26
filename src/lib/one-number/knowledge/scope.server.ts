@@ -22,6 +22,8 @@ export type PropertyBrief = {
   houseInfo: HouseInfoV1;
   /** Each room's structured door code - secrets that live outside `houseInfo` and must never travel as text. */
   roomSecrets: string[];
+  /** The manager's free-text house manual (rules + general info): where fees and policies live. Secret lines are filtered on the way out. */
+  manual: { houseRulesText: string; generalHouseInfo: string };
 };
 
 /** Pull the structured house details out of a property record (listing submission). */
@@ -45,6 +47,7 @@ export function propertyBriefFromRow(row: Record<string, unknown>): PropertyBrie
     // The staff-only Internal section is never part of a brief an assistant answers from.
     houseInfo: houseInfoWithoutInternal(normalizeHouseInfo(submission?.houseInfo)),
     roomSecrets: listingRoomSecretValues(submission as { rooms?: ReadonlyArray<{ doorCode?: string | null }> | null } | null),
+    manual: { houseRulesText: asText(submission?.houseRulesText), generalHouseInfo: asText(submission?.generalHouseInfo) },
   };
 }
 

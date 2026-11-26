@@ -24,3 +24,20 @@ export async function resolveProspectFacingSendNumber(db: SupabaseClient, manage
   if (managed.managed) return managed.line?.phoneNumber ?? null;
   return resolveManagerWorkNumber(db, managerUserId);
 }
+
+/**
+ * The ONE number a text or notice from a manager's workspace names as "from" when a caller only needs the number (a reminder's
+ * reply-to, an invite text's sender): a PropLane-managed workspace answers with `resolveManagedSendLine` (its own registered
+ * number, else the PropLane line; null when unresolvable, never an old row), every other workspace with the caller's own
+ * lookup (`fallback`). Nothing outside the send path reads `manager_sms_numbers` or the profile to pick it.
+ */
+export async function resolveManagedAwareFromNumber(
+  db: SupabaseClient,
+  managerUserId: string,
+  fallback: () => Promise<string | null | undefined>,
+  workspaceId?: string | null,
+): Promise<string | null> {
+  const managed = await resolveManagedSendLine(db, managerUserId, workspaceId ?? null).catch(() => null);
+  if (managed?.managed) return managed.line?.phoneNumber ?? null;
+  return (await fallback().catch(() => null)) ?? null;
+}

@@ -10,6 +10,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   filterVisibleInboxThreadRecords,
   grantedHouseIdsForOwner,
+  managedWorkspaceOwnerOf,
   resolveCommunicationScope,
   type CommunicationScope,
 } from "@/lib/communication/conversation-visibility.server";
@@ -104,6 +105,11 @@ function appendRuleForCaller(input: {
 
   const authorUserId = input.user.id;
   const authorName = String(input.user.name ?? "").trim() || input.user.email || "A teammate";
+  // PropLane Service staff running this managed workspace answer in its client owner's conversations: the
+  // workspace is theirs whole, so no house grant narrows the turn. Derived from the seat, never the body.
+  if (input.scope && managedWorkspaceOwnerOf(input.scope) === priorOwner) {
+    return { kind: "staff", authorUserId, authorName };
+  }
   if (input.scope) {
     return {
       kind: "delegate",

@@ -35,7 +35,7 @@ import { conversationVisible, resolveCommunicationScope } from "@/lib/communicat
 import { labelFromManagerPropertyRecordRow } from "@/lib/co-manager-property-label";
 import { projectManagerSmsEvent } from "@/lib/sms/project-manager-sms-event.server";
 import { withWorkspaceStamp } from "@/lib/one-number/workspace-stamp";
-import { resolveServiceLine } from "@/lib/one-number/service-line.server";
+import { resolveAdminLine } from "@/lib/one-number/service-line.server";
 import { loadSmsMediaForMessages } from "@/lib/one-number/sms-media-index.server";
 
 export type { ManagerSmsConversationsPayload, ManagerSmsMessageRow, ManagerSmsResidentConversation };
@@ -77,6 +77,30 @@ export async function resolveSmsScopeManagerIds(
  * (those cannot be split by role anyway), and as the whole-phone fallback when
  * no key is supplied at all.
  */
+/**
+ * The owners whose SMS conversations this viewer may ACT on at `level`: `resolveSmsScopeManagerIds` (the viewer plus
+ * every owner who granted them the inbox) plus, for PropLane Service STAFF, the client owner of the ACTIVE managed
+ * workspace they run (re-derived from their seat, `staffWorkspaceOwners`). A write path that checks an owner id against
+ * only the grant list refused staff a reply or delete in a conversation the same list had just shown them.
+ */
+export async function resolveSmsActableOwnerIds(
+  db: SupabaseClient,
+  viewerUserId: string,
+  level: "read" | "edit" | "delete" = "read",
+): Promise<string[]> {
+  const granted = await resolveSmsScopeManagerIds(db, viewerUserId, level);
+  try {
+    const { communicationCandidateOwnerIds, managedWorkspaceOwnerOf, resolveCommunicationScope } = await import(
+      "@/lib/communication/conversation-visibility.server"
+    );
+    const scope = await resolveCommunicationScope(db, viewerUserId, level);
+    const staffOwner = managedWorkspaceOwnerOf(scope);
+    return staffOwner && communicationCandidateOwnerIds(scope).includes(staffOwner) ? [...new Set([...granted, staffOwner])] : granted;
+  } catch {
+    return granted;
+  }
+}
+
 export async function deleteManagerSmsConversation(
   db: SupabaseClient,
   args: {
@@ -1461,9 +1485,11 @@ export async function fetchAdminSmsConversations(
   const { cohortIds, service, clientOwnerIds } = await loadAdminSmsScopeParts(db);
   const managerIds = [...new Set([...cohortIds, ...service.serviceOwnerIds, ...clientOwnerIds])];
   const smsConfigured = Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
-  // The number admin Communication shows and every admin reply leaves on is the PropLane line, from the one line
-  // decision. Never the first manager in scope's own (possibly retired) work number; an unresolvable line shows none.
-  const line = await resolveServiceLine(db).catch(() => null);
+  // The number admin Communication shows and new admin sends leave on is the ADMIN line (captain, Nov 24: the managed
+  // operator's registered number, (814) 679-3694), from the one line decision; it falls back to the PropLane line. Never the
+  // first manager in scope's own work number; an unresolvable line shows none. Threads that arrived on the PropLane line
+  // (206) are still listed: this decides only the number shown and sent from.
+  const line = await resolveAdminLine(db).catch(() => null);
   const propLaneLineNumber = line?.ok ? line.phoneNumber : null;
   if (managerIds.length === 0) {
     return {

@@ -28,6 +28,12 @@ only on the machine of the person running this, and never commit it.
 
 In every command below `PROD="--target production --env-file <prod env file> --confirm-ref qahnczmilgptcedaqype"`.
 
+**`PROPLANE_ADMIN_SMS_LINE` (Vercel env, every deployed environment).** The number the admin portal operates and shows,
+in E.164 (production today: the managed operator's registered `+18146793694`). `resolveAdminLine` honours it only when
+it is the live, active, registered own number of an `is_service` workspace, so a stale value is ignored rather than sent
+from. Leave it unset only knowingly: the line is then inferred from the earliest-requested managed number, which another
+managed workspace getting its own number can move. Set it in the same step as a managed workspace's number.
+
 ## 0. Before anything (humans)
 
 1. Production code with the one-number build is deployed. It is safe before the migrations: every read of a new
@@ -218,7 +224,8 @@ branch, and `db:push` applies it only once merged):
 | 20261121120000 | `plaid_items_one_live_feed` | Drops the unused `plaid_items.workspace_id` (never written, never read: a Plaid item is owner-keyed like the `manager_bank_accounts` row it points at, and the mover classifies it that way) and adds the partial unique index `plaid_items_one_live_bank_feed_key` — one live (`status <> 'revoked'`) `bank_feed` item per bank account, because Plaid mints a fresh `item_id` per Link session and two items on one account would post every transaction twice. 20261118120000 now carries both inline for a fresh database; this file is the follow-up for one that already ran it. Idempotent; the index creation fails if a database already holds a duplicate live feed, which needs a human, not a retry |
 | 20261123120000 | `plaid_items_last_sync_attempt` | Adds `plaid_items.last_sync_attempt_at` (stamped on every claimed sync attempt, success or failure) and the partial index `plaid_items_cron_catchup_idx` the daily bank-feed catch-up orders on, so an item that keeps failing rotates instead of starving the rest. Additive and idempotent |
 | 20261123130000 | `sms_inbound_reply_conversation_owner` | Adds the nullable `sms_inbound_receipts.reply_owner_user_id` / `reply_workspace_id` (the conversation a prepared reply belongs to, so a Twilio retry replays it to the workspace that answered, never to the owner of the number it arrived on) and a SECOND, 12-argument `prepare_sms_inbound_reply` overload beside the existing 10-argument one, which stays. Additive and idempotent. **Push this one BEFORE the deploy**: the new code selects both columns and calls the 12-argument overload, so without it every `loadInboundReplay` 400s; the 10-argument overload keeps pre-deploy code working in the window between, and a later migration drops it once this code is live |
-
+| 20261124140000 | `mcp_oauth_portal` | Adds `mcp_oauth_authorization_codes.portal` and `mcp_oauth_tokens.portal` (`manager` default, `resident`; check-constrained) so a remote MCP connection is bound at consent to the manager or the resident registry; `workspace_id` stays nullable for a resident connection. Additive and idempotent. **Push this one BEFORE the deploy**: the new code selects and writes `portal`, so without it every MCP code exchange and token lookup fails |
+| 20261124190000 | `sms_managed_home_redirects` | The once-per-30-days marker (`phone_key`, `workspace_id`) for the 206's "text the 814 for this home" redirect about a PropLane-managed workspace with its own number; service role only, RLS on, cascades with the workspace. Additive and idempotent. Push BEFORE the deploy: without it the redirect cannot mark (it fails toward service and redirects every text) |
 | 20261125030000 | `extend_stay` | Service-only lease amendment records and atomic stay extension RPC; preserves signed documents and deposits, checks availability revisions, adds period charges and extends operational dates. Calendar/channel changes bump the shared availability revision |
 | 20261126041500 | `stay_extension_property_scope` | Adds and backfills amendment property scope from the bound lease, rejects mismatched scope on new records, and re-applies the mover classification so extension history follows its house. Does not move any workspace or change amendment content |
 

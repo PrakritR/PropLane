@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({ auth: vi.fn(), fetch: vi.fn(), scope: vi.fn(),
 vi.mock("@/lib/auth/portal-access", () => ({ getPortalAccessContext: mocks.auth,
   hasRole: (ctx: { roles: string[] }, role: string) => ctx.roles.includes(role),
   hasAdminRole: (ctx: { roles: string[] }) => ctx.roles.includes("admin") }));
-vi.mock("@/lib/manager-sms-messages.server", () => ({ fetchManagerSmsConversations: mocks.fetch, resolveSmsScopeManagerIds: mocks.scope }));
+vi.mock("@/lib/manager-sms-messages.server", () => ({ fetchManagerSmsConversations: mocks.fetch, resolveSmsScopeManagerIds: mocks.scope , resolveSmsActableOwnerIds: mocks.scope }));
 vi.mock("@/lib/auth/co-manager-invite-scope", () => ({ findPropertyIdsNotOwnedByManager: mocks.ownership }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ rpc: mocks.rpc }) }));
 vi.mock("@/lib/sms/conversation-houses.server", () => ({ loadConversationHouseScope: mocks.tags, setConversationHousesManually: mocks.replace }));

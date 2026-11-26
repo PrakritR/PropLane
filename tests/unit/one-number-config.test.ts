@@ -72,7 +72,7 @@ describe("loadSharedLineConfig", () => {
     }
   });
 
-  it("a PropLane-managed (is_service) workspace is never dedicated, even with a working paid number row or a link to one", async () => {
+  it("a PropLane-managed (is_service) workspace is dedicated only when it holds a working number of its own; a link to one does not count", async () => {
     paid.owners["o-svc"] = "plan";
     paid.owners["o-pro"] = "plan";
     const { db } = fakeSharedLineDb({
@@ -85,8 +85,8 @@ describe("loadSharedLineConfig", () => {
       workspace_work_numbers: [{ number_id: "n1", workspace_id: "ws-linked-managed" }],
     });
     const config = await loadSharedLineConfig(db);
-    expect(config.dedicatedWorkspaceIds).toEqual(["ws-pro"]);
-    expect(workspaceOnSharedLine(config, "ws-managed")).toBe(true);
+    expect(config.dedicatedWorkspaceIds).toEqual(["ws-managed", "ws-pro"]);
+    expect(workspaceOnSharedLine(config, "ws-managed")).toBe(false);
     expect(workspaceOnSharedLine(config, "ws-linked-managed")).toBe(true);
   });
 

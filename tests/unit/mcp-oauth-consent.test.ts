@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const resolveAgentContext = vi.hoisted(() => vi.fn());
+const { loadMcpConsent, resolveMcpTarget } = vi.hoisted(() => ({ loadMcpConsent: vi.fn(), resolveMcpTarget: vi.fn() }));
 
-vi.mock("@/lib/tools/context", () => ({ resolveAgentContext }));
+vi.mock("@/lib/mcp/consent.server", () => ({ loadMcpConsent, resolveMcpTarget }));
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 vi.mock("@/lib/mcp/oauth.server", () => ({
   MCP_OAUTH_SCOPE: "mcp:tools",
@@ -35,7 +35,8 @@ function consentRequest(path: string): Request {
 
 describe("MCP OAuth consent redirects", () => {
   beforeEach(() => {
-    resolveAgentContext.mockResolvedValue({ userId: "u1", db: {}, workspace: { id: "w1" } });
+    loadMcpConsent.mockResolvedValue({ userId: "u1", db: {}, defaultValue: "ws:w1" });
+    resolveMcpTarget.mockResolvedValue({ portal: "manager", workspaceId: "w1", workspaceName: "Main Street" });
   });
 
   it("approve answers 303 to the PropLane connected screen, carrying the callback in a signed token", async () => {
@@ -59,7 +60,7 @@ describe("MCP OAuth consent redirects", () => {
   });
 
   it("signed-out approve redirects to sign-in with 303", async () => {
-    resolveAgentContext.mockResolvedValue(null);
+    loadMcpConsent.mockResolvedValue(null);
     const res = await approve(consentRequest("/api/mcp/oauth/approve"));
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toMatch(/\/auth\/sign-in$/);

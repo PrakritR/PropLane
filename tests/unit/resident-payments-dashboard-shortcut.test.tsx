@@ -136,7 +136,7 @@ describe("resident Payments — dashboard pay shortcut (C248)", () => {
     searchParams = new URLSearchParams("pay=not-a-real-charge");
     render(<ResidentPaymentsPanel bucket="pending" />);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Pay all" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Pay \$/ })).toBeTruthy());
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

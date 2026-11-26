@@ -652,7 +652,7 @@ export function AddResidentWizard({
           <DocumentsStep form={form} patch={patch} onPickFile={onPickDocument} busy={busy} />
         )
       ) : null}
-      {stepId === "tour" && managerUserId ? <TourStep form={form} patch={patch} derived={derived} managerUserId={managerUserId} assignee={assignee} onAssignee={setAssignee} /> : null}
+      {stepId === "tour" && managerUserId ? <TourStep form={form} patch={patch} derived={derived} assignee={assignee} onAssignee={setAssignee} /> : null}
       {stepId === "review" ? (
         <ReviewStep
           form={form}

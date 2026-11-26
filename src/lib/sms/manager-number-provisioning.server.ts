@@ -790,8 +790,8 @@ export async function restoreManagerNumber(db: SupabaseClient, managerUserId: st
 }
 
 /**
- * The PropLane line a PropLane-MANAGED workspace (`is_service`) sends on, in both line modes, whatever number the workspace
- * itself holds (captain, Oct 25). `managed: false` = an ordinary workspace; the caller resolves its own number. `managed:
+ * The line a PropLane-MANAGED workspace (`is_service`) sends on: its OWN active, registered number when it has one, else the
+ * PropLane line (captain, Nov 24; `resolveServiceLine` is the one decision). `managed: false` = an ordinary workspace; the caller resolves its own number. `managed:
  * true, line: null` = managed but the line cannot be resolved or read, so nothing sends (never the old number).
  */
 export async function resolveManagedSendLine(
@@ -802,7 +802,7 @@ export async function resolveManagedSendLine(
   const target = await resolveManagedSendTarget(db, { ownerUserId: managerUserId, workspaceIds: [workspaceId] });
   if (target.managed === false) return { managed: false };
   if (target.managed === null) return { managed: true, line: null };
-  const line = await resolveServiceLine<Record<string, unknown>>(db, "phone_number, provision_state, registration_state, registration_ref");
+  const line = await resolveServiceLine<Record<string, unknown>>(db, "phone_number, provision_state, registration_state, registration_ref", target.workspaceId);
   if (!line.ok) return { managed: true, line: null };
   if (line.kind === "owner_number") {
     const row = line.row;

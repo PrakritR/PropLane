@@ -20,16 +20,22 @@ export type PlatformLeadSendResult =
  */
 export async function sendPlatformLeadText(
   db: SupabaseClient,
-  input: { to: string; body: string; mediaUrls?: string[]; now?: Date; purpose?: "requested_demo_link"; inboundReply?: boolean; expectedFrom?: string; statusCallbackUrl?: string },
+  input: { to: string; body: string; mediaUrls?: string[]; now?: Date; purpose?: "requested_demo_link"; inboundReply?: boolean; expectedFrom?: string; statusCallbackUrl?: string;
+    /** An admin-initiated reply leaves on the ADMIN line (`resolveAdminLine`, an own number) instead of the shared number. */
+    adminLine?: { phoneNumber: string; messagingServiceSid: string | null } },
 ): Promise<PlatformLeadSendResult> {
   // A pinned reply must distinguish an unreadable configuration from a proven change.
   const strict = input.expectedFrom ? await loadSharedLineConfigStrict(db) : null;
   if (strict && !strict.ok) return { ok: false, reason: "config_unavailable" };
   const config = strict?.ok ? strict.config : await loadSharedLineConfig(db);
-  if (config.mode !== "shared") return { ok: false, reason: "not_shared_mode" };
-  if (!config.sharedNumber) return { ok: false, reason: "no_shared_number" };
+  const admin = input.adminLine ? normalizeE164(input.adminLine.phoneNumber) : null;
+  if (!admin) {
+    if (config.mode !== "shared") return { ok: false, reason: "not_shared_mode" };
+    if (!config.sharedNumber) return { ok: false, reason: "no_shared_number" };
+  }
+  const fromNumber = (admin ?? config.sharedNumber) as string;
   // Deferred replies pin the original shared sender. Never move prepared bytes to a new line.
-  if (input.expectedFrom && normalizeE164(input.expectedFrom) !== config.sharedNumber) {
+  if (input.expectedFrom && normalizeE164(input.expectedFrom) !== fromNumber) {
     return { ok: false, reason: "no_shared_number" };
   }
   const to = normalizeE164(input.to);
@@ -41,10 +47,11 @@ export async function sendPlatformLeadText(
     if (!suppression.ok) return { ok: false, reason: "provider_error" };
     if (suppression.optedOut) return { ok: false, reason: "opted_out" };
   }
-  const result = await sendSms(to, input.body, config.sharedNumber, {
+  const result = await sendSms(to, input.body, fromNumber, {
     purpose: "platform_lead",
+    ...(admin ? { adminLine: true } : {}),
     ...(input.statusCallbackUrl ? { statusCallbackUrl: input.statusCallbackUrl } : {}),
-    messagingServiceSid: config.messagingServiceSid,
+    messagingServiceSid: admin ? input.adminLine!.messagingServiceSid : config.messagingServiceSid,
     ...(input.mediaUrls?.length ? { mediaUrls: input.mediaUrls.slice(0, 1) } : {}),
   }).catch(() => ({ sent: false as const, error: "provider_error", providerAttempted: true, sid: undefined }));
   if (result.sent && result.sid) return { ok: true, sid: result.sid };

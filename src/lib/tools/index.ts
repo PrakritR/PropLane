@@ -130,6 +130,8 @@ import { listSpreadsheetsTool, readSpreadsheetTool, syncSpreadsheetTool } from "
 import { listDocumentsTool } from "./domains/documents";
 import { managerFinancialsWriteTools } from "./domains/financials-write";
 import { managerQuestionTools } from "./domains/manager-questions";
+import { findSecurityDepositTool } from "./domains/deposit-lookup";
+import { getRoomDoorCodeTool } from "./domains/room-access";
 import { managerServicesWriteTools } from "./domains/services-write";
 import { managerDispatchTools } from "./domains/vendor-dispatch";
 import { managerVendorMessageTools } from "./domains/vendor-message";
@@ -321,6 +323,10 @@ export const agentRegistry = buildRegistry([
   // Manager question catalog gaps (docs/agents/manager-agent-questions.md): lease expirations, unanswered threads,
   // toured-not-applied, open services summary, one-resident snapshot, per-house profit and loss. All reads.
   ...managerQuestionTools,
+  // "Return the deposit for the resident who moved out of 4709a Room 2": the lookup that gives dispose_security_deposit its id.
+  findSecurityDepositTool,
+  // A manager may read any room code of their own houses by text (never a delegated seat).
+  getRoomDoorCodeTool,
 ].map((tool) => scopeManagerTool(tool as Parameters<typeof scopeManagerTool>[0])));
 
 /**

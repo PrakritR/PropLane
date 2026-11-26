@@ -160,6 +160,11 @@ export type InboxThreadReplyTarget = {
    * from the visibility rule, never from the request.
    */
   coHost?: boolean;
+  /**
+   * True when the sender reached this conversation as PropLane Service staff running the managed workspace it belongs
+   * to (a `coHost` reply too, but not a "Co-host": they answer as the workspace). Derived from the visibility rule.
+   */
+  staff?: boolean;
 };
 
 /**
@@ -218,7 +223,7 @@ export async function resolveInboxThreadReplyTarget(
   const senderEmail = opts.senderEmail.trim().toLowerCase();
   let { data: threadRow } = await db
     .from("portal_inbox_thread_records")
-    .select("id, row_data, owner_user_id, participant_email, scope, thread_type")
+    .select("id, row_data, owner_user_id, participant_email, scope, thread_type, workspace_id")
     .eq("id", threadId)
     .maybeSingle();
   if (!threadRow) {
@@ -229,7 +234,7 @@ export async function resolveInboxThreadReplyTarget(
       threadId = aliased;
       ({ data: threadRow } = await db
         .from("portal_inbox_thread_records")
-        .select("id, row_data, owner_user_id, participant_email, scope, thread_type")
+        .select("id, row_data, owner_user_id, participant_email, scope, thread_type, workspace_id")
         .eq("id", threadId)
         .maybeSingle());
     }
@@ -245,19 +250,34 @@ export async function resolveInboxThreadReplyTarget(
     String(threadRow.scope ?? "") !== RESIDENT_INBOX_SCOPE &&
     String(threadRow.participant_email ?? "").toLowerCase() === senderEmail && (!managerScope || !ownerUserId);
   let delegatedOwner = false;
+  let staffOwner = false;
   if (!isOwner && !isParticipant && ownerUserId && managerScope) {
     // A co-manager may reply only on a thread about a house they hold
     // Communication EDIT on — the same rule that lists it.
     try {
-      const { visibleInboxThreadRecord } = await import("@/lib/communication/conversation-visibility.server");
+      const { visibleInboxThreadRecord, resolveCommunicationScope, managedWorkspaceOwnerOf } = await import(
+        "@/lib/communication/conversation-visibility.server"
+      );
+      const editScope = await resolveCommunicationScope(db, opts.senderUserId, "edit");
+      // The stamped workspace rides with the record: a conversation stamped with the open workspace is that
+      // workspace's, so staff running a managed workspace may answer in its client owner's threads (without it
+      // every house-less thread read as "not visible" and the send was a silent no-op).
       delegatedOwner =
-        (await visibleInboxThreadRecord(db, opts.senderUserId, "edit", {
-          id: threadId,
-          owner_user_id: ownerUserId,
-          participant_email: (threadRow.participant_email as string | null) ?? null,
-          thread_type: (threadRow.thread_type as string | null) ?? null,
-          row_data: threadRow.row_data,
-        })) !== null;
+        (await visibleInboxThreadRecord(
+          db,
+          opts.senderUserId,
+          "edit",
+          {
+            id: threadId,
+            owner_user_id: ownerUserId,
+            participant_email: (threadRow.participant_email as string | null) ?? null,
+            thread_type: (threadRow.thread_type as string | null) ?? null,
+            workspace_id: (threadRow.workspace_id as string | null) ?? null,
+            row_data: threadRow.row_data,
+          },
+          editScope,
+        )) !== null;
+      staffOwner = delegatedOwner && managedWorkspaceOwnerOf(editScope) === ownerUserId;
     } catch {
       delegatedOwner = false;
     }
@@ -278,6 +298,7 @@ export async function resolveInboxThreadReplyTarget(
       : String(threadRow.thread_type ?? ""),
     rowData,
     ...(delegatedOwner ? { coHost: true } : {}),
+    ...(staffOwner ? { staff: true } : {}),
   };
 }
 
@@ -371,7 +392,7 @@ export async function commitInboxThreadReply(
     ...(opts.houseId?.trim() ? { houseId: opts.houseId.trim() } : {}),
     ...(opts.houseLabel?.trim() ? { houseLabel: opts.houseLabel.trim() } : {}),
     ...(opts.senderUserId && target.scope === MANAGER_INBOX_SCOPE ? { senderUserId: opts.senderUserId } : {}),
-    ...(opts.senderUserId && target.scope === MANAGER_INBOX_SCOPE && target.coHost
+    ...(opts.senderUserId && target.scope === MANAGER_INBOX_SCOPE && target.coHost && !target.staff
       ? { senderDisplayName: coHostDisplayName(opts.fromName) }
       : {}),
     // The turn's own record: the thread keeps its first recordRef, a turn keeps the one it was composed from.

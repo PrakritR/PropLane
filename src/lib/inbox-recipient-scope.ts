@@ -59,11 +59,20 @@ export function recipientReachFromScope(scope: {
   untaggedOwnedVisible: boolean;
   grantedHousesByOwner: Map<string, Set<string>>;
   activeWorkspaceId: string | null;
+  staffWorkspaceOwners?: ReadonlyMap<string, string>;
 }): RecipientReach {
+  // PropLane Service staff reach every house of the managed workspace they run (the seat, not a per-house grant):
+  // the client owner's houses count as granted for the ACTIVE workspace only.
+  const grantedHousesByOwner = new Map(scope.grantedHousesByOwner);
+  const active = scope.activeWorkspaceId?.trim() ?? "";
+  const staffOwner = active ? scope.staffWorkspaceOwners?.get(active) : undefined;
+  if (staffOwner && scope.workspaceHouseIds) {
+    grantedHousesByOwner.set(staffOwner, new Set([...(grantedHousesByOwner.get(staffOwner) ?? []), ...scope.workspaceHouseIds]));
+  }
   return {
     workspaceHouseIds: scope.workspaceHouseIds,
     untaggedOk: scope.untaggedOwnedVisible,
-    grantedHousesByOwner: scope.grantedHousesByOwner,
+    grantedHousesByOwner,
     activeWorkspaceId: scope.activeWorkspaceId,
   };
 }
@@ -108,11 +117,14 @@ export async function managerMayMessageNewContacts(
     workspaceHouseIds: Set<string> | null;
     grantedHousesByOwner: Map<string, Set<string>>;
     activeWorkspaceId: string | null;
+    staffWorkspaceOwners?: ReadonlyMap<string, string>;
     closed?: boolean;
   },
 ): Promise<boolean> {
   const workspaceId = scope.activeWorkspaceId?.trim();
   if (!workspaceId || scope.closed || scope.level !== "edit") return false;
+  // Staff running the managed workspace (derived from their seat at edit level) may open a conversation in it.
+  if (scope.staffWorkspaceOwners?.has(workspaceId)) return true;
   try {
     const { data, error } = await db.from("portal_workspaces").select("owner_user_id").eq("id", workspaceId).maybeSingle();
     if (error || !data) return false;

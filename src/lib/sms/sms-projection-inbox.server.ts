@@ -104,6 +104,18 @@ function placedWorkspaceIdOf(summary: SmsProjectionSummary, context: Context): s
   return sharedLineWorkspaceIdOf(summary, context.sharedNumber) ?? context.serviceRouted.get(summary.id) ?? null;
 }
 
+/**
+ * The workspace the conversation is STAMPED with (`sms_projection_conversations.workspace_id`, read with the person key).
+ * A stamped conversation is visible only in that workspace - the same rule the stored email / in-app threads follow - so an
+ * account with several workspaces no longer sees a text about one workspace's line in the default one. Null before the key
+ * migration or when the read failed (the house / line rules then decide, as before).
+ */
+function stampedWorkspaceIdOf(summary: SmsProjectionSummary, context: Context): string | null {
+  // A placed conversation (shared PropLane line / routed to a service workspace) is placed by that alone.
+  if (placedWorkspaceIdOf(summary, context)) return null;
+  return context.personKeys.get(summary.id)?.workspaceId ?? null;
+}
+
 /** Conversation id -> the PropLane Service workspace it was routed to. Best effort: a failed read places nothing. */
 async function loadServiceRoutedWorkspaces(db: SupabaseClient, ids: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
@@ -361,7 +373,7 @@ export async function visibleManagerSmsProjectionIds(
     houseIds: context.houseIds.get(summary.id) ?? [],
     untaggedTurns: true,
     lines: summary.workLinePhone ? [summary.workLinePhone] : [],
-    sharedLineWorkspaceId: placedWorkspaceIdOf(summary, context),
+    sharedLineWorkspaceId: placedWorkspaceIdOf(summary, context), workspaceId: stampedWorkspaceIdOf(summary, context),
   })).map((summary) => summary.id));
 }
 
@@ -395,7 +407,7 @@ export async function fetchManagerSmsProjectionPage(db: SupabaseClient, viewerId
         cursor = { occurredAt: summary.lastEventAt!, id: summary.id };
         continue;
       }
-      if (conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds, untaggedTurns: true, lines: line ? [line] : [], sharedLineWorkspaceId: placedWorkspaceIdOf(summary, context) })) {
+      if (conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds, untaggedTurns: true, lines: line ? [line] : [], sharedLineWorkspaceId: placedWorkspaceIdOf(summary, context), workspaceId: stampedWorkspaceIdOf(summary, context) })) {
         visible.push(asResident(summary, context));
       }
       cursor = { occurredAt: summary.lastEventAt!, id: summary.id };
@@ -457,7 +469,7 @@ export async function viewerMayActOnSmsProjection(
     houseIds: context.houseIds.get(summary.id) ?? [],
     untaggedTurns: true,
     lines: line ? [line] : [],
-    sharedLineWorkspaceId: placedWorkspaceIdOf(summary, context),
+    sharedLineWorkspaceId: placedWorkspaceIdOf(summary, context), workspaceId: stampedWorkspaceIdOf(summary, context),
   });
 }
 
@@ -495,7 +507,7 @@ export async function fetchManagerSmsProjectionDetail(db: SupabaseClient, viewer
     if (!adminScopeAllows(adminScope, summary, context)) return null;
   } else if (scope) {
     const line = summary.workLinePhone;
-    if (!conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds: context.houseIds.get(summary.id) ?? [], untaggedTurns: true, lines: line ? [line] : [], sharedLineWorkspaceId: placedWorkspaceIdOf(summary, context) })) return null;
+    if (!conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds: context.houseIds.get(summary.id) ?? [], untaggedTurns: true, lines: line ? [line] : [], sharedLineWorkspaceId: placedWorkspaceIdOf(summary, context), workspaceId: stampedWorkspaceIdOf(summary, context) })) return null;
   }
   const page = await getSmsProjectionTurns(db, { ownerManagerUserId: summary.ownerManagerUserId, conversationId, before: before ?? undefined, limit: 50 });
   const outboundSids = [...new Set(page.turns.filter((turn) => turn.direction === "outbound" && isTwilioMessageSid(turn.sourceEventId)).map((turn) => turn.sourceEventId))];

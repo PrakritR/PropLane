@@ -2,6 +2,7 @@ import { stripSmsMarkdown } from "@/lib/agent/conversation-style-rules";
 import { randomUUID } from "node:crypto";
 import { mirrorManagerOwnOutboxToAssistantThread } from "@/lib/sms/manager-assistant-thread-mirror.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isAdminSurfaceSend } from "@/lib/sms/admin-surface.server";
 import { evaluateWorkspaceSendReadiness } from "@/lib/sms/workspace-send-readiness.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { readScopedSmsConsentState, readSmsSuppressionState } from "@/lib/sms-consent";
@@ -113,6 +114,8 @@ type SendPolicy =
       viaSharedLine?: boolean;
       /** Messaging Service the provider call goes out through (shared line only). */
       providerMessagingServiceSid?: string;
+      /** An admin-surface send on the admin line, held by a different account than the payer. */
+      adminLine?: boolean;
     }
   | { allowed: false; reason: string; deferUntil?: string };
 
@@ -147,9 +150,17 @@ async function loadSendPolicy(
     return { allowed: false, reason: "segment_limit_exceeded" };
   }
 
+  // An admin-initiated text (the operator or staff acting, PropLane's alerts to its people) leaves on the admin line.
+  const adminSurface = await isAdminSurfaceSend(db, {
+    managerUserId: ownerId,
+    actorUserId: input.actorUserId,
+    workspaceId: input.workspaceId ?? null,
+    counterpartyRole: input.counterpartyRole ?? null,
+  });
   const readiness = await evaluateWorkspaceSendReadiness({
     db,
     ownerUserId: ownerId,
+    adminSurface,
     propertyId: input.propertyId ?? null,
     workLineId: input.selectedWorkLineId ?? null,
     // A successful reservation belongs to this outbox attempt. Still read the
@@ -256,6 +267,7 @@ async function loadSendPolicy(
     ...(readiness.viaSharedLine
       ? { viaSharedLine: true, providerMessagingServiceSid: readiness.providerMessagingServiceSid }
       : {}),
+    ...(readiness.adminLine ? { adminLine: true } : {}),
   };
 }
 
@@ -1164,6 +1176,7 @@ export async function dispatchOwnerSmsOutbox(
         recipientUserId: row.recipient_user_id,
         recipientPhone: row.recipient_phone, recipientEmail: row.recipient_email, body: row.body,
         sendClass: row.send_class, purpose: row.purpose, conversationKey: row.conversation_key,
+        counterpartyRole: row.counterparty_role ?? undefined,
         propertyId: row.property_id, dedupeKey: row.dedupe_key, recipientTimezone: row.recipient_timezone,
         prospectTourReminderId: row.prospect_tour_reminder_id,
         prospectTourReminderSubmission: row.prospect_tour_reminder_id
@@ -1185,6 +1198,7 @@ export async function dispatchOwnerSmsOutbox(
       skipOptOutCheck: true,
       creditReservationKey: creditKey,
       expectedPayerUserId: row.manager_user_id,
+      ...(policy.adminLine ? { adminLine: true } : {}),
       ...(policy.viaSharedLine && policy.providerMessagingServiceSid
         ? { messagingServiceSid: policy.providerMessagingServiceSid }
         : {}),

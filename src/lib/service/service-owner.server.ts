@@ -37,7 +37,8 @@ function missingSchema(error: { code?: string } | null | undefined): boolean {
 }
 
 /** The stored service owner id, or null (no row, or the migration has not run here). Throws on a real read failure. */
-async function readStoredOwner(db: SupabaseClient): Promise<string | null> {
+/** The stored service owner; throws when the table is unreadable (a missing migration answers null). */
+export async function readStoredOwner(db: SupabaseClient): Promise<string | null> {
   const { data, error } = await db
     .from("platform_service_settings")
     .select("owner_user_id")

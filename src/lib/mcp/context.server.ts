@@ -23,9 +23,11 @@ import type { AgentWorkspaceScope } from "@/lib/agent/manager-workspace-scope";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { findLiveApiKey, touchApiKey, type ApiKeyScope } from "./api-keys.server";
 import type { ApiKeyTransport } from "./capabilities";
-import { findLiveMcpAccessToken, touchMcpAccessToken } from "./oauth.server";
+import { findLiveMcpAccessToken, touchMcpAccessToken, type McpPortal } from "./oauth.server";
 import { API_KEY_TOOL_NAMES } from "./capabilities";
-import { resolveActiveWorkspace } from "@/lib/workspaces/active.server";
+import { withholdManagerSurface } from "@/lib/property-owner/access.server";
+import { resolveManagerSmsAccess } from "@/lib/sms/manager-sms-access.server";
+import { resolveResidentAgentContextForUser, type ResidentAgentContext } from "@/lib/tools/resident-context";
 import { loadWorkspaces } from "@/lib/workspaces/server";
 
 /**
@@ -47,10 +49,13 @@ async function resolveApiKeyWorkspaceScope(
   const id = (workspaceId ?? "").trim();
   if (!id) return null;
   try {
-    const [active, workspaces] = await Promise.all([
-      resolveActiveWorkspace(db, userId, id),
-      loadWorkspaces(db, userId),
-    ]);
+    // STRICT, unlike `resolveActiveWorkspace`, which falls back to the viewer's own default when a selection no
+    // longer resolves. A connection approved for a staffed PropLane Service workspace whose seat was since
+    // revoked must lose that workspace, not silently land on the holder's own. `loadWorkspaces` is the list the
+    // service shell and `resolveAgentContext` read, so membership, owner of record and house scope are theirs.
+    const workspaces = await loadWorkspaces(db, userId);
+    const active = workspaces.find((w) => w.id === id);
+    if (!active) return null;
     return {
       id: active.id,
       name: active.name,
@@ -83,9 +88,12 @@ export function bearerTokenFrom(req: Request): string | null {
   return token ? token : null;
 }
 
+type LiveOauthToken = NonNullable<Awaited<ReturnType<typeof findLiveMcpAccessToken>>>;
+
 export async function resolveApiKeyContext(
   req: Request,
   expectedTransport: ApiKeyTransport = "mcp",
+  preloadedOauthToken?: LiveOauthToken | null,
 ): Promise<ResolveApiKeyResult> {
   const token = bearerTokenFrom(req);
   if (!token) {
@@ -94,13 +102,15 @@ export async function resolveApiKeyContext(
 
   const db = createSupabaseServiceRoleClient();
   const key = await findLiveApiKey(db, token);
-  const oauthToken = !key && expectedTransport === "mcp" ? await findLiveMcpAccessToken(db, token) : null;
+  const oauthToken = key || expectedTransport !== "mcp" ? null : preloadedOauthToken !== undefined ? preloadedOauthToken : await findLiveMcpAccessToken(db, token);
   // Unknown, revoked and expired are one indistinguishable answer on purpose.
   if (!key && !oauthToken) return { ok: false, status: 401, error: "Invalid or revoked API key." };
   // The row is future-proofed for resident/vendor credentials, but this
   // resolver exposes only the manager registry. Never let a future portal key
   // silently inherit manager tools just because it shares a table.
   if (key && key.portal !== "manager") return { ok: false, status: 401, error: "Invalid or revoked API key." };
+  // The same wall for an OAuth connection: a resident connection's token is never a manager credential.
+  if (oauthToken && oauthToken.portal !== "manager") return { ok: false, status: 401, error: "Invalid or revoked API key." };
   const keyTransport = oauthToken ? "mcp" : key!.transport ?? "mcp";
   if (keyTransport !== expectedTransport) {
     return {
@@ -119,10 +129,18 @@ export async function resolveApiKeyContext(
   if (profileError || roleError) return { ok: false, status: 403, error: "This account no longer has manager access." };
   const roles = (roleRows ?? []).map((r) => String(r.role).toLowerCase());
   const isAdmin = roles.includes("admin");
-  const isManagerOrOwner = roles.includes("manager");
+  const isManagerOrOwner = roles.includes("manager") || roles.includes("owner");
   if (!isAdmin && !isManagerOrOwner) {
     return { ok: false, status: 403, error: "This account no longer has manager access." };
   }
+  // Same two decisions `resolveAgentContext` makes, so a bearer connection reaches exactly what the signed-in
+  // seat reaches: a Property owner's seat is not the manager assistant, and a co-manager / PropLane Service
+  // staff seat widens through `managerSmsAccess` (without it every tool filters on `landlordId` alone and a
+  // pure seat holder reads an empty workspace).
+  if (!isAdmin && (await withholdManagerSurface(db, userId))) {
+    return { ok: false, status: 403, error: "This account no longer has manager access." };
+  }
+  const managerSmsAccess = (await resolveManagerSmsAccess(db, { actorUserId: userId, workNumberOwnerId: userId })) ?? undefined;
 
   // Every tool call made through this credential must land inside ONE
   // workspace, resolved from what the key/connection was scoped to at mint
@@ -154,6 +172,37 @@ export async function resolveApiKeyContext(
       isAdmin,
       workspace,
       db,
+      managerSmsAccess,
     },
   };
 }
+
+export type McpBearerContext =
+  | ({ ok: true; portal: "manager" } & ApiKeyContext)
+  | { ok: true; portal: "resident"; keyId: string; ctx: ResidentAgentContext }
+  | { ok: false; status: 401 | 403; error: string };
+
+/**
+ * The one resolver `/api/mcp` calls. A connection is bound at consent to exactly one portal, and that binding
+ * (`mcp_oauth_tokens.portal`, never the request) picks the context type: a manager connection goes through
+ * `resolveApiKeyContext` (the manager `AgentContext`), a resident connection through
+ * `resolveResidentAgentContextForUser` (the resident portal's own context, re-derived every request, scoped by
+ * `resident_user_id`). The two never share a branch and the caller dispatches on `portal`.
+ */
+export async function resolveMcpBearerContext(req: Request): Promise<McpBearerContext> {
+  const token = bearerTokenFrom(req);
+  if (!token) return { ok: false, status: 401, error: "Missing API key. Send an Authorization: Bearer header." };
+  const db = createSupabaseServiceRoleClient();
+  // `findLiveApiKey` tokens never carry the OAuth prefix, so this is a prefix check, not a query, for a key.
+  const oauth = await findLiveMcpAccessToken(db, token);
+  if (oauth?.portal === "resident") {
+    const ctx = await resolveResidentAgentContextForUser(oauth.userId);
+    if (!ctx) return { ok: false, status: 403, error: "This account no longer has a resident portal." };
+    touchMcpAccessToken(db, oauth);
+    return { ok: true, portal: "resident", keyId: `oauth:${oauth.id}`, ctx };
+  }
+  const manager = await resolveApiKeyContext(req, "mcp", oauth);
+  return manager.ok ? { ...manager, portal: "manager" } : manager;
+}
+
+export type { McpPortal };

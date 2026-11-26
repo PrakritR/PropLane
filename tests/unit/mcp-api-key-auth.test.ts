@@ -20,6 +20,9 @@ vi.mock("@/lib/auth/admin-role", () => ({ userHoldsAdminRole }));
 // stored `workspace_id` through these two helpers instead of a cookie.
 vi.mock("@/lib/workspaces/active.server", () => ({ resolveActiveWorkspace }));
 vi.mock("@/lib/workspaces/server", () => ({ loadWorkspaces }));
+vi.mock("@/lib/sms/manager-sms-access.server", () => ({ resolveManagerSmsAccess: vi.fn(async () => null) }));
+vi.mock("@/lib/property-owner/access.server", () => ({ withholdManagerSurface: vi.fn(async () => false) }));
+vi.mock("@/lib/tools/resident-context", () => ({ resolveResidentAgentContextForUser: vi.fn() }));
 
 import { hashApiKeyToken, mintApiKey, normalizeScopes } from "@/lib/mcp/api-keys.server";
 import { bearerTokenFrom, resolveApiKeyContext } from "@/lib/mcp/context.server";
@@ -219,6 +222,6 @@ describe("MCP API-key credential resolution", () => {
       new Request("https://example.test", { headers: { Authorization: "Bearer pl_live_x" } }),
     );
     expect(result).toMatchObject({ ok: true, ctx: { workspace: { id: "ws_specific" } } });
-    expect(resolveActiveWorkspace).toHaveBeenCalledWith(expect.anything(), "manager_1", "ws_specific");
+    expect(loadWorkspaces).toHaveBeenCalledWith(expect.anything(), "manager_1");
   });
 });

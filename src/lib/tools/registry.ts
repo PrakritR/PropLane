@@ -25,6 +25,7 @@
 import type { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type { AgentContext } from "./context";
+import { invalidateTurnCache } from "./turn-cache";
 
 export type ToolKind = "read" | "write";
 
@@ -259,6 +260,9 @@ export async function runReadTool<Ctx>(
     return { ok: true, data };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Tool execution failed." };
+  } finally {
+    // An inline (allow-listed) write may have changed rows this context already read.
+    if (tool.kind === "write" && ctx && typeof ctx === "object") invalidateTurnCache(ctx);
   }
 }
 
@@ -330,5 +334,8 @@ export async function executeWriteTool<Ctx>(
   } catch (e) {
     console.error(`[tools] execute ${name} failed:`, e);
     return { ok: false, error: e instanceof Error ? e.message : "The action failed to execute." };
+  } finally {
+    // A write may have changed rows this context already read: the next read in it starts fresh.
+    if (ctx && typeof ctx === "object") invalidateTurnCache(ctx);
   }
 }

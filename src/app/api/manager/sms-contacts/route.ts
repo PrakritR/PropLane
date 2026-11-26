@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getPortalAccessContext, hasAdminRole, hasRole } from "@/lib/auth/portal-access";
 import {
   fetchManagerSmsConversations,
-  resolveSmsScopeManagerIds,
+  resolveSmsActableOwnerIds,
 } from "@/lib/manager-sms-messages.server";
 import {
   deleteManagerSmsContactName,
@@ -132,7 +132,7 @@ export async function POST(req: Request) {
   // Co-managers may rename only when they have Communication edit on the owner.
   for (const target of targets) {
     if (target.managerUserId === auth.user.id) continue;
-    const editScope = await resolveSmsScopeManagerIds(auth.db, auth.user.id, "edit");
+    const editScope = await resolveSmsActableOwnerIds(auth.db, auth.user.id, "edit");
     if (!editScope.includes(target.managerUserId)) {
       return NextResponse.json({ error: "You do not have edit access to this conversation." }, { status: 403 });
     }
@@ -210,7 +210,7 @@ export async function PUT(req: Request) {
   if (!match?.phone) return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
   const ownerManagerUserId = String(match.ownerManagerUserId ?? auth.user.id).trim() || auth.user.id;
   if (ownerManagerUserId !== auth.user.id) {
-    const editScope = await resolveSmsScopeManagerIds(auth.db, auth.user.id, "edit");
+    const editScope = await resolveSmsActableOwnerIds(auth.db, auth.user.id, "edit");
     if (!editScope.includes(ownerManagerUserId)) {
       return NextResponse.json({ error: "You do not have edit access to this conversation." }, { status: 403 });
     }
@@ -269,7 +269,7 @@ export async function DELETE(req: Request) {
   if (!match?.phone) return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
   const ownerManagerUserId = String(match.ownerManagerUserId ?? auth.user.id).trim() || auth.user.id;
   if (ownerManagerUserId !== auth.user.id) {
-    const editScope = await resolveSmsScopeManagerIds(auth.db, auth.user.id, "edit");
+    const editScope = await resolveSmsActableOwnerIds(auth.db, auth.user.id, "edit");
     if (!editScope.includes(ownerManagerUserId)) {
       return NextResponse.json({ error: "You do not have edit access to this conversation." }, { status: 403 });
     }

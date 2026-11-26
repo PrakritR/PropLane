@@ -22,6 +22,12 @@ export type FastPathFacts = {
   houseInfo: HouseInfoV1 | null;
   /** Approved Q&A for this house / the team, audience already filtered. */
   knowledge: readonly FastPathKnowledge[];
+  /**
+   * The resident's OWN room, for a door-code question. `roomDoorCode` is non-null only once the check-in reveal has
+   * opened (the same decision the portal makes). `roomCodesExist` says the house has per-room codes at all, so a
+   * missing own-room code is never answered with the front door alone.
+   */
+  own?: { houseLabel: string; roomLabel: string; roomDoorCode: string | null; roomCodesExist: boolean };
 };
 
 export type FastPathTopic =
@@ -56,7 +62,7 @@ function value(info: HouseInfoV1, section: HouseInfoSectionId, keys: readonly st
 }
 
 /** One fact line for a topic, or null when the facts on file cannot answer it. */
-function factFor(topic: Exclude<FastPathTopic, "knowledge">, info: HouseInfoV1, text: string): string | null {
+function factFor(topic: Exclude<FastPathTopic, "knowledge">, info: HouseInfoV1, text: string, own?: FastPathFacts["own"]): string | null {
   switch (topic) {
     case "wifi": {
       const network = value(info, "wifi", ["network", "ssid"]);
@@ -70,7 +76,10 @@ function factFor(topic: Exclude<FastPathTopic, "knowledge">, info: HouseInfoV1, 
       const door = value(info, "access", ["doorCode"]);
       const gate = value(info, "access", ["gateCode"]);
       const key = value(info, "access", ["keyPickup"]);
-      const parts = [door && `Door code ${door}`, gate && `gate ${gate}`].filter(Boolean) as string[];
+      // A house with per-room codes: the resident's own room code goes with the front door, or the agent answers.
+      if (own?.roomCodesExist && !own.roomDoorCode) return null;
+      const roomPart = own?.roomDoorCode ? `${own.roomLabel ? `your room (${own.roomLabel}) code` : "your room code"} ${own.roomDoorCode}` : "";
+      const parts = [door && `Door code ${door}`, gate && `gate ${gate}`, roomPart].filter(Boolean) as string[];
       if (parts.length) return `${parts.join(", ")}.`;
       return key ? `${key.replace(/[.!]+$/, "")}.` : null;
     }
@@ -152,6 +161,27 @@ function knowledgeAnswer(text: string, entries: readonly FastPathKnowledge[]): s
   return best?.answer || null;
 }
 
+/** Whether the text asks about a room or house other than the resident's own. */
+function namesOtherPlace(text: string, own?: FastPathFacts["own"]): boolean {
+  const room = text.match(/\b(?:room|rm|unit)\s*#?\s*([a-z0-9]+)\b/i);
+  if (room) {
+    const mine = (own?.roomLabel ?? "").toLowerCase();
+    const asked = room[1]!.toLowerCase();
+    if (!mine || !mine.split(/[^a-z0-9]+/).includes(asked)) return true;
+  }
+  const house = (own?.houseLabel ?? "").toLowerCase();
+  for (const token of text.toLowerCase().match(/\b\d{3,5}[a-z]?\b/g) ?? []) {
+    if (!house.includes(token)) return true;
+  }
+  if (/\b(?:other|another|different|next)\s+(?:house|home|place|property)\b/i.test(text)) return true;
+  return false;
+}
+
+/** True when the text asks for a door or gate code. */
+export function asksDoorCode(text: string): boolean {
+  return TOPICS.some((t) => t.topic === "door_code" && t.pattern.test(text));
+}
+
 /** The fast answer for `text`, or null to let the agent run. */
 export function matchResidentFastPath(text: string, facts: FastPathFacts): FastPathAnswer | null {
   const body = String(text ?? "").trim();
@@ -162,13 +192,15 @@ export function matchResidentFastPath(text: string, facts: FastPathFacts): FastP
   if (matchedIntents(body).some((intent) => intent !== "faq")) return null;
 
   const info = facts.houseInfo;
+  // A question about another room or another house is never answered with this resident's own codes.
+  if (namesOtherPlace(body, facts.own)) return null;
   const matched = TOPICS.filter((t) => t.pattern.test(body)).map((t) => t.topic);
   if (matched.length > 0) {
     // A topic needs its fact. A door code with no code on file is the agent's to escalate, not ours to guess.
     if (!info) return null;
     const lines: string[] = [];
     for (const topic of matched) {
-      const line = factFor(topic, info, body);
+      const line = factFor(topic, info, body, facts.own);
       if (!line) return null;
       lines.push(line);
     }

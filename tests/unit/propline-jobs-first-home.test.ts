@@ -75,12 +75,15 @@ describe("the walkthrough", () => {
 
     photos.mockResolvedValueOnce({ urls: ["https://x.supabase.co/storage/v1/object/public/listing-photos/u/1.jpg"], mediaIds: ["m1"] });
     const done = reply(await text("DONE"))!;
-    expect(done).toContain("saved as a draft with 1 photo");
+    // With an address, rent, a date and a real photo it now OFFERS publishing; it never posts without the PUBLISH text.
+    expect(done).toBe(FIRST_HOME_COPY.askPublish(1));
     expect(done).toContain("not public yet");
-    expect(done).toContain("https://proplane.ai/auth/confirm?token_hash=H");
     expect(db.tables.manager_property_records).toHaveLength(1);
     expect(db.tables.manager_property_records![0]!.status).toBe("draft");
+    expect(db.tables.sms_first_home_sessions).toHaveLength(1);
+    expect(reply(await text("LATER"))).toContain("https://proplane.ai/portal/properties");
     expect(db.tables.sms_first_home_sessions).toHaveLength(0);
+    expect(db.tables.manager_property_records![0]!.status).toBe("draft");
   });
 
   it("asks again on an answer it cannot read, one question at a time", async () => {
@@ -123,6 +126,7 @@ describe("the walkthrough", () => {
     await text("now");
     await text("skip");
     (db.tables.manager_property_records![0] as Row).status = "live";
+    photos.mockResolvedValueOnce({ urls: ["https://x.supabase.co/storage/v1/object/public/listing-photos/u/1.jpg"], mediaIds: [] });
     expect(reply(await text("DONE"))).toBe(FIRST_HOME_COPY.unavailable);
     expect(db.tables.manager_property_records![0]!.status).toBe("live");
   });

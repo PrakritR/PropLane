@@ -14,6 +14,12 @@ const ACCESS_TOKEN_TTL_MS = 60 * 60_000;
 
 export const MCP_OAUTH_SCOPE = "mcp:tools";
 
+/** Which registry a connection reaches. Chosen once at consent; never changes and never crosses. */
+export type McpPortal = "manager" | "resident";
+export function normalizeMcpPortal(value: unknown): McpPortal {
+  return value === "resident" ? "resident" : "manager";
+}
+
 type ApprovalPayload = { userId: string; clientId: string; redirectUri: string; codeChallenge: string; scope: string; state: string; expiresAt: number };
 
 export function sha256(value: string): string {
@@ -122,14 +128,15 @@ export async function createMcpAuthorizationCode(
     redirectUri: string;
     codeChallenge: string;
     scopes: string[];
-    /** The manager's active workspace AT APPROVAL TIME (W001) — the one moment this flow has a real browser session/cookie to read it from. */
-    workspaceId: string;
+    /** The workspace picked at consent (W001), re-derived server-side from membership. Null only for a resident connection. */
+    workspaceId: string | null;
+    portal?: McpPortal;
   },
 ): Promise<string | null> {
   const code = randomToken("pl_mcp_code_");
   const { error } = await db.from("mcp_oauth_authorization_codes").insert({
     code_sha256: sha256(code), user_id: input.userId, client_id: input.clientId, redirect_uri: input.redirectUri,
-    code_challenge: input.codeChallenge, scopes: input.scopes, workspace_id: input.workspaceId,
+    code_challenge: input.codeChallenge, scopes: input.scopes, workspace_id: input.workspaceId, portal: input.portal ?? "manager",
     expires_at: new Date(Date.now() + AUTH_CODE_TTL_MS).toISOString(),
   });
   return error ? null : code;
@@ -142,25 +149,27 @@ function pkceMatches(verifier: string, challenge: string): boolean {
 
 export async function exchangeMcpAuthorizationCode(db: Db, input: { code: string; clientId: string; redirectUri: string; codeVerifier: string }) {
   const codeHash = sha256(input.code);
-  const { data } = await db.from("mcp_oauth_authorization_codes").select("id, user_id, client_id, redirect_uri, code_challenge, scopes, workspace_id, expires_at, claimed_at").eq("code_sha256", codeHash).maybeSingle();
+  const { data } = await db.from("mcp_oauth_authorization_codes").select("id, user_id, client_id, redirect_uri, code_challenge, scopes, workspace_id, portal, expires_at, claimed_at").eq("code_sha256", codeHash).maybeSingle();
   if (!data || data.claimed_at || String(data.client_id) !== input.clientId || String(data.redirect_uri) !== input.redirectUri || new Date(String(data.expires_at)).getTime() <= Date.now() || !pkceMatches(input.codeVerifier, String(data.code_challenge))) return null;
-  // A code minted before the workspace column existed has nothing to carry
+  // A manager code minted before the workspace column existed has nothing to carry
   // forward. Refuse rather than mint a token with no workspace scope (W001) —
   // the client simply restarts the OAuth flow and gets a fresh, scoped code.
+  // A resident connection has no workspace: its scope is the signed-in subject.
+  const portal = normalizeMcpPortal(data.portal);
   const workspaceId = String(data.workspace_id ?? "").trim();
-  if (!workspaceId) return null;
+  if (portal === "manager" && !workspaceId) return null;
   const { data: claimed } = await db.from("mcp_oauth_authorization_codes").update({ claimed_at: new Date().toISOString() }).eq("id", data.id).is("claimed_at", null).select("id").maybeSingle();
   if (!claimed) return null;
-  return createMcpAccessTokens(db, { userId: String(data.user_id), clientId: input.clientId, scopes: Array.isArray(data.scopes) ? data.scopes.map(String) : [MCP_OAUTH_SCOPE], workspaceId });
+  return createMcpAccessTokens(db, { userId: String(data.user_id), clientId: input.clientId, scopes: Array.isArray(data.scopes) ? data.scopes.map(String) : [MCP_OAUTH_SCOPE], workspaceId: workspaceId || null, portal });
 }
 
-async function createMcpAccessTokens(db: Db, input: { userId: string; clientId: string; scopes: string[]; workspaceId: string }) {
+async function createMcpAccessTokens(db: Db, input: { userId: string; clientId: string; scopes: string[]; workspaceId: string | null; portal: McpPortal }) {
   const accessToken = randomToken(ACCESS_PREFIX);
   const refreshToken = randomToken(REFRESH_PREFIX);
   const expiresAt = new Date(Date.now() + ACCESS_TOKEN_TTL_MS).toISOString();
   const { data, error } = await db.from("mcp_oauth_tokens").insert({
     access_token_sha256: sha256(accessToken), refresh_token_sha256: sha256(refreshToken), user_id: input.userId,
-    client_id: input.clientId, scopes: input.scopes, workspace_id: input.workspaceId, expires_at: expiresAt,
+    client_id: input.clientId, scopes: input.scopes, workspace_id: input.workspaceId, portal: input.portal, expires_at: expiresAt,
   }).select("id").single();
   if (error || !data) return null;
   return { accessToken, refreshToken, expiresAt, scopes: input.scopes };
@@ -168,21 +177,25 @@ async function createMcpAccessTokens(db: Db, input: { userId: string; clientId: 
 
 export async function refreshMcpAccessToken(db: Db, input: { refreshToken: string; clientId: string }) {
   const hash = sha256(input.refreshToken);
-  const { data } = await db.from("mcp_oauth_tokens").select("id, user_id, client_id, scopes, workspace_id, revoked_at").eq("refresh_token_sha256", hash).maybeSingle();
+  const { data } = await db.from("mcp_oauth_tokens").select("id, user_id, client_id, scopes, workspace_id, portal, revoked_at").eq("refresh_token_sha256", hash).maybeSingle();
   if (!data || data.revoked_at || String(data.client_id) !== input.clientId) return null;
   // A refresh preserves the workspace the connection was originally approved
   // for — it never re-derives it from a browser session, since a refresh call
   // has none. A token minted before the workspace column existed has nothing
   // to carry forward; refuse rather than mint a wider replacement (W001).
+  // The portal rides along unchanged: a refresh can never turn a resident
+  // connection into a manager one or back.
+  const portal = normalizeMcpPortal(data.portal);
   const workspaceId = String(data.workspace_id ?? "").trim();
-  if (!workspaceId) return null;
+  if (portal === "manager" && !workspaceId) return null;
   const { data: revoked } = await db.from("mcp_oauth_tokens").update({ revoked_at: new Date().toISOString() }).eq("id", data.id).is("revoked_at", null).select("id").maybeSingle();
   if (!revoked) return null;
-  return createMcpAccessTokens(db, { userId: String(data.user_id), clientId: input.clientId, scopes: Array.isArray(data.scopes) ? data.scopes.map(String) : [MCP_OAUTH_SCOPE], workspaceId });
+  return createMcpAccessTokens(db, { userId: String(data.user_id), clientId: input.clientId, scopes: Array.isArray(data.scopes) ? data.scopes.map(String) : [MCP_OAUTH_SCOPE], workspaceId: workspaceId || null, portal });
 }
 
 export type McpOAuthConnection = {
   clientId: string;
+  portal: McpPortal;
   clientName: string | null;
   createdAt: string;
   lastUsedAt: string | null;
@@ -193,7 +206,7 @@ export type McpOAuthConnection = {
 export async function listMcpOAuthConnections(db: Db, userId: string): Promise<McpOAuthConnection[]> {
   const { data: tokenRows, error } = await db
     .from("mcp_oauth_tokens")
-    .select("client_id, created_at, last_used_at, expires_at")
+    .select("client_id, portal, created_at, last_used_at, expires_at")
     .eq("user_id", userId)
     .is("revoked_at", null)
     .order("created_at", { ascending: false });
@@ -211,6 +224,7 @@ export async function listMcpOAuthConnections(db: Db, userId: string): Promise<M
     const row = newestByClient.get(clientId)!;
     return {
       clientId,
+      portal: normalizeMcpPortal(row.portal),
       clientName: names.get(clientId) ?? null,
       createdAt: String(row.created_at ?? ""),
       lastUsedAt: row.last_used_at ? String(row.last_used_at) : null,
@@ -243,10 +257,10 @@ export async function revokeMcpOAuthToken(db: Db, input: { token: string; client
     .is("revoked_at", null);
 }
 
-export async function findLiveMcpAccessToken(db: Db, token: string): Promise<{ id: string; userId: string; scopes: string[]; workspaceId: string | null; lastUsedAt: string | null } | null> {
+export async function findLiveMcpAccessToken(db: Db, token: string): Promise<{ id: string; userId: string; scopes: string[]; workspaceId: string | null; portal: McpPortal; lastUsedAt: string | null } | null> {
   if (!token.startsWith(ACCESS_PREFIX)) return null;
   const hash = sha256(token);
-  const { data } = await db.from("mcp_oauth_tokens").select("id, user_id, access_token_sha256, scopes, workspace_id, expires_at, revoked_at, last_used_at").eq("access_token_sha256", hash).maybeSingle();
+  const { data } = await db.from("mcp_oauth_tokens").select("id, user_id, access_token_sha256, scopes, workspace_id, portal, expires_at, revoked_at, last_used_at").eq("access_token_sha256", hash).maybeSingle();
   if (!data || data.revoked_at || new Date(String(data.expires_at)).getTime() <= Date.now()) return null;
   const stored = String(data.access_token_sha256 ?? "");
   if (stored.length !== hash.length || !timingSafeEqual(Buffer.from(stored), Buffer.from(hash))) return null;
@@ -255,6 +269,7 @@ export async function findLiveMcpAccessToken(db: Db, token: string): Promise<{ i
     userId: String(data.user_id),
     scopes: Array.isArray(data.scopes) ? data.scopes.map(String) : [],
     workspaceId: data.workspace_id ? String(data.workspace_id) : null,
+    portal: normalizeMcpPortal(data.portal),
     lastUsedAt: data.last_used_at ? String(data.last_used_at) : null,
   };
 }

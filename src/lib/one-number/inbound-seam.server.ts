@@ -13,7 +13,7 @@ import { readServiceOwnerOrThrow } from "@/lib/one-number/service-line.server";
 import { userDefaultWorkspaceId } from "@/lib/communication/manager-assistant-workspace.server";
 import { holdsAdminRole, recognizeServiceManagerInbound } from "@/lib/sms/service-manager-inbound.server";
 import { groupPreferenceCommand } from "@/lib/house-groups/ra-policy";
-import { handleFirstHomeText } from "@/lib/one-number/signup/first-home.server";
+import { handleFirstHomeTextSafely } from "@/lib/one-number/signup/first-home.server";
 import { runDemoTurn } from "@/lib/one-number/demo/run-demo-turn.server";
 import { isDemoStartText } from "@/lib/one-number/demo/script";
 import { hasLiveDemo } from "@/lib/one-number/demo/store.server";
@@ -308,7 +308,7 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
   // texts are that walkthrough's until it ends. One primary-key read per manager text; only a phone with a live walkthrough
   // whose account owns that verified phone is ever handled.
   if (!person) {
-    const firstHome = await handleFirstHomeText(db, { phoneE164: input.fromPhone, body: input.body, messageSid: input.messageSid, hasMedia: input.mediaCount > 0 }).catch(() => ({ handled: false as const }));
+    const firstHome = await handleFirstHomeTextSafely(db, { phoneE164: input.fromPhone, body: input.body, messageSid: input.messageSid, hasMedia: input.mediaCount > 0 });
     if (firstHome.handled) return { kind: "handled", twiml: firstHome.reply };
   }
   // A manager can run the sandbox DEMO from their own phone. While it lasts their texts are the demo's,

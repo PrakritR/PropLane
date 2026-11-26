@@ -151,9 +151,15 @@ async function buildStatus(
   // failures draw nothing managed here; the send path stays fail-closed on its own.
   const managedIds = await loadManagedWorkspaceIds(db, [workspace.id, ...(all?.numbers ?? []).map((n) => n.workspaceId)]);
   const managedActive = managedIds?.has(workspace.id) === true;
+  // A managed workspace on its OWN registered number (Ambika's 814) shows that number as its own line.
+  let managedOwnLine = false;
   if (managedActive) {
-    const serviceLine = await resolveServiceLine(db).catch(() => null);
-    sharedLine = serviceLine?.ok ? { number: serviceLine.phoneNumber, onSharedLine: true } : null;
+    const serviceLine = await resolveServiceLine(db, "phone_number", workspace.id).catch(() => null);
+    managedOwnLine = Boolean(serviceLine?.ok && serviceLine.kind === "owner_number" && serviceLine.source === "workspace");
+    // Its own registered number (Ambika's 814) is NOT the shared line: onSharedLine false with that number shown.
+    sharedLine = serviceLine?.ok
+      ? { number: serviceLine.phoneNumber, onSharedLine: !(serviceLine.kind === "owner_number" && serviceLine.source === "workspace") }
+      : null;
   }
   // (the add-on facts are filled in below, once the entitlement has been read)
 
@@ -202,8 +208,8 @@ async function buildStatus(
         quarantineReason: rawNumber.quarantine_reason ?? null,
       }
     : null;
-  // A managed workspace's own old number is no longer its line, so Settings does not show it.
-  const number = normalizedNumber && !managedActive
+  // A managed workspace's old number (not its line) is not shown; its own registered line is.
+  const number = normalizedNumber && (!managedActive || managedOwnLine)
     ? {
         state: normalizedNumber.provisionState,
         registrationState: effectiveRegistrationState(normalizedNumber),
@@ -399,9 +405,9 @@ async function buildStatus(
       isDefault: n.isDefault,
       ownerName: n.ownerName,
       // A managed workspace lists no number of its own: its line is the PropLane line (`sharedLine`).
-      phoneNumber: !managedIds?.has(n.workspaceId) && normalizeProvisionState(n.provisionState) === "active" ? n.phoneNumber : null,
-      provisionState: managedIds?.has(n.workspaceId) ? null : n.provisionState,
-      numbers: n.owned ? (managedIds?.has(n.workspaceId) ? [] : heldByWorkspace.get(n.workspaceId) ?? []) : undefined,
+      phoneNumber: (!managedIds?.has(n.workspaceId) || (managedOwnLine && n.workspaceId === workspace.id)) && normalizeProvisionState(n.provisionState) === "active" ? n.phoneNumber : null,
+      provisionState: managedIds?.has(n.workspaceId) && !(managedOwnLine && n.workspaceId === workspace.id) ? null : n.provisionState,
+      numbers: n.owned ? (managedIds?.has(n.workspaceId) && !(managedOwnLine && n.workspaceId === workspace.id) ? [] : heldByWorkspace.get(n.workspaceId) ?? []) : undefined,
     })),
     provisioningAvailable: provisioningEnvEnabled && modeAllowsManager,
     sendingAvailable: sendEnvEnabled && sendModeAllowed,

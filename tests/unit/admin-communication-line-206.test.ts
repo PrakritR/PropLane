@@ -74,6 +74,25 @@ describe("the PropLane number card", () => {
     expect(payload.workNumber).not.toBe("+18146793694");
   });
 
+  it("shows the managed operator's registered 814 as the admin line; the 206 stays the fallback and a self-serve number is never it", async () => {
+    const row = { provision_state: "active", registration_state: "approved", released_at: null, requested_at: "2026-08-01T00:00:00.000Z" };
+    const fake = world({
+      portal_workspaces: [
+        { id: "ws-ambika", name: "1. Ambika", owner_user_id: "mgr-ambika", is_default: true, is_service: true },
+        { id: "ws-self", name: "Self", owner_user_id: "mgr-self", is_default: true, is_service: false },
+      ],
+      manager_sms_numbers: [
+        { id: "n-814", manager_user_id: "mgr-ambika", workspace_id: "ws-ambika", phone_number: "+18146793694", ...row },
+        { id: "n-self", manager_user_id: "mgr-self", workspace_id: "ws-self", phone_number: "+15025550142", ...row },
+      ],
+    });
+    const payload = await fetchAdminSmsConversations(fake.db);
+    expect(payload.workNumber).toBe("+18146793694");
+    // No registered operator number: the PropLane line (206) is shown, history on the 206 stays listed.
+    const noOperator = await fetchAdminSmsConversations(world({ portal_workspaces: [{ id: "ws-self", name: "Self", owner_user_id: "mgr-self", is_default: true, is_service: false }], manager_sms_numbers: [] }).db);
+    expect(noOperator.workNumber).toBe(LINE);
+  });
+
   it("shows no number when the line cannot be resolved, never the old one", async () => {
     const fake = world({ sms_runtime_config: [{ singleton: true, line_mode: "per_workspace" }] });
     const payload = await fetchAdminSmsConversations(fake.db);

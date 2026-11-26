@@ -40,6 +40,15 @@ vi.mock("@/lib/tools/context", async (importOriginal) => ({
     db: { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { full_name: "Ambika Mago" } }) }) }) }) },
   }),
 }));
+vi.mock("@/lib/mcp/consent.server", () => ({
+  loadMcpConsent: async () => ({
+    userId: "u1",
+    email: "ambika@example.test",
+    db: {},
+    options: [{ value: "ws:w1", kind: "workspace", workspaceId: "w1", label: "Seattle Homes", service: false }],
+    defaultValue: "ws:w1",
+  }),
+}));
 vi.mock("@/lib/mcp/oauth.server", () => ({
   MCP_OAUTH_SCOPE: "mcp:tools",
   getMcpOAuthClient: async () => ({ clientId: "c1", clientName: "Claude", redirectUris: ["https://claude.ai/api/mcp/auth_callback"] }),

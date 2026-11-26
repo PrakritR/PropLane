@@ -1,5 +1,5 @@
 {
-  "sha256": "d2f25c0db596ffc8f6354f0ba23d89c44ccdda492ab6a1795c028188f7ca5cde",
+  "sha256": "6d43341b763f9d2be9d58d2b24afba1cb062a3995918e5a992ae9238423cf892",
   "selection": "SQL migrations containing account_recovery_, resident_move_in_forms, CREATE/DROP/ALTER TABLE and admin_team_atomic_revoke; plus purge manifest and recovery policy",
   "missing_dev_catalog": [
     "applicant_preapply_checks",
@@ -13,8 +13,8 @@
   ],
   "reviewed_change": {
     "date": "2026-11-26",
-    "reason": "Merge release 86b1c2f6c with stay extensions: preserve released SMS reply-owner detachment; classify extension owner/resident deletion and actor detachment; include extension and property-scope migrations. The mover classification now includes amendments as house-scoped operational rows, with a follow-up migration applying that function to existing databases and deriving amendment property_id from its lease. No recovery-hook coverage claim or live workspace move is made; existing catalog gaps remain unchanged.",
-    "selected_source_paths": 363,
-    "previous_sha256": "872363338fb88cfd4abcd0c2b71630d03b6b9c1c1e1adc1a46936224ba338795"
+    "reason": "Merge round B 33685f9e5 with stay extensions: preserve MCP portal-scoping and managed-home redirect migrations, the redirect retention classification, SMS reply-owner detachment, and extension deletion/actor detachment rules. Include the extension and property-scope migrations and house-scoped mover classification. No live recovery-hook coverage claim or workspace move is made; existing catalog gaps remain unchanged.",
+    "selected_source_paths": 365,
+    "previous_sha256": "853878a119e7720ea07cb048c981d8ca36e78c9d77e5f7baddf130f8e132fe7d"
   }
 }

@@ -26,7 +26,7 @@ vi.mock("@/lib/test-workspaces/index.server", () => ({
 vi.mock("@/lib/app-url", () => ({ resolveEmailLinkBaseUrl: () => "https://proplane.test" }));
 vi.mock("@/lib/manager-sms-messages.server", () => ({
   fetchManagerSmsConversations: vi.fn(async () => ({ residents: [] })),
-  resolveSmsScopeManagerIds: vi.fn(async () => ["mgr-1"]),
+  resolveSmsScopeManagerIds: vi.fn(async () => ["mgr-1"]), resolveSmsActableOwnerIds: vi.fn(async () => ["mgr-1"]),
 }));
 vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({ enqueueOwnerSms: h.enqueue, dispatchOwnerSmsOutbox: h.dispatch }));
 vi.mock("@/lib/sms/manager-workspace-role.server", () => ({

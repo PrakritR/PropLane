@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 
-import { resolveAgentContext } from "@/lib/tools/context";
+import { loadMcpConsent } from "@/lib/mcp/consent.server";
 import { getMcpOAuthClient, verifyMcpApproval } from "@/lib/mcp/oauth.server";
 
 export const runtime = "nodejs";
 
 /** Return an OAuth-standard denial to the registered client, preserving state. */
 export async function POST(req: Request) {
-  const actor = await resolveAgentContext();
+  const actor = await loadMcpConsent();
   if (!actor) return NextResponse.redirect(new URL("/auth/sign-in", req.url), 303);
 
   const form = await req.formData();

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/manager-sms-messages.server", () => ({
   fetchManagerSmsConversations: mocks.fetch,
   resolveSmsScopeManagerIds: mocks.scope,
+  resolveSmsActableOwnerIds: mocks.scope,
 }));
 vi.mock("@/lib/sms/manager-sms-access.server", () => ({ smsInboxOwnerIds: mocks.smsScope }));
 vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({

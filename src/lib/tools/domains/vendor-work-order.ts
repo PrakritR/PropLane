@@ -36,6 +36,17 @@ async function loadScopedWorkOrder(
   return { row, vendorUserId: (data?.vendor_user_id as string | null) ?? null };
 }
 
+/** The "who to text" line for a vendor escalation, resolved from the job's house. Never model input. */
+async function vendorEscalationContactLine(ctx: AgentContext, row: WorkOrderRowWithDispatch): Promise<string | null> {
+  try {
+    const { escalationContactLine } = await import("@/lib/one-number/escalation-contact.server");
+    const propertyId = String(row.assignedPropertyId || row.propertyId || "") || null;
+    return await escalationContactLine(ctx.db, { ownerUserId: ctx.landlordId, propertyId });
+  } catch {
+    return null;
+  }
+}
+
 function firstName(full: string | undefined): string | null {
   const name = (full ?? "").trim().split(/\s+/)[0];
   return name || null;
@@ -184,7 +195,8 @@ export const escalateToManagerTool = defineWriteTool({
     });
     if (auditError) {
       if (auditError.code === "23505") {
-        return { ok: true, alreadyEscalated: true, message: "The manager was already notified about this a moment ago." };
+        const repeatLine = await vendorEscalationContactLine(ctx, row);
+        return { ok: true, alreadyEscalated: true, message: "The manager was already notified about this a moment ago.", ...(repeatLine ? { contactLine: repeatLine } : {}) };
       }
       return { ok: false, error: "Could not record the escalation." };
     }
@@ -228,6 +240,7 @@ export const escalateToManagerTool = defineWriteTool({
       /* the learning loop never blocks an escalation */
     }
     track("vendor_agent_escalated", ctx.landlordId, { work_order_id: scope.workOrderId, urgency: input.urgency });
-    return { ok: true, message: "The manager has been notified and will follow up." };
+    const contactLine = await vendorEscalationContactLine(ctx, row);
+    return { ok: true, message: "The manager has been notified and will follow up.", ...(contactLine ? { contactLine } : {}) };
   },
 });

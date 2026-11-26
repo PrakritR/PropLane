@@ -20,7 +20,8 @@ import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-
 
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { CalendarClock, CalendarPlus, Check, MessageSquare, Share2, Trash2, XCircle } from "lucide-react";
+import { CalendarClock, CalendarPlus, Check, MessageSquare, Share2, Trash2, UserRoundCog, XCircle } from "lucide-react";
+import { TourReassignDialog, useTourAssignee, useTourAssigneeCandidates } from "@/components/portal/tour-assignee";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -348,7 +349,7 @@ export function ManagerTours({
   // forces `allRows` to recompute the moment the workspace actually lands.
   const activeWorkspaceId = useSelectedWorkspaceId();
   const { reminders: tourReminders, reload: reloadTourReminders } = useScheduledTourReminders();
-  const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId: userId });
+  const { vendors } = useWorkAssignmentDirectory({ managerUserId: userId });
   const [tick, setTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
@@ -529,6 +530,11 @@ export function ManagerTours({
     const decoded = decodeURIComponent(tourIdProp);
     return rowsForBucket.find((row) => row.id === decoded) ?? allRows.find((row) => row.id === decoded) ?? null;
   }, [allRows, rowsForBucket, tourIdProp]);
+
+  // Who a confirmed tour is assigned to (server-derived team); only a confirmed, upcoming tour has one to show.
+  const assigneePlannedId = detailRow && detailRow.source === "planned" && isUpcomingPlanned(detailRow) ? detailRow.sourceId : null;
+  const { info: assigneeInfo, reload: reloadAssignee } = useTourAssignee(assigneePlannedId);
+  const [reassignOpen, setReassignOpen] = useState(false);
 
   const tabs = useMemo(
     () =>
@@ -1326,6 +1332,12 @@ export function ManagerTours({
     ) : null;
 
   const notifyPreviewRow = notifyPreview?.rows[0] ?? null;
+  // Only the server's own team for THIS house may be offered: `resolveTourAssigneeForCreate` refuses anyone else with a
+  // 403, so the local directory's accepted co-managers are not the list. Undefined (loading, or an unreadable team)
+  // hides the picker and lets the server's default assignee stand.
+  const confirmAssigneeTeam = useTourAssigneeCandidates(
+    notifyPreview?.action === "confirm" ? notifyPreviewRow?.propertyId ?? null : null,
+  );
 
   const deleteConfirmRow = deleteConfirm?.[0] ?? null;
 
@@ -1467,7 +1479,7 @@ export function ManagerTours({
           confirmBusy={notifyBusy}
           confirmBusyLabel={TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].confirmBusyLabel}
           assigneeKind={notifyPreview.action === "confirm" ? "tour" : undefined}
-          assigneeTeamMembers={notifyPreview.action === "confirm" ? teamMembers : undefined}
+          assigneeTeamMembers={notifyPreview.action === "confirm" ? confirmAssigneeTeam : undefined}
           assigneeVendors={notifyPreview.action === "confirm" ? vendors : undefined}
           onConfirm={(skip, channels, draft) => void submitNotifyPreview(skip, channels, draft)}
         />
@@ -1551,6 +1563,12 @@ export function ManagerTours({
         onClick: () => openCancelPreview([detailRow]),
       }));
     }
+    if (assigneePlannedId && assigneeInfo && assigneeInfo.candidates.length > 1) {
+      headerActionSpecs.push(portalIconActionSpec({
+        id: "reassign", label: "Reassign tour", icon: UserRoundCog, dataAttr: "tour-detail-reassign",
+        onClick: () => setReassignOpen(true),
+      }));
+    }
     if (isDeletableTour(detailRow)) {
       headerActionSpecs.push(portalIconActionSpec({
         id: "delete", label: "Delete tour", icon: Trash2, tone: "danger", dataAttr: "tour-detail-delete",
@@ -1576,6 +1594,8 @@ export function ManagerTours({
             <RecordFactRow label="Property" value={detailRow.propertyTitle} />
             <RecordFactRow label="Room" value={detailRow.roomLabel || "—"} />
             <RecordFactRow label="Format" value={tourFormatLabel(detailRow.tourFormat)} />
+            {assigneeInfo ? <RecordFactRow label="Assigned to" value={assigneeInfo.assigneeName} /> : null}
+            {assigneeInfo?.calendarNote ? <RecordFactRow label="Calendar" value={assigneeInfo.calendarNote} /> : null}
             {detailRow.notes ? <RecordFactRow label="Notes" value={detailRow.notes} /> : null}
           </RecordFactCard>
           <RecordFactCard title="Prospect" dataAttr="record-overview-card-prospect">
@@ -1588,6 +1608,15 @@ export function ManagerTours({
     return (
       <>
         {modals}
+        {assigneePlannedId ? (
+          <TourReassignDialog
+            open={reassignOpen}
+            onClose={() => setReassignOpen(false)}
+            plannedEventId={assigneePlannedId}
+            info={assigneeInfo}
+            onDone={() => void reloadAssignee()}
+          />
+        ) : null}
         <PortalRecordDetailPage
           pageTitle="Tours"
           title={detailRow.guestName}

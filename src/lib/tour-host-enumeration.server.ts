@@ -33,37 +33,47 @@ export async function listPropertyTourHostUserIds(
   db: SupabaseClient,
   input: { propertyId: string; ownerUserId: string },
 ): Promise<string[]> {
+  try {
+    return await listPropertyTourHostUserIdsOrThrow(db, input);
+  } catch {
+    // The link table may not exist in every environment; absent grants widen nothing.
+    const ownerUserId = input.ownerUserId.trim();
+    return ownerUserId ? [ownerUserId] : [];
+  }
+}
+
+/** The same roster, but an unreadable link table throws instead of narrowing to the owner. */
+export async function listPropertyTourHostUserIdsOrThrow(
+  db: SupabaseClient,
+  input: { propertyId: string; ownerUserId: string },
+): Promise<string[]> {
   const propertyId = input.propertyId.trim();
   const ownerUserId = input.ownerUserId.trim();
   const hosts = new Set<string>();
   if (ownerUserId) hosts.add(ownerUserId);
   if (!propertyId || !ownerUserId) return [...hosts];
 
-  try {
-    const { data: links, error } = await db
-      .from("account_link_invites")
-      .select(`invitee_user_id, ${INVITE_PERMISSION_COLUMNS}`)
-      .eq("status", "accepted")
-      .eq("inviter_user_id", ownerUserId);
+  const { data: links, error } = await db
+    .from("account_link_invites")
+    .select(`invitee_user_id, ${INVITE_PERMISSION_COLUMNS}`)
+    .eq("status", "accepted")
+    .eq("inviter_user_id", ownerUserId);
 
-    if (error) return [...hosts];
+  if (error) throw new Error("account_link_invites unreadable");
 
-    for (const row of links ?? []) {
-      const inviteeUserId = text((row as { invitee_user_id?: unknown }).invitee_user_id);
-      if (!inviteeUserId) continue;
-      if (!asStringArray((row as { assigned_property_ids?: unknown }).assigned_property_ids).includes(propertyId)) {
-        continue;
-      }
-      const permissions = readPropertyPermissionsFromRow(
-        row as Parameters<typeof readPropertyPermissionsFromRow>[0],
-      );
-      const mayAct =
-        hasCoManagerPermissionLevelForProperty(permissions, propertyId, "calendar", "edit") ||
-        hasCoManagerPermissionLevelForProperty(permissions, propertyId, "applications", "edit");
-      if (mayAct) hosts.add(inviteeUserId);
+  for (const row of links ?? []) {
+    const inviteeUserId = text((row as { invitee_user_id?: unknown }).invitee_user_id);
+    if (!inviteeUserId) continue;
+    if (!asStringArray((row as { assigned_property_ids?: unknown }).assigned_property_ids).includes(propertyId)) {
+      continue;
     }
-  } catch {
-    // The link table may not exist in every environment; absent grants widen nothing.
+    const permissions = readPropertyPermissionsFromRow(
+      row as Parameters<typeof readPropertyPermissionsFromRow>[0],
+    );
+    const mayAct =
+      hasCoManagerPermissionLevelForProperty(permissions, propertyId, "calendar", "edit") ||
+      hasCoManagerPermissionLevelForProperty(permissions, propertyId, "applications", "edit");
+    if (mayAct) hosts.add(inviteeUserId);
   }
 
   return [...hosts];

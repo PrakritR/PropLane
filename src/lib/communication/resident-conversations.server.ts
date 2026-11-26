@@ -134,8 +134,14 @@ export async function loadResidentCounterparties(
     // A PropLane-MANAGED workspace texts on the PropLane line (W29), so that is the number a resident is shown, never the
     // workspace's old row. An unreadable managed check (null) leaves every workspace UNKNOWN: no number and no line flag,
     // since the workspace's old row may be exactly the number a managed workspace no longer texts from.
-    const managedLine = managedIds && managedIds.size > 0 ? await resolveServiceLine(db).catch(() => null) : null;
-    const managedPhone = managedLine && managedLine.ok ? managedLine.phoneNumber : null;
+    // The number is the one line decision per workspace: its own registered number, else the PropLane line.
+    const managedPhones = new Map<string, string | null>();
+    if (managedIds) {
+      for (const id of managedIds) {
+        const line = await resolveServiceLine(db, "phone_number", id).catch(() => null);
+        managedPhones.set(id, line && line.ok ? line.phoneNumber : null);
+      }
+    }
     const ownerName = new Map(((owners ?? []) as Row[]).map((row) => [clean(row.id), clean(row.full_name)]));
     const workPhone = new Map<string, string>();
     for (const line of (lines ?? []) as Row[]) {
@@ -153,7 +159,7 @@ export async function loadResidentCounterparties(
         workspaceId: id,
         name,
         workspaceName,
-        workPhone: unknown ? null : managed ? managedPhone : workPhone.get(id) ?? null,
+        workPhone: unknown ? null : managed ? managedPhones.get(id) ?? null : workPhone.get(id) ?? null,
         ...(managed ? { onPropLaneLine: true } : {}),
         avatarUrl: null,
         initials: initialsOf(name),

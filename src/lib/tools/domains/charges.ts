@@ -15,6 +15,7 @@ import { writeAuditLog, updateAuditResult } from "../audit";
 import { propertyInAgentWorkspace, rowAllowedInAgentWorkspace } from "@/lib/agent/manager-workspace-scope";
 import { captureSmsTestDelivery, currentSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
+import { resolveResidentRefToEmail } from "./resident-lookup";
 
 /**
  * What a caller is told when the charge row landed but its write-through ledger line did not. The charge itself is
@@ -188,7 +189,7 @@ export const createChargeTool = defineWriteTool({
       residentEmail: z
         .string()
         .min(3)
-        .describe("Email of the resident to charge (from list_residents)."),
+        .describe('Email of the resident to charge, OR "<house> Room <N>" (e.g. "5257 Room 6") / the resident\'s name; a reference that names none or several residents is refused with one question to ask.'),
       kind: z.enum(CHARGE_KINDS).describe("Charge category, e.g. 'rent', 'late_fee', 'other_cost'."),
       title: z.string().min(1).max(120).describe("Short human-readable charge title shown to the resident."),
       amountUsd: z.number().positive().describe("Charge amount in US dollars, e.g. 1500 or 49.99."),
@@ -202,7 +203,8 @@ export const createChargeTool = defineWriteTool({
         .describe("Optional property id (from list_properties). Omit to use the resident's assigned property."),
     })
     .strict(),
-  preview: async (ctx, input) => {
+  preview: async (ctx, rawInput) => {
+    const input = { ...rawInput, residentEmail: await resolveResidentRefToEmail(ctx, rawInput.residentEmail) };
     const resolved = await resolveChargeTarget(ctx, input);
     if (!resolved.ok) throw new Error(resolved.error);
     const { target } = resolved;

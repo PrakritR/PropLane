@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { SEND_DEDUPE_PREFIXES, sendDedupePrefix, type SendAuthor } from "@/lib/sms/manager-send-dedupe";
 import { createHash } from "node:crypto";
-import { fetchManagerSmsConversations, resolveSmsScopeManagerIds } from "@/lib/manager-sms-messages.server";
+import { fetchManagerSmsConversations, resolveSmsActableOwnerIds } from "@/lib/manager-sms-messages.server";
 import { enqueueOwnerSms, dispatchOwnerSmsOutbox } from "@/lib/sms/owner-sms-dispatcher.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { resolveSharedLineHumanSend } from "@/lib/one-number/shared-line-number.server";
@@ -143,7 +143,7 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
     return response({ error: "This conversation cannot be sent from an active work number." }, { status: 409 });
   }
   if (ownerManagerUserId !== args.actorUserId) {
-    const editScope = await resolveSmsScopeManagerIds(
+    const editScope = await resolveSmsActableOwnerIds(
       db,
       args.actorUserId,
       "edit",
@@ -565,7 +565,7 @@ async function loadRosterVendorForActor(
     return fail({ error: "You do not have edit access to this conversation." }, 403);
   }
   if (ownerManagerUserId !== args.actorUserId) {
-    const editScope = await resolveSmsScopeManagerIds(db, args.actorUserId, "edit");
+    const editScope = await resolveSmsActableOwnerIds(db, args.actorUserId, "edit");
     if (!editScope.includes(ownerManagerUserId)) {
       return fail({ error: "You do not have edit access to this conversation." }, 403);
     }

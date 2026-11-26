@@ -12,7 +12,7 @@ const roleState: { roles: string[]; error: boolean } = { roles: ["manager"], err
 const convos = { residents: [{ phone: "+17262483085", conversationKey: "conv-1" }] };
 vi.mock("@/lib/manager-sms-messages.server", () => ({
   fetchManagerSmsConversations: async () => convos,
-  resolveSmsScopeManagerIds: async () => [],
+  resolveSmsScopeManagerIds: async () => [], resolveSmsActableOwnerIds: async () => [],
 }));
 
 vi.mock("@/lib/communication/conversation-visibility.server", () => ({

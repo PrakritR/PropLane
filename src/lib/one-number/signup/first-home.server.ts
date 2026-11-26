@@ -7,6 +7,7 @@ import { uploadListingPhotoBytes } from "@/lib/listing-draft-agent.server";
 import { isMissingSchemaError } from "@/lib/one-number/config.server";
 import { toGsm7 } from "@/lib/one-number/lead-qualifying";
 import { saveTextListingDraft } from "@/lib/one-number/onboarding/house-draft.server";
+import { publishOwnedDraftListing, type PublishMissing } from "@/lib/property-records/publish-listing.server";
 import {
   isDoneText,
   isLaterText,
@@ -29,13 +30,16 @@ import { SMS_MEDIA_BUCKET, SMS_MEDIA_MAX_BYTES } from "@/lib/sms-media.server";
  *
  *   address -> rooms and rent -> when available -> house rules -> photos (MMS) -> DONE
  *
- * and ends with a DRAFT listing plus a one-tap link to finish and publish it in the portal. No model runs: every question
- * and every parse is fixed code.
+ * then, once the listing has a street address, a rent, an availability and at least one real photo, offers "Reply PUBLISH to
+ * post it live". A listing that cannot be posted yet (no photo, the plan's cap) ends as a DRAFT with a one-tap portal link.
+ * No model runs: every question and every parse is fixed code.
  *
  * Invariants
  *  - The listing is written ONLY by `saveTextListingDraft` (the one text-listing writer, shared with the assistant's
- *    `create_listing_draft_by_text`): `status: "draft"`, never public, never a listing slot. Publishing stays the Add property
- *    wizard's (`POST /api/property-records`: ownership, plan cap, listing wizard defaults, `publicListingProjection`).
+ *    `create_listing_draft_by_text`): `status: "draft"`, never public, never a listing slot. Going live is ONLY
+ *    the explicit PUBLISH text, through `publishOwnedDraftListing` (the Add property wizard's publish: ownership, plan cap,
+ *    service-fee and application-form reconcile, the live row shape `publicListingProjection` reads); never on any other
+ *    word, never twice.
  *  - The account is the session's `user_id`, written by the sign-up after the code proof; every turn re-checks that this
  *    phone is that account's VERIFIED phone (`phoneOwners`) and fails closed. Nothing about identity comes from the text.
  *  - Photos are the texter's own MMS from this verified phone (indexed in `sms_media_files` before routing), re-uploaded to the
@@ -44,7 +48,7 @@ import { SMS_MEDIA_BUCKET, SMS_MEDIA_MAX_BYTES } from "@/lib/sms-media.server";
  *    transport's. A session idles out after 48 hours; CANCEL / LATER ends it and keeps the account.
  */
 
-export type FirstHomeStep = "address" | "rooms" | "available" | "rules" | "photos";
+export type FirstHomeStep = "address" | "rooms" | "available" | "rules" | "photos" | "publish_available" | "publish";
 
 export type FirstHomeAnswers = {
   address?: string;
@@ -53,6 +57,9 @@ export type FirstHomeAnswers = {
   availability?: string;
   rules?: string;
   photoCount?: number;
+  /** The draft this walkthrough wrote, and the real photo URLs on it (kept so a re-save never drops them). */
+  propertyId?: string;
+  photoUrls?: string[];
   /** Names this walkthrough's draft (`ft-<flowKey>`); a later walkthrough is a new draft, never a rewrite of a published one. */
   flowKey?: string;
 };
@@ -70,6 +77,7 @@ export const FIRST_HOME_TTL_MS = 48 * 60 * 60 * 1000;
 export const FIRST_HOME_TURNS_PER_PHONE_PER_DAY = 60;
 export const FIRST_HOME_MAX_PHOTOS = 12;
 const STEPS: readonly FirstHomeStep[] = ["address", "rooms", "available", "rules", "photos"];
+const ALL_STEPS: readonly FirstHomeStep[] = [...STEPS, "publish_available", "publish"];
 
 export const FIRST_HOME_COPY = {
   askAddress: "Want to add your first home now? Text its street address, like 4709A 8th Ave. Or reply LATER.",
@@ -85,6 +93,15 @@ export const FIRST_HOME_COPY = {
   noPhotosYet: "I have not received any photos yet. Text them to this number, then reply DONE. Or reply SKIP.",
   later: (link: string) => `No problem. Text me a street address any time to add a home, or open your portal: ${link}`,
   unavailable: "I could not save that just now. Please text me again in a minute.",
+  askPublish: (n: number) => `Saved as a draft with ${n} photo${n === 1 ? "" : "s"}. It is not public yet. Reply PUBLISH to post it live on PropLane, or LATER to finish in your portal.`,
+  askPublishAvailable: "To post it live I need a move-in date. Say 'now' or a date like Dec 1. Or reply LATER.",
+  retryPublishAvailable: "I could not read that date. Say 'now' or a date like Dec 1, or reply LATER.",
+  remindPublish: "Reply PUBLISH to post it live, send more photos, or reply LATER to finish in your portal.",
+  morePhotos: (n: number, total: number) => `Added ${n} photo${n === 1 ? "" : "s"} (${total} on the listing). Reply PUBLISH to post it live, or LATER.`,
+  published: (url: string, link: string) => `It is live! Anyone can see it here: ${url} Manage it any time: ${link}`,
+  planLimit: (link: string, pricing: string) => `Your free plan cannot post this home live yet. Upgrade here: ${pricing} or in your portal: ${link} Then reply PUBLISH again. Your draft is saved.`,
+  publishFailed: "I could not post it just now. Your draft is saved. Reply PUBLISH to try again in a minute.",
+  needPhotoToPublish: "To post it live I need at least one photo of the home. Text a photo to this number, then reply DONE.",
   busy: "That is a lot of texts for today. Please pick this up again tomorrow, or open your portal.",
 } as const;
 
@@ -92,7 +109,7 @@ type Row = Record<string, unknown>;
 
 function toSession(row: Row): FirstHomeSession {
   const answers = row.answers && typeof row.answers === "object" && !Array.isArray(row.answers) ? (row.answers as FirstHomeAnswers) : {};
-  const step = STEPS.find((s) => s === row.step) ?? "address";
+  const step = ALL_STEPS.find((s) => s === row.step) ?? "address";
   return {
     phoneKey: String(row.phone_key ?? ""),
     userId: String(row.user_id ?? ""),
@@ -144,6 +161,8 @@ export type FirstHomeDeps = {
   signInLink?: (db: SupabaseClient, input: { phoneE164: string; userId: string }) => Promise<string | null>;
   /** Test seam: the photos the person texted (already uploaded to listing-photos). */
   adoptPhotos?: (db: SupabaseClient, input: { phoneKey: string; userId: string; now: Date }) => Promise<{ urls: string[]; mediaIds: string[] }>;
+  /** Test seam: the publish core (`publishOwnedDraftListing`). */
+  publishListing?: typeof publishOwnedDraftListing;
 };
 
 const say = (text: string): FirstHomeTurn => ({ handled: true, reply: toGsm7(text) });
@@ -161,6 +180,8 @@ function questionFor(step: FirstHomeStep): string {
     case "available": return FIRST_HOME_COPY.askAvailable;
     case "rules": return FIRST_HOME_COPY.askRules;
     case "photos": return FIRST_HOME_COPY.askPhotos;
+    case "publish_available": return FIRST_HOME_COPY.askPublishAvailable;
+    case "publish": return FIRST_HOME_COPY.remindPublish;
   }
 }
 
@@ -171,6 +192,8 @@ function retryFor(step: FirstHomeStep): string {
     case "available": return FIRST_HOME_COPY.retryAvailable;
     case "rules": return FIRST_HOME_COPY.retryRules;
     case "photos": return FIRST_HOME_COPY.noPhotosYet;
+    case "publish_available": return FIRST_HOME_COPY.retryPublishAvailable;
+    case "publish": return FIRST_HOME_COPY.remindPublish;
   }
 }
 
@@ -178,6 +201,8 @@ function retryFor(step: FirstHomeStep): string {
 function flowIdFor(session: Pick<FirstHomeSession, "phoneKey" | "answers">): string {
   return `ft-${session.answers.flowKey || session.phoneKey}`.slice(0, 64);
 }
+
+const PUBLISH_TEXT = /^\s*publish(?:\s+(?:it|now|my listing|my home|please))?\W*$/i;
 
 async function saveDraft(db: SupabaseClient, session: FirstHomeSession, answers: FirstHomeAnswers, photoUrls: string[]): Promise<{ ok: true; propertyId: string } | { ok: false }> {
   if (!answers.address || !answers.roomCount || !answers.rentsUsd?.length) return { ok: false };
@@ -246,8 +271,14 @@ export async function handleFirstHomeText(
     return { handled: false };
   }
   // Fail closed on identity: this must still be the account's VERIFIED phone.
-  const owners = await (deps.findOwners ?? phoneOwners)(db, input.phoneE164).catch(() => null);
-  if (!owners || owners.length !== 1 || owners[0] !== session.userId) return { handled: false };
+  const owners = await (deps.findOwners ?? phoneOwners)(db, input.phoneE164).catch((error: unknown) => {
+    console.error("first-home owner check failed", error instanceof Error ? error.name : "unknown");
+    return null;
+  });
+  if (!owners || owners.length !== 1 || owners[0] !== session.userId) {
+    if (owners) console.error("first-home owner mismatch", owners.length);
+    return { handled: false };
+  }
   if (!(await rateLimit(`first-home:${phoneRateKey(input.phoneE164)}`, FIRST_HOME_TURNS_PER_PHONE_PER_DAY, 24 * 60 * 60 * 1000)).ok) return say(FIRST_HOME_COPY.busy);
 
   const body = String(input.body ?? "").trim().slice(0, 500);
@@ -266,7 +297,7 @@ export async function handleFirstHomeText(
   const answers: FirstHomeAnswers = { ...session.answers };
   const advance = async (from: FirstHomeStep): Promise<FirstHomeTurn> => {
     const next = nextFirstHomeStep(from);
-    if (next === null) return finish();
+    if (next === null) return finish(false);
     // The draft exists as soon as the essentials are known, so stopping anywhere after "rules" still leaves a real draft.
     if (next === "photos") {
       const draft = await saveDraft(db, session, answers, []);
@@ -279,18 +310,71 @@ export async function handleFirstHomeText(
     await save(session.step, answers);
     return say(retryFor(session.step));
   };
-  const finish = async (): Promise<FirstHomeTurn> => {
-    const adopt = deps.adoptPhotos ?? defaultAdoptPhotos;
-    const photos = await adopt(db, { phoneKey, userId: session.userId, now }).catch(() => ({ urls: [] as string[], mediaIds: [] as string[] }));
-    const draft = await saveDraft(db, session, answers, photos.urls);
+  /** Photos the person texted since the last look, merged onto those already on the draft (a re-save never drops one). */
+  const adoptMore = async (): Promise<{ urls: string[]; added: number; mediaIds: string[] }> => {
+    const photos = await (deps.adoptPhotos ?? defaultAdoptPhotos)(db, { phoneKey, userId: session.userId, now }).catch((error: unknown) => {
+      console.error("first-home photo adoption failed", error instanceof Error ? error.name : "unknown");
+      return { urls: [] as string[], mediaIds: [] as string[] };
+    });
+    const urls = [...new Set([...(answers.photoUrls ?? []), ...photos.urls])].slice(0, FIRST_HOME_MAX_PHOTOS);
+    return { urls, added: urls.length - (answers.photoUrls?.length ?? 0), mediaIds: photos.mediaIds };
+  };
+  const linkMedia = async (mediaIds: string[], propertyId: string) => {
+    if (mediaIds.length === 0) return;
+    await db.from("sms_media_files").update({ linked_type: "listing", linked_id: propertyId }).in("id", mediaIds).is("linked_type", null).then(() => undefined, () => undefined);
+  };
+  const finish = async (skip: boolean): Promise<FirstHomeTurn> => {
+    const more = await adoptMore();
+    // DONE with no photo anywhere is not the end: a live listing needs one real photo, so ask again (SKIP leaves a draft).
+    if (more.urls.length === 0 && !skip) return say(FIRST_HOME_COPY.noPhotosYet);
+    const draft = await saveDraft(db, session, answers, more.urls);
     if (!draft.ok) return say(FIRST_HOME_COPY.unavailable);
-    if (photos.mediaIds.length > 0) {
-      await db.from("sms_media_files").update({ linked_type: "listing", linked_id: draft.propertyId }).in("id", photos.mediaIds).is("linked_type", null).then(() => undefined, () => undefined);
+    await linkMedia(more.mediaIds, draft.propertyId);
+    if (more.urls.length === 0) {
+      await deleteSession(db, phoneKey);
+      const link = await portalLink();
+      return say(`Your first home is saved as a draft. It is not public yet, and a live listing needs at least one photo. Add photos and publish it here: ${link} You are on the free plan, and you can upgrade any time in Settings.`);
     }
-    await deleteSession(db, phoneKey);
-    const link = await portalLink();
-    const photoNote = photos.urls.length > 0 ? ` with ${photos.urls.length} photo${photos.urls.length === 1 ? "" : "s"}` : "";
-    return say(`Your first home is saved as a draft${photoNote}. It is not public yet. Review it and publish it here: ${link} You are on the free plan, and you can upgrade any time in Settings.`);
+    // The essentials are in (address, rent, at least one real photo): offer PUBLISH, asking first for the one thing still missing.
+    answers.propertyId = draft.propertyId;
+    answers.photoUrls = more.urls;
+    if (!answers.availability) {
+      await save("publish_available", answers);
+      return say(FIRST_HOME_COPY.askPublishAvailable);
+    }
+    await save("publish", answers);
+    return say(FIRST_HOME_COPY.askPublish(more.urls.length));
+  };
+  const askFor = async (missing: PublishMissing | undefined): Promise<FirstHomeTurn> => {
+    const step: FirstHomeStep | null = missing === "address" ? "address" : missing === "rent" ? "rooms" : missing === "availability" ? "publish_available" : missing === "photo" ? "photos" : null;
+    if (!step) {
+      await deleteSession(db, phoneKey);
+      return say(`This home needs a lease type chosen before it can go live. Finish it here: ${await portalLink()}`);
+    }
+    if (step === "photos") answers.photoUrls = [];
+    await save(step, answers);
+    return say(step === "photos" ? FIRST_HOME_COPY.needPhotoToPublish : questionFor(step));
+  };
+  const publish = async (): Promise<FirstHomeTurn> => {
+    if (!answers.propertyId) return say(FIRST_HOME_COPY.publishFailed);
+    const result = await (deps.publishListing ?? publishOwnedDraftListing)(db, { userId: session.userId, propertyId: answers.propertyId }).catch((error: unknown) => {
+      console.error("first-home publish failed", error instanceof Error ? error.name : "unknown");
+      return { ok: false as const, reason: "unavailable" as const };
+    });
+    if (result.ok) {
+      await deleteSession(db, phoneKey);
+      return say(FIRST_HOME_COPY.published(`${origin}${result.path}`, await portalLink()));
+    }
+    switch (result.reason) {
+      case "plan_limit": return say(FIRST_HOME_COPY.planLimit(await portalLink(), `${origin}/pricing`));
+      case "incomplete": return askFor(result.missing?.[0]);
+      case "not_found":
+      case "not_draft": {
+        await deleteSession(db, phoneKey);
+        return say(`I could not find that draft to post. Open your portal to check it: ${await portalLink()}`);
+      }
+      default: return say(FIRST_HOME_COPY.publishFailed);
+    }
   };
 
   switch (session.step) {
@@ -321,7 +405,7 @@ export async function handleFirstHomeText(
       return advance("rules");
     }
     case "photos": {
-      if (isDoneText(body) || isSkipText(body)) return finish();
+      if (isDoneText(body) || isSkipText(body)) return finish(!isDoneText(body));
       // A photo-only text (or one with a caption): count what has arrived, ask for more or DONE.
       const total = input.hasMedia ? await countPendingPhotos(db, phoneKey, now) : 0;
       if (total > 0) {
@@ -332,6 +416,32 @@ export async function handleFirstHomeText(
       }
       return retry();
     }
+    case "publish_available": {
+      const parsed = parseAvailabilityAnswer(body);
+      if (parsed.kind !== "value") return retry();
+      answers.availability = parsed.value;
+      const urls = answers.photoUrls ?? [];
+      const draft = await saveDraft(db, session, answers, urls);
+      if (!draft.ok) return say(FIRST_HOME_COPY.unavailable);
+      await save("publish", answers);
+      return say(FIRST_HOME_COPY.askPublish(urls.length));
+    }
+    case "publish": {
+      // Only this exact word goes live. Anything else never posts: photos are added, the rest is a reminder.
+      if (PUBLISH_TEXT.test(body)) return publish();
+      if (input.hasMedia) {
+        const more = await adoptMore();
+        if (more.added > 0) {
+          const draft = await saveDraft(db, session, answers, more.urls);
+          if (!draft.ok) return say(FIRST_HOME_COPY.unavailable);
+          await linkMedia(more.mediaIds, draft.propertyId);
+          answers.photoUrls = more.urls;
+          await save("publish", answers);
+          return say(FIRST_HOME_COPY.morePhotos(more.added, more.urls.length));
+        }
+      }
+      return say(FIRST_HOME_COPY.remindPublish);
+    }
   }
 }
 
@@ -339,4 +449,34 @@ async function countPendingPhotos(db: SupabaseClient, phoneKey: string, now: Dat
   const since = new Date(now.getTime() - FIRST_HOME_TTL_MS).toISOString();
   const { count } = await db.from("sms_media_files").select("id", { count: "exact", head: true }).eq("sender_phone_key", phoneKey).is("linked_type", null).gte("created_at", since);
   return Math.min(count ?? 0, FIRST_HOME_MAX_PHOTOS);
+}
+
+/** True when this phone has a live (unexpired) walkthrough row: the line's other branches must leave its texts to the walkthrough. */
+export async function hasLiveFirstHomeSession(db: SupabaseClient, phoneE164: string, now: Date = new Date()): Promise<boolean> {
+  const phoneKey = phoneKeyOf(phoneE164);
+  if (!/^\d{10}$/.test(phoneKey)) return false;
+  const session = await readFirstHomeSession(db, phoneKey);
+  if (!session) return false;
+  const updated = Date.parse(session.updatedAt);
+  return Number.isFinite(updated) && now.getTime() - updated <= FIRST_HOME_TTL_MS;
+}
+
+/**
+ * `handleFirstHomeText` that never throws and never goes quiet: a failure is LOGGED and, for a phone that has a live
+ * walkthrough, answered with a retry prompt (the text is never dropped to a fallback that answers something else). A phone
+ * with no walkthrough is `handled: false`, exactly as before. Both inbound doors (the PropLane line pipeline and the
+ * shared-line seam) call this one.
+ */
+export async function handleFirstHomeTextSafely(
+  db: SupabaseClient,
+  input: { phoneE164: string; body: string; messageSid: string; hasMedia?: boolean },
+  deps: FirstHomeDeps = {},
+): Promise<FirstHomeTurn> {
+  try {
+    return await handleFirstHomeText(db, input, deps);
+  } catch (error) {
+    console.error("first-home turn failed", error instanceof Error ? error.name : "unknown");
+    const live = await hasLiveFirstHomeSession(db, input.phoneE164, (deps.now ?? (() => new Date()))()).catch(() => false);
+    return live ? say(FIRST_HOME_COPY.unavailable) : { handled: false };
+  }
 }

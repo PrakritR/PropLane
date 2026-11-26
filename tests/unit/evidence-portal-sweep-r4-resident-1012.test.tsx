@@ -144,7 +144,7 @@ describe("round 4 — the resident portal", () => {
     await act(async () => {
       render(<ResidentPaymentsPanel bucket="overdue" />);
     });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Pay all" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Pay \$/ })).toBeTruthy());
     // The badge the nav draws is exactly the number of rows this tab lists.
     expect(residentPaymentsNavBadge(residentDueRowCount(CHARGES)).count).toBe(1);
     expect(calls.filter((url) => url.includes("portal-household-charges"))).toEqual([]);
