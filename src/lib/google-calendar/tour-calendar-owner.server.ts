@@ -32,10 +32,8 @@ function text(value: unknown): string {
 }
 
 /**
- * Everyone this tour's Google event may legitimately sit with: the house manager and the property's tour team (the
- * operator on a managed house included). A stored row naming anybody else is ignored — `POST /api/portal-schedule-records`
- * pins `manager_user_id` to the caller but takes the id and `row_data` from the body, so the row is only as trustworthy
- * as this check makes it. An unreadable team keeps the house manager alone.
+ * Everyone a tour's Google event may be WRITTEN to: the house manager and the property's tour team (the operator on a
+ * managed house included). An unreadable team keeps the house manager alone.
  */
 async function tourCalendarPrincipals(
   db: SupabaseClient,
@@ -56,12 +54,18 @@ async function tourCalendarPrincipals(
   return allowed;
 }
 
-/** The stored row for this tour, read under the house manager's own ownership and validated against its team. */
-async function readValidatedOwnerRow(
+type StoredTourCalendarHolder = { connectionOwnerUserId: string; assigneeUserId: string };
+
+/**
+ * The stored row for this tour, read under the house manager's own ownership (`manager_user_id` + `record_type`; the
+ * reserved `axis_gcal_` id is never accepted from a request body). It says where the event already IS, so delete,
+ * cleanup and retire trust it even after the holder has left the team — otherwise the event would be stranded there.
+ */
+async function readPinnedOwnerRow(
   db: SupabaseClient,
   plannedEventId: string,
   houseManagerUserId: string,
-): Promise<{ connectionOwnerUserId: string; assigneeUserId: string } | null> {
+): Promise<StoredTourCalendarHolder | null> {
   const id = plannedEventId.trim();
   const manager = houseManagerUserId.trim();
   if (!id || !manager) return null;
@@ -77,13 +81,7 @@ async function readValidatedOwnerRow(
     const row = data.row_data as Record<string, unknown>;
     const connectionOwnerUserId = text(row.connectionOwnerUserId);
     if (!connectionOwnerUserId) return null;
-    const allowed = await tourCalendarPrincipals(db, { plannedEventId: id, houseManagerUserId: manager });
-    if (!allowed.has(connectionOwnerUserId)) return null;
-    const storedAssignee = text(row.assigneeUserId);
-    return {
-      connectionOwnerUserId,
-      assigneeUserId: storedAssignee && allowed.has(storedAssignee) ? storedAssignee : connectionOwnerUserId,
-    };
+    return { connectionOwnerUserId, assigneeUserId: text(row.assigneeUserId) || connectionOwnerUserId };
   } catch {
     return null;
   }
@@ -95,7 +93,7 @@ export async function resolveStoredTourCalendarOwner(
   plannedEventId: string,
   houseManagerUserId: string,
 ): Promise<string> {
-  return (await readValidatedOwnerRow(db, plannedEventId, houseManagerUserId))?.connectionOwnerUserId ?? houseManagerUserId;
+  return (await readPinnedOwnerRow(db, plannedEventId, houseManagerUserId))?.connectionOwnerUserId ?? houseManagerUserId;
 }
 
 export async function recordTourCalendarOwner(
@@ -127,13 +125,13 @@ export async function recordTourCalendarOwner(
   if (error) throw new Error(error.message);
 }
 
-/** The stored holder and assignee for a tour, or null when nothing trustworthy was recorded. */
+/** The stored holder and assignee for a tour (where its event sits now), or null when nothing was recorded. */
 export async function readStoredTourCalendarHolder(
   db: SupabaseClient,
   plannedEventId: string,
   houseManagerUserId: string,
-): Promise<{ connectionOwnerUserId: string; assigneeUserId: string } | null> {
-  return readValidatedOwnerRow(db, plannedEventId, houseManagerUserId);
+): Promise<StoredTourCalendarHolder | null> {
+  return readPinnedOwnerRow(db, plannedEventId, houseManagerUserId);
 }
 
 async function plannedEventRow(db: SupabaseClient, plannedEventId: string): Promise<Record<string, unknown> | null> {
@@ -229,16 +227,23 @@ export async function resolveTourCalendarHolder(
 }
 
 /**
- * The connection owner a tour's Google write goes to. The stored owner wins (so a reschedule or cancel always
- * finds the calendar the create used); an event that already has a Google id but no stored owner is legacy (house
- * owner's calendar); otherwise the assignee's calendar with the operator / house owner fallback.
+ * The connection owner a tour's Google create or update goes to. The stored owner wins while they are still on the
+ * property's tour team (so a reschedule always finds the calendar the create used); an event that already has a
+ * Google id but no usable stored owner is legacy (house owner's calendar); otherwise the assignee's calendar with the
+ * operator / house owner fallback.
  */
 export async function resolveTourCalendarConnectionOwner(
   db: SupabaseClient,
   input: { houseManagerUserId: string; plannedEventId: string; existingGoogleEventId?: string | null },
 ): Promise<{ ownerUserId: string; assigneeUserId: string; stored: boolean }> {
-  const stored = await readStoredTourCalendarHolder(db, input.plannedEventId, input.houseManagerUserId);
-  if (stored) return { ownerUserId: stored.connectionOwnerUserId, assigneeUserId: stored.assigneeUserId, stored: true };
+  const pinned = await readPinnedOwnerRow(db, input.plannedEventId, input.houseManagerUserId);
+  const allowed = pinned
+    ? await tourCalendarPrincipals(db, { plannedEventId: input.plannedEventId, houseManagerUserId: input.houseManagerUserId })
+    : null;
+  if (pinned && allowed?.has(pinned.connectionOwnerUserId)) {
+    const assigneeUserId = allowed.has(pinned.assigneeUserId) ? pinned.assigneeUserId : pinned.connectionOwnerUserId;
+    return { ownerUserId: pinned.connectionOwnerUserId, assigneeUserId, stored: true };
+  }
   if (input.existingGoogleEventId?.trim()) {
     return { ownerUserId: input.houseManagerUserId, assigneeUserId: input.houseManagerUserId, stored: false };
   }

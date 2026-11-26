@@ -150,4 +150,25 @@ describe("managed-house tours write to the PropLane operator's Google connection
     await deleteProplaneGoogleCalendarEvent(plain as never, HOUSE_OWNER, "g-event-1");
     expect(google.remove).toHaveBeenCalledWith(plain, HOUSE_OWNER, "g-event-1");
   });
+  // A teammate who held the tour and then lost the property: the event is still on THEIR calendar, so the delete must
+  // look there (the pinned row says so), while a new write is never sent to someone outside the tour team.
+  it("a holder who left the team still gets the delete, but not a new write", async () => {
+    google.connection.mockImplementation(connectionFor({ [OPERATOR]: true, [HOUSE_OWNER]: true, "former-teammate": true }));
+    const pinned = {
+      id: "axis_gcal_tour_owner_planned-1",
+      manager_user_id: HOUSE_OWNER,
+      record_type: "google_tour_calendar_owner",
+      row_data: { connectionOwnerUserId: "former-teammate" },
+    };
+    const db = makeDb({ ...PLANNED, googleCalendarEventId: "g-event-1" });
+    db.rows.set(pinned.id, pinned);
+    await deleteProplaneGoogleCalendarEvent(db as never, HOUSE_OWNER, "g-event-1");
+    expect(google.remove).toHaveBeenCalledWith(db, "former-teammate", "g-event-1");
+
+    const fresh = makeDb();
+    fresh.rows.set(pinned.id, pinned);
+    await syncPlannedTourToGoogleCalendar(fresh as never, HOUSE_OWNER, facts());
+    expect(google.create).toHaveBeenCalledOnce();
+    expect(google.create.mock.calls[0]?.[1]).not.toBe("former-teammate");
+  });
 });

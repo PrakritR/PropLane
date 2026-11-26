@@ -51,6 +51,15 @@ const AVAILABILITY_RECORD_TYPES = new Set(["manager_availability", "manager_prop
 /** Ids the Google sync owns (`axis_gcal_tour_owner_…`, `axis_gcal_avail_push_…`, `axis_gcal_pending_…`). */
 const SERVER_OWNED_SCHEDULE_RECORD_ID_PREFIX = "axis_gcal_";
 
+/**
+ * Server-owned rows (a tour's calendar holder, an availability / vendor push state, a pending Google event) are written
+ * only by the sync code with the service role. A body may never name one, whatever record type it claims, on create,
+ * update or delete: the readers resolve a Google connection owner from that row.
+ */
+function isServerOwnedScheduleRecord(record: Record<string, unknown>): boolean {
+  return String(record.id ?? "").trim().startsWith(SERVER_OWNED_SCHEDULE_RECORD_ID_PREFIX);
+}
+
 type RoomDateBlockRow = { id?: unknown; row_data?: unknown };
 
 function isRoomDateBlockRecordType(recordType: string): boolean {
@@ -709,6 +718,7 @@ const route = createJsonRecordRoute({
     return { handled: true };
   },
   authorizeUpsert: async ({ db, user, records }) => {
+    if (records.some(isServerOwnedScheduleRecord)) return { ok: false, error: "That record id is reserved.", status: 403 };
     if (records.some((record) => isDedicatedBookingsRecordType(String(record.record_type ?? "")))) {
       return {
         ok: false,
@@ -755,6 +765,7 @@ const route = createJsonRecordRoute({
     return { ok: true };
   },
   authorizeDelete: async ({ db, user, records }) => {
+    if (records.some(isServerOwnedScheduleRecord)) return { ok: false, error: "That record id is reserved.", status: 403 };
     if (records.some((record) => isDedicatedBookingsRecordType(String(record.record_type ?? "")))) {
       return {
         ok: false,
@@ -802,12 +813,6 @@ const route = createJsonRecordRoute({
     return { ok: true };
   },
   assertInsertAllowed: (record, user) => {
-    // Server-owned rows (`axis_gcal_…`: a tour's calendar holder, an availability / vendor push state, a pending
-    // Google event) are written only by the sync code with the service role. A body may never name one, whatever
-    // record type it claims: the readers resolve a Google connection owner from that row.
-    if (String(record.id ?? "").trim().startsWith(SERVER_OWNED_SCHEDULE_RECORD_ID_PREFIX)) {
-      return "That record id is reserved.";
-    }
     if (user.role === "admin") return null;
     const recordType = String(record.record_type ?? "");
     if (user.role === "vendor") {

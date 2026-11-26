@@ -10,7 +10,6 @@ vi.mock("@/lib/observability/langfuse", () => ({
 
 import { callTool, listTools } from "@/lib/mcp/gateway";
 import { callResidentTool, listResidentTools } from "@/lib/mcp/resident-gateway";
-import { RESIDENT_EXTERNAL_EXCLUDED_TOOL_NAMES } from "@/lib/mcp/capabilities";
 import { agentRegistry } from "@/lib/tools";
 import { residentAgentRegistry } from "@/lib/tools/resident-index";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
@@ -67,11 +66,18 @@ describe("a resident connection reaches only resident tools", () => {
   });
 
   // The secrets a resident reads in their own portal do not travel to an external client: the manager half already
-  // withholds `get_room_door_code` and its knowledge pair for this reason (`EXTERNAL_EXCLUDED_TOOL_NAMES`), and these
-  // two carry the front-door / room codes and the Wi-Fi password once the check-in reveal opens.
+  // withholds `get_room_door_code` and its knowledge pair for this reason (`EXTERNAL_EXCLUDED_TOOL_NAMES`). Every
+  // resident tool whose answer can carry a check-in reveal (door / gate / room codes, the Wi-Fi password) or the
+  // house manual is listed here by hand, independently of the gateway's own set.
+  const SECRET_CARRYING_RESIDENT_TOOLS = ["get_move_in_info", "get_my_stay_check_in", "lookup_property_knowledge"];
+
   it("neither lists nor serves the tools that carry the door codes and the Wi-Fi password", async () => {
+    for (const phase of ["approved", "application"] as const) {
+      const names = listResidentTools(residentCtx({ phase })).map((t) => t.name);
+      for (const excluded of SECRET_CARRYING_RESIDENT_TOOLS) expect(names, `${phase}:${excluded}`).not.toContain(excluded);
+    }
     const names = listResidentTools(residentCtx()).map((t) => t.name);
-    for (const excluded of RESIDENT_EXTERNAL_EXCLUDED_TOOL_NAMES) {
+    for (const excluded of SECRET_CARRYING_RESIDENT_TOOLS) {
       expect(residentAgentRegistry.has(excluded), excluded).toBe(true);
       expect(names, excluded).not.toContain(excluded);
       expect(await callResidentTool(residentCtx(), excluded, {}, "oauth:t1")).toEqual({

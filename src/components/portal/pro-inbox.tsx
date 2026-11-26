@@ -49,7 +49,6 @@ import {
   persistInboxAwait,
   runInboxMutation,
   stagePersistedInboxRows,
-  syncPersistedInboxFromServer,
   syncPersistedInboxFromServerWithStatus,
   upsertPersistedInboxRows,
   inboxThreadMessages,
@@ -488,6 +487,15 @@ export const ManagerInbox = forwardRef<
   }, [local]);
   const [pendingSendingThreadIds, setPendingSendingThreadIds] = useState<Set<string>>(() => new Set());
   const [inboxSynced, setInboxSynced] = useState(false);
+  const [listReadOk, setListReadOk] = useState(false);
+  const syncInboxRows = useCallback(
+    async (opts?: { force?: boolean; excludeIds?: Set<string> }) => {
+      const { rows, ok } = await syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY, opts);
+      if (ok) setListReadOk(true);
+      return rows;
+    },
+    [],
+  );
   const persistInboxRef = useRef(true);
   const [internalExpandedId, setInternalExpandedId] = useState<string | null>(null);
   const expandedId = controlledExpandedId !== undefined ? controlledExpandedId : internalExpandedId;
@@ -518,12 +526,12 @@ export const ManagerInbox = forwardRef<
 
   useEffect(() => {
     persistInboxRef.current = false;
-    void syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY).then(({ rows, ok }) => {
+    void syncInboxRows().then((rows) => {
       setLocal(rows as InboxThread[]);
-      if (ok) setInboxSynced(true);
+      setInboxSynced(true);
       persistInboxRef.current = true;
     });
-  }, []);
+  }, [syncInboxRows]);
 
   useEffect(() => {
     const bump = () => setContactTick((n) => n + 1);
@@ -830,7 +838,7 @@ export const ManagerInbox = forwardRef<
       setExpandedId((e) => (e === id ? null : e));
       await persistInboxAwait(MANAGER_INBOX_STORAGE_KEY, next);
       const deletedIds = new Set([id]);
-      const synced = await syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY, { force: true, excludeIds: deletedIds });
+      const synced = await syncInboxRows({ force: true, excludeIds: deletedIds });
       setLocal((synced as InboxThread[]).filter((t) => !deletedIds.has(t.id)));
       persistInboxRef.current = true;
       showToast("Message deleted.");
@@ -859,26 +867,26 @@ export const ManagerInbox = forwardRef<
       setExpandedId(null);
       await persistInboxAwait(MANAGER_INBOX_STORAGE_KEY, next);
       const deletedIds = new Set(ids);
-      const synced = await syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY, { force: true, excludeIds: deletedIds });
+      const synced = await syncInboxRows({ force: true, excludeIds: deletedIds });
       setLocal((synced as InboxThread[]).filter((t) => !deletedIds.has(t.id)));
       persistInboxRef.current = true;
       showToast("Trash cleared.");
     })().catch(() => showToast("Could not clear trash."));
-  }, [local, showToast]);
+  }, [local, showToast, syncInboxRows]);
 
   const reloadInbox = useCallback(() => {
     invalidatePersistedInboxCache(MANAGER_INBOX_STORAGE_KEY);
-    void syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY, { force: true }).then((rows) => {
+    void syncInboxRows({ force: true }).then((rows) => {
       setLocal(rows as InboxThread[]);
     });
-  }, []);
+  }, [syncInboxRows]);
 
   const reloadInboxAsync = useCallback(async () => {
     invalidatePersistedInboxCache(MANAGER_INBOX_STORAGE_KEY);
-    const rows = await syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY, { force: true });
+    const rows = await syncInboxRows({ force: true });
     setLocal(rows as InboxThread[]);
     return rows as InboxThread[];
-  }, []);
+  }, [syncInboxRows]);
 
   const findThreadForRecipient = useCallback((email: string) => {
     const norm = email.trim().toLowerCase();
@@ -1182,7 +1190,7 @@ export const ManagerInbox = forwardRef<
           if (failedThread) {
             await upsertPersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, [failedThread as PersistedInboxThread], failedRows as PersistedInboxThread[]).catch(() => false);
           }
-          void syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY, { force: true }).catch(() => {});
+          void syncInboxRows({ force: true }).catch(() => {});
           throw new InboxSendRefusal(failedEntry.error ? `${failedEntry.error}.` : null);
         }
 
@@ -1208,9 +1216,7 @@ export const ManagerInbox = forwardRef<
       } finally {
         persistInboxRef.current = true;
       }
-      void syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY, {
-        force: true,
-      }).catch(() => {});
+      void syncInboxRows({ force: true }).catch(() => {});
       return {
         emailRequested: emailAllowed,
         smsRequested: smsAllowed,
@@ -1221,7 +1227,7 @@ export const ManagerInbox = forwardRef<
         smsUnknown,
       };
     },
-    [smsRecipients, smsOutboundEnabled, emailThreads, userId],
+    [smsRecipients, smsOutboundEnabled, emailThreads, userId, syncInboxRows],
   );
 
   // New message is the shared composer (it sends and schedules itself); this
@@ -1288,7 +1294,7 @@ export const ManagerInbox = forwardRef<
   );
   // "Not found" only once the conversation list has been READ SUCCESSFULLY without this id in it; while the list is
   // still arriving, or its read failed, the pane keeps its skeleton (neither slowness nor an error is a missing thread).
-  const threadNotFound = Boolean(expandedId) && !activeThread && inboxSynced;
+  const threadNotFound = Boolean(expandedId) && !activeThread && listReadOk;
   const activeAiDraftAdopted = Boolean(
     activeThread?.aiDraft?.status === "pending_approval"
       && activeThread.aiDraft.text.trim()

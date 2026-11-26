@@ -241,6 +241,30 @@ describe("POST /api/portal-schedule-records — server-owned ids are not writabl
     expect(state.scheduleRows).toEqual([]);
   });
 
+  it("refuses an overwrite of the caller's own existing calendar-owner row and leaves it as the sync wrote it", async () => {
+    const stored = {
+      id: tourCalendarOwnerRecordId("planned-1"),
+      manager_user_id: "owner-a",
+      property_id: null,
+      record_type: "google_tour_calendar_owner",
+      row_data: { recordType: "google_tour_calendar_owner", plannedEventId: "planned-1", connectionOwnerUserId: "owner-a" },
+    };
+    state.scheduleRows = [stored];
+    const { POST } = await import("@/app/api/portal-schedule-records/route");
+    const res = await POST(
+      post({
+        row: {
+          id: stored.id,
+          recordType: "google_tour_calendar_owner",
+          plannedEventId: "planned-1",
+          connectionOwnerUserId: "victim-manager",
+        },
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect(state.scheduleRows).toEqual([stored]);
+  });
+
   it("leaves an ordinary calendar event writable", async () => {
     const { POST } = await import("@/app/api/portal-schedule-records/route");
     const res = await POST(post({ row: { id: "ev-ok", propertyId: "house-a", recordType: "event" } }));

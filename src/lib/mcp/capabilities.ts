@@ -126,14 +126,16 @@ export const EXTERNAL_EXCLUDED_TOOL_NAMES = new Set([
 ]);
 
 /**
- * The resident half of the same rule: a resident OAuth connection is an EXTERNAL client, so the two resident tools
+ * The resident half of the same rule: a resident OAuth connection is an EXTERNAL client, so the resident tools
  * that carry house secrets stay in the product. `get_move_in_info` returns the front-door and room codes and the
- * Wi-Fi password once the check-in reveal opens, and the resident `lookup_property_knowledge` returns the house
+ * Wi-Fi password once the check-in reveal opens, `get_my_stay_check_in` returns a guest's door, gate and room codes
+ * and the Wi-Fi password the same way, and the resident `lookup_property_knowledge` returns the house
  * manual and details with those same codes in them — the manager half already withholds its knowledge pair and
  * `get_room_door_code` for this reason. Everything else a resident can see in their portal travels.
  */
 export const RESIDENT_EXTERNAL_EXCLUDED_TOOL_NAMES = new Set([
   "get_move_in_info",
+  "get_my_stay_check_in",
   "lookup_property_knowledge",
 ]);
 
