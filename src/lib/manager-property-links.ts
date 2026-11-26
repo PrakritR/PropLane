@@ -1,6 +1,7 @@
 import type { AdminPropertyRow } from "@/lib/demo-admin-property-inventory";
 import type { MockProperty } from "@/data/types";
 import { listingPublicPath } from "@/lib/listing-public-path";
+import { listingPublicPathFor } from "@/lib/listing-slug";
 import { resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import { buildRentalApplyHref } from "@/lib/rental-application/apply-from-listing";
 import { readScopedExtraListings } from "@/lib/demo-property-pipeline";
@@ -106,15 +107,21 @@ export function buildManagerPortfolioTourUrl(origin: string, propertyIds: string
 }
 
 /**
- * The public listing URL. With the listing's published `slug` it is the readable address URL
- * (`/rent/listings/4709a-8th-ave-ne`); without one it is the id URL, which renders the same page in place and
- * self-canonicalises to the slug (an id is never redirected - `src/app/(rent)/rent/listings/[id]/page.tsx`).
- * Server callers get the slug from `buildReadableListingUrl` (`@/lib/seo/listing-slugs.server`), which reads the one
- * published-catalog index; this sync builder never guesses a slug, because a colliding address needs the whole catalog.
+ * The public listing URL, always the readable canonical path (`/rent/listings/4709a-8th-ave-ne-7mdlyj0h2vfg`): pass the
+ * listing in hand (id + address) and the slug is derived, or its already-built `slug` string. With only an id the URL is the
+ * id URL, which the page serves in place while naming the canonical path as its canonical (server callers use
+ * `buildReadableListingUrl`, which reads the catalog and returns the canonical form directly).
  */
-export function buildManagerListingUrl(origin: string, propertyId: string, slug?: string | null): string {
+export function buildManagerListingUrl(
+  origin: string,
+  propertyId: string,
+  slugOrListing?: string | null | Parameters<typeof listingPublicPathFor>[0],
+): string {
   const base = origin.replace(/\/$/, "");
-  return `${base}${listingPublicPath(propertyId, slug)}`;
+  if (slugOrListing && typeof slugOrListing === "object") {
+    return `${base}${listingPublicPathFor({ ...slugOrListing, id: propertyId })}`;
+  }
+  return `${base}${listingPublicPath(propertyId, slugOrListing)}`;
 }
 
 

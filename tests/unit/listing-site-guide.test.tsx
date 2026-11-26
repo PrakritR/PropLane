@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { listingUrlRe } from "./listing-url-matcher";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
@@ -233,7 +234,7 @@ describe("the ?src tag", () => {
     for (const def of LISTING_CHANNEL_DEFS) {
       const built = buildListingPostText({ property, origin: "https://proplane.ai", contact: { phone: "(206) 555-0100", email: null }, channel: def.id, attribution: false });
       expect(built.ok).toBe(true);
-      if (built.ok) expect(built.text).toContain(`/rent/listings/prop-1?src=${def.id}`);
+      if (built.ok) expect(built.text).toMatch(listingUrlRe("", "prop-1", `?src=${def.id}`));
     }
   });
 });

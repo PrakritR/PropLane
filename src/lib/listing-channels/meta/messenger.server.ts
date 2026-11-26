@@ -67,7 +67,7 @@ async function resolveReplyListing(db: SupabaseClient, conn: MetaConnection, ref
   const toReply = (l: NonNullable<Awaited<ReturnType<typeof loadSyncListing>>>): ReplyListing => ({
     propertyId: l.propertyId,
     title: (l.projected.title || l.projected.buildingName || "").trim(),
-    url: taggedListingLink(buildManagerListingUrl(origin, l.propertyId), "facebook_page"),
+    url: taggedListingLink(buildManagerListingUrl(origin, l.propertyId, l.projected), "facebook_page"),
   });
   // The ref is only a lead: it counts when it is a live listing of THIS workspace.
   if (ref) {

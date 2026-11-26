@@ -14,6 +14,7 @@
  * `axis_admin_planned_events_v1` payload, so the booking guard, the public
  * availability grid and these two actions all read one source.
  */
+import { tourEventFactsFromRecord } from "@/lib/google-calendar/tour-event-payload";
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 import { settleTourFeeOnCancel } from "@/lib/tour-fee.server";
 import { randomUUID } from "node:crypto";
@@ -424,6 +425,7 @@ export async function reschedulePlannedTour(
         start,
         end,
         propertyTitle: textField(moved, "propertyTitle") || undefined,
+        ...tourEventFactsFromRecord(moved),
         attendeeName: textField(moved, "attendeeName") || undefined,
         attendeeEmail: textField(moved, "attendeeEmail") || undefined,
         attendeePhone: textField(moved, "attendeePhone") || undefined,

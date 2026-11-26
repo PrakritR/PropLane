@@ -30,6 +30,7 @@ const GUARDED = /stripIdentityFromLeaseRow|stripApplicantIdentityFromLeaseApplic
 
 /** Files that name the table and call a write, but never write a lease `row_data`. */
 const EXEMPT: Record<string, string> = {
+  "src/lib/lease-stay-extension.server.ts": "reads leases for authorization and pricing; .update is the crypto hash builder, and the helper writes only charges/ledger/notices, never lease row_data",
   "src/app/api/portal/lease-library/route.ts": "writes the lease template library, not a lease row",
   "src/app/api/cron/send-lease-signing-reminders/route.ts": "writes portal_outbound_mail_records only",
   "src/lib/portal-record-share-links.server.ts": "writes share links only",

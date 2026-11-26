@@ -1,0 +1,299 @@
+import "server-only";
+
+import { randomUUID } from "node:crypto";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { decryptSensitiveValue, encryptSensitiveValue } from "@/lib/security/data-encryption";
+import { getPlaidClient, plaidFailure, type PlaidPurpose } from "@/lib/plaid/client.server";
+
+export type PlaidItemStatus = "active" | "login_required" | "error" | "revoked";
+
+/** The row as the server reads it. `access_token_enc` never leaves this module's callers. */
+export type PlaidItemRow = {
+  id: string;
+  owner_user_id: string;
+  purpose: PlaidPurpose;
+  item_id: string;
+  access_token_enc: string;
+  institution_name: string | null;
+  account_mask: string | null;
+  account_name: string | null;
+  plaid_account_id: string | null;
+  bank_account_id: string | null;
+  transactions_cursor: string | null;
+  status: PlaidItemStatus;
+  last_error: string | null;
+  last_synced_at: string | null;
+};
+
+/** What a client may see: no token, no cursor, no Plaid ids. */
+export type PlaidItemView = {
+  id: string;
+  purpose: PlaidPurpose;
+  institutionName: string | null;
+  accountMask: string | null;
+  accountName: string | null;
+  bankAccountId: string | null;
+  status: PlaidItemStatus;
+  lastSyncedAt: string | null;
+};
+
+/** The one column list for a `PlaidItemRow`, so a reader can never select a different shape than the type. */
+export const PLAID_ITEM_SELECT =
+  "id, owner_user_id, purpose, item_id, access_token_enc, institution_name, account_mask, account_name, plaid_account_id, bank_account_id, transactions_cursor, status, last_error, last_synced_at";
+
+const ITEM_SELECT = PLAID_ITEM_SELECT;
+
+/** AAD binds the ciphertext to its owner and row: a copied token fails closed anywhere else. */
+function tokenContext(ownerId: string, rowId: string) {
+  return { purpose: "plaid", ownerId, recordId: rowId, field: "access_token" };
+}
+
+export function toPlaidItemView(row: PlaidItemRow): PlaidItemView {
+  return {
+    id: row.id,
+    purpose: row.purpose,
+    institutionName: row.institution_name,
+    accountMask: row.account_mask,
+    accountName: row.account_name,
+    bankAccountId: row.bank_account_id,
+    status: row.status,
+    lastSyncedAt: row.last_synced_at,
+  };
+}
+
+/** Last four characters only; anything else is dropped before it can be stored. */
+export function maskLastFour(value: unknown): string | null {
+  const text = typeof value === "string" ? value.replace(/[^0-9A-Za-z]/g, "") : "";
+  return text ? text.slice(-4) : null;
+}
+
+export type CreatePlaidItemInput = {
+  /** Always the session user, never a request body field. */
+  ownerUserId: string;
+  purpose: PlaidPurpose;
+  itemId: string;
+  accessToken: string;
+  institutionName?: string | null;
+  accountMask?: string | null;
+  accountName?: string | null;
+  plaidAccountId?: string | null;
+  bankAccountId?: string | null;
+};
+
+/**
+ * A refusal, not a failure: this bank login is already held for someone else or for another purpose.
+ * Carries the status the caller answers with, so it never falls into a route's "couldn't reach your
+ * bank" catch-all the way a bare `Error` would. The message reaches the requester, so the foreign-owner
+ * case stays generic: that another PropLane account holds this login is not theirs to learn.
+ */
+export class PlaidItemConflictError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "PlaidItemConflictError";
+    this.status = status;
+  }
+}
+
+export async function createPlaidItem(db: SupabaseClient, input: CreatePlaidItemInput): Promise<PlaidItemRow> {
+  if (!input.ownerUserId) throw new Error("Owner is required.");
+  const now = new Date().toISOString();
+
+  const { data: existing, error: readError } = await db
+    .from("plaid_items")
+    .select("id, owner_user_id, purpose, bank_account_id")
+    .eq("item_id", input.itemId)
+    .maybeSingle();
+  if (readError) throw new Error(readError.message);
+  if (existing && existing.owner_user_id !== input.ownerUserId) {
+    throw new PlaidItemConflictError("This bank login can't be connected here.", 403);
+  }
+  // A row's purpose is fixed for its life: re-exchanging the same Plaid item under another purpose would
+  // reclassify a manager's bank feed (and orphan the statements bound to it) while its cursor stayed behind.
+  if (existing && existing.purpose && existing.purpose !== input.purpose) {
+    throw new PlaidItemConflictError("This bank login is already connected for something else. Unlink it first.", 409);
+  }
+
+  const id = existing?.id ? String(existing.id) : randomUUID();
+  // Reconnect (update mode) sends no bank account: keep the one the feed is already bound to.
+  const bankAccountId = input.bankAccountId ?? (existing?.bank_account_id ? String(existing.bank_account_id) : null);
+
+  // One live bank feed per bank account. Plaid mints a FRESH `item_id` for every Link session, so a second
+  // "Connect bank" on the same account is a new row the dedupe above cannot see — and both items would then
+  // sync the same real transactions under their own (different) Plaid transaction ids, double-posting every
+  // line and doubling the balances derived from them. A connection that needs attention is reconnected in
+  // update mode, which keeps its `item_id` and lands on the row above.
+  if (input.purpose === "bank_feed" && bankAccountId) {
+    const { data: live, error: liveError } = await db
+      .from("plaid_items")
+      .select("id")
+      .eq("bank_account_id", bankAccountId)
+      .eq("purpose", "bank_feed")
+      .neq("status", "revoked")
+      .neq("id", id)
+      .limit(1);
+    if (liveError) throw new Error(liveError.message);
+    if ((live ?? []).length > 0) {
+      throw new PlaidItemConflictError("This bank account is already connected. Reconnect that connection instead.", 409);
+    }
+  }
+
+  const fields = {
+    owner_user_id: input.ownerUserId,
+    purpose: input.purpose,
+    item_id: input.itemId,
+    access_token_enc: encryptSensitiveValue(input.accessToken, tokenContext(input.ownerUserId, id)),
+    institution_name: input.institutionName?.trim().slice(0, 120) || null,
+    account_mask: maskLastFour(input.accountMask),
+    account_name: input.accountName?.trim().slice(0, 120) || null,
+    plaid_account_id: input.plaidAccountId ?? null,
+    bank_account_id: bankAccountId,
+    status: "active",
+    last_error: null,
+    updated_at: now,
+  };
+  const query = existing
+    ? db.from("plaid_items").update(fields).eq("id", id).eq("owner_user_id", input.ownerUserId)
+    : db.from("plaid_items").insert({ id, ...fields });
+  const { data, error } = await query.select(ITEM_SELECT).single();
+  // The database holds the same two invariants as unique indexes (`item_id`, and one live bank feed per
+  // bank account), so a race that slips past the reads above is still refused — as the refusal it is,
+  // never as a 502 "couldn't reach your bank".
+  if (error && String((error as { code?: unknown }).code ?? "") === "23505") {
+    throw new PlaidItemConflictError("This bank account is already connected. Reload the page to see it.", 409);
+  }
+  if (error || !data) throw new Error(error?.message ?? "Could not save the bank connection.");
+  return data as unknown as PlaidItemRow;
+}
+
+export async function listPlaidItemsForOwner(
+  db: SupabaseClient,
+  ownerUserId: string,
+  purpose: PlaidPurpose,
+): Promise<PlaidItemRow[]> {
+  const { data, error } = await db
+    .from("plaid_items")
+    .select(ITEM_SELECT)
+    .eq("owner_user_id", ownerUserId)
+    .eq("purpose", purpose)
+    .neq("status", "revoked")
+    .order("created_at", { ascending: true })
+    .limit(50);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as unknown as PlaidItemRow[];
+}
+
+export async function getPlaidItemForOwner(
+  db: SupabaseClient,
+  ownerUserId: string,
+  id: string,
+): Promise<PlaidItemRow | null> {
+  const { data, error } = await db
+    .from("plaid_items")
+    .select(ITEM_SELECT)
+    .eq("id", id)
+    .eq("owner_user_id", ownerUserId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as unknown as PlaidItemRow | null) ?? null;
+}
+
+/** Webhook path: Plaid names the item by its own id. */
+export async function getPlaidItemByPlaidItemId(db: SupabaseClient, itemId: string): Promise<PlaidItemRow | null> {
+  const { data, error } = await db.from("plaid_items").select(ITEM_SELECT).eq("item_id", itemId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as unknown as PlaidItemRow | null) ?? null;
+}
+
+export function readPlaidAccessToken(row: Pick<PlaidItemRow, "id" | "owner_user_id" | "access_token_enc">): string {
+  return decryptSensitiveValue(row.access_token_enc, tokenContext(row.owner_user_id, row.id));
+}
+
+export type PlaidItemPatch = Partial<{
+  status: PlaidItemStatus;
+  last_error: string | null;
+  last_synced_at: string | null;
+  transactions_cursor: string | null;
+}>;
+
+export async function updatePlaidItem(db: SupabaseClient, id: string, patch: PlaidItemPatch): Promise<void> {
+  const { error } = await db
+    .from("plaid_items")
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+/** A short single-flight claim so a webhook and the cron never sync one item at once. */
+export async function claimPlaidSync(db: SupabaseClient, id: string, holdSeconds = 120): Promise<boolean> {
+  const now = new Date();
+  const until = new Date(now.getTime() + holdSeconds * 1000).toISOString();
+  const { data, error } = await db
+    .from("plaid_items")
+    // The claim IS the attempt: stamped whether the sync then succeeds or fails, so the cron's catch-up
+    // can rotate a persistently failing item behind the others instead of retrying it first every day.
+    .update({ sync_lock_until: until, last_sync_attempt_at: now.toISOString() })
+    .eq("id", id)
+    .or(`sync_lock_until.is.null,sync_lock_until.lt.${now.toISOString()}`)
+    .select("id");
+  if (error) throw new Error(error.message);
+  return (data ?? []).length > 0;
+}
+
+export async function releasePlaidSync(db: SupabaseClient, id: string): Promise<void> {
+  await db.from("plaid_items").update({ sync_lock_until: null }).eq("id", id);
+}
+
+/**
+ * Best-effort /item/remove for an owner's items, run before the rows are purged. A Plaid
+ * failure never blocks account deletion. `purposes` limits it to one portal's items.
+ */
+export async function removePlaidItemsForOwner(
+  db: SupabaseClient,
+  ownerUserId: string,
+  purposes?: readonly PlaidPurpose[],
+): Promise<void> {
+  if (!ownerUserId) return;
+  // An explicit empty list means this portal owns no Plaid purpose: nothing to revoke.
+  if (purposes && purposes.length === 0) return;
+  try {
+    let query = db.from("plaid_items").select(ITEM_SELECT).eq("owner_user_id", ownerUserId);
+    if (purposes) query = query.in("purpose", [...purposes]);
+    const { data } = await query.limit(200);
+    for (const row of (data ?? []) as unknown as PlaidItemRow[]) {
+      try {
+        await getPlaidClient().itemRemove({ access_token: readPlaidAccessToken(row) });
+      } catch (error) {
+        console.warn("[plaid] item remove failed", plaidFailure(error).code);
+      }
+    }
+  } catch {
+    /* Plaid disabled or unreadable: the manifest still deletes the rows. */
+  }
+}
+
+/**
+ * True when this bank account was fed by an Item that has since been revoked, and that Item was the same
+ * institution and account mask as `item`. That is a relink: Plaid mints fresh transaction ids for the new
+ * Item and replays history, so the lines it brings may already sit in the statements under the old ids.
+ * Unknown mask/institution (not supplied) answers false: nothing is deduped on a guess.
+ */
+export async function isRelinkAfterRevoke(
+  db: SupabaseClient,
+  item: { id?: string; owner_user_id: string; bank_account_id: string | null; account_mask?: string | null; institution_name?: string | null },
+): Promise<boolean> {
+  if (!item.bank_account_id || item.account_mask === undefined || item.institution_name === undefined) return false;
+  const { data, error } = await db
+    .from("plaid_items")
+    .select("id, account_mask, institution_name")
+    .eq("owner_user_id", item.owner_user_id)
+    .eq("bank_account_id", item.bank_account_id)
+    .eq("purpose", "bank_feed")
+    .eq("status", "revoked")
+    .limit(20);
+  if (error) throw new Error(error.message);
+  const norm = (v: unknown) => String(v ?? "").trim().toLowerCase();
+  return ((data ?? []) as { id: string; account_mask: string | null; institution_name: string | null }[]).some(
+    (r) => r.id !== item.id && norm(r.account_mask) === norm(item.account_mask) && norm(r.institution_name) === norm(item.institution_name),
+  );
+}

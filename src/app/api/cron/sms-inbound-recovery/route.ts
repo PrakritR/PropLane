@@ -21,8 +21,11 @@ export async function GET(req: Request) {
     const deadline = Date.now() + START_DEADLINE_MS;
     const envelopes = await recoverInboundEnvelopes(db, { process: processAcceptedInbound, deadline });
     const result = await recoverInboundReceipts(db, { deadline });
-    const { error: retentionError } = await db.rpc("purge_sms_ingress_retention");
-    if (retentionError) throw new Error("SMS ingress retention unavailable");
+    // The purge is a DELETE sweep; retention is measured in days, so every 15th minute is plenty (this cron is per-minute).
+    if (new Date().getUTCMinutes() % 15 === 0) {
+      const { error: retentionError } = await db.rpc("purge_sms_ingress_retention");
+      if (retentionError) throw new Error("SMS ingress retention unavailable");
+    }
     if (result.failed > 0 || result.dropped > 0) console.warn("sms inbound recovery", result);
     const ok = result.failed === 0 && envelopes.needsReview === 0;
     if (envelopes.needsReview) console.warn("sms ingress needs review", envelopes);

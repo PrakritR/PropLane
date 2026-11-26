@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { prepareStayExtension, completeStayExtension, StayExtensionError, type StayExtension } from "@/lib/lease-stay-extension.server";
 export const runtime = "nodejs";
 async function handle(req: NextRequest, commit: boolean) {
@@ -10,6 +11,8 @@ async function handle(req: NextRequest, commit: boolean) {
     const { data: { user } } = await client.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const db = createSupabaseServiceRoleClient();
+    const ownerRefusal = await refuseOwnerOnly(db, user.id);
+    if (ownerRefusal) return ownerRefusal;
     if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return NextResponse.json({ error: "Account access unavailable." }, { status: 403 });
     const roles = await db.from("profile_roles").select("role").eq("user_id", user.id);
     if (roles.error || !roles.data.some((r) => r.role === "manager" || r.role === "admin")) return NextResponse.json({ error: "Managers only." }, { status: 403 });

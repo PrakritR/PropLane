@@ -51,6 +51,10 @@ import {
   isRoomChoiceAvailable,
 } from "@/lib/rental-application/data";
 import { syncPublicApprovedApplicationsFromServer } from "@/lib/manager-applications-storage";
+import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
+import { publicRoomPickFromRows } from "@/lib/public-room-pick-availability";
+import { pacificTodayKey } from "@/lib/room-availability-range";
+import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
 import { pacificCalendarDateYmd } from "@/lib/pacific-time";
 import {
   REQUESTED_TOUR_KIND,
@@ -60,6 +64,7 @@ import {
   requestedTourSlotIndices,
 } from "@/lib/tour-request-time";
 import { isoWindowFromSlotKey } from "@/lib/tour-slot-math";
+import { tourConfirmationReference } from "@/lib/tour-notifications";
 import {
   parseTourSlotKey,
   tourRoomParamForKey,
@@ -68,6 +73,19 @@ import {
 
 /** 1 = Date & time (room rides along as a dropdown that defaults to "any"), 2 = Your details. */
 type TourStep = 1 | 2;
+
+/**
+ * How many rooms this listing names. A home with none - and one with a single room - never draws a room
+ * dropdown, so a refused occupancy read withholds nothing there and says nothing.
+ */
+function namedRoomCount(p: MockProperty): number {
+  if (p.listingSubmission?.v !== 1) return 0;
+  return normalizeManagerListingSubmissionV1(p.listingSubmission).rooms.filter((room) => room.name.trim()).length;
+}
+
+/** Shown in place of the room dropdown when the occupancy read was refused: no room is claimed either way. */
+export const TOUR_ROOM_AVAILABILITY_UNKNOWN =
+  "Couldn't check room availability just now. Reload to try again, or ask about a room when the host replies - this request is for the home.";
 
 /** Banner when a prospect picks a room that is fully booked (PRP-398 tour half). */
 export function tourRoomAvailabilityMessage(roomKey: string | null | undefined): string | null {
@@ -100,6 +118,8 @@ const TOUR_OPEN_SLOT_CLASS =
 type TourRoomOption = {
   key: string;
   label: string;
+  /** The listing's own availability wording for the room ("Open now", "Opens Jan 1"); absent when unfiltered. */
+  availabilityLabel?: string;
   subtitle: string;
   property: MockProperty;
 };
@@ -131,27 +151,44 @@ export function isTourRoomUndecided(roomKey: string | null | undefined): boolean
   return roomKey === TOUR_ROOM_UNDECIDED_KEY;
 }
 
-function tourRoomLabelForKey(property: MockProperty, roomKey: string | null): string {
+function tourRoomLabelForKey(property: MockProperty, roomKey: string | null, availability?: TourRoomAvailability): string {
   if (!roomKey) return "";
   if (isTourRoomUndecided(roomKey)) return TOUR_ROOM_UNDECIDED_LABEL;
-  const hit = roomOptionsForProperty(property).find((o) => o.key === roomKey);
+  const hit = roomOptionsForProperty(property, availability).find((o) => o.key === roomKey);
   return hit?.label ?? property.title;
 }
 
-function roomOptionsForProperty(p: MockProperty): TourRoomOption[] {
-  if (p.listingSubmission?.v === 1) {
+/**
+ * The live occupancy a room list is judged against; without it every named room is listed (resident portal).
+ * `checked` is false when the public read was REFUSED: no row then means "unknown", never "nothing booked", so
+ * no room is offered. A rate-limited or failing read must not put a leased room on a prospect's tour request.
+ */
+type TourRoomAvailability = { rows: readonly PublicRoomOccupancy[]; today: string; checked: boolean };
+
+/**
+ * With `availability`, only rooms the public listing itself shows as tourable (open now, or opening inside its
+ * window) are listed, each carrying the listing's wording. Leased and "Not available" rooms never appear.
+ */
+function roomOptionsForProperty(p: MockProperty, availability?: TourRoomAvailability): TourRoomOption[] {
+  if (p.listingSubmission?.v === 1 && availability?.checked !== false) {
     const sub = normalizeManagerListingSubmissionV1(p.listingSubmission);
     const rooms = sub.rooms.filter((r) => r.name.trim());
     if (rooms.length > 0) {
-      return rooms.map((room) => {
+      const options: TourRoomOption[] = [];
+      for (const room of rooms) {
+        const pick = availability ? publicRoomPickFromRows(room, availability.rows, p.id, availability.today) : null;
+        if (pick && !pick.tourable) continue;
         const parts = [room.name.trim(), room.floor.trim(), roomMonthlyEquivalentLabel(room)].filter(Boolean);
-        return {
+        options.push({
           key: `${p.id}::${room.id}`,
           label: parts.join(" · "),
+          ...(pick ? { availabilityLabel: pick.label } : {}),
           subtitle: p.title,
           property: p,
-        };
-      });
+        });
+      }
+      // A house whose every room is leased lists none: the tour is about the house, never a room nobody can have.
+      if (options.length > 0 || availability) return options;
     }
   }
   return [
@@ -167,15 +204,20 @@ function roomOptionsForProperty(p: MockProperty): TourRoomOption[] {
 /**
  * The room a tour starts with. A prospect never has to pick one: several rooms default to "not sure yet",
  * one room is that room. `room` is the URL param (`<roomId>` or `any`) when a pick travelled through sign-in.
+ * A listing that names several rooms but offers none to choose from - the occupancy read was refused, or every
+ * room is leased - stays "not sure yet" too: the house is not one of its own rooms.
  */
-export function defaultTourRoomKey(property: MockProperty, room?: string | null): string {
-  const rooms = roomOptionsForProperty(property);
+export function defaultTourRoomKey(property: MockProperty, room?: string | null, availability?: TourRoomAvailability): string {
+  const rooms = roomOptionsForProperty(property, availability);
   const wanted = room?.trim();
   if (wanted && wanted !== "any") {
     const hit = rooms.find((option) => option.key === `${property.id}::${wanted}`);
     if (hit) return hit.key;
   }
-  return rooms.length > 1 ? TOUR_ROOM_UNDECIDED_KEY : (rooms[0]?.key ?? property.id);
+  if (rooms.length > 1) return TOUR_ROOM_UNDECIDED_KEY;
+  const only = rooms[0]?.key;
+  if (only && only !== property.id) return only;
+  return namedRoomCount(property) > 1 ? TOUR_ROOM_UNDECIDED_KEY : property.id;
 }
 
 /**
@@ -225,11 +267,14 @@ function TourStepNavigationFooter({
   step,
   onBack,
   onContinue,
+  busy = false,
   pub = false,
 }: {
   step: TourStep;
   onBack: () => void;
   onContinue: () => void;
+  /** The times are still loading: Continue says so and waits instead of eating a click. */
+  busy?: boolean;
   pub?: boolean;
 }) {
   if (step >= 2) return null;
@@ -241,8 +286,8 @@ function TourStepNavigationFooter({
             Back
           </button>
         ) : null}
-        <button type="button" className="ps-btn ps-btn-blue" onClick={onContinue}>
-          Continue
+        <button type="button" className="ps-btn ps-btn-blue" onClick={onContinue} disabled={busy} aria-busy={busy}>
+          {busy ? "Loading times…" : "Continue"}
         </button>
       </div>
     );
@@ -264,8 +309,9 @@ function TourStepNavigationFooter({
         variant="primary"
         className="h-9 min-h-0 rounded-full px-6 text-[13px]"
         onClick={onContinue}
+        disabled={busy}
       >
-        Continue
+        {busy ? "Loading times…" : "Continue"}
       </Button>
     </div>
   );
@@ -322,12 +368,21 @@ export function TourScheduleFlow({
   const hasResidentRole = contactAutofill.hasResidentRole;
   const [tick, setTick] = useState(0);
   const [pickedRoomKey, setPickedRoomKey] = useState<string | null>(null);
+  // The same availability the listing page shows: a leased or closed room is never a tour choice.
+  const roomAvailability = useTourRoomAvailability(property.id);
   // Never forced: until the prospect touches the dropdown the room is the default ("not sure yet" for several).
-  const selectedRoomKey = pickedRoomKey ?? defaultTourRoomKey(property, initialRoom);
+  // A pick that is no longer on offer (the read finished and the room is leased) falls back to the default.
+  const defaultRoomKey = defaultTourRoomKey(property, initialRoom, roomAvailability);
+  const pickedStillOffered =
+    pickedRoomKey != null &&
+    (isTourRoomUndecided(pickedRoomKey) ||
+      !roomAvailability ||
+      roomOptionsForProperty(property, roomAvailability).some((option) => option.key === pickedRoomKey));
+  const selectedRoomKey = pickedStillOffered ? pickedRoomKey : defaultRoomKey;
   const setSelectedRoomKey = setPickedRoomKey;
   const selectedRoomLabel = useMemo(
-    () => tourRoomLabelForKey(property, selectedRoomKey),
-    [property, selectedRoomKey],
+    () => tourRoomLabelForKey(property, selectedRoomKey, roomAvailability),
+    [property, selectedRoomKey, roomAvailability],
   );
 
   const [selectedDay, setSelectedDay] = useState<number | null>(initialSlot?.day ?? null);
@@ -343,6 +398,7 @@ export function TourScheduleFlow({
   const [availabilityLoading, setAvailabilityLoading] = useState(true);
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
   const [bookingTour, setBookingTour] = useState(false);
+  const submitInFlightRef = useRef(false);
   const [identityRequired, setIdentityRequired] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [detailsFooter, setDetailsFooter] = useState<ReactNode | null>(null);
@@ -521,7 +577,7 @@ export function TourScheduleFlow({
     }
     if (step < 2) {
       onEmbeddedFooterChange(
-        <TourStepNavigationFooter step={step} onBack={goToPreviousStep} onContinue={goToNextStep} />,
+        <TourStepNavigationFooter step={step} onBack={goToPreviousStep} onContinue={goToNextStep} busy={availabilityLoading} />,
       );
       return () => onEmbeddedFooterChange(null);
     }
@@ -529,6 +585,7 @@ export function TourScheduleFlow({
     return () => onEmbeddedFooterChange(null);
   }, [
     embeddedModalLayout,
+    availabilityLoading,
     goToNextStep,
     goToPreviousStep,
     onEmbeddedFooterChange,
@@ -579,6 +636,12 @@ export function TourScheduleFlow({
                 <li>
                   <span>Room</span>
                   <span>{selectedRoomLabel}</span>
+                </li>
+              ) : null}
+              {tourConfirmationReference(submittedContact?.inquiryId) ? (
+                <li data-attr="tour-confirmation-reference">
+                  <span>Reference</span>
+                  <span>{tourConfirmationReference(submittedContact?.inquiryId)}</span>
                 </li>
               ) : null}
               {area ? (
@@ -668,6 +731,11 @@ export function TourScheduleFlow({
             Your tour request was sent to the property manager. If you provided an email, you should receive a short
             acknowledgment shortly. You will get a separate confirmation once the manager approves your requested time.
           </p>
+          {tourConfirmationReference(submittedContact?.inquiryId) ? (
+            <p className="font-medium" data-attr="tour-confirmation-reference">
+              Reference: {tourConfirmationReference(submittedContact?.inquiryId)}
+            </p>
+          ) : null}
           <p className="font-medium">
             Requested tour: {property.title}
             {selectedDay && selectedSlotIndex != null
@@ -933,7 +1001,8 @@ export function TourScheduleFlow({
               })
             }
             onSubmit={async ({ name, email, phone, notes, smsConsent, tourFormat }) => {
-              if (bookingTour) return;
+              // A ref, not the state: a second click lands before the state has re-rendered.
+              if (bookingTour || submitInFlightRef.current) return;
               setSubmitError(null);
               const errs = validateTourContactFields({ name, email, phone });
               if (Object.keys(errs).length > 0) {
@@ -970,6 +1039,7 @@ export function TourScheduleFlow({
               ]
                 .filter(Boolean)
                 .join("\n");
+              submitInFlightRef.current = true;
               setBookingTour(true);
               const tourGroupId = crypto.randomUUID();
               /**
@@ -1009,6 +1079,7 @@ export function TourScheduleFlow({
                   proposedStart: start.toISOString(),
                   proposedEnd: end.toISOString(),
                 });
+                submitInFlightRef.current = false;
                 setBookingTour(false);
                 if (!result.ok) {
                   if (result.blocked === "identity") { showIdentityHandoff(); return; }
@@ -1072,7 +1143,8 @@ export function TourScheduleFlow({
                   }),
                 ),
               );
-              setBookingTour(false);
+              submitInFlightRef.current = false;
+                setBookingTour(false);
               const failedResult = results.find((item) => !item.ok);
               if (failedResult) {
                 if (failedResult.blocked === "identity") { showIdentityHandoff(); return; }
@@ -1107,7 +1179,7 @@ export function TourScheduleFlow({
 
       {!embeddedModalLayout && step < 3 ? (
         <div className={pub ? undefined : "mt-6"}>
-          <TourStepNavigationFooter pub={pub} step={step} onBack={goToPreviousStep} onContinue={goToNextStep} />
+          <TourStepNavigationFooter pub={pub} step={step} onBack={goToPreviousStep} onContinue={goToNextStep} busy={availabilityLoading} />
         </div>
       ) : null}
     </div>
@@ -1131,9 +1203,23 @@ function RoomSelect({
   onChange: (roomKey: string) => void;
   occupancySyncEpoch: number;
 }) {
-  const listedRooms = roomOptionsForProperty(property);
+  const availability = useTourRoomAvailability(property.id);
+  // Until the listing's own availability has loaded nothing is offered: a leased room must never flash as a choice.
+  const listedRooms = availability ? roomOptionsForProperty(property, availability) : [];
   void occupancySyncEpoch;
   const roomAvailabilityWarning = tourRoomAvailabilityMessage(value);
+  if (availability && !availability.checked && namedRoomCount(property) > 1) {
+    return (
+      <p
+        role="status"
+        data-attr="tour-room-availability-unknown"
+        className={pub ? "ps-j-note" : "rounded-xl border px-4 py-3 text-sm portal-banner-pending"}
+        style={pub ? { margin: 0 } : undefined}
+      >
+        {TOUR_ROOM_AVAILABILITY_UNKNOWN}
+      </p>
+    );
+  }
   if (listedRooms.length <= 1) return null;
   const select = (
     <select
@@ -1147,7 +1233,7 @@ function RoomSelect({
       <option value={TOUR_ROOM_UNDECIDED_KEY}>{TOUR_ROOM_UNDECIDED_LABEL}</option>
       {listedRooms.map((option) => (
         <option key={option.key} value={option.key}>
-          {option.label}
+          {option.availabilityLabel ? `${option.label} · ${option.availabilityLabel}` : option.label}
         </option>
       ))}
     </select>
@@ -1168,6 +1254,19 @@ function RoomSelect({
         </p>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The listing page's own occupancy read (one shared request) as the room list's availability, or `undefined`
+ * while it loads. A REFUSED read answers `checked: false`, which offers no room rather than reading an empty
+ * snapshot as an empty house - the tour is then about the home, which needs no availability to ask for.
+ */
+function useTourRoomAvailability(propertyId: string): TourRoomAvailability | undefined {
+  const { rooms, loading, failed } = useListingPublicOccupancy(propertyId);
+  return useMemo(
+    () => (loading ? undefined : { rows: rooms, today: pacificTodayKey(), checked: !failed }),
+    [loading, rooms, failed],
   );
 }
 
@@ -1624,11 +1723,12 @@ function Step3({
   }, [onSubmit]);
 
   useEffect(() => {
-    if (!contactDefaults.ready) return;
+    // A manager or admin looking at this page gets an empty form, never their own identity.
+    if (!contactDefaults.ready || contactDefaults.mayPrefill === false) return;
     if (contactDefaults.name) setName((prev) => prev || contactDefaults.name);
     if (contactDefaults.email) setEmail((prev) => prev || contactDefaults.email);
     if (contactDefaults.phone) setPhone((prev) => prev || contactDefaults.phone);
-  }, [contactDefaults.ready, contactDefaults.name, contactDefaults.email, contactDefaults.phone]);
+  }, [contactDefaults.ready, contactDefaults.mayPrefill, contactDefaults.name, contactDefaults.email, contactDefaults.phone]);
 
   useEffect(() => {
     if (!embeddedModalLayout || !onEmbeddedBookFooterChange || !signedIn) return;

@@ -32,6 +32,9 @@ const ALLOWED_FILES = new Set([
   "src/lib/agent/channel-reply-policy.ts",
   // Detects a resident ASKING to pay off-platform so the assistant escalates instead of answering (never offers it).
   "src/lib/resident-thread-auto-reply.ts",
+  // `NOT_INCOME_NAME` names these brands to EXCLUDE a peer-to-peer deposit from verified applicant income, so a
+  // Venmo/Zelle transfer can never be counted as a paycheck. Naming them is the guard, not the channel.
+  "src/lib/plaid/income-calc.ts",
 ]);
 
 const RETIRED = /zelle|venmo|gmail-payments|gmail_payments|paymentInboxToken|receiptAutoMark|paidViaGmail/i;

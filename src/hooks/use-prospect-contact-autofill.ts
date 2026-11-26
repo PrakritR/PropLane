@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 import { normalizePortalRoles } from "@/lib/auth/portal-roles";
+import { prospectContactMayPrefill } from "@/lib/prospect-contact-prefill";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { safeBrowserGetSession } from "@/lib/supabase/safe-browser-session";
 
@@ -10,6 +11,8 @@ export type ProspectContactAutofill = {
   ready: boolean;
   userId: string | null;
   hasResidentRole: boolean;
+  /** False for a manager / admin / vendor session: their own identity is never pre-filled into a prospect form. */
+  mayPrefill: boolean;
   name: string;
   email: string;
   phone: string;
@@ -19,6 +22,7 @@ const EMPTY: ProspectContactAutofill = {
   ready: false,
   userId: null,
   hasResidentRole: false,
+  mayPrefill: true,
   name: "",
   email: "",
   phone: "",
@@ -58,6 +62,7 @@ export function useProspectContactAutofill(): ProspectContactAutofill {
           ready: true,
           userId: user.id,
           hasResidentRole: roles.includes("resident"),
+          mayPrefill: prospectContactMayPrefill(roles),
           name: profile?.full_name?.trim() || meta?.full_name?.trim() || meta?.name?.trim() || "",
           email: profile?.email?.trim() || user.email?.trim() || "",
           phone: profile?.phone?.trim() || "",
@@ -70,6 +75,7 @@ export function useProspectContactAutofill(): ProspectContactAutofill {
           ready: true,
           userId: user.id,
           hasResidentRole: fallbackRoles.includes("resident"),
+          mayPrefill: prospectContactMayPrefill(fallbackRoles),
           name: meta?.full_name?.trim() || meta?.name?.trim() || "",
           email: user.email?.trim() || "",
           phone: "",

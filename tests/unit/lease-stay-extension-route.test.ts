@@ -1,9 +1,10 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import { NextRequest } from "next/server";
-const m = vi.hoisted(() => ({ user: vi.fn(), business: vi.fn(), prepare: vi.fn(), complete: vi.fn(), rpc: vi.fn(), roles: vi.fn() }));
+const m = vi.hoisted(() => ({ user: vi.fn(), business: vi.fn(), prepare: vi.fn(), complete: vi.fn(), rpc: vi.fn(), roles: vi.fn(), ownerGate: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { getUser: m.user } }) }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ from: () => ({ select: () => ({ eq: m.roles }) }), rpc: m.rpc }) }));
 vi.mock("@/lib/test-workspaces/index.server", () => ({ resolveAuthenticatedBusinessAccess: m.business }));
+vi.mock("@/lib/property-owner/route-auth.server", () => ({ refuseOwnerOnly: m.ownerGate }));
 vi.mock("@/lib/lease-stay-extension.server", () => ({ prepareStayExtension: m.prepare, completeStayExtension: m.complete, StayExtensionError: class extends Error { status = 409; } }));
 import { POST, PUT } from "@/app/api/manager/extend-stay/route";
 const extension = { id: "ext", leaseId: "lease", checkout: "2027-02-01", chargeIds: ["charge"] };
@@ -14,11 +15,19 @@ beforeEach(() => {
   m.user.mockResolvedValue({ data: { user: { id: "staff", email: "qa@example.invalid" } } });
   m.roles.mockResolvedValue({ data: [{ role: "manager" }], error: null });
   m.business.mockResolvedValue({ kind: "allowed" });
+  m.ownerGate.mockResolvedValue(null);
   m.prepare.mockResolvedValue({ record, extension, token: "quote", charges: [], expectedCharges: [], revision: 3, applicationRecord: { id: "app", row_data: {} } });
   m.rpc.mockResolvedValue({ data: extension, error: null });
   m.complete.mockResolvedValue({ delivered: 1, failed: 0 });
 });
 describe("extend stay route", () => {
+  it("honors the shared owner-route decision before reading or writing lease data", async () => {
+    m.ownerGate.mockResolvedValue(new Response(null, { status: 403 }));
+    expect((await POST(request())).status).toBe(403);
+    expect(m.ownerGate).toHaveBeenCalledWith(expect.anything(), "staff");
+    expect(m.prepare).not.toHaveBeenCalled();
+    expect(m.rpc).not.toHaveBeenCalled();
+  });
   it("previews without any write", async () => { expect((await PUT(request())).status).toBe(200); expect(m.rpc).not.toHaveBeenCalled(); expect(m.complete).not.toHaveBeenCalled(); });
   it("uses session actor and resolved owner, ignoring a body owner or amount", async () => {
     expect((await POST(request({ managerUserId: "attacker", amount: 1, actorId: "other" }))).status).toBe(200);

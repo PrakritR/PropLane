@@ -1,5 +1,6 @@
 "use client";
 
+import { listingPublicPathFor } from "@/lib/listing-slug";
 import "@/components/public-site/public-site.css";
 import { displayPropertyTitle } from "@/lib/property-title";
 import Link from "next/link";
@@ -80,7 +81,7 @@ function ShareButton({ property }: { property: MockProperty }) {
   const [copied, setCopied] = useState(false);
   const share = useCallback(async () => {
     if (typeof window === "undefined") return;
-    const url = `${resolveEmailLinkBaseUrl()}/rent/listings/${encodeURIComponent(property.id)}`;
+    const url = `${resolveEmailLinkBaseUrl()}${listingPublicPathFor(property)}`;
     const title = propertyDisplayLabel(property) ?? "PropLane listing";
     try {
       if (typeof navigator.share === "function") {
@@ -116,7 +117,7 @@ function ShareButton({ property }: { property: MockProperty }) {
 function SaveButton({ property, newTab }: { property: MockProperty; newTab: boolean }) {
   // Saving a home lives with a resident account; until one exists the heart
   // opens the same create-account door the browse page uses.
-  const href = residentCreateAccountHref(`/rent/listings/${encodeURIComponent(property.id)}`);
+  const href = residentCreateAccountHref(listingPublicPathFor(property));
   return (
     <Link
       href={href}
@@ -190,7 +191,7 @@ function Section({
 }
 
 /**
- * The page's actions on a phone: Tour and Book (through a resident account), then Message (a phone and a texted code,
+ * The page's actions on a phone: Tour and Apply (through a resident account), then Message (a phone and a texted code,
  * no account) and Text us (the one configured PropLane line; not drawn when there is none). Fixed to the bottom of the
  * public page only; the portal's preview never draws it. It tells
  * the page (a flag on <html>) so the floating assistant button rides above it.
@@ -233,7 +234,7 @@ function StickyBar({
   /** Manager preview on a phone: one slim row (price and availability left, the primary and Tour right). */
   slim?: boolean;
 }) {
-  // Exactly one primary and Tour: the primary is the same Book / Continue the card shows, and the price is the monthly line.
+  // Exactly one primary and Tour: the primary is the same Apply / Continue the card shows, and the price is the monthly line.
   const from = listingMonthlyPriceLine(rich)?.label ?? "";
   const compact = slim ? "!w-auto flex-none !px-4" : "min-w-[7.5rem] flex-1 !px-3";
   const primary = <MonthlyPrimaryCta property={property} newTab={newTab} className={`ps-btn ps-btn-blue ${compact}`} label={slim ? "short" : undefined} />;

@@ -11,6 +11,7 @@ import "server-only";
  *    confirmed, in place of calling `notifyTenantTourConfirmed` directly;
  *  - the hold writer (charges/holds) calls `emitHoldPlaced(db, {...})` once the $100 hold is captured.
  */
+import { buildReadableListingUrl } from "@/lib/seo/listing-slugs.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emitActionEvent } from "@/lib/action-events.server";
 import { managerSender } from "@/lib/domain-action-events.server";
@@ -68,7 +69,7 @@ export async function notifyGuestTourConfirmed(
     endIso: window.end,
     instructions: instructions ?? null,
     propLaneLine: await propLaneLine(),
-    listingUrl: propertyId ? `${origin}/rent/listings/${propertyId}` : origin,
+    listingUrl: propertyId ? await buildReadableListingUrl(origin, propertyId) : origin,
   };
   const email = buildGuestTourConfirmedEmail(facts);
   return notifyTenantTourConfirmed(db, null, inquiry, window, instructions, {

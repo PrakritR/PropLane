@@ -145,6 +145,21 @@ const nextConfig: NextConfig = {
       // A link already sent still lands; temporary like every other rule here, so the day /rent/tour becomes a
       // real page no browser or crawler is still holding a cached 308 to the other one. Query params
       // (propertyId, ...) ride along on a redirect.
+      // A tour or message request that names no home (no `propertyId`, no `ids` share list) has nothing to
+      // schedule against and used to land on a "Manager link required" dead end: it goes to the home picker.
+      // These come BEFORE the plain `/rent/tour` rule below, which still serves a request that names a home.
+      ...["/rent/tour", "/rent/tours", "/rent/tours-contact"].map((source) => ({
+        source,
+        missing: [
+          { type: "query" as const, key: "propertyId" },
+          { type: "query" as const, key: "ids" },
+          // A sign-in return (`next`) or a filed request (`tourInquiryId`) is not a homeless request.
+          { type: "query" as const, key: "next" },
+          { type: "query" as const, key: "tourInquiryId" },
+        ],
+        destination: "/rent/browse",
+        permanent: false,
+      })),
       { source: "/rent/tour", destination: "/rent/tours-contact", permanent: false },
       { source: "/browse", destination: "/rent/browse", permanent: false },
       // `/rent/browse` is a single page — there is NO `/rent/browse/[…]` route,

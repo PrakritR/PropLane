@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Building2, CalendarPlus, ExternalLink, House, Palmtree, Plus, UsersRound } from "lucide-react";
+import { Building2, CalendarPlus, ExternalLink, Hotel, House, Palmtree, Plus, UsersRound } from "lucide-react";
 
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import { ChannelsHealthCard } from "@/components/portal/channels-health-card";
@@ -13,12 +13,14 @@ import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Button } from "@/components/ui/button";
 import { fetchManagerChannelBookings } from "@/lib/channel-calendar/client";
-import { channelRowFact } from "@/lib/channel-calendar/channel-row-fact";
+import { isAgodaSite } from "@/lib/channel-calendar/channel-links";
+import { agodaRowFact, channelRowFact } from "@/lib/channel-calendar/channel-row-fact";
 import { channelCalendarUnits } from "@/lib/channel-calendar/property-units";
 import type { ChannelCalendarProvider, ManagerChannelBookingProperty } from "@/lib/channel-calendar/types";
 
 type ChannelCounts = Record<ChannelCalendarProvider, number | null>;
 type ChannelSyncs = Record<ChannelCalendarProvider, string | null>;
+type AgodaRoomStatus = { lastSyncedAt: string | null; exportLastFetchedAt: string | null };
 
 /** Channels that connect today; their rows open the one-page Connect popup. */
 const LIVE_CHANNELS = [
@@ -42,6 +44,9 @@ export function ManagerBookingChannelsPanel() {
   const activeWorkspace = workspaceCtx?.active ?? null;
   const workspaceReady = !!activeWorkspace && workspaceCtx?.loading === false && !workspaceCtx.error;
   const [channelOpen, setChannelOpen] = useState<ChannelCalendarProvider | null>(null);
+  // Agoda is an Other calendar link named "Agoda": its own row opens the same popup with that name fixed.
+  const [agodaOpen, setAgodaOpen] = useState(false);
+  const [agodaRooms, setAgodaRooms] = useState<AgodaRoomStatus[]>([]);
   const [counts, setCounts] = useState<ChannelCounts>(EMPTY_COUNTS);
   // The rooms and links this panel already loaded; the Connect popup opens from them instead of
   // waiting on a read of its own (and refreshes behind itself).
@@ -64,11 +69,18 @@ export function ManagerBookingChannelsPanel() {
       // Rooms and links only: the stored stays are for the Bookings calendar and are what made this read slow.
       const properties = await fetchManagerChannelBookings(ids, { slim: true });
       setLoaded(properties);
+      setAgodaRooms(
+        properties.flatMap((p) =>
+          p.rooms
+            .filter((r) => isAgodaSite(r.provider, r.label) && r.hasImportUrl)
+            .map((r) => ({ lastSyncedAt: r.lastSyncedAt ?? null, exportLastFetchedAt: r.exportLastFetchedAt ?? null })),
+        ),
+      );
       const count = (provider: ChannelCalendarProvider) =>
         new Set(
           properties.flatMap((p) =>
             p.rooms
-              .filter((r) => r.provider === provider && r.hasImportUrl)
+              .filter((r) => r.provider === provider && r.hasImportUrl && !isAgodaSite(r.provider, r.label))
               // An Other calendar link is one per site, so a room linked to two sites counts twice.
               .map((r) => `${p.propertyId}:${r.roomId}${provider === "ical" ? `:${(r.label ?? "").toLowerCase()}` : ""}`),
           ),
@@ -76,12 +88,12 @@ export function ManagerBookingChannelsPanel() {
       setCounts({ airbnb: count("airbnb"), booking_com: count("booking_com"), vrbo: count("vrbo"), ical: count("ical") });
       setIcalSites([
         ...new Set(
-          properties.flatMap((p) => p.rooms.filter((r) => r.provider === "ical" && r.hasImportUrl && r.label?.trim()).map((r) => r.label!.trim())),
+          properties.flatMap((p) => p.rooms.filter((r) => r.provider === "ical" && r.hasImportUrl && r.label?.trim() && !isAgodaSite(r.provider, r.label)).map((r) => r.label!.trim())),
         ),
       ]);
       const latest = (provider: ChannelCalendarProvider) =>
         properties
-          .flatMap((p) => p.rooms.filter((r) => r.provider === provider && r.hasImportUrl && r.lastSyncedAt).map((r) => r.lastSyncedAt as string))
+          .flatMap((p) => p.rooms.filter((r) => r.provider === provider && r.hasImportUrl && !isAgodaSite(r.provider, r.label) && r.lastSyncedAt).map((r) => r.lastSyncedAt as string))
           .sort()
           .at(-1) ?? null;
       setSyncs({ airbnb: latest("airbnb"), booking_com: latest("booking_com"), vrbo: latest("vrbo"), ical: latest("ical") });
@@ -125,6 +137,19 @@ export function ManagerBookingChannelsPanel() {
         ))}
         <IntegrationRow
           stackOnPhone
+          icon={Hotel}
+          tone="text-sky-600"
+          name="Agoda"
+          fact={agodaRowFact({ rooms: agodaRooms, total: totalUnits })}
+          factDataAttr="settings-agoda-status"
+          action={
+            <Button variant="ghost" data-attr="settings-agoda-manage" disabled={!workspaceReady} onClick={() => setAgodaOpen(true)}>
+              {agodaRooms.length > 0 && agodaRooms.length >= totalUnits ? "Manage" : "Connect"}
+            </Button>
+          }
+        />
+        <IntegrationRow
+          stackOnPhone
           icon={Palmtree}
           tone="text-indigo-600"
           name="Vrbo"
@@ -159,9 +184,10 @@ export function ManagerBookingChannelsPanel() {
       </PortalSettingsGroup>
       <ChannelFinanceFeedRows />
       <ChannelCalendarLinkModal
-        open={channelOpen !== null}
-        onClose={() => setChannelOpen(null)}
-        initialProvider={channelOpen ?? undefined}
+        open={channelOpen !== null || agodaOpen}
+        onClose={() => { setChannelOpen(null); setAgodaOpen(false); }}
+        initialProvider={agodaOpen ? "ical" : channelOpen ?? undefined}
+        fixedSiteName={agodaOpen ? "Agoda" : undefined}
         initialConnections={loaded ?? undefined}
         propertyIds={scopedIds}
         propertyOptions={propertyOptions}

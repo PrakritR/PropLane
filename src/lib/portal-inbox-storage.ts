@@ -255,6 +255,11 @@ export type PersistedInboxThread = {
    * conversation stands alone and the manager chooses. Never merged.
    */
   identityFlag?: { reason: "ambiguous_phone" | "identity_conflict"; accountIds: string[]; phone?: string };
+  /**
+   * Server-stamped on every GET (never trusted from a client): this conversation is the viewer's OWN account, confirmed
+   * sign-in email or verified phone. The manager list folds it into the viewer's Assistant (`self-conversation.ts`).
+   */
+  isViewerSelf?: boolean;
   /** Prospect spine stamps (`src/lib/prospect-spine`): the newest context, a platform thread's state, a held platform draft, a delivery issue. */
   prospectContext?: { propertyId?: string | null; propertyLabel?: string | null; roomId?: string | null; roomLabel?: string | null; source?: string; sourceLabel?: string | null; label?: string | null; at?: string };
   platformState?: { site?: string; state?: "active" | "moved"; movedAt?: string; stitchCode?: string | null };
@@ -1739,7 +1744,7 @@ export function mergeInboxReadSources(
   return [...byId].map(([id, source]) => ({ id, ...source }));
 }
 
-function mergeInboxReadSourceState(threads: PersistedInboxThread[]): Pick<PersistedInboxThread, "readSources" | "readSourcesComplete"> {
+export function mergeInboxReadSourceState(threads: PersistedInboxThread[]): Pick<PersistedInboxThread, "readSources" | "readSourcesComplete"> {
   // A missing marker is an old or partial projection. It must wait for a fresh
   // GET instead of being acknowledged from an observation subset.
   if (threads.some((thread) => thread.readSourcesComplete !== true || !(thread.readSources?.length))) {
@@ -1755,7 +1760,7 @@ function mergeInboxReadSourceState(threads: PersistedInboxThread[]): Pick<Persis
  * intentionally retained so the reader can resolve each exact native member
  * without treating a conflict as permission for email fallback.
  */
-function mergeInboxSmsBindingKeys(threads: PersistedInboxThread[]): string[] {
+export function mergeInboxSmsBindingKeys(threads: PersistedInboxThread[]): string[] {
   return [...new Set(
     threads.flatMap((thread) => [
       ...(thread.smsBindingKeys ?? []),

@@ -4,6 +4,7 @@ vi.mock("@/lib/public-listings.server", () => ({
   getPublicListings: async () => [{ id: "prop-1" }, { id: "prop-2" }],
 }));
 
+import { listingUrlRe } from "./listing-url-matcher";
 import sitemap from "@/app/sitemap";
 import { BLOG_POSTS } from "@/lib/blog/posts";
 
@@ -24,8 +25,8 @@ describe("blog in the sitemap", () => {
   });
 
   it("lists live public listings", () => {
-    expect(urls).toContain("https://proplane.ai/rent/listings/prop-1");
-    expect(urls).toContain("https://proplane.ai/rent/listings/prop-2");
+    expect(urls.some((u) => listingUrlRe("https://proplane.ai", "prop-1").test(u))).toBe(true);
+    expect(urls.some((u) => listingUrlRe("https://proplane.ai", "prop-2").test(u))).toBe(true);
   });
 
   it("has no duplicate URLs", () => {

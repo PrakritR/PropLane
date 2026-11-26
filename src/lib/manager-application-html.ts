@@ -1,3 +1,4 @@
+import { incomeStatedVsVerifiedLine } from "@/lib/screening/income-verification";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
@@ -384,6 +385,7 @@ ${section("Employment & income", [
   { label: "Monthly income", value: money(app.monthlyIncome) },
   { label: "Annual income", value: money(app.annualIncome) },
   { label: "Other income", value: clean(app.otherIncome) },
+  { label: "Income", value: row.incomeVerification ? incomeStatedVsVerifiedLine(app.monthlyIncome, row.incomeVerification) : "" },
 ])}
 
 ${section("References", [

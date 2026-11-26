@@ -20,6 +20,7 @@ import {
   startOfWeekMonday,
   toLocalDateStr,
 } from "@/lib/demo-admin-scheduling";
+import { plannedTourRowId, tourInquiryRowId } from "@/lib/portal-detail-routes";
 
 function addDays(d: Date, n: number): Date {
   const x = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0, 0);
@@ -121,7 +122,7 @@ export function buildScheduledTourMeetings(
             event.managerUserId !== scheduledTourFilter?.viewerUserId;
           const hostPeer = scheduledTourFilter?.peers.find((peer) => peer.userId === event.managerUserId);
           return {
-            id: `planned-${event.id}`,
+            id: plannedTourRowId(event.id),
             source: "planned",
             sourceId: event.id,
             startIso: event.start,
@@ -168,8 +169,9 @@ export function buildScheduledTourMeetings(
             return null;
           }
           const durationMinutes = durationMinutesBetweenIso(window.start, window.end);
+          const requestName = row.name?.trim() || "Tour request";
           return {
-            id: `inquiry-${row.id}-${index}`,
+            id: tourInquiryRowId(row.id, index),
             source: "inquiry",
             sourceId: row.id,
             startIso: window.start,
@@ -178,10 +180,10 @@ export function buildScheduledTourMeetings(
             startSlot: Math.max(0, Math.floor((start.getHours() * 60 + start.getMinutes()) / SLOT_DURATION_MINUTES)),
             span: Math.max(1, Math.ceil(durationMinutes / SLOT_DURATION_MINUTES)),
             durationMinutes,
-            title: row.kind === "tour" ? `Tour · ${row.name}` : `${row.name} request`,
+            title: row.kind === "tour" ? `Tour · ${requestName}` : `${requestName} request`,
             color: MEETING_PENDING_COLOR,
             statusLabel: row.kind === "tour" ? "Tour requested" : "Requested",
-            name: row.name,
+            name: requestName,
             email: row.email,
             phone: row.phone,
             notes: row.notes,

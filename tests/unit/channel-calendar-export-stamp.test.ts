@@ -49,7 +49,7 @@ describe("export route stamps export_last_fetched_at", () => {
     expect(state.updates).toEqual([expect.objectContaining({ table: "external_calendar_connections", export_last_fetched_at: expect.any(String) })]);
   });
 
-  it("does not stamp for a browser, another channel, or no User-Agent", async () => {
+  it("does not stamp for a browser, another channel's fetcher on an Airbnb link, or no User-Agent", async () => {
     await request("Mozilla/5.0 (Macintosh) Chrome/120");
     await request("Booking.com calendar fetcher");
     await request();
@@ -78,7 +78,7 @@ describe("shouldStampExportFetch", () => {
   it("stamps a never-fetched connection and an old one, not a recent one", () => {
     expect(shouldStampExportFetch({ userAgent: "Airbnb", lastFetchedAt: null, now })).toBe(true);
     expect(shouldStampExportFetch({ userAgent: "Airbnb", lastFetchedAt: "2026-10-09T11:00:00Z", now })).toBe(true);
-    expect(shouldStampExportFetch({ userAgent: "Airbnb", lastFetchedAt: "2026-10-09T11:58:00Z", now })).toBe(false);
+    expect(shouldStampExportFetch({ userAgent: "Airbnb", lastFetchedAt: "2026-10-09T11:50:00Z", now })).toBe(false);
     expect(shouldStampExportFetch({ userAgent: "curl/8", lastFetchedAt: null, now })).toBe(false);
   });
 });

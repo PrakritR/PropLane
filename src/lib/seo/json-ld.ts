@@ -4,6 +4,7 @@ import { parseMonthlyRent } from "@/lib/listings-search";
 import { listingSubmissionStreetLine } from "@/lib/manager-listing-submission";
 import { LLMS_SUMMARY } from "@/lib/seo/llms";
 import { listingPublicPath } from "@/lib/listing-public-path";
+import { listingPublicPathFor } from "@/lib/listing-slug";
 import type { MockProperty } from "@/data/types";
 
 /** Serialize for an inline <script type="application/ld+json">: `<` is escaped so no field can close the tag. */
@@ -66,7 +67,7 @@ export function listingJsonLd(
   /** The listing's published address slug (from `buildListingSlugIndex`); without one the url is the id URL. */
   slug?: string | null,
 ): Record<string, unknown> {
-  const listingUrl = `${origin}${listingPublicPath(property.id, slug)}`;
+  const listingUrl = `${origin}${slug ? listingPublicPath(property.id, slug) : listingPublicPathFor(property)}`;
   const rent = parseMonthlyRent(property.rentLabel ?? "");
   const available = (property.available ?? "").trim();
   const availableNow = /^(now|immediately)|^available(\s+now\b|\s*$)/i.test(available);

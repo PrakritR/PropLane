@@ -32,6 +32,7 @@ import { getMyStayCheckInTool } from "./domains/resident/stay-check-in";
 import { getResidentLinksTool } from "./domains/portal-links";
 import { residentListOpenTourSlotsTool, residentRequestTourTool } from "./domains/tours";
 import { residentSmsListingTools } from "./domains/resident/sms-listings";
+import { suggestListingPhotosTool } from "./domains/resident/listing-photo-suggestion";
 import { findHomesOnPropLaneTool } from "./domains/resident/public-homes";
 import {
   listMyServiceRequestsTool,
@@ -173,7 +174,7 @@ export function buildResidentRegistry(ctx: ResidentAgentContext): ToolRegistry<R
   // public PropLane catalog (the /rent pages) so a resident looking for a place gets real homes and links.
   // Gated positively on `portal`: `channel` is optional, so an unset or future channel (email, voice, the inbox
   // auto-reply context) must NOT inherit the public-catalog read.
-  const listingTools = ctx.channel === "sms" ? residentSmsListingTools : ctx.channel === "portal" ? [findHomesOnPropLaneTool] : [];
+  const listingTools = ctx.channel === "sms" ? [...residentSmsListingTools, suggestListingPhotosTool] : ctx.channel === "portal" ? [findHomesOnPropLaneTool] : [];
   const tools = [...ALL_RESIDENT_TOOLS, ...listingTools].filter((tool) => {
     if (ctx.phase === "application" && !APPLICATION_PHASE_TOOLS.has(tool.name)) return false;
     if (ctx.channel === "sms" && PORTAL_ONLY_TOOLS.has(tool.name)) return false;

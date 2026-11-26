@@ -1,5 +1,6 @@
 import "server-only";
 
+import { tourEventFactsFromRecord } from "@/lib/google-calendar/tour-event-payload";
 import { normalizeTourFormat, type TourFormat } from "@/lib/tour-format";
 
 import { isAdminUser } from "@/lib/auth/admin-preview";
@@ -204,6 +205,7 @@ export async function createManualPlannedTour(
     start,
     end,
     propertyTitle: textField(plannedEvent, "propertyTitle") || undefined,
+    ...tourEventFactsFromRecord(plannedEvent),
     attendeeName: guestName,
     attendeeEmail: textField(plannedEvent, "attendeeEmail") || undefined,
     attendeePhone: textField(plannedEvent, "attendeePhone") || undefined,

@@ -275,26 +275,52 @@ function buildPaymentLedgerRow(
   };
 }
 
+/** Every column an upsert writes except the `updated_at` stamp, which is never a reason to write. */
+const LEDGER_ENTRY_COMPARED_COLUMNS = [
+  "manager_user_id",
+  "resident_user_id",
+  "resident_email",
+  "property_id",
+  "unit_label",
+  "lease_id",
+  "entry_type",
+  "category_code",
+  "amount_cents",
+  "due_date",
+  "posted_date",
+  "source_charge_id",
+  "description",
+  "stripe_checkout_session_id",
+] as const;
+
 async function upsertLedgerEntryRow(db: SupabaseClient, row: LedgerEntryRow): Promise<string | null> {
-  const { data: existing } = await db
+  const { data: found } = await db
     .from("ledger_entries")
-    .select("id, stripe_checkout_session_id")
+    .select(["id", ...LEDGER_ENTRY_COMPARED_COLUMNS].join(", "))
     .eq("source_charge_id", row.source_charge_id)
     .eq("entry_type", row.entry_type)
     .maybeSingle();
 
-  if (existing?.id) {
+  const stored = (found ?? null) as Record<string, unknown> | null;
+  const existingId = stored?.id ? String(stored.id) : null;
+  if (stored && existingId) {
     // Most re-sync paths (charge edits, the backfill sweep) rebuild the row
     // without a session id; blanking the stored one would lose the only link
     // back to the Stripe Checkout session that settled the payment.
     const update: LedgerEntryRow = {
       ...row,
       stripe_checkout_session_id:
-        row.stripe_checkout_session_id ?? existing.stripe_checkout_session_id ?? null,
+        row.stripe_checkout_session_id ?? ((stored.stripe_checkout_session_id as string | null) ?? null),
     };
-    const { error } = await db.from("ledger_entries").update(update).eq("id", existing.id);
+    // A write-through resync that rebuilds the line it already holds must not rewrite the row: the production
+    // disk-IO budget is spent by exactly these no-op UPDATEs. The stamp alone is never a reason to write.
+    const unchanged = LEDGER_ENTRY_COMPARED_COLUMNS.every(
+      (column) => (stored[column] ?? null) === ((update as unknown as Record<string, unknown>)[column] ?? null),
+    );
+    if (unchanged) return existingId;
+    const { error } = await db.from("ledger_entries").update(update).eq("id", existingId);
     throwIfLedgerError(error);
-    return String(existing.id);
+    return existingId;
   }
 
   const { data, error } = await db.from("ledger_entries").insert(row).select("id").single();
@@ -369,31 +395,37 @@ export async function syncLedgerPaymentEntry(
 }
 
 /**
- * Void a PAID charge in the books: post a balanced reversing journal for the CHARGE (the original journal stays),
- * then drop the charge line from `ledger_entries` so every total read from it excludes the charge.
+ * Void a charge recorded in error, in the books: post a balanced reversing journal for the CHARGE (the original journal
+ * stays - history is never deleted), then drop the charge line from `ledger_entries` so every total read from it
+ * excludes the charge.
  *
- * The cash receipt is NOT reversed. A void refunds nothing (`voidPaidCharge` never moves money), so undoing the
- * payment journal would credit `operating_cash` for funds still sitting in the bank and leave the GL out of step
- * with the real balance. Money that actually moved stays on the books - the same rule
- * {@link deleteLedgerEntriesForCharge} follows for a deleted charge - and the payment journal's receivable leg is
- * what carries the kept amount as the payer's credit balance until it is applied or refunded. `refund` lines are
- * left alone. Idempotent end to end, so a retry after a partial failure completes the rest.
+ * `reverseReceipt` (the default for a charge with NO provider money behind it, which is the only kind
+ * `voidPaidCharge` accepts) also reverses the hand-recorded receipt: a balanced reversing journal for the PAYMENT and
+ * removal of its `payment` ledger line, so "received" drops with "paid" and a duplicate month reads once. A real
+ * Stripe capture never reaches here - that money is returned through Refund, and a void would leave cash and books out
+ * of step - so `reverseReceipt: false` is only for repairing a void made before receipts were reversed. `refund`
+ * lines are left alone. Idempotent end to end, so a retry after a partial failure completes the rest.
  */
 export async function voidLedgerEntriesForCharge(
   db: SupabaseClient,
   charge: HouseholdCharge,
   voidedAtIso: string,
+  opts: { reverseReceipt?: boolean } = {},
 ): Promise<void> {
   if (!isUuid(charge.managerUserId)) return;
   const entryDate = parseIsoDate(voidedAtIso) ?? new Date().toISOString().slice(0, 10);
   const memo = `Void — ${charge.title}`;
+  if (opts.reverseReceipt) {
+    await reverseGlJournalForSource(db, { managerUserId: charge.managerUserId!, sourceType: "payment", sourceId: charge.id, entryDate, memo: `${memo} (receipt)` });
+  }
   await reverseGlJournalForSource(db, { managerUserId: charge.managerUserId!, sourceType: "charge", sourceId: charge.id, entryDate, memo });
+  const entryTypes = opts.reverseReceipt ? ["charge", "payment"] : ["charge"];
   const { error } = await db
     .from("ledger_entries")
     .delete()
     .eq("source_charge_id", charge.id)
     .eq("manager_user_id", charge.managerUserId!)
-    .eq("entry_type", "charge");
+    .in("entry_type", entryTypes);
   throwIfLedgerError(error);
 }
 

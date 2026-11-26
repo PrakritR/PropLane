@@ -50,6 +50,9 @@ describe("recovery hook debt snapshot", () => {
     expect(migration).toContain("before insert or update or delete on public.resident_move_in_forms");
     expect(migration).toContain("after delete on public.resident_move_in_forms");
     expect(scopedSourceDigest()).toBe(sourceDigest.sha256);
+    const previous = sourceDigest.reviewed_change.previous_sha256;
+    expect(previous).toMatch(/^[0-9a-f]{64}$/);
+    expect(previous).not.toBe(sourceDigest.sha256);
     const observed = observedCatalog();
     // Projection from reviewed migrations, not evidence of a live catalog application.
     const projected = process.env.RECOVERY_HOOK_CATALOG ? observed : {

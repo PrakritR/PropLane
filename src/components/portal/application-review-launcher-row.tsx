@@ -131,6 +131,7 @@ export function ApplicationReviewLauncherRow({
                 applicationId={row.id}
                 assignedPropertyId={row.assignedPropertyId}
                 assignedRoomChoice={row.assignedRoomChoice}
+                incomeVerification={row.incomeVerification}
                 omitSections={omitReviewSections}
                 embedded
               />
@@ -146,6 +147,7 @@ export function ApplicationReviewLauncherRow({
             applicationId={row.id}
             assignedPropertyId={row.assignedPropertyId}
             assignedRoomChoice={row.assignedRoomChoice}
+            incomeVerification={row.incomeVerification}
             omitSections={omitReviewSections}
           />
         ) : (

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { tourInquiryRowId } from "@/lib/portal-detail-routes";
 
 const toast = vi.hoisted(() => vi.fn());
 const copied = vi.hoisted(() => vi.fn(async (_text: string) => true));
@@ -53,8 +54,8 @@ beforeEach(() => {
   window.localStorage.clear();
   data.status = baseStatus();
   data.leads = [
-    { kind: "tour", id: "t1", propertyId: "p1", name: "Maya Chen", at: "2026-10-10T22:00:00Z", bucket: "pending" },
-    { kind: "application", id: "AXIS-1", propertyId: "p2", name: "Diego Morales", at: "2026-10-09T10:00:00Z", bucket: "approved" },
+    { kind: "tour", id: "t1", rowId: tourInquiryRowId("t1", 0), propertyId: "p1", name: "Maya Chen", at: "2026-10-10T22:00:00Z", bucket: "pending" },
+    { kind: "application", id: "AXIS-1", rowId: "AXIS-1", propertyId: "p2", name: "Diego Morales", at: "2026-10-09T10:00:00Z", bucket: "approved" },
   ];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -113,9 +114,22 @@ describe("ListingSiteRecord", () => {
     render(<ListingSiteRecord channelId="craigslist" tab="leads" />);
     await waitFor(() => expect(q("listing-site-lead-tour")).not.toBeNull());
     fireEvent.click(q("listing-site-lead-tour")!);
-    expect(navigate).toHaveBeenCalledWith("/portal/tours/pending/t1");
+    // The Tours list gives a pending request's first window the row id `tourInquiryRowId` mints, and the detail
+    // view resolves by that row id - a raw inquiry id lands on the list instead.
+    expect(navigate).toHaveBeenCalledWith(`/portal/tours/pending/${tourInquiryRowId("t1", 0)}`);
     fireEvent.click(q("listing-site-lead-application")!);
     expect(navigate).toHaveBeenLastCalledWith("/portal/applications/approved/AXIS-1");
+
+    // A confirmed tour's row is the planned event the request no longer names, so its lead carries no row id: the
+    // link is that bucket's list, never a row id the detail view cannot resolve.
+    cleanup();
+    resetSharedGets();
+    data.leads = [{ kind: "tour", id: "t2", rowId: null, propertyId: "p1", name: "Ana Ruiz", at: "2026-10-11T22:00:00Z", bucket: "upcoming" }];
+    render(<ListingSiteRecord channelId="craigslist" tab="leads" />);
+    await waitFor(() => expect(q("listing-site-lead-tour")).not.toBeNull());
+    fireEvent.click(q("listing-site-lead-tour")!);
+    expect(navigate).toHaveBeenLastCalledWith("/portal/tours/upcoming");
+
     cleanup();
     resetSharedGets();
     data.leads = [];

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 
@@ -114,6 +114,10 @@ beforeEach(() => {
   h.coManager.mockReset().mockResolvedValue(false);
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("a decline NOT based on the report", () => {
   it("records the answer, sends no adverse notice, and allows the normal decline", async () => {
     const { db, adverse } = memoryDb(appRow());
@@ -141,6 +145,11 @@ describe("an application with no completed consumer report", () => {
 
 describe("pre-adverse, five business days, then the final notice", () => {
   it("YES sends the pre-adverse notice (report link, rights, agency), stores the due date and keeps the application pending", async () => {
+    // The window is five BUSINESS days, so the calendar length depends on when the notice goes out: a real "today"
+    // in a holiday week (a Friday in Thanksgiving week spans two weekends plus the holiday) is legitimately longer
+    // than a plain week. Freeze the clock on a Monday with no federal holiday in reach so the due date is exact.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-06-01T12:00:00.000Z"));
     const { db, adverse } = memoryDb(appRow());
     const result = await decideAdverseAction(db, { user: manager, applicationId: "app-1", basedOnReport: true, origin });
     expect(result).toMatchObject({ ok: true, status: { required: true, stage: "pre_adverse_sent", declineAllowed: false, canFinalize: false } });
@@ -152,11 +161,9 @@ describe("pre-adverse, five business days, then the final notice", () => {
     expect(resident.rendered.text).toContain("https://proplane.ai/api/screening/adverse-action/report?applicationId=app-1");
     expect(resident.rendered.text).toMatch(/Summary of Your Rights Under the Fair Credit Reporting Act/);
     expect(adverse[0]).toMatchObject({ stage: "pre_adverse_sent", based_on_report: true, report_id: "ord_1" });
-    const sent = Date.parse(String(adverse[0]!.pre_adverse_sent_at));
-    const due = Date.parse(String(adverse[0]!.final_due_at));
-    // at least 5 calendar days (5 business days is never fewer) and at most 9 (weekends + a holiday)
-    expect((due - sent) / 86_400_000).toBeGreaterThanOrEqual(5);
-    expect((due - sent) / 86_400_000).toBeLessThanOrEqual(9);
+    expect(adverse[0]!.pre_adverse_sent_at).toBe("2026-06-01T12:00:00.000Z");
+    // Tue, Wed, Thu, Fri, then over the weekend to Monday: five business days, seven calendar days.
+    expect(adverse[0]!.final_due_at).toBe("2026-06-08T12:00:00.000Z");
     expect(h.audit).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: "adverse_action_pre_adverse_sent" }));
     // The write backstop: declining is refused until the final notice.
     expect(await adverseActionDeclineBlocker(db, { id: "app-1", row_data: appRow() as DemoApplicantRow }, { bucket: "rejected" })).toBe("blocked");

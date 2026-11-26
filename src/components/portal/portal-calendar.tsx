@@ -67,7 +67,6 @@ import {
   CALENDAR_VIEW_TABS,
   CALENDAR_VIEW_TAB_LABELS,
   calendarViewHref,
-  managerTourDetailHref,
   parseCalendarViewTab,
   toursHubHref,
   type CalendarViewTabId,
@@ -589,8 +588,8 @@ function PortalCalendarManager({
   /** Agenda ⋯ → Reschedule: the tour's own page opens with its Pick a new tour time popup. */
   const rescheduleTourFromCalendar = useCallback(
     (meeting: DemoMeeting) => {
-      const bucket = meeting.source === "inquiry" ? "pending" : "upcoming";
-      router.push(`${managerTourDetailHref(MANAGER_PORTAL_BASE, bucket, meeting.sourceId)}?reschedule=1`);
+      const href = meetingRecordHref(MANAGER_PORTAL_BASE, meeting);
+      if (href) router.push(`${href}?reschedule=1`);
     },
     [router],
   );

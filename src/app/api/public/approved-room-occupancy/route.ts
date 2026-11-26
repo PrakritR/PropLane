@@ -4,8 +4,23 @@ import { getPublicListings } from "@/lib/public-listings.server";
 import { loadPublicRoomOccupancy } from "@/lib/public-room-occupancy.server";
 import { loadPublicOccupancySnapshot } from "@/lib/public-room-occupancy-snapshot.server";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
+import { createTtlCache, serverSnapshotCacheEnabled } from "@/lib/server-ttl-cache";
+import type { MockProperty } from "@/data/types";
 
 export const runtime = "nodejs";
+
+/**
+ * WHICH homes are public (ids and rooms) is the same answer for everyone, so the SHARED snapshot keeps the catalog it
+ * is derived from for the response's own 60 seconds. A `fresh` check never reads this: it answers `no-store` about one
+ * house, so a cached catalog could offer a room the manager has just closed. It builds that one listing instead, which
+ * is what the whole-catalog rebuild (every listing's work number, work email, forms and attribution) used to cost -
+ * the 10-25 second hold on the apply wizard's Continue.
+ */
+const rawCatalogCache = createTtlCache<MockProperty[]>(60_000);
+function snapshotCatalog(): Promise<MockProperty[]> {
+  const load = () => getPublicListings({ liveAvailability: false });
+  return serverSnapshotCacheEnabled() ? rawCatalogCache.get("raw-catalog", load) : load();
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -30,10 +45,10 @@ export async function GET(request: NextRequest) {
     // whole read per browse load. A `fresh` check is one house, uncached, and always live.
     if (!fresh) {
       // The raw catalog: the labels are derived from this snapshot, so they cannot be what it is built from.
-      const rooms = await loadPublicOccupancySnapshot(() => getPublicListings({ liveAvailability: false }));
+      const rooms = await loadPublicOccupancySnapshot(snapshotCatalog);
       return NextResponse.json({ rooms }, { headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" } });
     }
-    const publicListings = await getPublicListings({ liveAvailability: false });
+    const publicListings = await getPublicListings({ liveAvailability: false, propertyId });
     const listings = publicListings.filter((listing) => listing.id === propertyId);
     if (listings.length === 0) return NextResponse.json({ error: "Listing is unavailable." }, { status: 404 });
     const rooms = await loadPublicRoomOccupancy(db, listings);

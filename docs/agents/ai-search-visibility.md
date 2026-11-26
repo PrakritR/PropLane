@@ -75,14 +75,20 @@ are built on its own `BASE` (the canonical production host), not
 `llmsOrigin()`: every non-canonical host is `Disallow: /` wholesale (deployment-workflow § Search
 indexing), so the only URLs worth advertising are canonical ones.
 
-**Listing URLs are readable address slugs** (`/rent/listings/4709a-8th-ave-ne`), derived, never stored:
-`listingSlugFor` (`src/lib/listing-slug.ts`) slugifies the current street line, and `buildListingSlugIndex` makes
-the set unique over the same hourly catalog read (published listings with a shared slug each get `-` + the last six
-characters of the id; a still-shared or address-less listing keeps its id URL). The sitemap, the JSON-LD `url`s and
-every server-built listing link (`buildReadableListingUrl`, `src/lib/seo/listing-slugs.server.ts`) read that one
-module, never a hand-typed path. `/rent/listings/<param>` renders the same page for a slug and for an id; a known
-id's page declares its slug URL as `canonical`. An id is never redirected: a redirect could not carry the query
-(`?stay=1`, `?src=`) without reading `searchParams`, which would take the ISR page off the CDN.
+**Listing URLs are readable address slugs** (`/rent/listings/4709a-8th-ave-ne-7mdlyj0h2vfg`), derived, never
+stored: `listingCanonicalSlug` (`src/lib/listing-slug.ts`) is the slugified current street line (or `listing` when
+there is no address) plus `listingIdToken`, a stable token of the property id — the random tail of an app-minted id,
+else a hash of the whole id. Because the token depends on that listing alone, a builder with the listing in hand
+mints the canonical path with no catalog read (`listingPublicPathFor`, `buildManagerListingUrl`); the sitemap, the
+JSON-LD `url`s and every server-built link go through that one module (`buildReadableListingUrl`,
+`src/lib/seo/listing-slugs.server.ts`), never a hand-typed path. Resolution reads the param's trailing token
+(`resolvePublicListingParam`), so a rename never breaks a link; a slug published before the token existed resolves
+too, for the one listing that owns it. **No form redirects**: a record id, a renamed slug and the canonical slug all
+render the same page for the resolved listing, and `generateMetadata` declares the canonical readable URL — a
+redirect could not carry the query (`?stay=1`, `?src=`) without reading `searchParams`, which would take the ISR
+page off the CDN. The slug index is built over the shared hourly catalog read; a param it does not know buys one
+throttled catalog refresh (at most one a minute per instance), and only a catalog that cannot be read at all falls
+back to a scan of the live records by token.
 
 ## JSON-LD
 
@@ -125,3 +131,10 @@ cannot ship — and retrying the route does not help, because every attempt join
 the same in-flight read, which is how one stalled read failed all three of
 Next's attempts. Giving up is not cancelling: the read keeps going and still
 fills the memo, so the next caller gets the catalog without a second read.
+
+`refreshCrawlPublicListings()` is that same read with the memo's answer not
+standing in for it — for a caller with reason to believe the catalog moved on,
+which today is the slug index meeting a URL it does not know. It joins whatever
+read is in flight, replaces the memo only when a read LANDS, and never drops
+what the memo holds, so a failed refresh leaves the last good catalog standing
+for `/sitemap.xml`, `/llms.txt` and every listing page.

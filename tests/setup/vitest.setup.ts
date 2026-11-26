@@ -1,5 +1,13 @@
 import "@testing-library/jest-dom/vitest";
-import { vi } from "vitest";
+import { setTimeout as settleTimers } from "node:timers/promises";
+import { afterAll, vi } from "vitest";
+
+afterAll(async () => {
+  // Radix defers focus restoration during React cleanup. Drain that real timer
+  // before Vitest replaces jsdom's CustomEvent realm for the next test file.
+  // A native timer also finishes when a suite has left fake timers enabled.
+  if (typeof document !== "undefined") await settleTimers(0);
+});
 
 process.env.FINANCIALS_TIN_ENCRYPTION_KEY ??= "test-only-tin-key-do-not-use-in-prod";
 // Synthetic key ring for route fixtures; production code has no default key.

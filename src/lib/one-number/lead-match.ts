@@ -1,4 +1,6 @@
 import type { MockProperty } from "@/data/types";
+import { listingPublicPathFor } from "@/lib/listing-slug";
+import { listingPublicPath } from "@/lib/listing-public-path";
 import {
   classifyRoomAvailability,
   filterRoomListings,
@@ -226,9 +228,19 @@ export function offerFromRow(row: RoomListingRow, n: number, tier?: LineTier): L
     propertyId: row.propertyId,
     roomId: row.roomId,
     label: (row.headlineAddress ?? "").trim() || (row.neighborhood ?? "").trim() || "this house",
+    listingPath: listingPublicPathFor({ id: row.propertyId, address: row.fullAddress }),
     rent: row.rentNumeric !== null ? Math.round(row.rentNumeric) : null,
     availability: availabilityPhrase(row.availabilityRaw),
   };
+}
+
+/**
+ * The home's own public path: the canonical slug the row carried, else the id URL (which serves the same page and
+ * names the slug as its canonical). The offer's
+ * `label` is a display line - a neighbourhood, or "this house" - so it never builds a URL.
+ */
+export function offerListingPath(offer: Pick<LeadOffer, "propertyId" | "listingPath">): string {
+  return offer.listingPath?.trim() || listingPublicPath(offer.propertyId);
 }
 
 /** The first real listing photo among the offered rooms (one MMS at most). Never a placeholder. */
@@ -264,7 +276,7 @@ export function buildOfferText(offers: readonly LeadOffer[], origin: string, hea
   const base = origin.replace(/\/$/, "");
   const lines = offers.map((o) => {
     const price = o.rent !== null ? `$${o.rent}/mo` : "price on listing";
-    return `${o.n}) ${o.label}, ${price}, ${shortAvailability(o.availability)}: ${base}/rent/listings/${encodeURIComponent(o.propertyId)}`;
+    return `${o.n}) ${o.label}, ${price}, ${shortAvailability(o.availability)}: ${base}${offerListingPath(o)}`;
   });
   const reply = offers.length === 1 ? "Reply 1 to pick it, or TOUR to see it." : `Reply ${offers.map((o) => o.n).join(", ").replace(/, (\d)$/, " or $1")} to pick one, or TOUR to see it.`;
   return toGsm7([header ?? (offers.length === 1 ? "This room fits:" : "These rooms fit:"), ...lines, reply].join("\n"));
@@ -281,7 +293,7 @@ export function buildOfferBubbles(offers: readonly LeadOffer[], rows: readonly R
   const base = origin.replace(/\/$/, "");
   const bubbles: OfferBubble[] = offers.map((o, i) => {
     const price = o.rent !== null ? `$${o.rent}/mo` : "price on listing";
-    const body = toGsm7(`${o.n}) ${o.label}, ${price}, ${shortAvailability(o.availability)}: ${base}/rent/listings/${encodeURIComponent(o.propertyId)}`);
+    const body = toGsm7(`${o.n}) ${o.label}, ${price}, ${shortAvailability(o.availability)}: ${base}${offerListingPath(o)}`);
     const photo = rows[i] ? roomPhoto(rows[i]!) : null;
     return photo ? { body, mediaUrl: photo } : { body };
   });
@@ -342,7 +354,7 @@ export function buildOverviewBubbles(
   const bubbles: OfferBubble[] = offers.map((o, i) => {
     const price = o.rent !== null ? `from $${o.rent}/mo` : "price on listing";
     const body = toGsm7(
-      `${o.n}) ${o.label}, ${price}, ${shortAvailability(o.availability)}. Photos and details: ${base}/rent/listings/${encodeURIComponent(o.propertyId)} Tour: ${tourLinkFor(o.propertyId, base)}`,
+      `${o.n}) ${o.label}, ${price}, ${shortAvailability(o.availability)}. Photos and details: ${base}${offerListingPath(o)} Tour: ${tourLinkFor(o.propertyId, base)}`,
     );
     const photo = rows[i] ? roomPhoto(rows[i]!) : null;
     return photo ? { body, mediaUrl: photo } : { body };

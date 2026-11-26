@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { listingUrlRe } from "./listing-url-matcher";
+import { listingPublicPathFor } from "@/lib/listing-slug";
 import type { MockProperty } from "@/data/types";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
@@ -70,7 +72,7 @@ describe("listing post text", () => {
       const result = build(projected(), channel);
       expect(result.ok).toBe(true);
       if (!result.ok) continue;
-      expect(result.text).toContain(`Details and photos: https://proplane.ai/rent/listings/prop-1?src=${channel}`);
+      expect(result.text).toMatch(listingUrlRe("https://proplane.ai", "prop-1", `?src=${channel}`));
     }
   });
 
@@ -111,7 +113,7 @@ describe("listing post text", () => {
     if (!result.ok) return;
     expect(result.text).toContain("Ballard House");
     expect(result.text).toContain("$2,200/mo");
-    expect(result.text).toContain("Details and photos: https://proplane.ai/rent/listings/prop-1?src=spareroom");
+    expect(result.text).toMatch(listingUrlRe("https://proplane.ai", "prop-1", "?src=spareroom"));
     expect(result.text).toContain("Text (206) 555-0100");
     expect(result.text).toContain("Email work@proplane.test");
     expect(build(projected(), "spareroom", { phone: null, email: "work@proplane.test" })).toEqual({ ok: false, reason: "no_work_number" });
@@ -211,7 +213,7 @@ describe("buildListingPostText short_stay variant", () => {
     expect(built.ok).toBe(true);
     if (!built.ok) return;
     expect(built.text).toBe(
-      "Private room near Ballard from $55/night · dates open now · Book: https://proplane.ai/rent/listings/prop-1?stay=1&src=facebook_marketplace · Text (206) 555-0100 · Email work@proplane.test",
+      `Private room near Ballard from $55/night · dates open now · Book: https://proplane.ai${listingPublicPathFor({ id: "prop-1", address: "123 Main St" })}?stay=1&src=facebook_marketplace · Text (206) 555-0100 · Email work@proplane.test`,
     );
   });
   it("tags Facebook Groups with its own source", () => {

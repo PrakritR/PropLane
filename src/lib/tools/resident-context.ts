@@ -75,6 +75,8 @@ export type ResidentAgentContext = {
    * storage paths it resolved rather than expect the stash to still exist.
    */
   chatPhotos?: ResidentChatPhotoRef[];
+  /** SMS turns only: the texting resident's own verified phone, set by the SMS agent binding (never model input). */
+  smsSenderPhoneE164?: string;
   /**
    * Service-role client. It bypasses RLS, so every query built from it MUST
    * scope by the resident's Auth subject: `.eq("resident_user_id", ctx.userId)`,

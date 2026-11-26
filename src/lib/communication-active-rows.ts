@@ -6,6 +6,8 @@ import type { ManagerAssistantWorkspace } from "@/lib/communication-manager-assi
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import { collapsePersonInboxThreads, type PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import { conversationJoinKey } from "@/lib/communication/conversation-key";
+import { foldViewerSelfIntoAssistant } from "@/lib/communication/self-conversation";
+import { managerAgentNoticeThreadId } from "@/lib/communication-manager-assistant-thread";
 import type { InboxListSegment } from "@/lib/communication-assistant-inbox-list";
 import {
   mergeUnifiedInboxItems,
@@ -60,13 +62,18 @@ export function buildActiveCommunicationThreads(
   // The resident's PropLane agent is pinned first on Active (captain, Nov 12, reversing Oct 3): it is the SAME
   // conversation the top bar, the dashboard card and the phone's Ask tab open (`resident-agent-<uid>`), so the
   // row is always there, restored from Archived like the manager's, and counts only when it holds unread turns.
-  return withPinnedPropLaneAssistantThreads(
+  const pinned = withPinnedPropLaneAssistantThreads(
     base,
     opts.portal,
     opts.viewerId,
     opts.listSegment ?? "active",
     opts.workspace,
   );
+  // You are your Assistant: the viewer's own account / confirmed email / verified phone conversations (the server
+  // stamps `isViewerSelf`) fold into their Assistant row, here, so the list and the sidebar badge share one answer.
+  const viewer = opts.viewerId?.trim();
+  if (opts.portal !== "manager" || !viewer) return pinned;
+  return foldViewerSelfIntoAssistant(pinned, managerAgentNoticeThreadId(viewer, opts.workspace));
 }
 
 export type CountUnreadActiveCommunicationOpts = BuildActiveCommunicationThreadsOpts & {

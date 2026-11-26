@@ -124,6 +124,13 @@ and the batched `syncDedupedCharges`) coalesce `stripe_checkout_session_id` to t
 already-stored value — never let a re-sync blank it; it is the only link back to
 the Stripe Checkout session that settled the payment
 (regression coverage: `tests/unit/reports/ledger-sync.test.ts`).
+**A failed ledger line is reported, never raised.** `upsertManagerCharges` throws only when the
+CHARGE ROW write fails; a charge whose row landed but whose ledger line did not comes back in
+`ledgerFailures` (the charge tools surface it as `LEDGER_RETRY_NOTE`), because a caller told "it
+failed" after the row exists bills the resident twice on the retry. The write-through heals that line
+on the next upsert of the same charge; a charge written once by a path that discards the return value
+(the application-fee row, a lease amendment) leaves only a logged error and is repaired by the
+admin-gated `/api/admin/backfill-ledger`.
 **Offline receipts** use `POST /api/portal-household-charges` with
 `action: "recordOfflinePayment"`, charge id, receipt date, method and note only.
 The server re-reads the charge, checks owner/co-manager and active workspace,
@@ -175,21 +182,22 @@ and the budget is NOT released) or `review`. The deposit disposition keeps its o
 or all 12 reviewed migrations, and nothing else
 (`scripts/identity-deposit-release-manifest.mjs`).
 
-**Voiding a PAID charge is the undo that moves no money** (`voidPaidCharge`,
+**Voiding a PAID charge is the undo for a charge recorded in error, and it moves no money** (`voidPaidCharge`,
 `src/lib/household-charge-void.server.ts`; `action: "voidCharge"` on
-`/api/portal-household-charges`). Owner only — the signed-in user must BE the row's
-`manager_user_id` (the workspace owner, or the service owner on a managed workspace), never a
-co-manager, a Property owner seat or a resident — and a 3-300 character reason is required. It
-never deletes and never refunds: the row stays at `status: "void"` with `voidedAt` / `voidedBy` /
-`voidReason`, one `audit_log` `charge_voided` row is written FIRST (nothing moves if it cannot
-be), and the books get a balanced reversal plus the removal of the charge's own `entry_type =
-"charge"` ledger line (`voidLedgerEntriesForCharge`). Refused: anything not `paid`, a
-`security_deposit` (return it through Return deposit), and a charge that already carries a
-refund. Idempotent — voiding a void charge re-runs only the ledger step, so a half-finished void
-repairs. `void` is sticky everywhere after that: the full-list mirror will not take a `void` row
-back to `pending`, and `buildRentDueSummary` skips it like `cancelled`. A real card/bank payment
-behind the charge is reported as `providerPayment` so the UI can say the money is still with the
-resident's payment, not returned.
+`/api/portal-household-charges`; ⋯ menu on the row and the record header action). Owner only — the signed-in
+user must BE the row's `manager_user_id` (the workspace owner, or the service owner on a managed workspace), never a
+co-manager, a Property owner seat or a resident — and a 3-300 character reason is required. It never deletes and
+never refunds: the row stays at `status: "void"` with `voidedAt` / `voidedBy` / `voidReason` / `voidReceiptReversed`,
+one `audit_log` `charge_voided` row is written FIRST (nothing moves if it cannot be), and the books get balanced
+REVERSING journals for the charge and for its hand-recorded receipt (the originals stay), plus removal of that
+charge's `charge` and `payment` `ledger_entries` lines (`voidLedgerEntriesForCharge`), so "paid" and "received" both
+drop and a duplicate month reads once. Refused: anything not `paid`, a `security_deposit` (Return deposit), a charge
+that already carries a refund, and **any charge Stripe captured money for** (`chargeCapturedProviderMoney`: a
+Checkout session without a hand-recorded method, or a ledger payment line carrying a Stripe session/charge id; an
+unreadable ledger counts as captured) - 409, "use Refund"; Void never leaves cash and the books out of step. Idempotent —
+voiding a void charge re-runs only the ledger step (and reverses the receipt only for a void that did:
+`voidReceiptReversed`), so a half-finished void repairs. `void` is sticky everywhere after that: the full-list mirror
+will not take a `void` row back to `pending`, and `buildRentDueSummary` skips it like `cancelled`.
 
 **Deleting a charge deletes its ledger line — and only that line.**
 `deleteLedgerEntriesForCharge` (`ledger-sync.ts`) removes the `entry_type = "charge"`
@@ -532,7 +540,7 @@ deletion (`ACCOUNT_PURGE_RETAINED`). Migration
   counted `stuck`, not `failed`, so it reads as needing a human.
 - **Notifications** ride the action-event spine (`domain: "vendor_banking"`, `vendor-banking/events.server.ts`, filed under the vendor's Payments topic): payout paid / failed / returned, bank removed, bank needs verification, account restricted, refund sent (vendor) / received (manager), dispute opened / closed, money held with no bank. Idempotent on a deterministic event id; never throws into a money path. Vendor-only moments are sent as the vendor's latest paying manager.
 
-**Withdraw-only manager payouts (`MANUAL_PAYOUT_POLICY_ENABLED`, `src/lib/manual-payout-policy-flag.ts`)** is a separate, **default OFF** flag whose own doc comment is the contract. On, a new manager Connect account is created on manual payouts and the hourly `/api/cron/manual-payout-policy` job converts the existing ones in bounded, resumable batches (`ensureManualPayoutPolicy` is withdraw-only: it never touches a bank destination, skips test workspaces, and re-running it leaves an already-manual account alone), and both schedule routes (`/api/stripe/payouts/schedule`, `/api/vendor/payouts/schedule`) answer **422** "Payouts are withdrawal-only." to anything but `manual`. Off keeps today's split - vendors on manual, managers on weekly Friday deposits.
+**Withdraw-only manager payouts (`MANUAL_PAYOUT_POLICY_ENABLED`, `src/lib/manual-payout-policy-flag.ts`)** is a separate, **default OFF** flag whose own doc comment is the contract. On, a new manager Connect account is created on manual payouts and the hourly `/api/cron/manual-payout-policy` job converts the existing ones in bounded, resumable batches (`ensureManualPayoutPolicy` is withdraw-only: it never touches a bank destination, skips test workspaces, and re-running it leaves an already-manual account alone), and both schedule routes (`/api/stripe/payouts/schedule`, `/api/vendor/payouts/schedule`) answer **422** "Payouts are withdrawal-only." to anything but `manual`. Off keeps today's split - vendors on manual, managers on weekly Monday deposits (`DEFAULT_AUTOMATIC_PAYOUT_SCHEDULE`).
 
 # Financials Phase 5: AP bills, budgets, owner statements
 
@@ -800,7 +808,7 @@ gates on the owner's repair threshold and posts the vendor bill, on a self-serve
 
 # Finance Phase A: manual entries, Paid/Due, receipts, recurring payables, duplicate protection (Nov 15 2026)
 
-Migration `20261115110000_finance_phase_a.sql`: `manager_expense_entries` gains `payment_status` (`paid`|`due`), `due_date`, `paid_date`, `payment_method`, `payee_label`, `billing_period_start/end`, `receipt_document_id`, `recurring_payable_id`, `duplicate_override_reason`; new `manager_recurring_payables` (RLS on, owner SELECT only, no client write grant; classified in `account-purge-manifest.ts`). Vocabulary and date math: `src/lib/finance/payment-fields.ts`. PropLane records these payments; it moves no money here and holds none (Plaid feeds and utility portals are Phase B). Paying a bill from a PropLane-held balance exists only on a PropLane-managed workspace, through the party ledger ([`owner-management.md`](owner-management.md) § Payouts and splits — Bill pay); a self-serve workspace's bills stay Due / Paid entries here, with "paid outside PropLane" as the method.
+Migration `20261115110000_finance_phase_a.sql`: `manager_expense_entries` gains `payment_status` (`paid`|`due`), `due_date`, `paid_date`, `payment_method`, `payee_label`, `billing_period_start/end`, `receipt_document_id`, `recurring_payable_id`, `duplicate_override_reason`; new `manager_recurring_payables` (RLS on, owner SELECT only, no client write grant; classified in `account-purge-manifest.ts`). Vocabulary and date math: `src/lib/finance/payment-fields.ts`. PropLane records these payments; it moves no money here and holds none (the bank feed that reads a manager's real transactions into Bank rec is [`plaid.md`](plaid.md), and it moves no money either; utility portals are still Phase B). Paying a bill from a PropLane-held balance exists only on a PropLane-managed workspace, through the party ledger ([`owner-management.md`](owner-management.md) § Payouts and splits — Bill pay); a self-serve workspace's bills stay Due / Paid entries here, with "paid outside PropLane" as the method.
 
 - **A manual entry and its journal land together or not at all.** `recordManualExpense` / `recordManualIncome` post the balanced GL journal (keyed by the entry id) in the same call and roll the entry back when the journal cannot be written. An edit that moves money (amount, date, category, house, vendor, status) re-derives the journals (`rebuildExpenseRowGl`); a delete removes them (`deleteExpenseRowGl`). Only a row that OWNS its journals is touched: an expense settled by a paid bill (`manager_bills.paid_expense_entry_id`), a work-order expense and a Stripe-sourced one are posted by their own writers, and posting them here would double-book.
 - **Due is an accrual.** An entry with a due date posts DR expense / CR accounts payable on the bill date; marking it Paid adds DR accounts payable / CR operating cash on the paid date (`postExpenseRowGl`). A Due entry therefore counts on the P&L before it moves cash; the cash view (`financial-activity`) leaves it out. Outgoing payments reads it as Due / Overdue.

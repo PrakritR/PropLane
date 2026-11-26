@@ -21,20 +21,20 @@ describe("applicant screening settings resolution", () => {
     const db = fakeDb({ portal_workspaces: { is_service: true }, workspace_automation_settings: null });
     const result = await resolveApplicantScreeningSettings(db, { managerUserId: "m", workspaceId: "ws-1" });
     expect(result.managed).toBe(true);
-    expect(result.settings).toEqual({ idCheck: false, backgroundCheck: false, idUnlock: "clear" });
+    expect(result.settings).toEqual({ idCheck: false, backgroundCheck: false, idUnlock: "clear", verifyIncomeWithPlaid: false });
   });
 
   it("defaults OFF for a self-serve workspace and when nothing can be read", async () => {
     const selfServe = fakeDb({ portal_workspaces: { is_service: false }, workspace_automation_settings: null });
-    expect((await resolveApplicantScreeningSettings(selfServe, { managerUserId: "m", workspaceId: "ws-1" })).settings).toEqual({ idCheck: false, backgroundCheck: false, idUnlock: "clear" });
+    expect((await resolveApplicantScreeningSettings(selfServe, { managerUserId: "m", workspaceId: "ws-1" })).settings).toEqual({ idCheck: false, backgroundCheck: false, idUnlock: "clear", verifyIncomeWithPlaid: false });
     const noWorkspace = fakeDb({});
-    expect((await resolveApplicantScreeningSettings(noWorkspace, { managerUserId: "m" })).settings).toEqual({ idCheck: false, backgroundCheck: false, idUnlock: "clear" });
+    expect((await resolveApplicantScreeningSettings(noWorkspace, { managerUserId: "m" })).settings).toEqual({ idCheck: false, backgroundCheck: false, idUnlock: "clear", verifyIncomeWithPlaid: false });
   });
 
   it("a workspace's saved choice beats the default, per check", async () => {
     const db = fakeDb({ portal_workspaces: { is_service: true }, workspace_automation_settings: { row_data: { applicantScreening: { idCheck: false, backgroundCheck: true } } } });
     const result = await resolveApplicantScreeningSettings(db, { managerUserId: "m", workspaceId: "ws-1" });
     expect(result.source).toBe("workspace");
-    expect(result.settings).toEqual({ idCheck: false, backgroundCheck: true, idUnlock: "clear" });
+    expect(result.settings).toEqual({ idCheck: false, backgroundCheck: true, idUnlock: "clear", verifyIncomeWithPlaid: false });
   });
 });

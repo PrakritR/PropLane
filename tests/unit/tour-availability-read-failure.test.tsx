@@ -11,9 +11,13 @@
  * (`resident-tour-panel-load-failure.test.tsx`): a failed read is rendered as a
  * failed read, with a way to retry.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { MockProperty } from "@/data/types";
+import {
+  createDefaultListingSubmission,
+  normalizeManagerListingSubmissionV1,
+} from "@/lib/manager-listing-submission";
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useConfirm: () => (req: { description?: unknown }) =>
@@ -38,7 +42,12 @@ vi.mock("@/lib/supabase/browser", () => ({
   }),
 }));
 
-import { TourScheduleFlow } from "@/components/marketing/tour-schedule-flow";
+import {
+  defaultTourRoomKey,
+  TOUR_ROOM_UNDECIDED_KEY,
+  TourScheduleFlow,
+} from "@/components/marketing/tour-schedule-flow";
+import { invalidateSharedGets } from "@/lib/shared-get-cache";
 
 afterEach(() => {
   cleanup();
@@ -65,8 +74,16 @@ const PROPERTY: MockProperty = {
 const EMPTY_STATE = /No tour times yet/i;
 
 /** Every availability fetch in one test, newest response last. */
-function stubAvailability(responses: { ok: boolean; status: number; body: unknown }[]) {
-  const fetchMock = vi.fn(async () => {
+function stubAvailability(
+  responses: { ok: boolean; status: number; body: unknown }[],
+  occupancy: { ok: boolean; status: number } = { ok: true, status: 200 },
+) {
+  const fetchMock = vi.fn(async (input?: unknown) => {
+    // The room picker reads the listing's occupancy through its own route; it must not consume a scripted
+    // tour-availability response (that would hide the failure this suite is about).
+    if (String(input).includes("/api/public/approved-room-occupancy")) {
+      return { ok: occupancy.ok, status: occupancy.status, json: async () => ({ rooms: [] }) } as unknown as Response;
+    }
     const next = responses.length > 1 ? responses.shift()! : responses[0]!;
     return {
       ok: next.ok,
@@ -85,6 +102,107 @@ async function renderAtDateStep() {
 
 /** Request mode: no open slot, so every upcoming day is offered as "request a tour". */
 const REQUEST_DAY = /request a tour/i;
+
+/** A two-room house, so the room dropdown has something to offer when availability is known. */
+const ROOMS_PROPERTY: MockProperty = (() => {
+  const sub = createDefaultListingSubmission();
+  sub.listingPlaceCategoryId = "shared_home";
+  sub.rentalModelStamp = "shared_home";
+  sub.rooms = [
+    { ...sub.rooms[0]!, id: "room-a", name: "Room A", monthlyRent: 900, availability: "Now" },
+    { ...sub.rooms[0]!, id: "room-b", name: "Room B", monthlyRent: 950, availability: "Now" },
+  ];
+  return { ...PROPERTY, id: "mgr-ballard-rooms", listingSubmission: normalizeManagerListingSubmissionV1(sub) };
+})();
+
+// A refused occupancy read says NOTHING about which rooms are taken, and an empty snapshot is not an empty
+// house. Oracle: the same invariant this suite holds for tour windows, and `/api/public/approved-room-occupancy`
+// answers 503 on a loader error and 429 on the shared-NAT rate limit. Wrong behaviour this rejects: offering -
+// and letting a prospect book a tour for - a room whose only unavailability lives in that unread occupancy.
+describe("a failed room-occupancy read offers no room rather than every room", () => {
+  // `sharedGet` keeps a settled answer per URL, so each case reads the occupancy route for itself.
+  beforeEach(() => invalidateSharedGets("/api/public/approved-room-occupancy"));
+
+  it("drops the room dropdown and says the check failed; a known read still offers the rooms", async () => {
+    stubAvailability([{ ok: true, status: 200, body: { slotHosts: {} } }], { ok: false, status: 503 });
+    render(<TourScheduleFlow property={ROOMS_PROPERTY} returnAfterAuth="/rent" onSuccess={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Couldn't check room availability/i)).toBeTruthy();
+    });
+    expect(screen.queryByLabelText("Room")).toBeNull();
+
+    cleanup();
+    invalidateSharedGets("/api/public/approved-room-occupancy");
+    stubAvailability([{ ok: true, status: 200, body: { slotHosts: {} } }], { ok: true, status: 200 });
+    render(<TourScheduleFlow property={ROOMS_PROPERTY} returnAfterAuth="/rent" onSuccess={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Room")).toBeTruthy();
+    });
+    expect(screen.queryByText(/Couldn't check room availability/i)).toBeNull();
+  });
+
+  // A home with no rooms to choose between never draws the dropdown, so a refused read withholds nothing there
+  // and must say nothing: the request was always for the home. Wrong behaviour this rejects: telling a prospect
+  // on an entire-home listing that a room check failed.
+  it("says nothing on a listing that has no room choice to withhold", async () => {
+    invalidateSharedGets("/api/public/approved-room-occupancy");
+    stubAvailability([{ ok: true, status: 200, body: { slotHosts: {} } }], { ok: false, status: 503 });
+    render(<TourScheduleFlow property={PROPERTY} returnAfterAuth="/rent" onSuccess={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: REQUEST_DAY }).length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText(/Couldn't check room availability/i)).toBeNull();
+    expect(screen.queryByLabelText("Room")).toBeNull();
+  });
+});
+
+/*
+ * The room the request is FILED with, not just the one drawn. Both filing paths submit
+ * `tourRoomLabelForKey(selectedRoomKey)`, which reads the house's own title for the whole-property key - so a
+ * multi-room listing whose rooms cannot be offered must default to the undecided sentinel instead. Oracle: the
+ * sentinel the product already uses when a prospect has several rooms to choose between and has not picked one.
+ * Plausible wrong behaviour this rejects: defaulting to the property key, which files "Ballard House" as the
+ * room on the manager's Tours row, the calendar event and the guest's own text.
+ */
+describe("the room a tour defaults to when no room can be offered", () => {
+  const TODAY = "2026-11-25";
+  const leased = (rooms: readonly { id: string }[]) => ({
+    ...ROOMS_PROPERTY,
+    listingSubmission: normalizeManagerListingSubmissionV1({
+      ...ROOMS_PROPERTY.listingSubmission!,
+      rooms: (ROOMS_PROPERTY.listingSubmission as { rooms: { id: string }[] }).rooms.map((room) =>
+        rooms.some((r) => r.id === room.id) ? { ...room, availability: "Not available" } : room,
+      ),
+    } as never),
+  });
+
+  it("stays undecided when the occupancy read was refused", () => {
+    expect(defaultTourRoomKey(ROOMS_PROPERTY, null, { rows: [], today: TODAY, checked: false })).toBe(
+      TOUR_ROOM_UNDECIDED_KEY,
+    );
+  });
+
+  it("stays undecided when every room is leased", () => {
+    const property = leased([{ id: "room-a" }, { id: "room-b" }]);
+    expect(defaultTourRoomKey(property, null, { rows: [], today: TODAY, checked: true })).toBe(
+      TOUR_ROOM_UNDECIDED_KEY,
+    );
+  });
+
+  it("names the one room that is still tourable", () => {
+    const property = leased([{ id: "room-b" }]);
+    expect(defaultTourRoomKey(property, null, { rows: [], today: TODAY, checked: true })).toBe(
+      `${property.id}::room-a`,
+    );
+  });
+
+  it("is the home itself on a listing with no room choice to withhold", () => {
+    expect(defaultTourRoomKey(PROPERTY, null, { rows: [], today: TODAY, checked: false })).toBe(PROPERTY.id);
+  });
+});
 
 describe("a failed tour-availability read is never a booking page with zero slots", () => {
   it("shows a try-again message rather than the empty state when the route throttles", async () => {
@@ -125,7 +243,9 @@ describe("a failed tour-availability read is never a booking page with zero slot
       expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     });
     expect(screen.queryByText(EMPTY_STATE)).toBeNull();
-    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(
+      fetchMock.mock.calls.filter(([u]) => String(u).includes("property-tour-availability")).length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it("still treats a SUCCEEDED, empty read as the property's own answer (request mode, never a retry)", async () => {

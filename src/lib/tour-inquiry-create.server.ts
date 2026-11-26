@@ -80,6 +80,7 @@ export function inquiryRowsFromRecord(rowData: unknown): Record<string, unknown>
   return Array.isArray(payload) ? payload.filter(isObject) : [];
 }
 
+
 export function requestedWindowsFromRow(row: Record<string, unknown>): RequestedWindow[] {
   const windows = Array.isArray(row.requestedWindows) ? row.requestedWindows : [];
   const normalized = windows
@@ -102,7 +103,8 @@ export function requestedWindowsFromRow(row: Record<string, unknown>): Requested
     : [];
 }
 
-function payloadFromScheduleRecord(rowData: unknown): Record<string, unknown> | null {
+/** The inquiry a schedule record carries: the nested `payload` (every per-manager row) or the record itself. */
+export function payloadFromScheduleRecord(rowData: unknown): Record<string, unknown> | null {
   const record = isObject(rowData) ? rowData : null;
   if (!record) return null;
   return isObject(record.payload) ? record.payload : record;

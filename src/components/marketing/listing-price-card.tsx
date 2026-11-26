@@ -4,10 +4,10 @@
  * The public listing's price card: one card, no dead rows.
  *
  * A price line at the top ("$1,050 / mo", or "from $1,050 / mo" when the base rent is zero and the price is
- * the lowest room rent; never a dash or "$0"), the availability line, and exactly two actions: Tour and Book
- * (Book opens the quick sheet for a signed-in resident with saved answers, Continue application when those answers do not
- * cover the listing, Book otherwise). No stay-type control, no date or room pickers, no short-stay block
- * (captain, Nov 12). Tour and Book go through a resident account into the portal; Message needs only a phone
+ * the lowest room rent; never a dash or "$0"), the availability line, and exactly two actions: Tour and Apply
+ * (Apply opens the quick sheet for a signed-in resident with saved answers, Continue application when those answers do not
+ * cover the listing, Apply otherwise). No stay-type control, no date or room pickers, no short-stay block
+ * (captain, Nov 12). Tour and Apply go through a resident account into the portal; Message needs only a phone
  * and a texted code, no account (captain, Nov 12: design-1112 §1), and "Text us" is the one text link a /rent page
  * carries, to the configured PropLane line only.
  *
@@ -133,7 +133,7 @@ export function MonthlyPrimaryCta({
   if (actions?.quickEligible && (actions.readiness.kind === "checking" || actions.readiness.kind === "ready")) {
     return (
       <button type="button" className={className} onClick={actions.openQuickApply} data-attr="listing-quick-apply">
-        {words("Book", "Book")}
+        {words("Apply", "Apply")}
       </button>
     );
   }
@@ -160,7 +160,7 @@ export function MonthlyPrimaryCta({
       newTab={newTab}
       applyParams={roomId ? { listingRoomId: roomId } : undefined}
     >
-      {words("Book", "Book")}
+      {words("Apply", "Apply")}
     </ProspectListingCta>
   );
 }

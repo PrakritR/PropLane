@@ -151,6 +151,10 @@
       "schedule": "0 9 1 * *"
     },
     {
+      "path": "/api/cron/plaid-sync",
+      "schedule": "2 14 * * *"
+    },
+    {
       "path": "/api/cron/account-deletions",
       "schedule": "15 3 * * *"
     },

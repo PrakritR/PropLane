@@ -1,5 +1,6 @@
 "use client";
 
+import { listingPublicPathFor } from "@/lib/listing-slug";
 import Image from "next/image";
 import Link from "next/link";
 import { Heart, Search } from "lucide-react";
@@ -119,7 +120,7 @@ function HousingBrowseCard({ card }: { card: PropertyBrowseCard }) {
   return (
     <article className="ps-card-soft ps-bcard">
       <Link
-        href={`/rent/listings/${encodeURIComponent(card.propertyId)}`}
+        href={listingPublicPathFor({ id: card.propertyId, address: card.fullAddress })}
         data-attr="resident-browse-listing-card"
         className="ps-bcard-link"
       >

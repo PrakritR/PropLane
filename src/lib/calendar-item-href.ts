@@ -89,7 +89,8 @@ export function meetingRecordTarget(
 
   if (meeting.kind === "tour" || meeting.kind === "partner") {
     if (meeting.source === "external" || !meeting.sourceId) return null;
-    return { kind: "tour", id: meeting.sourceId, bucket: calendarTourBucket(meeting, nowMs) };
+    // A scheduled tour meeting IS one Tours row - its id is that row's id, window and all.
+    return { kind: "tour", id: meeting.id, bucket: calendarTourBucket(meeting, nowMs) };
   }
 
   if (meeting.kind === "service") {

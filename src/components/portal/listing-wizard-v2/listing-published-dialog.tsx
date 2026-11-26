@@ -22,6 +22,7 @@ import { Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConfirmRows, PortalDialog } from "@/components/portal/portal-dialog";
+import { getPropertyById } from "@/lib/rental-application/data";
 import { buildManagerListingUrl, copyTextToClipboard } from "@/lib/manager-property-links";
 
 export function ListingPublishedDialog({
@@ -53,7 +54,7 @@ export function ListingPublishedDialog({
   onShare?: () => void;
   showToast?: (message: string) => void;
 }) {
-  const publicUrl = buildManagerListingUrl(typeof window === "undefined" ? "" : window.location.origin, listingId);
+  const publicUrl = buildManagerListingUrl(typeof window === "undefined" ? "" : window.location.origin, listingId, getPropertyById(listingId));
 
   const handleShare = () => {
     if (onShare) {

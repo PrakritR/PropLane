@@ -83,7 +83,7 @@ beforeEach(() => {
 });
 
 describe("void a paid charge", () => {
-  it("flips the status, keeps the row, audits it and reverses the charge without touching the cash receipt", async () => {
+  it("flips the status, keeps the row, audits it and reverses the charge AND its hand-recorded receipt", async () => {
     const charge = paidRent();
     await seedPaid(charge);
     expect(tables.ledger_entries.filter((e) => e.entry_type === "payment")).toHaveLength(1);
@@ -92,27 +92,43 @@ describe("void a paid charge", () => {
     const result = await voidPaidCharge(makeDb(), { chargeId: charge.id, actorUserId: OWNER, reason: "Entered twice", now: "2026-11-14T10:00:00.000Z" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.providerPayment).toBe(false);
 
     const row = tables.portal_household_charge_records[0]!;
     expect(row.status).toBe("void");
     const stored = row.row_data as HouseholdCharge;
-    expect(stored).toMatchObject({ status: "void", voidReason: "Entered twice", voidedBy: OWNER, voidedAt: "2026-11-14T10:00:00.000Z", balanceLabel: "$0.00" });
+    expect(stored).toMatchObject({ status: "void", voidReason: "Entered twice", voidedBy: OWNER, voidedAt: "2026-11-14T10:00:00.000Z", balanceLabel: "$0.00", voidReceiptReversed: true });
     expect(tables.audit_log).toHaveLength(1);
     expect(tables.audit_log[0]).toMatchObject({ action: "charge_voided", actor_user_id: OWNER });
-    // The charge line is gone, so every total read from the subledger excludes it. The PAYMENT line stays:
-    // a void refunds nothing, so money that really moved is still on the books.
-    expect(tables.ledger_entries.filter((e) => e.source_charge_id === charge.id && e.entry_type === "charge")).toHaveLength(0);
-    expect(tables.ledger_entries.filter((e) => e.source_charge_id === charge.id && e.entry_type === "payment")).toHaveLength(1);
-    // One reversal, the charge's. Cash still holds the receipt; the income is gone and the kept amount
-    // sits as the payer's credit balance in receivables.
-    expect(tables.gl_journal_entries.filter((e) => e.is_reversal === true)).toHaveLength(1);
-    expect(accountNet("operating_cash")).toBe(100_000);
-    expect(accountNet("accounts_receivable")).toBe(-100_000);
+    // Both subledger lines are gone, so totals read from `ledger_entries` exclude the charge and the receipt.
+    expect(tables.ledger_entries.filter((e) => e.source_charge_id === charge.id)).toHaveLength(0);
+    // History is never deleted: the original journals stay and a reversing entry is posted for each.
+    expect(tables.gl_journal_entries.filter((e) => e.is_reversal !== true)).toHaveLength(2);
+    expect(tables.gl_journal_entries.filter((e) => e.is_reversal === true)).toHaveLength(2);
+    expect(accountNet("operating_cash")).toBe(0);
+    expect(accountNet("accounts_receivable")).toBe(0);
     expect(accountNet("rent_income")).toBe(0);
     const debits = tables.gl_journal_lines.reduce((s, l) => s + Number(l.debit_cents), 0);
     const credits = tables.gl_journal_lines.reduce((s, l) => s + Number(l.credit_cents), 0);
     expect(debits).toBe(credits);
+  });
+
+  it("a duplicate December charge voids so the month reads once ($1,100 paid and received, not $2,200)", async () => {
+    const real = paidRent({ id: "hc_real", amountLabel: "$1,100.00" });
+    const dup = paidRent({ id: "hc_mgr_1794526309739_d6fbfd57", amountLabel: "$1,100.00" });
+    await seedPaid(real);
+    await seedPaid(dup);
+    const sum = (type: string) => tables.ledger_entries.filter((e) => e.entry_type === type).reduce((n, e) => n + Number(e.amount_cents), 0);
+    expect(sum("charge")).toBe(220_000);
+    expect(sum("payment")).toBe(220_000);
+
+    const result = await voidPaidCharge(makeDb(), { chargeId: dup.id, actorUserId: OWNER, reason: "Duplicate December charge" });
+    expect(result.ok).toBe(true);
+    expect(sum("charge")).toBe(110_000);
+    expect(sum("payment")).toBe(110_000);
+    expect(accountNet("operating_cash")).toBe(110_000);
+    expect(accountNet("rent_income")).toBe(-110_000);
+    expect(accountNet("accounts_receivable")).toBe(0);
+    expect(tables.portal_household_charge_records.find((r) => r.id === "hc_real")!.status).toBe("paid");
   });
 
   it("is idempotent and never double-reverses", async () => {
@@ -121,8 +137,8 @@ describe("void a paid charge", () => {
     await voidPaidCharge(makeDb(), { chargeId: charge.id, actorUserId: OWNER, reason: "Entered twice" });
     const again = await voidPaidCharge(makeDb(), { chargeId: charge.id, actorUserId: OWNER, reason: "Entered twice" });
     expect(again.ok && again.alreadyVoid).toBe(true);
-    expect(tables.gl_journal_entries.filter((e) => e.is_reversal === true)).toHaveLength(1);
-    expect(accountNet("operating_cash")).toBe(100_000);
+    expect(tables.gl_journal_entries.filter((e) => e.is_reversal === true)).toHaveLength(2);
+    expect(accountNet("operating_cash")).toBe(0);
     expect(tables.audit_log).toHaveLength(1);
   });
 
@@ -138,12 +154,22 @@ describe("void a paid charge", () => {
     expect(tables.portal_household_charge_records.find((r) => r.id === charge.id)!.status).toBe("paid");
   });
 
-  it("does not refund: it only flags that a real card payment is behind the charge", async () => {
+  it("refuses a charge Stripe captured money for (the path is a refund) and changes nothing", async () => {
     const charge = paidRent({ paidMethod: undefined, stripeCheckoutSessionId: "cs_test_1" });
     await seedPaid(charge);
     const result = await voidPaidCharge(makeDb(), { chargeId: charge.id, actorUserId: OWNER, reason: "Wrong tenant" });
-    expect(result.ok && result.providerPayment).toBe(true);
-    expect(tables.ledger_entries.filter((e) => e.entry_type === "refund")).toHaveLength(0);
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    if (!result.ok) expect(result.error).toMatch(/Refund/);
+    expect(tables.portal_household_charge_records[0]!.status).toBe("paid");
+    expect(tables.audit_log).toHaveLength(0);
+    expect(tables.gl_journal_entries.filter((e) => e.is_reversal === true)).toHaveLength(0);
+  });
+
+  it("refuses when only the ledger payment line carries a Stripe id (a hand-marked charge never does)", async () => {
+    const charge = paidRent();
+    await seedPaid(charge);
+    tables.ledger_entries.find((e) => e.entry_type === "payment")!.stripe_charge_id = "ch_123";
+    expect(await voidPaidCharge(makeDb(), { chargeId: charge.id, actorUserId: OWNER, reason: "Wrong tenant" })).toMatchObject({ ok: false, status: 409 });
   });
 
   it("flips the manager totals: a void row counts for $0, is struck, and is never unpaid", () => {

@@ -355,7 +355,7 @@ export function ShareLeadLinkModal({
     }
     if (!singlePropertyId) return "";
     if (kind === "tour") return buildManagerTourUrl(origin, singlePropertyId);
-    if (kind === "listing") return buildManagerListingUrl(origin, singlePropertyId);
+    if (kind === "listing") return buildManagerListingUrl(origin, singlePropertyId, getPropertyById(singlePropertyId));
     const { listingRoomId } = roomChoice ? parseRoomChoiceValue(roomChoice) : { listingRoomId: undefined };
     const roomName = roomChoice ? roomOptions.find((o) => o.value === roomChoice)?.label : undefined;
     return buildManagerApplyUrl(origin, {

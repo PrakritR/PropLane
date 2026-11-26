@@ -11,7 +11,7 @@ import {
 } from "@/lib/household-charges";
 import { cachePublicExtraListings } from "@/lib/demo-property-pipeline";
 import { buildLeaseHtml } from "@/lib/lease-templates/build-lease-html";
-import { SEATTLE_LEASE_CONFIG } from "@/lib/lease-templates/types";
+import { SEATTLE_LEASE_CONFIG, WASHINGTON_LEASE_CONFIG } from "@/lib/lease-templates/types";
 import {
   createDefaultListingSubmission,
   emptyRoom,
@@ -230,5 +230,132 @@ describe("lease document \u2194 charge ledger parity (term inside one calendar m
     );
     expect(html).toContain("Prorated First Month");
     expect(html).toContain("Prorated Final Month");
+  });
+});
+
+/**
+ * A bundle placement has no arrangement row of its own, so its custom-dates surcharge is the LISTING's. That
+ * answer must not change when the bundle row itself is gone from the listing — a manager deleting or re-creating
+ * a bundle after approval leaves an application whose `bundleId` resolves to nothing. Oracle: the listing's own
+ * custom-dates row ($75/month, prorated 17/31 days for a Jan 15 start = $41.13). The wrong behaviour this rejects
+ * is the document resolving the bundle out of the submission while the ledger reads the id: the document then
+ * prints the $250 a member room carries ($137.10) against the ledger's $41.13.
+ */
+const BUNDLE_PROPERTY_ID = "prop-deleted-bundle-parity";
+const BUNDLE_RESIDENT_EMAIL = "deleted-bundle@example.com";
+const BUNDLE_START = "2027-01-15";
+const BUNDLE_END = "2028-01-31";
+
+function bundleSubmission(): ManagerListingSubmissionV1 {
+  const base = createDefaultListingSubmission();
+  return normalizeManagerListingSubmissionV1({
+    ...base,
+    buildingName: "Pacific House",
+    address: "1200 Pacific Ave, Tacoma, WA 98402",
+    city: "Tacoma",
+    state: "WA",
+    zip: "98402",
+    securityDeposit: "",
+    moveInFee: "",
+    applicationFee: "",
+    allowedLeaseTerms: ["Long-term", "Custom"],
+    customLeaseSurcharge: "75",
+    rooms: [
+      {
+        ...emptyRoom(0),
+        id: "room-1",
+        name: "Room 1",
+        monthlyRent: 1000,
+        occupancyPrices: [{ count: 1, customStartSurcharge: "250" }],
+      },
+    ],
+    bundles: [],
+  });
+}
+
+function seedBundleListing(): void {
+  cachePublicExtraListings(
+    [
+      {
+        id: BUNDLE_PROPERTY_ID,
+        title: "Pacific House",
+        tagline: "Rooms downtown",
+        address: "1200 Pacific Ave, Tacoma, WA 98402",
+        zip: "98402",
+        neighborhood: "Downtown",
+        beds: 1,
+        baths: 1,
+        rentLabel: "$1,000/mo",
+        available: "Now",
+        petFriendly: false,
+        buildingId: "b2",
+        buildingName: "Pacific House",
+        unitLabel: "Room 1",
+        adminPublishLive: true,
+        managerUserId: MANAGER_ID,
+        listingSubmission: bundleSubmission(),
+      } as MockProperty,
+    ],
+    { silent: true },
+  );
+}
+
+const bundleApplication = {
+  propertyId: BUNDLE_PROPERTY_ID,
+  roomChoice1: `${BUNDLE_PROPERTY_ID}${LISTING_ROOM_CHOICE_SEP}room-1`,
+  leaseTerm: "Long-term",
+  leaseStart: BUNDLE_START,
+  leaseEnd: BUNDLE_END,
+  fullLegalName: "Bundle Resident",
+  bundleId: "bundle-gone",
+};
+
+describe("lease document ↔ charge ledger parity (a bundle the listing no longer has)", () => {
+  it("both read the listing's custom-dates surcharge, never a member room's", () => {
+    window.sessionStorage.clear();
+    removeResidentHouseholdPaymentData(BUNDLE_RESIDENT_EMAIL);
+    seedBundleListing();
+    recordApprovedApplicationCharges(
+      {
+        id: "app-deleted-bundle",
+        name: "Bundle Resident",
+        email: BUNDLE_RESIDENT_EMAIL,
+        property: "Pacific House",
+        propertyId: BUNDLE_PROPERTY_ID,
+        assignedPropertyId: BUNDLE_PROPERTY_ID,
+        assignedRoomChoice: bundleApplication.roomChoice1,
+        managerUserId: MANAGER_ID,
+        application: bundleApplication,
+      } as unknown as DemoApplicantRow,
+      MANAGER_ID,
+      true,
+      { leaseExecuted: true },
+    );
+    const surcharge = readHouseholdCharges().find(
+      (charge) =>
+        charge.residentEmail.toLowerCase() === BUNDLE_RESIDENT_EMAIL.toLowerCase() &&
+        charge.customFeeId === "preset:custom_lease_surcharge",
+    );
+    expect(surcharge?.amountLabel).toBe("$41.13");
+
+    const html = buildLeaseHtml(
+      {
+        application: bundleApplication,
+        leasedRoom: undefined,
+        listingProperty: {
+          id: BUNDLE_PROPERTY_ID,
+          title: "Pacific House",
+          address: "1200 Pacific Ave, Tacoma, WA 98402",
+          buildingName: "Pacific House",
+          unitLabel: "Room 1",
+        } as LeaseGenerationContext["listingProperty"],
+        submission: bundleSubmission(),
+        generatedAtIso: "2027-01-01T00:00:00.000Z",
+        leaseBilling: { monthlyRent: 1000, monthlyUtilities: 0, securityDeposit: 0, moveInFee: 0, otherCostLabel: "Other costs", otherCostAmount: 0, dueAtSigning: 0 },
+      } as LeaseGenerationContext,
+      { ...WASHINGTON_LEASE_CONFIG, documentStyle: "standard" },
+    );
+    expect(html).toContain("$41.13");
+    expect(html).not.toContain("$137.10");
   });
 });

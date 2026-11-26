@@ -59,6 +59,12 @@ const SHARED_ACCOUNT_TABLES = new Set([
   // portal keeps it, and cancelNumberSubscriptionForAccount decides whether that portal's own is stopped.
   "number_subscriptions", "number_credit_accounts", "number_credit_usage_events", "number_credit_purchases", "number_credit_adjustments",
 ]);
+/** Which Plaid purposes belong to which portal, for a single-portal removal. */
+const PLAID_PURPOSES_BY_SCOPE: Record<PurgeScope, readonly ("bank_feed" | "resident_pay" | "income")[]> = {
+  manager: ["bank_feed"],
+  resident: ["resident_pay", "income"],
+  vendor: [],
+};
 const PORTAL_HISTORY_TABLES = new Set(["agent_sessions", "agent_messages", "agent_pending_actions"]);
 
 function assertNoDeleteErrors(results: { error: { message: string } | null }[]) {
@@ -78,12 +84,16 @@ function scopedWrites(
   portal?: PurgeScope,
 ): WriteOp[] {
   if (portal === "vendor" && rule.table === "sms_relay_bindings") return [];
+  // A portal with no Plaid purposes of its own owns no item: write nothing rather than lean on
+  // PostgREST tolerating an empty IN list, which `assertNoDeleteErrors` would turn into a failed removal.
+  if (portal && rule.table === "plaid_items" && PLAID_PURPOSES_BY_SCOPE[portal].length === 0) return [];
   const ops: WriteOp[] = [];
   const restrict = scopeRule.restrict;
-  const guard = <T extends { neq: (column: string, value: string) => T; eq: (column: string, value: string) => T }>(query: T): T => {
+  const guard = <T extends { neq: (column: string, value: string) => T; eq: (column: string, value: string) => T; in: (column: string, values: string[]) => T }>(query: T): T => {
     let result = restrict ? query.neq(restrict.column, restrict.notEquals) : query;
     if (portal && rule.table === "sms_relay_bindings") result = result.eq("role", portal);
     if (portal && PORTAL_HISTORY_TABLES.has(rule.table)) result = result.eq("portal", portal);
+    if (portal && rule.table === "plaid_items") result = result.in("purpose", [...PLAID_PURPOSES_BY_SCOPE[portal]]);
     if (portal && rule.table === "portal_inbox_thread_records") result = result.eq("scope", `axis_portal_inbox_${portal}_v1`);
     return result;
   };
@@ -129,6 +139,11 @@ async function runManifestPurge(
   complete = true,
 ): Promise<void> {
   if (!target.userId && !target.email) return;
+  if (target.userId) {
+    // Revoke the bank logins at Plaid before their rows go; failures never block the purge.
+    const { removePlaidItemsForOwner } = await import("@/lib/plaid/items.server");
+    await removePlaidItemsForOwner(db as never, target.userId, complete ? undefined : PLAID_PURPOSES_BY_SCOPE[scope]);
+  }
   for (const phase of [1, 2, 3, 4] as const) {
     const ops = ACCOUNT_PURGE_TABLES.filter((rule) => rule.phase === phase).flatMap((rule) => {
       if (!complete && SHARED_ACCOUNT_TABLES.has(rule.table)) return [];

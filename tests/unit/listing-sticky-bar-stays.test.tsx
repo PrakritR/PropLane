@@ -4,8 +4,6 @@
  * term, Short term, Tour, each opening its own application, and one stay reads Apply — with the
  * assistant floating above the bar instead of sharing its row (captain, 2026-10-06).
  */
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { ListingDetailSections } from "@/components/marketing/listing-detail-sections";
@@ -102,12 +100,12 @@ const labels = () =>
 describe("manager preview phone bar with both stays", () => {
   it("shows one Book and Tour, whatever stays the listing offers", () => {
     render(<ListingDetailSections property={property} rich={rich} portalEmbedded managerPreviewChrome hidePortalSubnav />);
-    expect(labels()).toEqual(["Book", "Tour"]);
+    expect(labels()).toEqual(["Apply", "Tour"]);
     expect(bar().querySelector('[data-attr="listing-web-apply-short"]')).toBeNull();
     // A guest's Apply opens the public application with no account first (captain, Nov 14).
     expect(href('[data-attr="listing-web-apply"]')).toMatch(/^\/rent\/apply\?/);
     expect(href('[data-attr="listing-web-apply"]')).not.toContain("/auth/create-account");
-    expect(bar().querySelector('[data-attr="listing-web-apply"]')?.textContent).toBe("Book");
+    expect(bar().querySelector('[data-attr="listing-web-apply"]')?.textContent).toBe("Apply");
   });
 
   it("never draws two buttons to the same application", () => {
@@ -119,27 +117,39 @@ describe("manager preview phone bar with both stays", () => {
   it("keeps one row", () => {
     stays.short = false;
     render(<ListingDetailSections property={property} rich={rich} portalEmbedded managerPreviewChrome hidePortalSubnav />);
-    expect(labels()).toEqual(["Book", "Tour"]);
+    expect(labels()).toEqual(["Apply", "Tour"]);
     expect(bar().querySelector('[data-attr="listing-sticky-actions"]')?.parentElement?.className).not.toContain("flex-col");
   });
 });
 
 describe("the assistant floats above the bar", () => {
-  it("neither bar reserves room for it beside the buttons", () => {
-    const source = readFileSync(resolve(process.cwd(), "src/components/marketing/listing-detail-sections.tsx"), "utf8");
-    expect(source).not.toContain("axis-assistant-fab");
-  });
-
-  it("there is no floating assistant bubble left to lift (assistant-side-panel-1007)", () => {
-    const css = readFileSync(resolve(process.cwd(), "src/app/globals.css"), "utf8");
-    expect(css).not.toContain(".axis-assistant-fab");
-    expect(css).not.toContain("--listing-sticky-bar-h");
+  // Oracle: AGENTS.md § AI Agent & Tool Layer - "One assistant surface: the side panel (desktop) / full-screen
+  // sheet (phone), opened from the top bar; no floating button or pop-up". With no bubble there is nothing beside
+  // the buttons to make room for and nothing to lift, so neither bar draws a FAB nor publishes its own height.
+  // Plausible wrong behaviour this rejects: a floating assistant button back in the bar, or the bar reserving
+  // space for one by setting the lift variable.
+  it("neither bar draws a floating assistant nor publishes a height for one to be lifted by", () => {
+    for (const props of [
+      { portalEmbedded: true, managerPreviewChrome: true, hidePortalSubnav: true },
+      {},
+    ]) {
+      cleanup();
+      render(<ListingDetailSections property={property} rich={rich} {...props} />);
+      expect(bar()).toBeTruthy();
+      expect(document.querySelector(".axis-assistant-fab")).toBeNull();
+      expect(document.querySelector('[data-attr="axis-assistant-fab"]')).toBeNull();
+      expect(bar().style.getPropertyValue("--listing-sticky-bar-h")).toBe("");
+      const lifted = [...document.querySelectorAll("[style]")].filter((el) =>
+        (el.getAttribute("style") ?? "").includes("--listing-sticky-bar-h"),
+      );
+      expect(lifted).toEqual([]);
+    }
   });
 
   it("the non-dock bar keeps its two rows", () => {
     render(<ListingDetailSections property={property} rich={rich} />);
     expect(bar().hasAttribute("data-slim")).toBe(false);
-    expect(bar().textContent).toContain("Book");
+    expect(bar().textContent).toContain("Apply");
     expect(bar().textContent).toContain("Tour");
     expect(bar().textContent).not.toContain("Apply long term");
   });

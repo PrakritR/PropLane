@@ -2,6 +2,7 @@
  * Server-side tour notification delivery (Resend email + Axis inbox records).
  */
 
+import { buildReadableListingUrl } from "@/lib/seo/listing-slugs.server";
 import { communicationThreadUrl } from "@/lib/communication/deep-links";
 import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
 import { issueTourSignupCapability } from "@/lib/auth/tour-signup-capability.server";
@@ -39,7 +40,8 @@ import {
   buildTourConfirmedTenantHtml,
   buildTourNotificationContext,
   buildTourRequestManagerBody,
-  buildTourRequestedTimeHeadline,
+  buildTourRequestManagerSms,
+  formatTourStartPacific,
   buildTourRequestRemovedTenantBody,
   buildTourRescheduleConfirmRequestBody,
   buildTourRescheduledTenantBody,
@@ -617,7 +619,7 @@ export async function notifyManagerTourRequest(
       entityId: textField(inquiry as Record<string, unknown>, "id") || `${propertyId}:${tourStartIso}:${guestEmail}`,
       propertyId: propertyId || null,
       text: tourAlertLine("requested", { guest: ctx.guestName, house: ctx.propertyTitle, whenIso: tourStartIso }),
-      url: `${origin.replace(/\/$/, "")}/portal/tours`,
+      url: ctx.tourDetailUrl || `${origin.replace(/\/$/, "")}/portal/tours`,
     });
   } catch {
     /* non-critical: the notices above already reached the people */
@@ -662,9 +664,7 @@ export async function notifyManagerTourRequest(
 
   // Also text any recipient with a forward-enabled phone on file (e.g. the
   // admin's own DB-backed number) — a tour request shouldn't wait on email.
-  const smsText = `PropLane: new tour request${ctx.propertyTitle ? ` — ${ctx.propertyTitle}` : ""}${
-    ctx.tourStartIso ? ` (${formatTourTimeRange(ctx.tourStartIso, ctx.tourEndIso)})` : ""
-  }. ${ctx.requestedTime ? `${buildTourRequestedTimeHeadline(ctx)}.` : `${ctx.guestName} requested a tour.`} Check your PropLane inbox for details.`;
+  const smsText = buildTourRequestManagerSms(ctx);
   await Promise.all(
     recipients.map((recipient) =>
       sendManagerNotificationSms(db, {
@@ -848,7 +848,7 @@ export async function notifyTenantTourRequestReceived(
   });
 
   const guestPhone = textField(inquiry as Record<string, unknown>, "phone") || null;
-  const listingLink = propertyId ? `${origin}/rent/listings/${propertyId}` : origin;
+  const listingLink = propertyId ? await buildReadableListingUrl(origin, propertyId) : origin;
   const accountPrompt = "";
   await textTourGuest({
     db,
@@ -860,9 +860,11 @@ export async function notifyTenantTourRequestReceived(
     inquiry,
     inquiryId: textField(inquiry as Record<string, unknown>, "id") || null,
     allowConversationEvidence: inquiryAllowsConversationSmsEvidence(inquiry),
-    text: `We received your tour request for ${ctx.propertyTitle}${
-      ctx.tourStartIso ? ` (${formatTourTimeRange(ctx.tourStartIso, ctx.tourEndIso)})` : ""
-    }. We'll text you here once it's confirmed.${accountPrompt} Details: ${listingLink}.`,
+    text: `We received your tour request${ctx.confirmationRef ? ` ${ctx.confirmationRef}` : ""} for ${ctx.propertyTitle}${
+      ctx.roomLabel ? ` ${ctx.roomLabel}` : ""
+    }${
+      ctx.tourStartIso ? ` (${formatTourStartPacific(ctx.tourStartIso)})` : ""
+    }${ctx.propertyAddress ? ` at ${ctx.propertyAddress}` : ""}. We'll text you here once it's confirmed.${accountPrompt} Details: ${listingLink}.`,
   });
 
   if (email.error) return { ok: true, skipped: true, error: email.error };
@@ -926,7 +928,7 @@ export async function notifyTenantTourRequestRemoved(
     managerUserId,
   });
 
-  const listingLink = propertyId ? `${origin}/rent/listings/${propertyId}` : origin;
+  const listingLink = propertyId ? await buildReadableListingUrl(origin, propertyId) : origin;
   await textTourGuest({
     db,
     managerUserId,
@@ -1080,7 +1082,7 @@ async function notifyTenantTourChanged(
       : { sent: false, skipped: true, error: "Guest email is required to notify the guest." }
     : { sent: false, skipped: true };
 
-  const listingLink = propertyId ? `${origin}/rent/listings/${propertyId}` : origin;
+  const listingLink = propertyId ? await buildReadableListingUrl(origin, propertyId) : origin;
   const sms: TourNotificationResult["sms"] = wantsSms ? await textTourGuest({
     db,
     managerUserId,
@@ -1249,7 +1251,7 @@ async function deliverTenantTourConfirmed(
     : { sent: false, skipped: true };
 
   const guestPhone = textField(inquiry as Record<string, unknown>, "phone") || null;
-  const listingLink = propertyId ? `${origin}/rent/listings/${propertyId}` : origin;
+  const listingLink = propertyId ? await buildReadableListingUrl(origin, propertyId) : origin;
   const sms: TourNotificationResult["sms"] = wantsSms ? await textTourGuest({
     db,
     managerUserId: window.managerUserId,

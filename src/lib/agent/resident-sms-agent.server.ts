@@ -127,11 +127,13 @@ export async function runResidentSmsAgentTurn(
     args.fastPath && !args.testActor && !referenceResolution
       ? await (await import("@/lib/one-number/resident-fast-path.server")).tryResidentFastPath(db, args.ctx, args.inboundText)
       : null;
+  // The texting resident's own phone, for tools that read this sender's recent photos (never model input).
+  const turnCtx: ResidentAgentContext = args.residentPhoneE164 ? { ...args.ctx, smsSenderPhoneE164: args.residentPhoneE164 } : args.ctx;
   return runSmsAgentTurn<ResidentAgentContext>(db, {
-    ctx: args.ctx,
+    ctx: turnCtx,
     surface: RESIDENT_SMS_SURFACE,
     // "send my rent link": a phone-bound link with a code step, on the shared line and per workspace alike.
-    registry: withResidentSendMyLinkTool(buildResidentRegistry(args.ctx), residentSendMyLinkTool),
+    registry: withResidentSendMyLinkTool(buildResidentRegistry(turnCtx), residentSendMyLinkTool),
     sessionLandlordId: args.ownerManagerUserId,
     phoneE164: args.residentPhoneE164,
     inboundText: args.inboundText,

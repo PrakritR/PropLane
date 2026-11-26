@@ -211,7 +211,7 @@ describe("actions", () => {
 
   it("has exactly two actions, Tour and Book, no Text us and no Email door", () => {
     render(<ListingDetailSections property={property()} rich={rich()} />);
-    expect(card().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Book");
+    expect(card().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Apply");
     expect(card().querySelector('[data-attr="listing-web-tour"]')!.textContent).toBe("Tour");
     expect(card().querySelectorAll(".ps-ld-acts a, .ps-ld-acts button")).toHaveLength(2);
     expect(card().querySelector('[data-attr="listing-text-tour"]')).toBeNull();
@@ -225,7 +225,7 @@ describe("actions", () => {
     render(<ListingDetailSections property={property()} rich={rich()} phoneDock />);
     expect(document.querySelector('[data-attr="listing-phone-price-card"], [data-attr="listing-inline-card"]')).toBeNull();
     const dock = document.querySelector('[data-attr="listing-sticky-bar"]')!;
-    expect([...dock.querySelectorAll("a")].map((a) => a.textContent)).toEqual(["Tour", "Book"]);
+    expect([...dock.querySelectorAll("a")].map((a) => a.textContent)).toEqual(["Tour", "Apply"]);
   });
 });
 
@@ -245,7 +245,7 @@ describe("Quick book vs Book", () => {
     render(<ListingDetailSections property={property()} rich={rich()} />);
     await waitFor(() => expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0));
     expect(card().querySelector('[data-attr="listing-quick-apply"]')).toBeNull();
-    expect(card().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Book");
+    expect(card().querySelector('[data-attr="listing-web-apply"]')!.textContent).toBe("Apply");
   });
 
   it("a resident with saved answers sees Book (opening the quick sheet), and the same word in the sticky bar", async () => {
@@ -253,7 +253,7 @@ describe("Quick book vs Book", () => {
     stubFetch({ profile: { fullLegalName: "Dana Resident" }, dryRun: { ready: true } });
     render(<ListingDetailSections property={property()} rich={rich()} />);
     await waitFor(() => expect(card().querySelector('[data-attr="listing-quick-apply"]')).not.toBeNull());
-    expect(card().querySelector('[data-attr="listing-quick-apply"]')!.textContent).toBe("Book");
+    expect(card().querySelector('[data-attr="listing-quick-apply"]')!.textContent).toBe("Apply");
     expect(document.querySelector('[data-attr="listing-sticky-bar"] [data-attr="listing-quick-apply"]')).not.toBeNull();
     expect(card().querySelector('[data-attr="listing-web-apply"]')).toBeNull();
   });

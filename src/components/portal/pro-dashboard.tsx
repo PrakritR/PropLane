@@ -902,19 +902,26 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     );
 
     const cutoff = nowMs - 30 * 60 * 1000;
+    // The rows are already the server's per-viewer projection, so a tour on a house of the ACTIVE workspace is this
+    // workspace's to count whoever it was filed under (a PropLane-managed house's tours are filed under the workspace
+    // owner, not the staff member reading it — the Tours page listed them while this count read 0). A tour that names
+    // no house stays the viewer's own.
+    const tourBelongsToActiveWorkspace = (propertyId: string | undefined | null, managerUserId: string | undefined | null) => {
+      const pid = propertyId?.trim();
+      return pid ? workspaceContainsProperty(pid) : managerUserId === userId && workspaceContainsProperty(undefined);
+    };
     const tours = [
       ...readPartnerInquiries()
         .filter(
           (r) =>
             r.kind === "tour" &&
             r.status === "pending" &&
-            r.managerUserId === userId &&
-            workspaceContainsProperty(r.propertyId?.trim() || undefined),
+            tourBelongsToActiveWorkspace(r.propertyId, r.managerUserId),
         )
         .flatMap((r) =>
           getPartnerInquiryWindows(r).map((w) => ({
             id: `${r.id}-${w.start}`,
-            label: r.name,
+            label: r.name?.trim() || "Tour request",
             propertyTitle: r.propertyTitle ?? "",
             status: "pending" as const,
             startMs: new Date(w.start).getTime(),
@@ -925,8 +932,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
         .filter(
           (e) =>
             e.kind === "tour" &&
-            e.managerUserId === userId &&
-            workspaceContainsProperty(e.propertyId?.trim() || undefined),
+            tourBelongsToActiveWorkspace(e.propertyId, e.managerUserId),
         )
         .map((e) => ({
           id: e.id,

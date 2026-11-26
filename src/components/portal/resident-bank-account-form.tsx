@@ -5,9 +5,13 @@ import { getStripe } from "@/lib/stripe-browser";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { PlaidLinkLauncher, type PlaidLinkSuccess } from "@/components/portal/plaid-link-button";
 
 
 type BankStatus = "entry" | "verification" | "clearing" | "paid" | "review";
+
+/** A bank the resident linked with Plaid: names and last four only. */
+type LinkedBank = { id: string; institutionName: string | null; accountName: string | null; accountMask: string | null };
 
 /** Bank numbers stay in the browser and go directly to Stripe.js. */
 export function ResidentBankAccountForm({
@@ -42,6 +46,11 @@ export function ResidentBankAccountForm({
   const [error, setError] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
   const [accountType, setAccountType] = useState("checking");
+  // Plaid is offered only for an in-app payment, and only when the server says it is enabled.
+  // Anything else (disabled, a phone-bound link, a saved-bank setup) is the typed path, unchanged.
+  const [plaidOn, setPlaidOn] = useState(false);
+  const [typedNumbers, setTypedNumbers] = useState(false);
+  const [linked, setLinked] = useState<LinkedBank | null>(null);
   const [verificationKind, setVerificationKind] = useState<"code" | "amounts">("code");
 
   const endpoint = endpointOverride ?? (kind === "payment" ? "/api/stripe/resident-ach-payment" : "/api/stripe/resident-bank-setup");
@@ -73,6 +82,62 @@ export function ResidentBankAccountForm({
   }, [loadStatus]);
 
   useEffect(() => { void loadStatus(); }, [loadStatus]);
+
+  const plaidEligible = kind === "payment" && !endpointOverride && status === "entry";
+  useEffect(() => {
+    if (!plaidEligible) return;
+    let live = true;
+    void (async () => {
+      try {
+        const response = await fetch("/api/plaid/status?purpose=resident_pay", { credentials: "include", cache: "no-store" });
+        const result = await response.json() as { enabled?: boolean };
+        if (live) setPlaidOn(response.ok && result.enabled === true);
+      } catch { if (live) setPlaidOn(false); }
+    })();
+    return () => { live = false; };
+  }, [plaidEligible]);
+
+  async function exchangeLinkedBank(result: PlaidLinkSuccess) {
+    setError(null);
+    try {
+      const response = await fetch("/api/resident/plaid/exchange", {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ publicToken: result.publicToken, purpose: "resident_pay", accountId: result.accountId }),
+      });
+      const data = await response.json() as { item?: { id: string; institutionName: string | null; accountName: string | null; accountMask: string | null }; error?: string };
+      if (!response.ok || !data.item) throw new Error(data.error ?? "Couldn't reach your bank.");
+      setLinked(data.item);
+      setConsent(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Couldn't reach your bank.");
+    }
+  }
+
+  async function payWithLinkedBank() {
+    if (!consent || !linked || busy) return;
+    if (!Number.isSafeInteger(amountCents) || (amountCents ?? 0) <= 0) {
+      setError("Payment amount needs review.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/stripe/resident-plaid-bank", {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentIntentId: intentId, plaidItemId: linked.id, authorized: true }),
+      });
+      const result = await response.json() as { bankStatus?: BankStatus; paid?: boolean; error?: string };
+      if (!response.ok || !result.bankStatus) throw new Error(result.error ?? "Bank payment needs review.");
+      if (result.bankStatus === "paid" && result.paid !== true) throw new Error("Payment receipt needs review.");
+      setStatus(result.bankStatus);
+      onStatusChangeRef.current?.(result.bankStatus);
+      if (result.bankStatus === "paid") onCompleteRef.current?.();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Bank payment needs review.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function confirmBankAccount(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -156,7 +221,45 @@ export function ResidentBankAccountForm({
       {status === "loading" ? <p className="text-sm font-medium">
         {initialStatus === "paid" ? "Confirming receipt…" : "Loading bank status…"}
       </p> : null}
-      {status === "entry" ? (
+      {status === "entry" && plaidOn && !typedNumbers ? (
+        <div className="space-y-3 ph-no-capture ph-no-record" data-attr="resident-bank-plaid">
+          {linked ? (
+            <>
+              <p className="text-sm font-medium">
+                {[linked.institutionName, linked.accountName].filter(Boolean).join(" ")}
+                {linked.accountMask ? ` ••${linked.accountMask}` : ""}
+              </p>
+              <p className="text-sm">Verified</p>
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" checked={consent} disabled={busy} onChange={(event) => setConsent(event.target.checked)} required />
+                <span>{`I authorize PropLane to debit this bank account $${((amountCents ?? 0) / 100).toFixed(2)} for the charges shown, and to save it to my account for payments I approve, and for recurring autopay only if I separately enable it. I can revoke authorization by contacting PropLane.`}</span>
+              </label>
+              <Button type="button" disabled={busy || !consent} onClick={() => payWithLinkedBank()} data-attr="resident-bank-plaid-pay">
+                {`Pay $${((amountCents ?? 0) / 100).toFixed(2)}`}
+              </Button>
+            </>
+          ) : (
+            <PlaidLinkLauncher
+              purpose="resident_pay"
+              endpoint="/api/resident/plaid/link-token"
+              onSuccess={exchangeLinkedBank}
+              onError={setError}
+            >
+              {({ start, busy }) => (
+                <Button type="button" loading={busy} onClick={() => start()} data-attr="resident-bank-plaid-link">
+                  Log in to your bank
+                </Button>
+              )}
+            </PlaidLinkLauncher>
+          )}
+          <div>
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => setTypedNumbers(true)} data-attr="resident-bank-enter-numbers">
+              Enter numbers instead
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {status === "entry" && !(plaidOn && !typedNumbers) ? (
         <form ref={formRef} onSubmit={confirmBankAccount} className="space-y-3 ph-no-capture ph-no-record">
           <label className="block text-sm font-medium">Account holder name<Input name="name" autoComplete="name" required /></label>
           <label className="block text-sm font-medium">Email<Input name="email" type="email" autoComplete="email" required /></label>

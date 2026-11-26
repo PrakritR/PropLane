@@ -76,6 +76,10 @@ export function generateIcsCalendar(
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     `X-WR-CALNAME:${escapeIcsText(name)}`,
+    // All-day events carry no zone; naming one (and a refresh hint) is what stricter importers expect to see.
+    "X-WR-TIMEZONE:UTC",
+    "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
+    "X-PUBLISHED-TTL:PT1H",
   ];
 
   const seenUids = new Set<string>();

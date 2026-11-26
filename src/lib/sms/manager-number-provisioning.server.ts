@@ -794,7 +794,7 @@ export async function restoreManagerNumber(db: SupabaseClient, managerUserId: st
  * itself holds (captain, Oct 25). `managed: false` = an ordinary workspace; the caller resolves its own number. `managed:
  * true, line: null` = managed but the line cannot be resolved or read, so nothing sends (never the old number).
  */
-async function resolveManagedSendLine(
+export async function resolveManagedSendLine(
   db: SupabaseClient,
   managerUserId: string,
   workspaceId?: string | null,

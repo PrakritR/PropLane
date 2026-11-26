@@ -469,7 +469,7 @@ export async function POST(req: Request) {
       }
       const result = await voidPaidCharge(db, { chargeId: id, actorUserId: user.id, reason: body.reason });
       if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
-      return NextResponse.json({ ok: true, charge: result.charge, alreadyVoid: result.alreadyVoid, providerPayment: result.providerPayment, refunded: false });
+      return NextResponse.json({ ok: true, charge: result.charge, alreadyVoid: result.alreadyVoid, refunded: false });
     }
 
     const charges = Array.isArray(body.charges) ? body.charges : [];

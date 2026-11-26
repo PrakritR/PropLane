@@ -4,6 +4,7 @@
  * prefills. escalate_to_manager is the only write (allowlisted) — it notifies
  * the owning manager; the model never sends SMS itself (delivery is code).
  */
+import { buildOpenRoomsDigest } from "./open-rooms-digest";
 import { buildReadableListingUrl, getListingSlugIndex } from "@/lib/seo/listing-slugs.server";
 import { z } from "zod";
 import { defineTool, defineWriteTool } from "../registry";
@@ -935,9 +936,24 @@ export const listLiveListingsTool = defineTool({
           ...(area ? { areaMatch: area } : {}),
         };
       });
+    // One line per home with open rooms (house, room, price, date, deposit, canonical link), built only from the rows above.
+    const depositByRoom = new Map<string, string | null>();
+    for (const { rec } of ranked.slice(0, 40)) for (const room of summarizeRooms(propertySource(rec))) depositByRoom.set(`${rec.id}:${room.id}`, room.securityDeposit);
+    const openRoomsDigest = buildOpenRoomsDigest(
+      listings.map((home) => ({
+        title: home.title,
+        address: home.address,
+        neighborhood: home.neighborhood,
+        listingUrl: home.listingUrl,
+        petFriendly: home.petFriendly,
+        rooms: home.rooms.map((room) => ({ ...room, securityDeposit: depositByRoom.get(`${home.propertyId}:${room.id}`) ?? null })),
+      })),
+    );
     return {
       count: listings.length,
       listings,
+      // Answer "any houses available?" from these lines as returned, then offer photos (`photoOffer`). Empty = nothing verified open: say so.
+      openRoomsDigest,
       ...(lockedId ? { lockedPropertyId: lockedId } : {}),
       // The browse-all page, from the tool, so "see everything" needs no second lookup.
       browseUrl: `${origin}/rent/browse`,

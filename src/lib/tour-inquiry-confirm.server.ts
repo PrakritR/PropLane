@@ -9,6 +9,7 @@
  * `notifyTenantTourConfirmed` — lives here once so the two callers can never
  * drift apart on double-booking protection.
  */
+import { tourEventFactsFromRecord } from "@/lib/google-calendar/tour-event-payload";
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 import { normalizeTourFormat } from "@/lib/tour-format";
 import {
@@ -490,6 +491,7 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
       start,
       end,
       propertyTitle: textField(row, "propertyTitle") || undefined,
+      ...tourEventFactsFromRecord(plannedEvent),
       attendeeName: textField(row, "name") || undefined,
       attendeeEmail: textField(row, "email") || undefined,
       attendeePhone: textField(row, "phone") || undefined,

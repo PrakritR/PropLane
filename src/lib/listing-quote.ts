@@ -18,14 +18,22 @@
  * - what is collected at signing comes from `isPaymentDueAtSigning`, the same
  *   matrix the signing table writes;
  * - in Seattle every recurring monthly fee is folded into rent rather than billed
- *   beside it, which is `listingFoldsAllMonthlyFeesIntoRent`.
+ *   beside it, which is `listingFoldsAllMonthlyFeesIntoRent`;
+ * - the two start surcharges (custom dates, month-to-month) come from
+ *   `custom-lease-billing.ts` — one predicate for whether the lease owes one and
+ *   one amount, off the Private arrangement row (`roomStartSurchargeRow`), which is
+ *   what the lease rider and the monthly charge bill;
+ * - a partial first or last calendar month is counted by the one proration module
+ *   (`lease-first-period-proration.ts`, through `resolveListingProrationForSlot`),
+ *   the same day counts the ledger and the lease document print.
  *
  * If any of those change, this follows them. It must never grow a rule of its own.
  */
 
 import { shortTermStayNightCount, shortTermStayCanBePriced, shortTermStayTotalAmount, shortTermStayTierNote } from "@/lib/short-term-stay-pricing";
-import { DEFAULT_CUSTOM_LEASE_SURCHARGE, parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
+import { parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
 import { parseMoneyAmount } from "@/lib/parse-money";
+import { roomStartSurchargeRow } from "@/lib/room-term-fees";
 import {
   feeAppliesToResidentSlot,
   isListingFeeAmountFilled,
@@ -37,7 +45,7 @@ import {
 } from "@/lib/listing-fees";
 import { feeAppliesToArrangementCount } from "@/lib/listing-fees";
 import { roomPriceForResidentCount } from "@/lib/room-arrangement-pricing";
-import { roomResidentPriceForSlot, roomStayPriceForSlot, resolveStayPricing } from "@/lib/room-pricing";
+import { roomIsDailyPriced, roomResidentPriceForSlot, roomStayPriceForSlot, resolveStayPricing } from "@/lib/room-pricing";
 import {
   PAYMENT_AT_SIGNING_FEE_KEY_PREFIX,
   PAYMENT_AT_SIGNING_ROOM_RENT_KEY_PREFIX,
@@ -50,6 +58,25 @@ import { resolvePlacementStandardFees } from "@/lib/listing-placement-standard-f
 import { houseDefaultsForSubmission, roomInheritsDefault } from "@/lib/listing-house-defaults";
 import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM, AIRBNB_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { isEntireHomeListing, type ManagerListingSubmissionV1, type ManagerRoomSubmission } from "@/lib/manager-listing-submission";
+import {
+  CUSTOM_LEASE_SURCHARGE_FEE_ID,
+  MONTH_TO_MONTH_SURCHARGE_CHARGE_LABEL,
+  MONTH_TO_MONTH_SURCHARGE_FEE_ID,
+  customLeaseSurchargeAmount,
+  monthToMonthSurchargeAmount,
+  shouldBillCustomLeaseSurcharge,
+  shouldBillMonthToMonthSurcharge,
+} from "@/lib/custom-lease-billing";
+import {
+  computeProratedFirstMonthTotals,
+  computeProratedLastMonthTotals,
+  leaseEndProration,
+  leaseFirstPeriodProration,
+  prorationMonthLabel,
+  proratedFeeLines,
+  resolveListingProrationForSlot,
+} from "@/lib/lease-first-period-proration";
+import { intraMonthStaySpan } from "@/lib/short-term-stay-pricing";
 
 /** One line on the move-in receipt. */
 export type ListingQuoteLine = {
@@ -63,7 +90,7 @@ export type ListingQuoteLine = {
   dueLabel?: "Before check-in" | "Before lease signing";
 };
 
-export type ListingQuoteFee = { id: string; label: string; amount: number; cadence?: ListingFeeCadence };
+export type ListingQuoteFee = { id: string; label: string; amount: number; cadence?: ListingFeeCadence; dailyRate?: number };
 
 export type ListingQuote = {
   leaseTerm: string;
@@ -90,6 +117,25 @@ export type ListingQuote = {
   securityDeposit: number;
   /** One-time signing fees that are not refundable — the number a deposit cap cares about. */
   nonRefundableAtSigning: number;
+  /**
+   * The custom-dates surcharge (monthly) this quote carries because the lease starts or ends off the
+   * calendar month. Already inside `monthlyFees` / `monthlyRent`; named here so a receipt can show it.
+   */
+  customLeaseSurcharge?: number;
+  /** Partial first / last calendar month, computed here from the one proration module. Absent when neither is partial. */
+  proration?: {
+    firstMonth: QuoteProratedPeriod | null;
+    lastMonth: QuoteProratedPeriod | null;
+  };
+};
+
+export type QuoteProratedPeriod = {
+  billableDays: number;
+  daysInMonth: number;
+  monthLabel: string;
+  /** Prorated rent, plus the monthly fees (custom surcharge, parking...) prorated the same way. */
+  amount: number;
+  utilities: number;
 };
 
 /**
@@ -250,9 +296,10 @@ export function buildListingQuote(
   const staySlot = room && residentSlot ? roomStayPriceForSlot(room, residentSlot) : undefined;
   const arrangementPrice =
     room && arrangementCount ? roomPriceForResidentCount(room, arrangementCount) : undefined;
-  const arrangementRow =
-    room?.occupancyPrices?.find((row) => row.count === arrangementCount) ??
-    (options.useEntireHomeRent && !room ? sub.entireHomeArrangementFees : undefined);
+  // The two start surcharges are stored on the Private arrangement row whatever arrangement is being priced
+  // (`roomStartSurchargeRow`), so this quote, the lease rider and the monthly charge read the one figure the
+  // manager typed - a "Shared by 2" preview quoted the $100 default while the lease billed their $250.
+  const startSurchargeRow = roomStartSurchargeRow(sub, room);
   const placementFees = resolvePlacementStandardFees(sub, {
     leaseTerm,
     room,
@@ -353,6 +400,12 @@ export function buildListingQuote(
     if (amount === 0 && !isListingFeeAmountFilled(fee.amount ?? "")) continue;
     // The deposit is its own line on the receipt, never a fee line as well.
     if (fee.presetId === "security_deposit") continue;
+    // The custom-dates surcharge is decided by the lease dates alone (added below), never by the row merely existing,
+    // so a calendar-aligned lease is not quoted it and a dated one is not quoted it twice.
+    if (!isStay && fee.presetId === "custom_lease_surcharge") continue;
+    // Same for the month-to-month surcharge: the lease term decides whether anything is owed (added below),
+    // never the row merely existing, so a 12-month lease is not quoted it and a month-to-month one not twice.
+    if (!isStay && fee.presetId === "mtm_surcharge") continue;
     // The stay type's own move-in replaces the house move-in row (long-term or short-term), never a second line.
     if (placementFees.moveInOverridesHouse && (fee.presetId === "move_in_fee" || fee.presetId === "short_term_move_in")) continue;
     if (fee.presetId === "holding_deposit") {
@@ -361,7 +414,7 @@ export function buildListingQuote(
     }
     const cadence = listingFeeCadence(fee);
     if (cadence === "monthly" || cadence === "weekly" || cadence === "daily") {
-      const entry = { id: fee.id, label: feeLabel(fee), amount, cadence };
+      const entry = { id: fee.id, label: feeLabel(fee), amount, cadence, dailyRate: fee.dailyRate };
       if (cadence === "monthly" && (foldMonthlyIntoRent || fee.includeInRent)) folded.push(entry);
       else recurring.push(entry);
       continue;
@@ -380,15 +433,44 @@ export function buildListingQuote(
     });
   }
 
+  // A lease that starts or ends off the calendar month carries the custom-dates surcharge ($100/month unless
+  // the manager priced or removed the row). `startKind: "cst"` is a caller that already knows the dates are
+  // custom; `"std"` lets the dates decide. Either way ONE predicate and ONE amount: custom-lease-billing.
+  let customLeaseSurcharge = 0;
+  const billsCustomLease = !isStay && (
+    startKind === "cst"
+    || (startKind === "std" && shouldBillCustomLeaseSurcharge(
+      { leaseStart: options.leaseStart ?? undefined, leaseEnd: options.leaseEnd ?? undefined, leaseTerm }, sub,
+    ))
+  );
+  if (billsCustomLease) {
+    const amount = customLeaseSurchargeAmount(sub, startSurchargeRow);
+    if (amount > 0) {
+      customLeaseSurcharge = amount;
+      (foldMonthlyIntoRent ? folded : recurring).push({
+        id: CUSTOM_LEASE_SURCHARGE_FEE_ID, label: "Custom lease surcharge", amount, cadence: "monthly",
+      });
+    }
+  }
+
   const foldedTotal = folded.reduce((sum, f) => sum + f.amount, 0);
   let monthlyRent = baseMonthlyRent + foldedTotal;
-  if (!isStay && startKind === "m2m" && arrangementRow?.monthToMonthSurcharge && !foldMonthlyIntoRent) {
-    monthlyRent += parseMoneyAmount(arrangementRow.monthToMonthSurcharge);
-  }
-  if (!isStay && startKind === "cst") {
-    monthlyRent += String(arrangementRow?.customStartSurcharge ?? "").trim()
-      ? parseMoneyAmount(arrangementRow!.customStartSurcharge!)
-      : DEFAULT_CUSTOM_LEASE_SURCHARGE;
+  // ONE amount from the one resolver, on the same gate the ledger and the lease document use: a `m2m` start is a
+  // preview of switching, so it rides inside the rent figure; a Month-to-Month LEASE bills its own monthly line.
+  // A fold-everything listing bills no monthly fee at all, so it is quoted none.
+  const monthToMonthSurcharge =
+    !isStay && !foldMonthlyIntoRent ? monthToMonthSurchargeAmount(sub, startSurchargeRow) : 0;
+  if (monthToMonthSurcharge > 0) {
+    if (startKind === "m2m") {
+      monthlyRent += monthToMonthSurcharge;
+    } else if (shouldBillMonthToMonthSurcharge({ leaseTerm })) {
+      recurring.push({
+        id: MONTH_TO_MONTH_SURCHARGE_FEE_ID,
+        label: MONTH_TO_MONTH_SURCHARGE_CHARGE_LABEL,
+        amount: monthToMonthSurcharge,
+        cadence: "monthly",
+      });
+    }
   }
   const recurringTotal = recurring.reduce(
     (sum, f) => sum + listingFeeMonthlyEquivalent(f.amount, f.cadence ?? "monthly"),
@@ -410,6 +492,56 @@ export function buildListingQuote(
    * short by a month of fees.
    */
   const firstPeriodExtras = [...folded, ...recurring];
+
+  /*
+   * Partial months. A lease that starts after the 1st bills the rest of that month, and one that ends before
+   * the month's last day bills the days through the end - the same day-count module the ledger and the lease
+   * document read. A room priced by the day bills per day elsewhere, so it is left to that path.
+   */
+  const leaseStartText = options.leaseStart ?? undefined;
+  const leaseEndText = options.leaseEnd ?? undefined;
+  const prorates = !isStay && hasStayRate && !(room && roomIsDailyPriced(room)) && Boolean(parseFlexibleLocalDate(leaseStartText));
+  const roomProration = resolveListingProrationForSlot(sub, room, residentSlot, leaseTerm);
+  // Every recurring fee is prorated on its monthly equivalent, the one basis `recurringTotal` above, the ledger
+  // (`recurringGenuinelyCustomFees`) and the lease rider already use, so a partial month is quoted and charged alike.
+  const proratableFees = recurring.map((f) => ({
+    id: f.id,
+    label: f.label,
+    amount: listingFeeMonthlyEquivalent(f.amount, f.cadence ?? "monthly"),
+    dailyRate: f.dailyRate,
+  }));
+  let firstMonth: QuoteProratedPeriod | null = null;
+  let lastMonth: QuoteProratedPeriod | null = null;
+  if (prorates) {
+    const first = computeProratedFirstMonthTotals({
+      monthlyRent, monthlyUtilities, leaseStart: leaseStartText ?? "", leaseEnd: leaseEndText,
+      method: roomProration.method, dailyRentRate: roomProration.dailyRentRate, dailyUtilitiesRate: roomProration.dailyUtilitiesRate,
+    });
+    if (first.applies) {
+      const boundary = leaseFirstPeriodProration(leaseStartText, leaseEndText, true);
+      const feeLines = proratedFeeLines(proratableFees, boundary, roomProration.method);
+      firstMonth = {
+        billableDays: boundary.billableDays, daysInMonth: boundary.daysInMonth, monthLabel: prorationMonthLabel(leaseStartText),
+        amount: Number((first.proratedRent + feeLines.reduce((sum, l) => sum + l.amount, 0)).toFixed(2)),
+        utilities: first.proratedUtilities,
+      };
+    }
+    const endBoundary = leaseEndProration(leaseEndText);
+    const last = computeProratedLastMonthTotals({
+      monthlyRent, monthlyUtilities, leaseEnd: leaseEndText,
+      method: roomProration.method, dailyRentRate: roomProration.dailyRentRate, dailyUtilitiesRate: roomProration.dailyUtilitiesRate,
+      endsInsideFirstMonth: intraMonthStaySpan(leaseStartText, leaseEndText) !== null,
+    });
+    if (last.applies) {
+      const feeLines = proratedFeeLines(proratableFees, endBoundary, roomProration.method);
+      lastMonth = {
+        billableDays: last.billableDays, daysInMonth: last.daysInMonth, monthLabel: last.monthLabel,
+        amount: Number((last.proratedRent + feeLines.reduce((sum, l) => sum + l.amount, 0)).toFixed(2)),
+        utilities: last.proratedUtilities,
+      };
+    }
+  }
+  const dayWords = (p: QuoteProratedPeriod) => `${p.billableDays} of ${p.daysInMonth} days`;
   const signingLines: ListingQuoteLine[] = isStay ? [{
     key: rentKey, label: "Stay total", note: stayTotal !== null ? shortTermStayTierNote(stayNights!, nightly, weekly, stayMonthly) : undefined,
     amount: stayTotal ?? 0, amountPending: stayTotal === null, dueAtSigning: rentDueAtSigning,
@@ -417,12 +549,12 @@ export function buildListingQuote(
     ? [
         {
           key: rentKey,
-          label: "First month's rent",
+          label: firstMonth ? `First month's rent (${dayWords(firstMonth)})` : "First month's rent",
           note:
             firstPeriodExtras.length > 0
               ? `Includes ${firstPeriodExtras.map((f) => f.label.toLowerCase()).join(", ")}`
               : undefined,
-          amount: monthlyRent + recurringTotal,
+          amount: firstMonth ? firstMonth.amount : monthlyRent + recurringTotal,
           dueAtSigning: rentDueAtSigning,
         },
       ]
@@ -430,8 +562,8 @@ export function buildListingQuote(
   if (!isStay && monthlyUtilities > 0) {
     signingLines.push({
       key: "first_month_utilities",
-      label: "First month utilities",
-      amount: monthlyUtilities,
+      label: firstMonth && firstMonth.utilities > 0 ? `First month utilities (${dayWords(firstMonth)})` : "First month utilities",
+      amount: firstMonth && firstMonth.utilities > 0 ? firstMonth.utilities : monthlyUtilities,
       dueAtSigning: isPaymentDueAtSigning(sub, "first_month_utilities", leaseTerm, roomId),
     });
   }
@@ -476,6 +608,15 @@ export function buildListingQuote(
     });
   }
 
+  if (lastMonth) {
+    signingLines.push({
+      key: "last_month_rent_prorated",
+      label: `Last month's rent, ${lastMonth.monthLabel} (${dayWords(lastMonth)})`,
+      amount: Number((lastMonth.amount + lastMonth.utilities).toFixed(2)),
+      dueAtSigning: false,
+    });
+  }
+
   const signingTotal = signingLines.filter((l) => l.dueAtSigning).reduce((sum, l) => sum + l.amount, 0);
   // The stay type's move-in replaces the house one, which is non-refundable; the lease fee
   // was never counted here and still is not.
@@ -507,5 +648,7 @@ export function buildListingQuote(
     applicationFees,
     securityDeposit: netSecurityDeposit,
     nonRefundableAtSigning,
+    ...(customLeaseSurcharge > 0 ? { customLeaseSurcharge } : {}),
+    ...(firstMonth || lastMonth ? { proration: { firstMonth, lastMonth } } : {}),
   };
 }

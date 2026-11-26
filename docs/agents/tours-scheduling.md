@@ -63,7 +63,14 @@ the proposal is a gated pending action the manager approves. Invariants:
   approve/discard go through `runConfirmedPendingAction`/`denyPendingAction`
   (`src/lib/tools/confirm-gate.server.ts`) — the SAME gate the assistant uses.
   Standalone surface: `GET/POST /api/portal-tour-inquiries/proposals` +
-  `TourProposalsPanel` on the manager calendar.
+  `TourProposalsPanel` on the manager calendar. The GET answers each proposal with the
+  SAVED facts of its own inquiry (`tourInquirySummaryForProposal`: name, email, phone,
+  house, room, format, notes — never the whole payload), read from the caller's OWN
+  inquiry rows for exactly those ids, never the platform-wide inquiry blob. Without
+  them a proposal row is built from the preview alone, which has no email or phone, and
+  the Tours list showed "Prospect" / "Property" with nothing to text or email; the row
+  mapper prefers the saved fact, then the preview field, then the placeholder
+  (`managerTourRowFromProposal`), and a failed read still renders the preview row.
 - **First-open-slot math** (`src/lib/tour-proposal.server.ts`, `tour-slot-math.ts`)
   mirrors the public availability route's exclusion set; it excludes the
   inquiry's own window so it never blocks itself. No slot match → no proposal.
@@ -179,9 +186,19 @@ it always runs the double-book check. **One open request per requester and home*
 property and the same keying email is refused `duplicate_request` (409) so a host's queue cannot be flooded, and that requester is held
 to five requests an hour (`rate_limited`, 429); a failed read of the existing requests refuses rather than filing a second one.
 The manager's notice reads "<Name> wants to tour <property> on <Day, Mon D> at <h:mm AM/PM>".
+Every manager-facing copy of a request also carries the deep link that opens it — the Pending bucket's detail route for the
+request's first window (`managerTourRequestDeepLink`, built from `tourInquiryRowId`, which is what the Tours list resolves by) —
+and a short reference both sides can quote, `T-XXXX-XXXX` from a hash of the whole inquiry id (`tourConfirmationReference`): a
+label to say out loud, never a lookup key, and nothing resolves a tour by it. Without an inquiry id the link sentence is dropped
+whole rather than left dangling. A confirmed tour's link is the Upcoming bucket's row instead (`tourEventDeepLink`, the one the
+Google Calendar event carries — [`google-integrations.md`](google-integrations.md) § PropLane → Google).
 A pending request reads in full (name, email, phone, house, room) to the owner and to a host on its server-stamped
 `eligibleHostUserIds` roster who holds Applications at edit on that house (`projectScheduleRecordsForViewer`); a calendar-only
-peer reads the free/busy copy.
+peer reads the free/busy copy. **PropLane service staff read their managed workspace's requests in full too**: a request filed
+on one of the houses the viewer's seat covers (`ScheduleRecordUser.serviceScope`, derived from the membership on the server,
+never from the request) is theirs whoever it was filed under — a managed house's tours are filed under the workspace owner, so
+the manager dashboard's upcoming-tours count reads the same rule (a tour on a house of the ACTIVE workspace counts; one naming
+no house stays the viewer's own) instead of matching the filer and reading 0 while the Tours page listed them.
 With open slots, only those slots are offered, exactly as before.
 
 ## What a prospect is offered = published − busy − booked
@@ -475,7 +492,8 @@ booking tool is the only exception described above.
 `propertyId` on the thread). It no longer writes a lead copy into every co-manager's inbox. A co-manager who holds that house with
 Communication sees the SAME conversation through `conversation-visibility.server.ts` rule 2 (unchanged) and answers in it as
 themselves; one holding another house, or without Communication, sees nothing and cannot post. Teammates are told, not copied: the
-manager email (to every recipient with notification access) ends with the Communication link, the SMS forward is unchanged, and
+manager email (to every recipient with notification access) ends with the Communication link, the SMS forward is one builder
+(`buildTourRequestManagerSms`) carrying who, the house and room, the start in Pacific and the link that opens THIS tour, and
 `postTeamNoticeLineForEvent` posts ONE Team chat line ("Tour requested: Jordan Lee, Cedar Court.", idempotent on
 `tour:<inquiry>:request:<start>:<end>:team`). Resident side: "Message host" (tour panel) and the booking confirmation's **Message the
 host** open the resident's existing conversation through `GET /api/portal-resident-tours/thread?inquiryId=` (the manager and house

@@ -87,6 +87,7 @@ as $$
     ('portal_household_charge_records', 'move', 'manager_user_id'),
     ('portal_inbox_thread_records', 'move', 'owner_user_id'),
     ('portal_lease_pipeline_records', 'move', 'manager_user_id'),
+    ('lease_stay_extensions', 'move', 'manager_user_id'),
     ('portal_recurring_rent_profile_records', 'move', 'manager_user_id'),
     ('portal_schedule_records', 'move', 'manager_user_id'),
     ('portal_service_request_records', 'move', 'manager_user_id'),
@@ -223,6 +224,9 @@ as $$
     ('payout_destination_cache_refreshes', 'keep', 'owner_user_id'),
     ('payout_destinations_cache', 'keep', 'owner_user_id'),
     ('payout_identity_status', 'keep', 'owner_user_id'),
+    -- The client's own bank login. Its access token is encrypted with the owner id in the AAD, so a moved row would
+    -- decrypt nowhere; it also belongs to the same client as the kept manager_bank_accounts it points at.
+    ('plaid_items', 'keep', 'owner_user_id'),
     ('platform_hold_refund_attempts', 'keep', 'owner_user_id'),
     ('platform_hold_refund_transfer_legs', 'keep', 'owner_user_id'),
     ('platform_hold_transfer_attempts', 'keep', 'owner_user_id'),

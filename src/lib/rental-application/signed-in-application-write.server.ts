@@ -36,6 +36,7 @@ import { syncApplicationLifecycleTasks } from "@/lib/manager-default-tasks.serve
 import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
 import { tryAutoOrderScreening } from "@/lib/screening/order-screening";
 import { SMS_CONSENT_WORDING_VERSION } from "@/lib/rental-application/sms-consent";
+import { loadIncomeVerification } from "@/lib/plaid/income.server";
 import { revokeApplicationScopedSmsConsentOnWithdrawal } from "@/lib/sms/application-consent.server";
 import {
   validateResidentApplicationRowForPersistence,
@@ -470,8 +471,14 @@ export async function prepareResidentSelfWrite(
     return refuse(403, { error: "Residents cannot change application status." });
   }
   const authorizedWriteRecord = (records?.[0] as StoredApplicationRecord | undefined) ?? null;
+  // Plaid-verified income is server-owned: the applicant's own stored verification for THIS listing (fresh, computed
+  // server-side), else what the row already carries. A value in the request body is never read.
+  const incomeVerification =
+    (await loadIncomeVerification(db, user.id, String(row.propertyId || row.application?.propertyId || "")).catch(() => null)) ??
+    existing?.incomeVerification;
   row = {
     ...row,
+    incomeVerification,
     bucket: "pending",
     // The login bound to this application is the authenticated writer's own, never a client-supplied id.
     residentUserId: existing?.residentUserId ?? user.id,

@@ -1,5 +1,6 @@
 // Quiet leads: one nudge at 24h, one at 72h, then nothing. Shared line only, never in quiet hours,
 // never to an opted-out number, never twice.
+import { listingUrlRe } from "./listing-url-matcher";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MockProperty } from "@/data/types";
 import { LEAD_CONSTRAINTS, leadFakeDb, type LeadFakeDb } from "../helpers/lead-fake-db";
@@ -189,7 +190,7 @@ describe("the sweep", () => {
     const { send, deps } = harness({ listings: async () => fits });
     expect(await runLeadFollowUps(fake.db, deps)).toMatchObject({ newMatch: 1, nudged24: 0 });
     expect(send.mock.calls[0]![1].body).toContain("A room that fits just opened.");
-    expect(send.mock.calls[0]![1].body).toContain("https://proplane.ai/rent/listings/prop-new");
+    expect(send.mock.calls[0]![1].body).toMatch(listingUrlRe("https://proplane.ai", "prop-new"));
     expect(fake.rows.sms_unassigned_leads![0]!.profile).toMatchObject({ stage: "offered", asked: "pick" });
     await runLeadFollowUps(fake.db, deps);
     expect(send).toHaveBeenCalledTimes(1);

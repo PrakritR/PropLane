@@ -169,7 +169,11 @@ advertised. Every channel has one **posting mode** (`posting` in
 is a reserved first segment under Promotion, never an asset id). Overview holds how/cost/rules as
 fact cards; Listings is one row per listing; Post is the copy-ready ad; Leads reads
 `GET /api/manager/listing-channels/leads?channel=` (workspace-scoped, tours and applications with
-that `source_channel`, each linking to its own record page). Both the list and the count are scoped
+that `source_channel`, each linking to its own record page). A lead opens the ROW it really is:
+the read stamps `rowId` and the bucket from the record's own status — never from the tour's date —
+so a pending request opens its window row and a declined one its Past row. A confirmed tour's row is
+the planned event the request no longer names, so that lead has no `rowId` and opens the Tours list
+for its bucket instead of a detail page that would not resolve. Both the list and the count are scoped
 by `leadReadablePropertyIds` — the workspace's own houses narrowed to those whose applicant
 identities this viewer may read (`applications` or `residents`) — so a badge can never count leads
 the tab then withholds. A failed page of either read throws instead of returning a short answer. The **property**-level row still opens

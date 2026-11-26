@@ -14,6 +14,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HouseholdCharge } from "@/lib/household-charges";
+import { jsonEqual } from "@/lib/write-skip";
 import {
   cancelFuturePaymentRemindersForCharge,
   restoreFuturePaymentRemindersForCharge,
@@ -42,18 +43,47 @@ export type UpsertManagerChargesOptions = {
   trustRowManagerUserId?: boolean;
 };
 
+/** True when the stored row already holds exactly what an upsert would write (every column but `updated_at`). */
+export function householdChargeRowUnchanged(
+  stored: Record<string, unknown> | undefined,
+  next: {
+    manager_user_id: unknown;
+    resident_user_id: unknown;
+    resident_email: unknown;
+    property_id: unknown;
+    kind: unknown;
+    status: unknown;
+    row_data: unknown;
+  },
+): boolean {
+  if (!stored) return false;
+  return (
+    stored.manager_user_id === next.manager_user_id &&
+    stored.resident_user_id === next.resident_user_id &&
+    stored.resident_email === next.resident_email &&
+    stored.property_id === next.property_id &&
+    stored.kind === next.kind &&
+    stored.status === next.status &&
+    jsonEqual(stored.row_data, next.row_data)
+  );
+}
+
 /**
  * Upsert household charge rows for a manager. `managerUserId` MUST come from
  * the authenticated context (route session / AgentContext), never from client
- * or model input. Throws on upsert failure so callers surface the error.
+ * or model input. Throws when the ROW write fails, so callers surface that and
+ * may retry; a charge whose row landed but whose ledger line did not comes back
+ * in `ledgerFailures` instead, because a caller told "it failed" after the row
+ * exists bills the resident twice on the retry. The write-through ledger heals
+ * such a line on the next upsert of the same charge.
  */
 export async function upsertManagerCharges(
   db: SupabaseClient,
   managerUserId: string,
   charges: Record<string, unknown>[],
   opts: UpsertManagerChargesOptions = {},
-): Promise<void> {
-  if (charges.length === 0) return;
+): Promise<{ ledgerFailures: string[] }> {
+  if (charges.length === 0) return { ledgerFailures: [] };
   const now = new Date().toISOString();
 
   const reminderSettings = await loadManagerAutomationSettings(db, managerUserId).catch(
@@ -69,13 +99,15 @@ export async function upsertManagerCharges(
 
   const chargeIds = normalizedCharges.filter((c) => c.id).map((c) => String(c.id));
   const previousStatusById = new Map<string, string | null>();
+  const storedById = new Map<string, Record<string, unknown>>();
   if (chargeIds.length > 0) {
     const { data: existingRows } = await db
       .from("portal_household_charge_records")
-      .select("id, status")
+      .select("id, status, manager_user_id, resident_user_id, resident_email, property_id, kind, row_data")
       .in("id", chargeIds);
     for (const row of existingRows ?? []) {
       previousStatusById.set(String(row.id), typeof row.status === "string" ? row.status : null);
+      storedById.set(String(row.id), row as Record<string, unknown>);
     }
   }
 
@@ -95,15 +127,25 @@ export async function upsertManagerCharges(
       row_data: c,
       updated_at: now,
     }));
-  if (rows.length === 0) return;
+  if (rows.length === 0) return { ledgerFailures: [] };
 
-  const { error } = await db.from("portal_household_charge_records").upsert(rows, { onConflict: "id" });
-  if (error) throw new Error(error.message);
-  await reconcileDuplicateHouseholdChargeRecords(
-    db,
-    opts.trustRowManagerUserId ? undefined : managerUserId,
-  ).catch(() => undefined);
+  // A mirror that re-sends an unchanged charge must not rewrite the row (164 ms update on production) nor re-stamp a
+  // transition event with a fresh `now`. Only changed or new rows are written.
+  const changedIds = new Set(
+    rows.filter((row) => !householdChargeRowUnchanged(storedById.get(row.id), row)).map((row) => row.id),
+  );
+  const changedRows = rows.filter((row) => changedIds.has(row.id));
 
+  if (changedRows.length > 0) {
+    const { error } = await db.from("portal_household_charge_records").upsert(changedRows, { onConflict: "id" });
+    if (error) throw new Error(error.message);
+    await reconcileDuplicateHouseholdChargeRecords(
+      db,
+      opts.trustRowManagerUserId ? undefined : managerUserId,
+    ).catch(() => undefined);
+  }
+
+  const ledgerFailures: string[] = [];
   for (const c of normalizedCharges) {
     if (!c.id) continue;
     const chargeId = String(c.id);
@@ -111,12 +153,24 @@ export async function upsertManagerCharges(
     if (!nextStatus) continue;
     const managerId = resolveManagerId(c);
     const prevStatus = previousStatusById.get(chargeId) ?? null;
-    if (nextStatus === "paid" && prevStatus !== "paid") {
-      await cancelFuturePaymentRemindersForCharge(db, managerId, chargeId).catch(() => undefined);
-    } else if (nextStatus === "pending" && prevStatus === "paid") {
-      await restoreFuturePaymentRemindersForCharge(db, managerId, chargeId).catch(() => undefined);
+    const changed = changedIds.has(chargeId);
+    if (changed) {
+      if (nextStatus === "paid" && prevStatus !== "paid") {
+        await cancelFuturePaymentRemindersForCharge(db, managerId, chargeId).catch(() => undefined);
+      } else if (nextStatus === "pending" && prevStatus === "paid") {
+        await restoreFuturePaymentRemindersForCharge(db, managerId, chargeId).catch(() => undefined);
+      }
     }
-    await syncLedgerChargeEntry(db, c as HouseholdCharge);
+    // The ledger is write-through, so an unchanged row still runs it: that is how a line a previous run failed to
+    // write is healed (the sync compares before it writes, so nothing changes = no write). Per row, so one failure
+    // cannot cost the rest of the batch its ledger line - and the batch returns it below, never silently.
+    try {
+      await syncLedgerChargeEntry(db, c as HouseholdCharge);
+    } catch (error) {
+      console.error("household charge ledger sync failed", chargeId, error instanceof Error ? error.message : "unknown");
+      ledgerFailures.push(chargeId);
+    }
+    if (!changed) continue;
     await emitHouseholdChargeTransition(db, {
       managerUserId: managerId,
       previousStatus: prevStatus,
@@ -124,4 +178,5 @@ export async function upsertManagerCharges(
       transitionId: `${chargeId}:${nextStatus}:${now}`,
     }).catch(() => undefined);
   }
+  return { ledgerFailures };
 }

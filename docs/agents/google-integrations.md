@@ -97,8 +97,16 @@ reconnects, via `resolveGoogleCalendarWriteId`'s fallback
   orders/service visits (`syncWorkOrderToGoogleCalendar`), and painted tour
   availability as transparent "Open for tours" events
   (`syncManagerAvailabilityToGoogleCalendar`) — all in
-  `src/lib/google-calendar/sync.server.ts`, unchanged in behavior except for
-  now targeting the dedicated calendar.
+  `src/lib/google-calendar/sync.server.ts`, targeting the dedicated calendar.
+- **What a tour event says** is one module,
+  `src/lib/google-calendar/tour-event-payload.ts`, shared by the push and by the
+  re-push a dismissed pending change makes, so the two can never disagree. The
+  summary is who, where and how ("Tour · Ana · 5257 Room 6 (virtual)",
+  `tourEventSummary`); the body (`tourEventDescription`) carries guest, property,
+  room, format, contact, notes, instructions, an **Open in PropLane** link to that
+  tour's own Upcoming detail route (`tourEventDeepLink`), and the two PropLane
+  markers. Facts come from the planned-tour record (`tourEventFactsFromRecord`),
+  never re-derived at a call site.
 - **Vendor (new)**: `syncVendorServiceVisitToGoogleCalendar` and
   `syncVendorAvailabilityToGoogleCalendar`
   (`src/lib/google-calendar/vendor-calendar-push.server.ts`) push a vendor's
@@ -208,6 +216,16 @@ touch the existing read path.
   id's own prefix (`<project-number>-xxxx.apps.googleusercontent.com`), no
   separate env var needed, and `google-spreadsheet-picker.tsx` calls
   `.setAppId(...)` on the builder when present.
+- **The row says what the read actually returned.** One builder,
+  `googleCalendarStatusLine` (`src/lib/google-calendar/status-line.ts`), turns the
+  status load into the line the Integrations row and the Settings row both show:
+  "Connected · a@b.com · last sync 8:04 AM", "Not connected", "Reconnect needed ·
+  Google access ended", or the read's own error with a **Retry** action. The read is
+  `cache: "no-store"` and gives up after `GOOGLE_CALENDAR_STATUS_TIMEOUT_MS`, so a
+  hung or refused status can never leave the row on "Loading…" or blank. "Last sync"
+  is `connection.lastSyncedAt`, stamped by a busy-time pull that wrote everything and
+  re-stamped at most on the shared `shouldRestamp` interval, so reading the page is
+  not a connection write.
 - **A vendor's Disconnect/sync-toggle bug, found and fixed**:
   `GoogleCalendarConnectPanel`'s `disconnect()` and `toggleSync()` both
   hardcoded `/api/portal/google-calendar` instead of using the `apiBase` prop

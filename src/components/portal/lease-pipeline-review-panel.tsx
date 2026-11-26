@@ -149,6 +149,7 @@ export function LeasePipelineReviewPanel({
               applicationId={applicationRow.id}
               assignedPropertyId={applicationRow.assignedPropertyId}
               assignedRoomChoice={applicationRow.assignedRoomChoice}
+              incomeVerification={applicationRow.incomeVerification}
               embedded
             />
           ) : row.application ? (

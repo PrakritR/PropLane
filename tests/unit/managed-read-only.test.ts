@@ -199,6 +199,7 @@ describe("managed read-only policy", () => {
       "/api/number-subscription",
       "/api/owner/finances",
       "/api/owner/messages",
+      "/api/plaid/income",
       "/api/portal-bug-feedback",
       "/api/portal-inbox-threads",
       "/api/portal/proplane-balance/withdraw",
@@ -214,7 +215,9 @@ describe("managed read-only policy", () => {
     ]);
   });
   it("blocks workspace writes but allows her own account, plan purchase, money and other portals", () => {
-    for (const p of ["/api/property-records", "/api/portal-work-orders", "/api/manager-documents/x", "/api/portal/lease-template", "/api/work-orders", "/api/owner/properties/p1"]) {
+    for (const p of ["/api/property-records", "/api/portal-work-orders", "/api/manager-documents/x", "/api/portal/lease-template", "/api/work-orders", "/api/owner/properties/p1",
+      // The generic Plaid routes can reach a manager's bank-feed connect: still refused.
+      "/api/plaid/link-token", "/api/plaid/exchange", "/api/plaid/sync"]) {
       expect(managedReadOnlyCandidate("POST", p), p).toBe(true);
     }
     for (const p of [
@@ -222,6 +225,9 @@ describe("managed read-only policy", () => {
       "/api/manager/subscription", "/api/owner/finances/withdraw", "/api/owner/finances/policy", "/api/portal/proplane-balance/withdraw",
       "/api/resident/anything", "/api/vendor/invoices", "/api/agent/chat", "/api/agent/resident-chat", "/api/agent/pending-actions",
       "/api/workspaces", "/api/native/register-push-token", "/api/portal-inbox-threads", "/api/revenuecat/webhook",
+      // Her own rent, from her own resident portal, and her own applicant income check.
+      "/api/resident/plaid/link-token", "/api/resident/plaid/exchange", "/api/stripe/resident-plaid-bank",
+      "/api/plaid/income/link-token", "/api/plaid/income/verify",
     ]) {
       expect(managedReadOnlyCandidate("POST", p), p).toBe(false);
     }

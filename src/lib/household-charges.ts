@@ -17,7 +17,7 @@ import {
   type MonthlyFeeLine,
 } from "@/lib/rent-fold-in";
 import { feeAppliesToResidentSlot, listingFeeCadence, type ListingFeeRow } from "@/lib/listing-fees";
-import { submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
+import { roomStartSurchargeRow, submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
 import type { RentRuleAddress } from "@/lib/seattle-rent-rule";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { parseRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
@@ -37,7 +37,7 @@ import { resolvedShortTermPlacementDeposit } from "@/lib/listing-fees";
 import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
 import { placementApplicationFeeCents, resolvedMoveInFeeRaw, stayPlacementLeaseTerm } from "@/lib/listing-placement-standard-fees";
 import { effectiveHoldExpiresAt, holdDeadlineLabel, holdState, resolveHoldFeeCents } from "@/lib/holding-hold";
-import { formatRoomPriceAmount, resolveStayPricing, resolveRoomProrationForSlot, roomDailyRentPrice,
+import { formatRoomPriceAmount, resolveStayPricing, roomDailyRentPrice,
   DAILY_RENT_MONTH_ESTIMATE_DAYS,
   roomPricingIsFlexible,
   roomResidentPriceForSlot,
@@ -77,6 +77,7 @@ import {
   proratedFeeLines,
   leaseStartProration,
   proratedLastMonthAmount,
+  resolveListingProrationForSlot,
 } from "@/lib/lease-first-period-proration";
 import {
   intraMonthStaySpan,
@@ -371,6 +372,8 @@ export type HouseholdCharge = {
   voidedAt?: string;
   voidedBy?: string;
   voidReason?: string;
+  /** The void also reversed the hand-recorded receipt (a void before this left the cash line on the books). */
+  voidReceiptReversed?: boolean;
   /** `holding_deposit` only: when the hold lapses (paid time + the hold window); null/absent = no deadline. */
   holdExpiresAt?: string;
   /** `holding_deposit` only: set by the expiry sweep; the money is kept per policy, never auto-refunded. */
@@ -3798,27 +3801,27 @@ export async function recordHouseholdChargeOfflinePayment(
 }
 
 /**
- * Void a PAID charge (owner only, server-enforced). Never refunds: `providerPayment` tells the caller a real card or
- * bank payment sits behind it, so the UI can say the refund is a separate step.
+ * Void a PAID charge (owner only, server-enforced). Never refunds, and never reaches a charge a provider captured
+ * money for: the server refuses that one (409) and the money goes back through Refund instead.
  */
 export async function voidHouseholdCharge(
   chargeId: string,
   reason: string,
-): Promise<{ ok: true; providerPayment: boolean } | { ok: false; error: string }> {
+): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!isBrowser() || isDemoModeActive() || householdWritesForbidden()) return { ok: false, error: "Voiding is not available here." };
   try {
     const response = await fetch(adminOversightUrl("/api/portal-household-charges"), {
       method: "POST", headers: { "Content-Type": "application/json" }, signal: householdWriteSignal(),
       body: JSON.stringify({ action: "voidCharge", id: chargeId, reason: reason.trim() }),
     });
-    const result = (await response.json().catch(() => ({}))) as { charge?: HouseholdCharge; providerPayment?: boolean; error?: string };
+    const result = (await response.json().catch(() => ({}))) as { charge?: HouseholdCharge; error?: string };
     if (!response.ok || !result.charge || result.charge.id !== chargeId) return { ok: false, error: result.error || "Could not void this charge." };
     const confirmed = result.charge;
     memoryCharges = readAll().map((row) => (row.id === chargeId ? confirmed : row));
     persistHouseholdStateToSession();
     householdChargesLastSyncedAt = Date.now();
     emit();
-    return { ok: true, providerPayment: Boolean(result.providerPayment) };
+    return { ok: true };
   } catch {
     return { ok: false, error: "Could not void this charge." };
   }
@@ -4312,18 +4315,15 @@ function buildApprovedStandardChargeDrafts(
   // function, and it passes the PROPERTY's unitLabel. Passing anything else here made this
   // one function price rent off one room and prorate off another.
   const { room, prop: listingProperty } = resolveRowSubmissionRoom(row);
-  const entireHome = isEntireHomeListing(sub);
-  const slotProration = resolveRoomProrationForSlot(
+  const listingProration = resolveListingProrationForSlot(
+    sub,
     room,
     row.application?.residentSlot,
     row.application?.leaseTerm,
   );
-  const prorateMethod =
-    entireHome && sub.entireHomeProrateMethod === "daily_rate"
-      ? "daily_rate"
-      : slotProration.method;
-  const dailyRentRate = entireHome ? sub.entireHomeDailyRentRate : slotProration.dailyRentRate;
-  const dailyUtilitiesRate = entireHome ? sub.entireHomeDailyUtilitiesRate : slotProration.dailyUtilitiesRate;
+  const prorateMethod = listingProration.method;
+  const dailyRentRate = listingProration.dailyRentRate;
+  const dailyUtilitiesRate = listingProration.dailyUtilitiesRate;
   const dailyBasisRate =
     residentNegotiatedMonthlyRent(row) > 0 ? undefined : roomDailyRentPrice(room);
   const weeklyBasisRate =
@@ -4372,12 +4372,17 @@ function buildApprovedStandardChargeDrafts(
 
   const monthlyFeeSet = filterFeesForResidentSlot(
     opts.allowListingDefaults && ledgerHasProratedFeeLines(opts.applicationId)
-      ? monthlyFeesBilledSeparately(sub, listingProperty, {
-          leaseStart: opts.leaseStart,
-          leaseEnd: opts.leaseEnd,
-          leaseTerm: row.application?.leaseTerm,
-          rentalType: row.application?.rentalType,
-        })
+      ? monthlyFeesBilledSeparately(
+          sub,
+          listingProperty,
+          {
+            leaseStart: opts.leaseStart,
+            leaseEnd: opts.leaseEnd,
+            leaseTerm: row.application?.leaseTerm,
+            rentalType: row.application?.rentalType,
+          },
+          bundleIdForApplication(row.application) ? undefined : roomStartSurchargeRow(sub, room),
+        )
       : [],
     sub,
     row.application?.residentSlot,
@@ -4700,12 +4705,12 @@ function upsertRecurringRentProfileForApprovedRow(
   const rentAmount = selectedRoomRentAmount(row);
   const utilities = selectedRoomUtilities(row);
   const monthlyFeeSet = filterFeesForResidentSlot(
-    monthlyFeesBilledSeparately(sub, prop, {
-      leaseStart,
-      leaseEnd,
-      leaseTerm: row.application?.leaseTerm,
-      rentalType: row.application?.rentalType,
-    }),
+    monthlyFeesBilledSeparately(
+      sub,
+      prop,
+      { leaseStart, leaseEnd, leaseTerm: row.application?.leaseTerm, rentalType: row.application?.rentalType },
+      bundleIdForApplication(row.application) ? undefined : roomStartSurchargeRow(sub, room),
+    ),
     sub,
     row.application?.residentSlot,
   );
@@ -5224,18 +5229,15 @@ export function recordApprovedApplicationCharges(
   // A MISSING per-day utilities rate stays undefined and reads as zero on purpose — a
   // listing briefly folded (rent baked-in, no util rate) bills the same total, never a
   // double-charge; do NOT derive a utilities figure from the rate.
-  const entireHome = Boolean(sub && isEntireHomeListing(sub));
-  const slotProration = resolveRoomProrationForSlot(
+  const listingProration = resolveListingProrationForSlot(
+    sub,
     room,
     row.application?.residentSlot,
     row.application?.leaseTerm,
   );
-  const prorateMethod =
-    entireHome && sub?.entireHomeProrateMethod === "daily_rate"
-      ? "daily_rate"
-      : slotProration.method;
-  const dailyRentRate = entireHome ? sub?.entireHomeDailyRentRate : slotProration.dailyRentRate;
-  const dailyUtilitiesRate = entireHome ? sub?.entireHomeDailyUtilitiesRate : slotProration.dailyUtilitiesRate;
+  const prorateMethod = listingProration.method;
+  const dailyRentRate = listingProration.dailyRentRate;
+  const dailyUtilitiesRate = listingProration.dailyUtilitiesRate;
   // When the room is priced by the day, rent (not utilities) bills per-day every period —
   // unless this resident has their own negotiated monthly rent, which wins exactly as it
   // does over the room's listing monthly rent.
@@ -5300,12 +5302,12 @@ export function recordApprovedApplicationCharges(
   // it, which is why only the separately-billed set is read here. A $0 fee is skipped
   // exactly like $0 utilities. The recurring profile still starts the first FULL month.
   const monthlyFeeSet = filterFeesForResidentSlot(
-    monthlyFeesBilledSeparately(sub, prop, {
-      leaseStart,
-      leaseEnd,
-      leaseTerm: row.application?.leaseTerm,
-      rentalType: row.application?.rentalType,
-    }),
+    monthlyFeesBilledSeparately(
+      sub,
+      prop,
+      { leaseStart, leaseEnd, leaseTerm: row.application?.leaseTerm, rentalType: row.application?.rentalType },
+      sub && !bundleIdForApplication(row.application) ? roomStartSurchargeRow(sub, room) : undefined,
+    ),
     sub,
     row.application?.residentSlot,
   );

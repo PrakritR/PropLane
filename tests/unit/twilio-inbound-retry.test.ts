@@ -1193,6 +1193,65 @@ describe("managed Twilio inbound retry", () => {
     expect(mocks.inboundBodies[0]).toMatchObject({ manager_user_id: "11111111-1111-4111-8111-111111111111", message_sid: "SM11111111111111111111111111111111" });
   });
 
+  // A prospect's prepared reply belongs to the workspace it was prepared under, not to whoever owns the work number
+  // the text arrived on (a pure co-manager can own that row). Oracle: docs/agents/one-number.md - "The receipt stores
+  // that owner and workspace, so a Twilio retry replays the prepared reply there and never under the number's
+  // owner", the rule the manager and resident branches already follow. Plausible wrong behaviour this rejects:
+  // re-sending under the number's owner, which writes and BILLS the prospect conversation in the wrong workspace.
+  // The receipt is what a retry reads, so a prepared prospect reply has to record the conversation it was prepared
+  // for. Oracle: migration 20261123130000, which adds `reply_owner_user_id` / `reply_workspace_id` and the
+  // 12-argument `prepare_sms_inbound_reply` for exactly that. The plausible wrong behaviour this rejects is the
+  // leasing branch passing neither (the manager and resident branches already did), which stores NULL and leaves
+  // the retry below with nothing to honour. Whether the stored owner can differ from the work number's owner is
+  // the next test's subject: this fixture cannot split them, because the accept stage already resolves the line
+  // to its workspace owner before the claim.
+  it("records the conversation a prospect reply was prepared for, never NULL", async () => {
+    const replyBody = "Room 6 is open on the 1st.";
+    mocks.handleInbound.mockImplementationOnce(async (args: {
+      onPreparedReply: (prepared: Record<string, unknown>) => Promise<boolean>;
+    }) => {
+      await args.onPreparedReply({ routeKind: "leasing_agent", replyBody });
+      return { ok: true, replied: true };
+    });
+    mocks.deliverLeasing.mockResolvedValue({ ok: true, durablyAccepted: true });
+
+    const response = await POST(inboundRequest());
+
+    expect(response.status).toBe(200);
+    const prepare = mocks.rpc.mock.calls.find((call) => call[0] === "prepare_sms_inbound_reply");
+    expect(prepare?.[1]).toMatchObject({ p_reply_body: replyBody, p_route_kind: "leasing_agent" });
+    expect(String((prepare?.[1] as { p_reply_owner_user_id?: unknown }).p_reply_owner_user_id ?? "")).toMatch(
+      /^[0-9a-f-]{36}$/,
+    );
+  });
+
+  it("replays a prepared prospect reply under the stored workspace, and only falls back for a receipt stored without one", async () => {
+    const workspaceOwner = "99999999-9999-4999-8999-999999999999";
+    const replyBody = "Yes, it is still available.";
+    mocks.deliverLeasing.mockResolvedValue({ ok: true, durablyAccepted: true });
+    mocks.receipt = {
+      status: "processing",
+      first_received_at: "2026-09-25T12:00:00.000Z",
+      route_kind: "leasing_agent",
+      reply_body: replyBody,
+      reply_owner_user_id: workspaceOwner,
+      reply_workspace_id: "ws-prospect",
+    };
+
+    expect((await POST(inboundRequest())).status).toBe(200);
+    expect(mocks.handleInbound).not.toHaveBeenCalled();
+    expect(mocks.deliverLeasing).toHaveBeenCalledWith(expect.objectContaining({
+      landlordId: workspaceOwner,
+      workspaceId: "ws-prospect",
+      text: replyBody,
+    }));
+
+    mocks.deliverLeasing.mockClear();
+    mocks.receipt = { ...mocks.receipt, reply_owner_user_id: null, reply_workspace_id: null };
+    expect((await POST(inboundRequest())).status).toBe(200);
+    expect(mocks.deliverLeasing).toHaveBeenCalledWith(expect.objectContaining({ landlordId: OWNER, text: replyBody }));
+  });
+
   it("completes without re-entering the handler once its durable outbox owns the reply", async () => {
     mocks.receipt = {
       ...mocks.receipt,

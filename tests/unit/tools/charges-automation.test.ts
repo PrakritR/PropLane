@@ -14,6 +14,7 @@ vi.mock("@/lib/payment-automation-server", async (importOriginal) => {
 
 import { loadManagerScheduledMessages } from "@/lib/payment-automation-server";
 import { buildRegistry } from "@/lib/tools/registry";
+import { upsertManagerCharges } from "@/lib/household-charges.server";
 import { executeWrite, previewWrite } from "./fake-agent-ctx";
 import {
   createChargeTool,
@@ -45,7 +46,10 @@ const RESIDENT_UUID = "33333333-3333-4333-8333-333333333333";
  */
 type Row = Record<string, unknown>;
 
-function makeFakeDb(seed: Record<string, Row[]> = {}) {
+/** A table whose writes answer a transient PostgREST error, so a mid-write failure can be driven on purpose. */
+type FailingTable = { table: string | null };
+
+function makeFakeDb(seed: Record<string, Row[]> = {}, failing: FailingTable = { table: null }) {
   const tables = new Map<string, Row[]>(Object.entries(seed).map(([k, v]) => [k, v.map((r) => ({ ...r }))]));
   const tableRows = (name: string) => {
     if (!tables.has(name)) tables.set(name, []);
@@ -109,6 +113,10 @@ function makeFakeDb(seed: Record<string, Row[]> = {}) {
         let result: { data: Row[] | null; error: { code: string; message: string } | null } | null = null;
         const exec = () => {
           if (result) return result;
+          if (failing.table === table) {
+            result = { data: null, error: { code: "57014", message: `${table} unavailable` } };
+            return result;
+          }
           const inserted: Row[] = [];
           for (const row of list) {
             // Mirror the partial UNIQUE index on audit_log.dedupe_key (NULLs never collide).
@@ -168,8 +176,8 @@ function makeFakeDb(seed: Record<string, Row[]> = {}) {
   return { db: { from: builder }, tables };
 }
 
-function makeCtx(seed: Record<string, Row[]> = {}) {
-  const { db, tables } = makeFakeDb(seed);
+function makeCtx(seed: Record<string, Row[]> = {}, failing: FailingTable = { table: null }) {
+  const { db, tables } = makeFakeDb(seed, failing);
   const ctx = {
     landlordId: LANDLORD,
     userId: LANDLORD,
@@ -348,6 +356,44 @@ describe("create_charge", () => {
     // Write-through ledger (AGENTS.md hard rule): the charge entry exists.
     const ledger = tables.get("ledger_entries") ?? [];
     expect(ledger.some((l) => l.entry_type === "charge" && l.source_charge_id === rowData.id)).toBe(true);
+  });
+
+  // A charge whose ROW landed is never reported as a failure: the dedupe key that protects against a second charge
+  // is only cleared when nothing was written. Oracle: AGENTS.md § Financials - the ledger is write-through and heals
+  // on the next upsert of the same charge, so the line is pending, not lost. Plausible wrong behaviour this rejects:
+  // answering "The charge could not be created" and clearing the dedupe key, which bills the resident twice as soon
+  // as the manager asks again.
+  it("reports a saved charge whose ledger line failed as created, and a retry adds no second charge", async () => {
+    const failing = { table: null as string | null };
+    const { ctx, tables } = makeCtx(
+      { manager_application_records: [applicantRow(LANDLORD, { id: "a1", email: "res@example.com" })] },
+      failing,
+    );
+    const input = { residentEmail: "res@example.com", kind: "other_cost" as const, title: "Cleaning fee", amountUsd: 1250, dueDate: "2026-08-01" };
+
+    failing.table = "ledger_entries";
+    const first = await executeWrite(createChargeTool, ctx, input);
+    expect(first.ok).toBe(true);
+    if (first.ok) {
+      expect(first.reply).toContain("Created a $1,250.00");
+      expect(first.reply).toContain("ledger line did not write");
+    }
+    expect(tables.get("portal_household_charge_records")).toHaveLength(1);
+    expect(tables.get("ledger_entries") ?? []).toHaveLength(0);
+    expect((tables.get("audit_log") ?? [])[0]!.dedupe_key).toBe(
+      `create_charge:${LANDLORD}:res@example.com:other_cost:1250.00:2026-08-01`,
+    );
+
+    failing.table = null;
+    const retry = await executeWrite(createChargeTool, ctx, input);
+    expect(retry.ok).toBe(true);
+    if (retry.ok) expect(retry.reply.toLowerCase()).toContain("already");
+    expect(tables.get("portal_household_charge_records")).toHaveLength(1);
+
+    // The write-through ledger heals the missing line on the next upsert of that same charge.
+    const stored = (tables.get("portal_household_charge_records") ?? [])[0]!.row_data as HouseholdCharge;
+    await upsertManagerCharges(ctx.db, LANDLORD, [stored as unknown as Row]);
+    expect((tables.get("ledger_entries") ?? []).some((l) => l.source_charge_id === stored.id)).toBe(true);
   });
 
   it("execute is idempotent for an identical create (audit dedupe short-circuits)", async () => {

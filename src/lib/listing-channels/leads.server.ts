@@ -1,10 +1,12 @@
 import "server-only";
 
+import { declinedTourRowId, tourInquiryRowId } from "@/lib/portal-detail-routes";
 import { INQUIRY_EVENT_RECORD_TYPE } from "@/lib/tour-inquiry-create.server";
 import { normalizeLeadSource } from "@/lib/listing-channels/lead-source";
 import { applicantDisplayName } from "@/lib/rental-application/applicant-name";
 import { openApplicantRow } from "@/lib/security/applicant-identity";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { readCachedInquiryRows } from "@/lib/tour-resident-link.server";
 import type { ListingSiteLead } from "@/lib/listing-channels/leads";
 import type { ListingChannelId } from "@/lib/listing-channels/registry";
 
@@ -14,7 +16,29 @@ const ID_CHUNK = 200;
 const PAGE = 500;
 /** The newest leads a site's page lists; a page of leads, not an export. */
 export const LISTING_SITE_LEADS_LIMIT = 100;
-
+/**
+ * The status each named tour request carries NOW: the per-window rows keep the payload they were created with, so
+ * the one singleton record decides. Read through the shared minute-long cache - it is a whole-platform blob, and a
+ * Leads page wants one field off a handful of its rows.
+ */
+async function inquiryStatuses(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  ids: readonly string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const wanted = new Set(ids);
+  let rows: Record<string, unknown>[];
+  try {
+    rows = await readCachedInquiryRows(db);
+  } catch {
+    return out;
+  }
+  for (const row of rows) {
+    const id = text(row.id);
+    if (id && wanted.has(id)) out.set(id, text(row.status) || "pending");
+  }
+  return out;
+}
 
 function chunk<T>(items: readonly T[], size: number): T[][] {
   const out: T[][] = [];
@@ -80,13 +104,30 @@ export async function listingSiteLeads({
         tours.set(tourId, {
           kind: "tour",
           id: tourId,
+          rowId: null,
           propertyId: String(row.property_id),
           name: applicantDisplayName({ name: text(payload.name), email: text(payload.email) }, "Tour request"),
           at: startsAt,
-          bucket: Number.isFinite(started) && started < now.getTime() ? "past" : "pending",
+          bucket: Number.isFinite(started) && started < now.getTime() ? "past" : "upcoming",
         });
       }
       if (data.length < PAGE) break;
+    }
+  }
+  // The Tours list files each request by its STATUS, so the row a lead opens is decided by the same status, never by
+  // the window date: pending keeps its window row, declined its own, and a confirmed tour's row is the planned event
+  // this request no longer names - that lead opens the list for the bucket its date puts it in.
+  if (tours.size) {
+    const statuses = await inquiryStatuses(db, [...tours.keys()]);
+    for (const [id, lead] of tours) {
+      const status = statuses.get(id);
+      if (status === "pending") {
+        lead.rowId = tourInquiryRowId(id, 0);
+        lead.bucket = "pending";
+      } else if (status === "declined") {
+        lead.rowId = declinedTourRowId(id);
+        lead.bucket = "past";
+      }
     }
   }
   leads.push(...tours.values());
@@ -110,6 +151,7 @@ export async function listingSiteLeads({
         leads.push({
           kind: "application",
           id,
+          rowId: id,
           propertyId: String(record.property_id),
           name: applicantDisplayName(row, "Applicant"),
           at: text(record.updated_at) || null,

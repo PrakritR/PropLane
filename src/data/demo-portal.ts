@@ -5,6 +5,7 @@
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import type { ResidentChargeMessage } from "@/lib/household-charges";
 import type { ApplicationBackgroundCheckStatus } from "@/lib/application-background-check";
+import type { IncomeVerification } from "@/lib/screening/income-verification";
 import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
 import type { ApplicationScreeningReport } from "@/lib/screening/types";
 
@@ -102,6 +103,11 @@ export type DemoApplicantRow = {
   setupTokenConsumedAt?: string | null;
   /** Checkr criminal background check (clear/consider) — run per-applicant on demand. */
   backgroundCheck?: ApplicationBackgroundCheck;
+  /**
+   * Plaid-verified monthly income, computed on the server from the applicant's own bank and stamped by the signed-in
+   * write. Never accepted from a request body (`signed-in-application-write.server.ts`).
+   */
+  incomeVerification?: IncomeVerification;
   /** Extra fields only present on manually-added residents. */
   manualResidentDetails?: {
     phone?: string;

@@ -54,20 +54,23 @@ describe("manager upgrade pricing", () => {
 
 describe("per-listing defaults", () => {
   it("is OFF for every workspace until the manager turns it on", () => {
-    expect(defaultApplicantScreeningSettings(true)).toEqual({ idCheck: false, backgroundCheck: false, idUnlock: "clear" });
-    expect(defaultApplicantScreeningSettings(false)).toEqual({ idCheck: false, backgroundCheck: false, idUnlock: "clear" });
+    expect(defaultApplicantScreeningSettings(true)).toEqual({ idCheck: false, backgroundCheck: false, idUnlock: "clear", verifyIncomeWithPlaid: false });
+    expect(defaultApplicantScreeningSettings(false)).toEqual({ idCheck: false, backgroundCheck: false, idUnlock: "clear", verifyIncomeWithPlaid: false });
   });
 
   it("a saved choice beats the default, per check, and garbage falls back", () => {
-    const managed = { idCheck: true, backgroundCheck: true, idUnlock: "clear" as const };
-    expect(normalizeApplicantScreeningSettings({ idCheck: false }, managed)).toEqual({ idCheck: false, backgroundCheck: true, idUnlock: "clear" });
+    const managed = { idCheck: true, backgroundCheck: true, idUnlock: "clear" as const, verifyIncomeWithPlaid: false };
+    expect(normalizeApplicantScreeningSettings({ idCheck: false }, managed)).toEqual({ idCheck: false, backgroundCheck: true, idUnlock: "clear", verifyIncomeWithPlaid: false });
     expect(normalizeApplicantScreeningSettings({ backgroundCheck: true }, defaultApplicantScreeningSettings(false))).toEqual({
       idCheck: false,
       backgroundCheck: true,
       idUnlock: "clear",
+      verifyIncomeWithPlaid: false,
     });
     expect(normalizeApplicantScreeningSettings({ idUnlock: "order" }, managed).idUnlock).toBe("order");
     expect(normalizeApplicantScreeningSettings({ idUnlock: "never" }, managed).idUnlock).toBe("clear");
+    expect(normalizeApplicantScreeningSettings({ verifyIncomeWithPlaid: true }, defaultApplicantScreeningSettings(false)).verifyIncomeWithPlaid).toBe(true);
+    expect(normalizeApplicantScreeningSettings({ verifyIncomeWithPlaid: "yes" }, defaultApplicantScreeningSettings(false)).verifyIncomeWithPlaid).toBe(false);
     expect(normalizeApplicantScreeningSettings("nope", managed)).toEqual(managed);
     expect(normalizeApplicantScreeningSettings({ idCheck: "yes" }, managed)).toEqual(managed);
   });

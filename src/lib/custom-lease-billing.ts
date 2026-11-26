@@ -1,6 +1,7 @@
 import { listingPresetFeeAppliesToLeaseType } from "@/lib/listing-fee-scope";
 import { listingPresetFeeAmount, removedStandardListingFeeRowSet, resolveListingFees } from "@/lib/listing-fees";
 import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
+import { parseMoneyAmount } from "@/lib/parse-money";
 import { resolveAllowedLeaseTerms, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { CUSTOM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { DEFAULT_CUSTOM_LEASE_SURCHARGE, isCustomCalendarLease } from "@/lib/rental-application/lease-dates";
@@ -33,8 +34,22 @@ export function shouldBillCustomLeaseSurcharge(
   return isCustomCalendarLease(input.leaseStart, input.leaseEnd);
 }
 
-export function customLeaseSurchargeAmount(sub: ManagerListingSubmissionV1 | null | undefined): number {
+/** The two start surcharges a manager can set per ROOM; `roomStartSurchargeRow` in `room-term-fees.ts` resolves it. */
+export type ArrangementSurchargeRow = {
+  customStartSurcharge?: string | null;
+  monthToMonthSurcharge?: string | null;
+};
+
+export function customLeaseSurchargeAmount(
+  sub: ManagerListingSubmissionV1 | null | undefined,
+  arrangementRow?: ArrangementSurchargeRow | null,
+): number {
   if (!sub) return 0;
+  // The arrangement row's own typed amount is the most specific setting the manager made (exactly as its
+  // month-to-month surcharge is), so it decides for the quote, the lease rider AND the monthly charge - the three
+  // read this one function. Pricing a room at $250 and billing the $100 default is the way they came apart.
+  const typedForRoom = String(arrangementRow?.customStartSurcharge ?? "").trim();
+  if (typedForRoom) return parseMoneyAmount(typedForRoom);
   // A row the manager REMOVED bills nothing, blank amount or not: a removal is their decision exactly as a
   // typed amount is, and the default below must never outrank it. (The per-term checkbox is deliberately not
   // consulted here - it is derived from the amount being filled, so it reads "off" for precisely the
@@ -51,8 +66,15 @@ export function customLeaseSurchargeAmount(sub: ManagerListingSubmissionV1 | nul
   return listingPresetFeeAmount(sub, "custom_lease_surcharge");
 }
 
-export function monthToMonthSurchargeAmount(sub: ManagerListingSubmissionV1 | null | undefined): number {
+export function monthToMonthSurchargeAmount(
+  sub: ManagerListingSubmissionV1 | null | undefined,
+  arrangementRow?: ArrangementSurchargeRow | null,
+): number {
   if (!sub) return 0;
+  // The arrangement row's own typed amount is the most specific setting the manager made, so it decides for the
+  // quote, the lease rider AND the monthly charge - the three read this one function. A typed 0 is "free".
+  const typedForRoom = String(arrangementRow?.monthToMonthSurcharge ?? "").trim();
+  if (typedForRoom) return parseMoneyAmount(typedForRoom);
   // Gated like the self-billing presets: a removed/unchecked row or a listing that does not
   // offer month-to-month bills nothing, even if a stale amount survives on the row.
   return listingPresetFeeAmountIfEnabled(sub, "mtm_surcharge");
@@ -67,16 +89,18 @@ export function recurringMonthlyFeesForLease(
   sub: ManagerListingSubmissionV1 | null | undefined,
   monthlyCustomFees: { id: string; label: string; amount: number }[],
   billingContext: LeaseRecurringFeeBillingContext,
+  /** The placement's arrangement row, so the charge bills the amount the quote and the rider show. */
+  arrangementRow?: ArrangementSurchargeRow | null,
 ): { id: string; label: string; amount: number }[] {
   const fees = monthlyCustomFees.filter(
     (fee) => fee.id !== CUSTOM_LEASE_SURCHARGE_FEE_ID && fee.id !== MONTH_TO_MONTH_SURCHARGE_FEE_ID,
   );
   if (shouldBillCustomLeaseSurcharge(billingContext, sub)) {
-    const amount = customLeaseSurchargeAmount(sub);
+    const amount = customLeaseSurchargeAmount(sub, arrangementRow);
     if (amount > 0) fees.push({ id: CUSTOM_LEASE_SURCHARGE_FEE_ID, label: CUSTOM_LEASE_SURCHARGE_CHARGE_LABEL, amount });
   }
   if (shouldBillMonthToMonthSurcharge(billingContext)) {
-    const amount = monthToMonthSurchargeAmount(sub);
+    const amount = monthToMonthSurchargeAmount(sub, arrangementRow);
     if (amount > 0) fees.push({ id: MONTH_TO_MONTH_SURCHARGE_FEE_ID, label: MONTH_TO_MONTH_SURCHARGE_CHARGE_LABEL, amount });
   }
   return fees;

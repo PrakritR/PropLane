@@ -59,8 +59,17 @@ Vrbo is "Coming soon" unless the workspace already has a Vrbo link, which keeps
 working and stays manageable. SpareRoom has no calendar feed, so it is not a Bookings
 row: it is a Copy post row under Posting ([`listing-syndication.md`](listing-syndication.md)).
 
-**Other calendar** (`provider: "ical"`) is the row for every site without a row of its
-own - Agoda, Houfy, Furnished Finder, Expedia, HomeToGo, Vrbo while it is Coming soon,
+**Agoda has its own row** even though it is an Other calendar link underneath: an `ical`
+connection whose `label` is "Agoda" (`isAgodaSite` / `isAgodaLabel`, `channel-links.ts` —
+one rule, one place). The row opens the same Connect popup with the Name field fixed to
+"Agoda" (`fixedSiteName`), and its rooms are counted out of the Other calendar row so one
+link is never two rows. Its fact comes from what Agoda itself did (`agodaRowFact`):
+linked rooms out of the units in scope, when Agoda last fetched, then how many rooms are
+**not pulling** and how many are **not fetched yet** — a room Agoda has never read is
+never reported as having stopped.
+
+**Other calendar** (`provider: "ical"`) is the row for every remaining site without a row of
+its own - Houfy, Furnished Finder, Expedia, HomeToGo, Vrbo while it is Coming soon,
 anything that publishes an https iCal feed. The manager types the site's name in the popup's **Name**
 field; it is stored in the connection's existing `label` column and is what every label,
 status line, alert ("New Houfy booking") and calendar bar says
@@ -129,8 +138,12 @@ so the fetcher can never be pointed at an arbitrary target.
 **Each room row says where it stands in one plain status line**, never a pill:
 `channelStatusParts` / `channelStatusLine` (`channel-links.ts`) compose it as
 state · the sides that have a timestamp — "Synced · Airbnb 8:04 AM · PropLane
-8:00 AM", "Waiting for Airbnb · PropLane 8:00 AM" before the channel has fetched
-the export feed once, "Not linked" with no import URL pasted, and a red
+8:00 AM", "Airbnb has not fetched PropLane yet · PropLane 8:00 AM" before the
+channel has read the export feed once, "Not pulling" once a channel that HAD been
+fetching has gone quiet longer than the caller's `staleAfterMs` (the Agoda row
+passes `AGODA_FEED_STALE_AFTER_MS`, a day, because Agoda says it refreshes several
+times a day; never fetched and stopped fetching are kept apart on purpose),
+"Not linked" with no import URL pasted, and a red
 "Error:" lead carrying the feed's last error. (The Bookings record page still
 shows the two labelled "last checked" facts through `channelCheckFacts`.) Its ⋯ holds Sync now · Feed preview · Disconnect, plus
 **Copy Airbnb listing pack** on Airbnb only — `buildAirbnbListingPack`
@@ -171,11 +184,15 @@ Airbnb has no public write API, so the two directions are not equally fast:
   so Airbnb reopens them at its next poll. A resident (hold or lease) is never removed
   here.
 - **Airbnb checked PropLane.** The export route stamps
-  `external_calendar_connections.export_last_fetched_at` when the request's User-Agent
-  contains "Airbnb" (`stampExportFetch`, `export-fetch-stamp.ts`): best-effort, never
-  fails the feed, written at most every 5 minutes. **PropLane checked Airbnb** is the
-  connection's `last_synced_at`. Both show on the booking record page and per room in the
-  Connect popup.
+  `external_calendar_connections.export_last_fetched_at` only when the request is the
+  connection's OWN channel, named in the User-Agent (`isChannelFetcher`,
+  `export-fetch-stamp.ts`: Airbnb, Booking.com, and the Agoda row): best-effort, never
+  fails the feed, written at most every 15 minutes. Anything else — a curl, a link
+  checker, an uptime probe — stamps nothing, so the row keeps saying the channel has not
+  fetched PropLane yet; a channel not recognised here can therefore never leave that
+  state, which is why the route logs the User-Agent of every fetch on an Agoda link.
+  **PropLane checked Airbnb** is the connection's `last_synced_at`. Both show on the
+  booking record page and per room in the Connect popup.
 - **Sync-all budget.** The cron (`syncAllChannelCalendarImports`) fetches feeds four at a time, least recently
   synced first, and starts no new fetch once less than 20 seconds are left of the route's 120 (`maxDuration`; a
   test keeps the two in step). It reports `{ synced, failed, skipped }`; a skipped feed goes first next run.
@@ -281,6 +298,10 @@ Coverage: `tests/unit/channel-calendar-export-url.test.ts`,
 The feed itself answers what a channel's importer probes with, not only what a browser does:
 `HEAD` returns the `GET`'s status and headers with no body, and the body is served
 `Content-Disposition: inline` because some importers (Agoda's among them) reject an attachment.
+`/ical/<token>.ics` is a short ALIAS of that same route (`src/app/ical/[token]/route.ts`
+re-exports its `GET`/`HEAD`), for an importer that caps or pattern-matches the URL it is
+pasted: same handler, same token authority, nothing of its own. The canonical built link
+stays `/api/calendar/export/<token>.ics`.
 
 ### The Channels card
 

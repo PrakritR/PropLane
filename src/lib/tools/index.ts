@@ -94,7 +94,7 @@ import {
   createListingDraftByTextTool,
   updateListingDraftTool,
 } from "./domains/listing-draft";
-import { applyListingPhotosTool, getListingMediaInventoryTool } from "./domains/listing-media";
+import { applyListingPhotosTool, getListingMediaInventoryTool, placeMyTextedPhotosTool, placeResidentSuggestedPhotosTool } from "./domains/listing-media";
 import { listSmsConversationsTool, replyToSmsConversationTool } from "./domains/sms-messaging";
 import { listInboxThreadsTool, getThreadMessagesTool, updateThreadTool } from "./domains/inbox";
 import {
@@ -267,6 +267,8 @@ export const agentRegistry = buildRegistry([
   createListingDraftByTextTool,
   updateListingDraftTool,
   applyListingPhotosTool,
+  placeResidentSuggestedPhotosTool,
+  placeMyTextedPhotosTool,
   updatePropertyTool,
   updateRoomRentTool,
   updateListingDetailsTool,

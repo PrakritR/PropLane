@@ -35,7 +35,7 @@ import {
   resolvePlacementStandardFees,
 } from "@/lib/listing-placement-standard-fees";
 import { parseMoneyAmount } from "@/lib/parse-money";
-import { DEFAULT_CUSTOM_LEASE_SURCHARGE } from "@/lib/rental-application/lease-dates";
+import { customLeaseSurchargeAmount, monthToMonthSurchargeAmount } from "@/lib/custom-lease-billing";
 import { listingFoldsAllMonthlyFeesIntoRent, type RentRuleAddress } from "@/lib/seattle-rent-rule";
 import {
   AIRBNB_LEASE_TERM,
@@ -183,14 +183,18 @@ function money(raw: string | undefined | null): number {
   return n > 0 ? n : 0;
 }
 
-/** The arrangement row a room's fees live on (Private = count 1), or the whole-house row. */
-export function roomFeeRow(
+/**
+ * The row the two START surcharges live on - month-to-month and custom dates - which is the Private (count 1)
+ * arrangement, or the whole-house row. `mergeLongTermPrivateArrangementRow` is their one writer and pins them
+ * there, so there is no count to pick: the quote, the lease rider and the monthly charge all read this row
+ * whatever arrangement is being priced, and the figure a manager types is the figure all three say.
+ */
+export function roomStartSurchargeRow(
   sub: Pick<ManagerListingSubmissionV1, "entireHomeArrangementFees">,
   room: Pick<ManagerRoomSubmission, "occupancyPrices"> | null | undefined,
-  arrangementCount = 1,
 ): RoomFeeRow | undefined {
   if (!room) return sub.entireHomeArrangementFees;
-  return room.occupancyPrices?.find((row) => row.count === arrangementCount);
+  return room.occupancyPrices?.find((row) => row.count === 1);
 }
 
 type FeeRoom = Pick<ManagerRoomSubmission, "occupancyPrices" | "termPricing">;
@@ -199,7 +203,7 @@ type FeeRoom = Pick<ManagerRoomSubmission, "occupancyPrices" | "termPricing">;
  * The fees one placement sets for a lease term. Lease / Application / Move-in all come from
  * `listing-placement-standard-fees.ts` -- the ONE resolver (a stay type's own value replaces the
  * house fee, empty inherits) that the quote, the application fee charged, the signing charges and
- * the lease snapshot also read. Only the two start surcharges are read here, off the arrangement row.
+ * the lease snapshot also read. Only the two start surcharges are read here, off the Private arrangement row.
  */
 export function resolveRoomTermFees(input: {
   sub: ManagerListingSubmissionV1;
@@ -232,29 +236,21 @@ export function resolveRoomTermFees(input: {
     applicationTemplateId: input.applicationTemplateId,
   });
   const fees = resolvePlacementStandardFees(input.sub, opts);
-  const row = input.bundle
-    ? undefined
-    : input.wholeHouse
-      ? input.sub.entireHomeArrangementFees
-      : roomFeeRow(input.sub, input.room, input.arrangementCount ?? 1);
+  const row = input.bundle ? undefined : roomStartSurchargeRow(input.sub, input.wholeHouse ? null : input.room);
   return {
     scope,
     applicationFee: fees.applicationFee,
     leaseFee: fees.leaseFee,
     moveInFee: parseMoneyAmount(resolvedMoveInFeeRaw(input.sub, opts)),
-    // Optional long-term charge; never on a Seattle listing, where this resolves to nothing.
+    // Optional long-term charge; never on a Seattle listing, where this resolves to nothing. One resolver for the
+    // amount, shared with the quote and the monthly charge: the arrangement row's typed figure, else the listing's.
     monthToMonthSurcharge:
       scope === "long" && !listingFoldsAllMonthlyFeesIntoRent(input.sub, input.listingProperty)
-        ? money(row?.monthToMonthSurcharge)
+        ? monthToMonthSurchargeAmount(input.sub, row)
         : 0,
-    customStartSurcharge:
-      scope === "long"
-        ? String(row?.customStartSurcharge ?? "").trim()
-          ? money(row?.customStartSurcharge)
-          : roomPricingFeeVisibility(input.sub, room, input.listingProperty).customStartSurcharge
-          ? DEFAULT_CUSTOM_LEASE_SURCHARGE
-          : 0
-        : 0,
+    // One resolver for the amount, shared with the quote and the monthly charge: the arrangement row's typed
+    // figure, else the listing's row (removed bills nothing, blank defaults when the listing offers Custom dates).
+    customStartSurcharge: scope === "long" ? customLeaseSurchargeAmount(input.sub, row) : 0,
   };
 }
 
@@ -289,6 +285,16 @@ export const ROOM_LEASE_FEE_LABEL = "Lease fee";
 
 function cleanMoneyText(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
+}
+
+/**
+ * What the manager typed on the arrangement row, or null when they typed nothing. A typed `0` is an amount -
+ * "free for a custom start" - and the lease document, the billing snapshot and the ledger all have to say it;
+ * treating it as absent is how the quote showed nothing while the document printed the $100 default.
+ */
+function typedRowAmount(raw: string | null | undefined): number | null {
+  const text = String(raw ?? "").trim();
+  return text ? money(text) : null;
 }
 
 function syncPresetRow(
@@ -330,13 +336,7 @@ export function submissionWithRoomTermFees<T extends ManagerListingSubmissionV1>
   ctx: RoomFeeOverlayContext,
 ): T | null | undefined {
   if (!sub || (!room && !ctx.wholeHouse && !ctx.bundle && !hasAnyTemplateFee(sub))) return sub;
-  const row = ctx.bundle
-    ? undefined
-    : ctx.wholeHouse
-      ? sub.entireHomeArrangementFees
-      : room
-        ? roomFeeRow(sub, room, ctx.arrangementCount ?? 1)
-        : undefined;
+  const row = ctx.bundle || (!ctx.wholeHouse && !room) ? undefined : roomStartSurchargeRow(sub, ctx.wholeHouse ? null : room);
   // A stay type's own fees live on the room's term entry, not the arrangement row, so a room
   // with no row can still carry them. A template fee needs no room at all.
   const hasTemplateFee = hasAnyTemplateFee(sub);
@@ -349,15 +349,15 @@ export function submissionWithRoomTermFees<T extends ManagerListingSubmissionV1>
   let removedChanged = false;
 
   if (scope === "long" && row) {
-    const mtm = listingFoldsAllMonthlyFeesIntoRent(sub, ctx.listingProperty) ? 0 : money(row.monthToMonthSurcharge);
-    if (mtm > 0) {
+    const mtm = listingFoldsAllMonthlyFeesIntoRent(sub, ctx.listingProperty) ? null : typedRowAmount(row.monthToMonthSurcharge);
+    if (mtm !== null) {
       const text = cleanMoneyText(mtm);
       removedChanged = removed.delete("monthToMonthSurcharge") || removedChanged;
       next = { ...next, monthToMonthSurcharge: text, customFees: syncPresetRow(next, "mtm_surcharge", text) };
       changed = true;
     }
-    const custom = money(row.customStartSurcharge);
-    if (custom > 0) {
+    const custom = typedRowAmount(row.customStartSurcharge);
+    if (custom !== null) {
       const text = cleanMoneyText(custom);
       removedChanged = removed.delete("customLeaseSurcharge") || removedChanged;
       next = { ...next, customLeaseSurcharge: text, customFees: syncPresetRow(next, "custom_lease_surcharge", text) };

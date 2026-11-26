@@ -9,11 +9,13 @@ import {
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
 import { buildListingQuote } from "@/lib/listing-quote";
+import { monthlyFeesBilledSeparately } from "@/lib/rent-fold-in";
 import type { LeaseGenerationContext } from "@/lib/generated-lease";
 import {
   feeVisibilityForTerms,
   resolveRoomTermFees,
   roomFeeTermScope,
+  roomStartSurchargeRow,
   roomPricingFeeVisibility,
   submissionWithRoomTermFees,
   termFeePatch,
@@ -152,6 +154,27 @@ describe("Application fee and Lease fee are bound to their step", () => {
     );
     expect(resolveRoomTermFees({ sub: seattle, room: seattle.rooms[0], leaseTerm: "Month-to-Month" }).monthToMonthSurcharge).toBe(0);
   });
+
+  /*
+   * Oracle: the listing's own Month-to-month surcharge preset, the $150 the manager typed in the unified Fees
+   * table - not a figure either side computes. The rider prints `resolveRoomTermFees` and the ledger bills
+   * `monthlyFeesBilledSeparately`, so they have to answer the same $150. Plausible wrong behaviour this rejects:
+   * the rider reading the blank room row as "no surcharge" while the resident is billed every month.
+   */
+  it("a listing-level month-to-month surcharge reaches the rider and the ledger alike", () => {
+    const sub = listing({}, { monthToMonthSurcharge: "150" });
+    const row = roomStartSurchargeRow(sub, sub.rooms[0]);
+    expect(String(row?.monthToMonthSurcharge ?? "").trim()).toBe("");
+    const ctx = { leaseTerm: "Month-to-Month" } as const;
+    expect(resolveRoomTermFees({ sub, room: sub.rooms[0], leaseTerm: ctx.leaseTerm }).monthToMonthSurcharge).toBe(150);
+    expect(monthlyFeesBilledSeparately(sub, null, ctx, row).find((f) => f.label.startsWith("Month-to-month"))?.amount).toBe(150);
+
+    // The room's own typed figure still outranks the listing's, for both.
+    const priced = listing({ occupancyPrices: [{ count: 1, monthToMonthSurcharge: "250" }] }, { monthToMonthSurcharge: "150" });
+    const pricedRow = roomStartSurchargeRow(priced, priced.rooms[0]);
+    expect(resolveRoomTermFees({ sub: priced, room: priced.rooms[0], leaseTerm: ctx.leaseTerm }).monthToMonthSurcharge).toBe(250);
+    expect(monthlyFeesBilledSeparately(priced, null, ctx, pricedRow).find((f) => f.label.startsWith("Month-to-month"))?.amount).toBe(250);
+  });
 });
 
 describe("the receipt and the overlay read the same fees", () => {
@@ -178,12 +201,51 @@ describe("the receipt and the overlay read the same fees", () => {
     expect(short.signingLines.find((l) => l.key === "arrangement_lease_fee")?.amount).toBe(40);
   });
 
-  it("the receipt adds the start surcharge to the monthly rent only for that start", () => {
+  it("the receipt carries each start's own surcharge, and only for that start", () => {
     const std = buildListingQuote(priced, { roomId: "room-7", leaseTerm: "Long-term", arrangementCount: 1 });
     const m2m = buildListingQuote(priced, { roomId: "room-7", leaseTerm: "Long-term", arrangementCount: 1, startKind: "m2m" });
     expect(m2m.monthlyRent - std.monthlyRent).toBe(25);
+    // The custom-dates surcharge has ONE owner, so a custom start reads it the way the applicant's dated quote
+    // does: the room's own $60 as a monthly fee line, never a silent bump inside the rent figure.
     const cst = buildListingQuote(priced, { roomId: "room-7", leaseTerm: "Long-term", arrangementCount: 1, startKind: "cst" });
-    expect(cst.monthlyRent - std.monthlyRent).toBe(60);
+    expect(cst.customLeaseSurcharge).toBe(60);
+    expect(cst.monthlyRent).toBe(std.monthlyRent);
+    expect(cst.monthlyFees.map((f) => f.label)).toContain("Custom lease surcharge");
+    expect(cst.monthlyTotal - std.monthlyTotal).toBe(60);
+    expect(std.monthlyFees.map((f) => f.label)).not.toContain("Custom lease surcharge");
+  });
+
+  /*
+   * Oracle: what approval actually bills each month for this listing - `monthlyFeesBilledSeparately`, the ledger's
+   * own resolver, which owes $150 on a Month-to-Month lease and nothing on a 12-month one. Plausible wrong
+   * behaviour this rejects: quoting the preset row on every lease term (a Long-term receipt $150/mo too high), or
+   * quoting it twice on a month-to-month start (once in the rent figure, once as a line).
+   */
+  it("quotes the month-to-month surcharge on the terms that bill it, and once", () => {
+    const sub = listing({}, { monthToMonthSurcharge: "150" });
+    const row = roomStartSurchargeRow(sub, sub.rooms[0]);
+    const billed = (leaseTerm: string) =>
+      monthlyFeesBilledSeparately(sub, null, { leaseTerm }, row)
+        .filter((f) => f.label.startsWith("Month-to-month"))
+        .map((f) => f.amount);
+    expect(billed("Long-term")).toEqual([]);
+    expect(billed("Month-to-Month")).toEqual([150]);
+
+    const quoted = (leaseTerm: string, startKind?: "m2m") =>
+      buildListingQuote(sub, { roomId: "room-7", leaseTerm, arrangementCount: 1, ...(startKind ? { startKind } : {}) });
+    const std = quoted("Long-term");
+    expect(std.monthlyFees.filter((f) => f.label.startsWith("Month-to-month"))).toEqual([]);
+
+    const term = quoted("Month-to-Month");
+    expect(term.monthlyFees.filter((f) => f.label.startsWith("Month-to-month")).map((f) => f.amount)).toEqual([150]);
+    expect(term.monthlyRent).toBe(std.monthlyRent);
+    expect(term.monthlyTotal - std.monthlyTotal).toBe(150);
+
+    // The Pricing panel's "Month-to-month" START preview carries the same one amount inside the rent it previews.
+    const preview = quoted("Long-term", "m2m");
+    expect(preview.monthlyRent - std.monthlyRent).toBe(150);
+    expect(preview.monthlyFees.filter((f) => f.label.startsWith("Month-to-month"))).toEqual([]);
+    expect(preview.monthlyTotal - std.monthlyTotal).toBe(150);
   });
 
   it("the overlay hands the room's surcharges and Lease fee to everything that reads the listing", () => {

@@ -12,6 +12,7 @@ import {
   normalizeIcalLabel,
 } from "@/lib/channel-calendar/airbnb-url";
 import { invalidateFeedReads } from "@/lib/channel-calendar/export-feed-reads.server";
+import { jsonEqual, sameUnorderedList, shouldRestamp } from "@/lib/write-skip";
 import { isPrivateOrInternalHostname } from "@/lib/channel-calendar/ical-host";
 import { fetchPinnedPublicHttps, NonPublicHostError } from "@/lib/sheet-sync/public-host.server";
 import {
@@ -252,18 +253,18 @@ function applyImportedRangesToSubmission(
   connectionId: string,
   imported: ChannelCalendarImportedRange[],
 ): ManagerListingSubmissionV1 {
+  let changed = false;
   const rooms = submission.rooms.map((room) => {
     if (room.id !== roomId) return room;
-    return {
-      ...room,
-      manualUnavailableRanges: mergeChannelImportedRanges(
-        room.manualUnavailableRanges ?? [],
-        connectionId,
-        imported,
-      ),
-    };
+    const existing = room.manualUnavailableRanges ?? [];
+    const merged = mergeChannelImportedRanges(existing, connectionId, imported);
+    // A re-merge appends this connection's ranges after the others', so two connections of one room
+    // alternate order on every sync. The SET is what matters: an unchanged set is not a write.
+    if (sameUnorderedList(existing, merged)) return room;
+    changed = true;
+    return { ...room, manualUnavailableRanges: merged };
   });
-  return { ...submission, rooms };
+  return changed ? { ...submission, rooms } : submission;
 }
 
 export async function loadPropertyRecord(
@@ -527,6 +528,11 @@ export async function updateListingSubmission(
     const submission = record?.property?.listingSubmission;
     if (!record || !submission) return null;
     const next = apply(submission);
+    // Nothing to change: do not rewrite the whole property_data blob or bump the revision (the periodic
+    // channel sync used to do both for every connection on every run).
+    if (next === submission || jsonEqual(next, submission)) {
+      return { property: record.property as MockProperty, submission };
+    }
     const nextProperty: MockProperty = { ...(record.property as MockProperty), listingSubmission: next };
     const payload = { property_data: nextProperty, updated_at: new Date().toISOString() };
     if (record.occupancyRevision === null) {
@@ -807,6 +813,23 @@ async function withoutMoves(
  */
 export type SyncChannelCalendarOptions = { force?: boolean };
 
+/**
+ * A sync that changes nothing restamps `last_synced_at` at most this often. The cron runs every 15 minutes, so a
+ * window at or under that cadence skips nothing - every run arrives already older than it. An hour drops an
+ * unchanged connection to one write per hour and still leaves its stamp well inside the two
+ * hours `channel-health.ts` calls a stale sync, so a healthy feed never reads as stale nor earns the failure notice.
+ */
+const CONNECTION_STAMP_MIN_MS = 60 * 60_000;
+
+async function sameStoredError(db: SupabaseClient, connectionId: string, message: string): Promise<boolean> {
+  try {
+    const { data } = await db.from("external_calendar_connections").select("last_error").eq("id", connectionId).maybeSingle();
+    return (data as { last_error?: unknown } | null)?.last_error === message;
+  } catch {
+    return false;
+  }
+}
+
 export async function syncChannelCalendarConnection(
   db: SupabaseClient,
   connectionId: string,
@@ -907,19 +930,30 @@ export async function syncChannelCalendarConnection(
     // placement for the same dates is refused by `assert_room_placement_capacity` ("This room is blocked for the
     // requested dates") on every run; the Residents list derives channel guests from the booking rows instead.
 
-    const { data: saved, error: saveError } = await db
-      .from("external_calendar_connections")
-      .update({
-        imported_ranges: imported,
-        last_synced_at: now,
-        last_error: null,
-        updated_at: now,
-      })
-      .eq("id", connectionId)
-      .select("*")
-      .single();
-    if (saveError) throw new Error(saveError.message);
-    invalidateFeedReads();
+    // Write only what changed. A changed range set or an error to clear is written at once; an unchanged feed
+    // leaves `imported_ranges` (a large jsonb) and a clean `last_error` untouched and restamps at most once per
+    // CONNECTION_STAMP_MIN_MS, so the 15-minute cron stops rewriting every connection row for nothing.
+    // "Last synced" is then accurate to that window, not to the run.
+    const rangesChanged = !jsonEqual(imported, connection.imported_ranges ?? []);
+    const hadError = connection.last_error != null && connection.last_error !== "";
+    const changedColumns = rangesChanged || hadError;
+    let saved: Record<string, unknown> = row as Record<string, unknown>;
+    if (shouldRestamp({ lastStampIso: connection.last_synced_at, now: new Date(now), changed: changedColumns, minIntervalMs: CONNECTION_STAMP_MIN_MS })) {
+      const { data: savedRow, error: saveError } = await db
+        .from("external_calendar_connections")
+        .update({
+          ...(rangesChanged ? { imported_ranges: imported } : {}),
+          last_synced_at: now,
+          ...(hadError ? { last_error: null } : {}),
+          updated_at: now,
+        })
+        .eq("id", connectionId)
+        .select("*")
+        .single();
+      if (saveError) throw new Error(saveError.message);
+      saved = savedRow as Record<string, unknown>;
+    }
+    if (changedColumns) invalidateFeedReads();
     // A Remove that landed while this sync was reading the feed wrote its
     // tombstone after the keys above were read; re-check once so the stay it
     // removed cannot slip back in through the save we just made.
@@ -1011,10 +1045,13 @@ export async function syncChannelCalendarConnection(
     return parseConnectionRow(saved as Record<string, unknown>);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Sync failed.";
-    await db
-      .from("external_calendar_connections")
-      .update({ last_error: message, updated_at: now })
-      .eq("id", connectionId);
+    // The same failure every 15 minutes is one write, not 96 a day.
+    if (!(await sameStoredError(db, connectionId, message))) {
+      await db
+        .from("external_calendar_connections")
+        .update({ last_error: message, updated_at: now })
+        .eq("id", connectionId);
+    }
     throw new Error(message);
   }
 }

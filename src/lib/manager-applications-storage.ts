@@ -1,7 +1,7 @@
 import { canonicalRoomChoiceValue, parseRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
 import { createCoalescedRefresher } from "@/lib/coalesced-refresh";
 import { fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
-import { replacePublicRoomOccupancy, replacePublicRoomOccupancyForProperty } from "@/lib/public-room-occupancy-client";
+import { clearPublicRoomOccupancy, replacePublicRoomOccupancy, replacePublicRoomOccupancyForProperty } from "@/lib/public-room-occupancy-client";
 import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -141,7 +141,7 @@ function clearSensitiveApplicationCache() {
   publicApprovedApplicationsLastSyncedAt = 0;
   publicPropertyRefreshRevisions.clear();
   managerApplicationsSyncPromise = null;
-  replacePublicRoomOccupancy([]);
+  clearPublicRoomOccupancy();
   if (changed) emit();
 }
 
@@ -552,7 +552,6 @@ function persistManagerApplicationsToSession(rows: DemoApplicantRow[], scopeUser
 }
 
 function emit() {
-  replacePublicRoomOccupancy([]);
   publicApprovedApplicationsLastSyncedAt = 0;
   if (!canUseStorage()) return;
   window.dispatchEvent(new Event(MANAGER_APPLICATIONS_EVENT));

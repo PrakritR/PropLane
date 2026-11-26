@@ -84,7 +84,7 @@ beforeEach(() => {
   delete process.env.RESIDENT_IDENTITY_PROVIDER;
   process.env.CHECKR_API_KEY = "ckr_test";
   delete process.env.CHECKR_SIMULATE;
-  h.settings.mockReset().mockResolvedValue({ settings: { idCheck: true, backgroundCheck: true, idUnlock: "clear" } });
+  h.settings.mockReset().mockResolvedValue({ settings: { idCheck: true, backgroundCheck: true, idUnlock: "clear", verifyIncomeWithPlaid: false } });
   h.create.mockReset();
   h.refund.mockReset().mockResolvedValue({});
   h.captured.mockReset().mockResolvedValue({ captured: false });
@@ -92,7 +92,7 @@ beforeEach(() => {
 
 describe("server refusal: the application submit gate", () => {
   it("lets a listing that requires nothing through untouched", async () => {
-    h.settings.mockResolvedValue({ settings: { idCheck: false, backgroundCheck: false, idUnlock: "clear" } });
+    h.settings.mockResolvedValue({ settings: { idCheck: false, backgroundCheck: false, idUnlock: "clear", verifyIncomeWithPlaid: false } });
     const r = row();
     const gate = await preApplySubmitGate(fakeDb(property), user, r);
     expect(gate).toEqual({ ok: true, row: r });
@@ -133,7 +133,7 @@ describe("server refusal: the application submit gate", () => {
 
   it("an applicant's body cannot pick which listing's requirements apply: assignedPropertyId is ignored, and two named listings must both pass", async () => {
     h.settings.mockImplementation(async (_db: unknown, input: { propertyId?: string | null }) => ({
-      settings: input.propertyId === "prop-free" ? { idCheck: false, backgroundCheck: false, idUnlock: "clear" } : { idCheck: true, backgroundCheck: true, idUnlock: "clear" },
+      settings: input.propertyId === "prop-free" ? { idCheck: false, backgroundCheck: false, idUnlock: "clear", verifyIncomeWithPlaid: false } : { idCheck: true, backgroundCheck: true, idUnlock: "clear", verifyIncomeWithPlaid: false },
     }));
     const db = fakeDb({ ...property, applicant_preapply_checks: { data: null } });
     // The requirement is on prop-1; the applicant claims the free listing as the manager's placement.
@@ -160,7 +160,7 @@ describe("server refusal: the application submit gate", () => {
 
   it("the master switch off means no ID requirement is enforced", async () => {
     process.env.RESIDENT_IDENTITY_ENABLED = "false";
-    h.settings.mockResolvedValue({ settings: { idCheck: true, backgroundCheck: false, idUnlock: "clear" } });
+    h.settings.mockResolvedValue({ settings: { idCheck: true, backgroundCheck: false, idUnlock: "clear", verifyIncomeWithPlaid: false } });
     const r = row();
     expect(await preApplySubmitGate(fakeDb(property), user, r)).toEqual({ ok: true, row: r });
   });
@@ -168,7 +168,7 @@ describe("server refusal: the application submit gate", () => {
   it("Persona branch: the account's approved identity satisfies Verify ID with no order", async () => {
     process.env.RESIDENT_IDENTITY_PROVIDER = "persona";
     Object.assign(process.env, { PERSONA_API_KEY: "k", PERSONA_TEMPLATE_ID: "t", PERSONA_WEBHOOK_SECRET: "s" });
-    h.settings.mockResolvedValue({ settings: { idCheck: true, backgroundCheck: false, idUnlock: "clear" } });
+    h.settings.mockResolvedValue({ settings: { idCheck: true, backgroundCheck: false, idUnlock: "clear", verifyIncomeWithPlaid: false } });
     const subject = (status: string) => ({
       ...property,
       resident_identity_subjects: { data: { status, provider_decision: status, verified_at: "2026-01-01T00:00:00Z" } },
@@ -184,7 +184,7 @@ describe("a signed-out submit", () => {
   it("is refused when the listing requires something, allowed when it requires nothing", async () => {
     const refused = await preApplyGuestGate(fakeDb(property), row());
     expect(refused).toMatchObject({ ok: false, status: 403, body: { blocked: "preapply" } });
-    h.settings.mockResolvedValue({ settings: { idCheck: false, backgroundCheck: false, idUnlock: "clear" } });
+    h.settings.mockResolvedValue({ settings: { idCheck: false, backgroundCheck: false, idUnlock: "clear", verifyIncomeWithPlaid: false } });
     expect(await preApplyGuestGate(fakeDb(property), row())).toEqual({ ok: true });
   });
 });

@@ -17,13 +17,15 @@ share Where you live, consent and review share the last step. A step the templat
 (`activeApplicationWizardSteps`).
 
 - **Your lease** asks the property, a Long-term / Short-term toggle (only when the property offers both), then the
-  dates that type needs (`lease-choice.ts`). Long-term: Move-in, then the property's fixed lengths in a
-  Length select with **Custom dates** and **Month-to-month** as indented checkboxes under it — each offered
-  only when the property ticked it (`applicantLongTermChildren`, the same two children the manager's picker
-  shows; [`lease-generation.md`](lease-generation.md) § The four lease types). The one exception:
-  Long-term with no fixed lengths and no Custom dates asks for the move-out date directly
+  dates that type needs (`lease-choice.ts`). Long-term: Move-in, then **one required "Lease length" dropdown**
+  holding the property's fixed lengths and, as further entries of that same list, **Custom dates** and
+  **Month-to-month** — each offered only when the property ticked it (`applicantLongTermChildren`, the same two
+  children the manager's picker shows as checkboxes; [`lease-generation.md`](lease-generation.md) § The four
+  lease types). One control, so an applicant cannot leave the length unanswered by missing a second group of
+  inputs; with no fixed lengths at all the empty entry reads "Long-term (set a move-out date)". The one
+  exception: Long-term with no fixed lengths and no Custom dates asks for the move-out date directly
   (`longTermHasImplicitMoveOut`), because the stay still needs an end. When Long-term leaves exactly one
-  choice it is preselected and no Length control is drawn at all.
+  choice it is preselected and no Lease length control is drawn at all.
   Short-term: check-in and check-out dates plus house rules. Arrival/departure times are the host’s standard clock, stamped server-side by `standardizeApplicantStayTimes` for drafts/new submissions; client-provided times never negotiate it and existing submitted clocks are preserved. Stored values never change
   ("Long-term", "Short-Term Stay", "Custom", "Month-to-Month"), and `validate.ts` still refuses a term the property
   does not offer. Custom dates stores "Custom" only when the property offers it.

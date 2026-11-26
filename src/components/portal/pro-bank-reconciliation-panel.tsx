@@ -4,6 +4,9 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useSt
 import { Button } from "@/components/ui/button";
 import {Input, Select} from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
+import { Landmark, RefreshCw } from "lucide-react";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { PlaidLinkLauncher, type PlaidLinkSuccess } from "@/components/portal/plaid-link-button";
 import { Badge } from "@/components/ui/badge";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
@@ -26,6 +29,25 @@ import {
   type ManagerBankAccount,
   type ManagerBankStatement,
 } from "@/lib/manager-bank-reconciliation";
+
+type PlaidFeedItem = {
+  id: string;
+  institutionName: string | null;
+  accountMask: string | null;
+  bankAccountId: string | null;
+  /** `/api/plaid/status` answers only live feeds: a revoked item is omitted, so none ever reaches this view. */
+  status: "active" | "login_required" | "error";
+  lastSyncedAt: string | null;
+};
+
+function formatSyncedAt(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const day = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return `${time} ${day}`;
+}
 
 type AccountDraft = { name: string; accountType: BankAccountType; lastFour: string };
 
@@ -76,6 +98,26 @@ export const ManagerBankReconciliationPanel = forwardRef<
   const [statementModal, setStatementModal] = useState(false);
   const [accountDraft, setAccountDraft] = useState<AccountDraft>(emptyAccountDraft);
   const [statementDraft, setStatementDraft] = useState<StatementDraft>(emptyStatementDraft);
+  const [plaidEnabled, setPlaidEnabled] = useState(false);
+  const [plaidItems, setPlaidItems] = useState<PlaidFeedItem[]>([]);
+  const [plaidSyncing, setPlaidSyncing] = useState(false);
+  /** Bumped after a bank sync so statements reload for the CURRENT account (not a stale closure's). */
+  const [statementsVersion, setStatementsVersion] = useState(0);
+
+  const loadPlaid = useCallback(async () => {
+    try {
+      const res = await fetch("/api/plaid/status?purpose=bank_feed", { cache: "no-store" });
+      const data = (await res.json()) as { enabled?: boolean; items?: PlaidFeedItem[] };
+      setPlaidEnabled(Boolean(data.enabled));
+      setPlaidItems(data.items ?? []);
+    } catch {
+      setPlaidEnabled(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadPlaid();
+  }, [loadPlaid]);
 
   useImperativeHandle(
     ref,
@@ -132,7 +174,7 @@ export const ManagerBankReconciliationPanel = forwardRef<
 
   useEffect(() => {
     void loadStatements();
-  }, [loadStatements]);
+  }, [loadStatements, statementsVersion]);
 
   const selectedStatement = useMemo(
     () => statements.find((s) => s.id === selectedStatementId) ?? null,
@@ -143,6 +185,55 @@ export const ManagerBankReconciliationPanel = forwardRef<
     () => (selectedStatement ? computeReconciliationSummary(selectedStatement) : null),
     [selectedStatement],
   );
+
+  const plaidItem = useMemo(
+    () => plaidItems.find((item) => item.bankAccountId === selectedAccountId) ?? null,
+    [plaidItems, selectedAccountId],
+  );
+
+  async function connectBank(result: PlaidLinkSuccess) {
+    const res = await fetch("/api/plaid/exchange", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        publicToken: result.publicToken,
+        purpose: "bank_feed",
+        bankAccountId: selectedAccountId,
+        accountId: result.accountId,
+      }),
+    });
+    const data = (await res.json()) as { item?: { id: string; bankAccountId?: string | null }; error?: string };
+    if (!res.ok || !data.item) {
+      showToast(data.error ?? "Couldn't reach your bank.");
+      return;
+    }
+    if (!selectedAccountId && data.item.bankAccountId) {
+      // The linked account became the manager's bank account: show it.
+      await loadAccounts();
+      setSelectedAccountId(data.item.bankAccountId);
+    }
+    await syncPlaid(data.item.id);
+  }
+
+  async function syncPlaid(itemId: string) {
+    setPlaidSyncing(true);
+    try {
+      const res = await fetch("/api/plaid/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId }),
+      });
+      const data = (await res.json()) as { result?: { status: string }; error?: string };
+      if (!res.ok) showToast(data.error ?? "Couldn't reach your bank.");
+      else if (data.result?.status === "synced") showToast("Bank transactions synced.");
+    } catch {
+      showToast("Couldn't reach your bank.");
+    } finally {
+      setPlaidSyncing(false);
+      await loadPlaid();
+      setStatementsVersion((v) => v + 1);
+    }
+  }
 
   async function createAccount() {
     if (!accountDraft.name.trim()) {
@@ -272,6 +363,64 @@ export const ManagerBankReconciliationPanel = forwardRef<
                   </option>
                 ))}
             </Select>
+          </div>
+        ) : null}
+        {plaidEnabled && (selectedAccountId || (!loading && accounts.length === 0)) ? (
+          <div className="flex min-h-9 min-w-0 flex-wrap items-center gap-2 text-sm" data-attr="bank-feed-status">
+            {!plaidItem ? (
+              <PlaidLinkLauncher purpose="bank_feed" onSuccess={connectBank} onError={showToast}>
+                {({ start, busy }) => (
+                  <PortalIconAction
+                    icon={Landmark}
+                    label="Connect bank"
+                    disabled={busy}
+                    onClick={() => void start()}
+                    data-attr="bank-feed-connect"
+                  />
+                )}
+              </PlaidLinkLauncher>
+            ) : plaidItem.status === "login_required" ? (
+              <>
+                <span className="text-foreground">
+                  {plaidItem.institutionName ?? "Bank"}
+                  {plaidItem.accountMask ? ` ••${plaidItem.accountMask}` : ""}
+                </span>
+                <PlaidLinkLauncher
+                  purpose="bank_feed"
+                  itemId={plaidItem.id}
+                  onSuccess={() => syncPlaid(plaidItem.id)}
+                  onError={showToast}
+                >
+                  {({ start, busy }) => (
+                    <Button type="button" variant="outline" disabled={busy} onClick={() => start()} data-attr="bank-feed-reconnect">
+                      Reconnect
+                    </Button>
+                  )}
+                </PlaidLinkLauncher>
+              </>
+            ) : plaidItem.status === "error" ? (
+              <>
+                <span className="text-foreground">Couldn&apos;t reach your bank.</span>
+                <Button type="button" variant="outline" disabled={plaidSyncing} onClick={() => syncPlaid(plaidItem.id)} data-attr="bank-feed-retry">
+                  Retry
+                </Button>
+              </>
+            ) : (
+              <>
+                <span className="text-foreground">
+                  {plaidItem.institutionName ?? "Bank"}
+                  {plaidItem.accountMask ? ` ••${plaidItem.accountMask}` : ""} · Connected
+                  {plaidItem.lastSyncedAt ? ` · synced ${formatSyncedAt(plaidItem.lastSyncedAt)}` : ""}
+                </span>
+                <PortalIconAction
+                  icon={RefreshCw}
+                  label="Sync now"
+                  disabled={plaidSyncing}
+                  onClick={() => void syncPlaid(plaidItem.id)}
+                  data-attr="bank-feed-sync"
+                />
+              </>
+            )}
           </div>
         ) : null}
       </div>

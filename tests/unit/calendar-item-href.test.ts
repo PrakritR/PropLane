@@ -8,6 +8,8 @@ import {
 } from "@/lib/calendar-item-href";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { DemoMeeting } from "@/components/portal/portal-calendar-panels";
+import { tourRowsFromInquiries, tourRowsFromPlannedEvents } from "@/lib/manager-tour-list";
+import type { PartnerInquiry, PlannedEvent } from "@/lib/demo-admin-scheduling";
 
 const NOW = Date.parse("2026-10-04T12:00:00Z");
 
@@ -60,11 +62,41 @@ describe("meetingRecordHref", () => {
     expect(meetingRecordHref("/portal", meeting({ id: "google_x", source: "external", kind: "service" }), { workOrderBucket: () => "open" }, NOW)).toBeNull();
   });
 
-  it("a tour opens by its stage: pending inquiry, upcoming, past", () => {
-    expect(meetingRecordHref("/portal", meeting({ kind: "tour", source: "inquiry", sourceId: "i1" }), {}, NOW)).toBe("/portal/tours/pending/i1");
-    expect(meetingRecordHref("/portal", meeting({ kind: "tour" }), {}, NOW)).toBe("/portal/tours/upcoming/src-1");
+  /*
+   * Oracle: the Tours list itself. `tourRowsFromInquiries` / `tourRowsFromPlannedEvents` mint the row id the Tours
+   * detail view resolves by, and a scheduled tour meeting carries exactly that id (one meeting per row), so the
+   * link is right only when it opens the meeting's own row. `calendar-tour-link-window.test.ts` drives the real
+   * meeting builder for a three-window request. Plausible wrong behaviour this rejects: linking with the raw
+   * inquiry / planned-event id, which lands on the Tours list.
+   */
+  it("a tour opens by its stage, at the row id its meeting carries", () => {
+    const inquiry = {
+      id: "i1",
+      kind: "tour",
+      status: "pending",
+      name: "Ana",
+      proposedStart: "2026-10-08T16:00:00Z",
+      proposedEnd: "2026-10-08T17:00:00Z",
+    } as unknown as PartnerInquiry;
+    const inquiryRow = tourRowsFromInquiries([inquiry])[0]!;
+    const inquiryMeeting = meeting({ id: inquiryRow.id, kind: "tour", source: "inquiry", sourceId: "i1" });
+    expect(meetingRecordHref("/portal", inquiryMeeting, {}, NOW)).toBe(`/portal/tours/pending/${inquiryRow.id}`);
+
+    const planned = {
+      id: "src-1",
+      title: "Tour",
+      start: "2026-10-08T16:00:00Z",
+      end: "2026-10-08T17:00:00Z",
+      kind: "tour",
+    } as PlannedEvent;
+    const plannedRow = tourRowsFromPlannedEvents([planned])[0]!;
+    expect(meetingRecordHref("/portal", meeting({ id: plannedRow.id, kind: "tour" }), {}, NOW)).toBe(
+      `/portal/tours/upcoming/${plannedRow.id}`,
+    );
+    expect(meetingRecordHref("/portal", meeting({ id: plannedRow.id, kind: "partner" }), {}, NOW)).toBe(
+      `/portal/tours/upcoming/${plannedRow.id}`,
+    );
     expect(calendarTourBucket({ source: "planned", endIso: "2026-10-01T10:00:00Z" }, NOW)).toBe("past");
-    expect(meetingRecordHref("/portal", meeting({ kind: "partner" }), {}, NOW)).toBe("/portal/tours/upcoming/src-1");
   });
 
   it("a Google tour event has no record", () => {

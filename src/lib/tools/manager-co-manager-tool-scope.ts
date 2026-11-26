@@ -80,7 +80,7 @@ export const CO_MANAGER_SCOPED_TOOLS = new Set([
  * on top of that the seat must hold Properties at EDIT on that very house, checked in the preview AND the handler.
  * Anything else about a listing stays portal-only for a delegated seat.
  */
-export const DELEGATED_LISTING_EDIT_TOOLS = new Set(["update_room_rent", "update_property", "update_listing_details"]);
+export const DELEGATED_LISTING_EDIT_TOOLS = new Set(["update_room_rent", "update_property", "update_listing_details", "place_my_texted_photos", "place_resident_suggested_photos"]);
 
 function assertDelegatedMayEditListing(ctx: AgentContext, input: unknown): void {
   const access = ctx.managerSmsAccess;

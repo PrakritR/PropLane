@@ -631,6 +631,12 @@ export async function getPublicListings(opts?: {
    * occupancy snapshot itself passes false: it needs the listing ids and must not wait on the labels it produces.
    */
   liveAvailability?: boolean;
+  /**
+   * ONE listing, by record id: every per-listing read below (work number, work email, application form, pipeline,
+   * attribution) then runs for that row alone. The live availability check asks for one house and must not pay for
+   * the whole catalog to answer it.
+   */
+  propertyId?: string | null;
 }): Promise<MockProperty[]> {
   const db = createSupabaseServiceRoleClient();
   let query = db
@@ -647,6 +653,11 @@ export async function getPublicListings(opts?: {
   if (opts?.workspaceIds) {
     if (opts.workspaceIds.length === 0) return [];
     query = query.in("workspace_id", [...opts.workspaceIds]);
+  }
+  const onlyPropertyId = opts?.propertyId?.trim();
+  if (opts?.propertyId !== undefined) {
+    if (!onlyPropertyId) return [];
+    query = query.eq("id", onlyPropertyId);
   }
   const { data, error } = await query;
 

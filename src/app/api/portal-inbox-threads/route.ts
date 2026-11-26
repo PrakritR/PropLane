@@ -56,6 +56,8 @@ import {
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 
+import { stampViewerSelf } from "@/lib/communication/self-conversation";
+import { loadViewerSelfIdentity } from "@/lib/communication/self-conversation.server";
 import { isManagedReadOnly, managedReadOnlyOwnerLocked } from "@/lib/auth/managed-read-only.server";
 import { MANAGED_READ_ONLY_BODY, managedReadOnlyInboxLockApplies, managedReadOnlyInboxThreadAllowed, managedReadOnlyInboxWrites } from "@/lib/auth/managed-read-only-policy";
 
@@ -536,10 +538,18 @@ export async function GET(request: Request) {
 
     // The resident / vendor on the receiving end never sees the sender's provider receipts.
     const receivingSide = scopeParam === RESIDENT_INBOX_SCOPE || scopeParam === VENDOR_INBOX_SCOPE;
+    // "You are your Assistant": mark the manager rows that ARE the viewer (own account, confirmed email, verified
+    // phone), derived here from the session. A flag a client stored is overwritten; the list folds the marked rows
+    // into the viewer's Assistant. A failed phone read just leaves that row unmarked (its own row).
+    const selfIdentity = scopeParam === MANAGER_INBOX_SCOPE && ctx.user.id ? await loadViewerSelfIdentity(ctx.db, ctx.user) : null;
+    const stampSelf = (list: PersistedInboxThread[]) =>
+      selfIdentity
+        ? stampViewerSelf(list, selfIdentity)
+        : list.map(({ isViewerSelf: _ignored, ...rest }) => rest as PersistedInboxThread);
     return NextResponse.json({
       rows: [
         ...(scopeParam === MANAGER_INBOX_SCOPE
-          ? collapseAssistantInboxThreads(collapsed)
+          ? stampSelf(collapseAssistantInboxThreads(collapsed))
           : receivingSide
             ? collapsed.map(withoutDeliveryReceipts)
             : collapsed),

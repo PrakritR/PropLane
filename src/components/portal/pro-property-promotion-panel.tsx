@@ -419,6 +419,7 @@ export function ManagerPropertyPromotionPanel({
         const listingUrl = buildManagerListingUrl(
           typeof window !== "undefined" ? window.location.origin : "",
           propertyId,
+          property,
         );
         if (typeof navigator.share === "function") {
           try {

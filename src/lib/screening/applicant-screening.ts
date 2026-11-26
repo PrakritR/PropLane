@@ -51,6 +51,11 @@ export type ApplicantScreeningSettings = {
   backgroundCheck: boolean;
   /** With Checkr, the application unlocks when the ID result is clear (default) or right after the order is placed. */
   idUnlock: ApplicantIdUnlock;
+  /**
+   * Offer the applicant a Plaid income check on the Work and income step (OFF by default). It only OFFERS the check:
+   * skipping is always allowed, it never blocks a submit and no decision is tied to it (FCRA: counsel review pending).
+   */
+  verifyIncomeWithPlaid: boolean;
 };
 
 /**
@@ -59,7 +64,7 @@ export type ApplicantScreeningSettings = {
  * callers need not change.
  */
 export function defaultApplicantScreeningSettings(_managedWorkspace: boolean): ApplicantScreeningSettings {
-  return { idCheck: false, backgroundCheck: false, idUnlock: "clear" };
+  return { idCheck: false, backgroundCheck: false, idUnlock: "clear", verifyIncomeWithPlaid: false };
 }
 
 export function normalizeApplicantScreeningSettings(
@@ -71,6 +76,7 @@ export function normalizeApplicantScreeningSettings(
     idCheck: typeof row.idCheck === "boolean" ? row.idCheck : defaults.idCheck,
     backgroundCheck: typeof row.backgroundCheck === "boolean" ? row.backgroundCheck : defaults.backgroundCheck,
     idUnlock: row.idUnlock === "order" || row.idUnlock === "clear" ? row.idUnlock : defaults.idUnlock,
+    verifyIncomeWithPlaid: typeof row.verifyIncomeWithPlaid === "boolean" ? row.verifyIncomeWithPlaid : defaults.verifyIncomeWithPlaid,
   };
 }
 

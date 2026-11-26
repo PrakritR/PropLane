@@ -11,6 +11,7 @@ import {
   GOOGLE_CALENDAR_UNVERIFIED_APP_STEPS,
   isGoogleCalendarOAuthBlocked,
 } from "@/lib/google-calendar/connect-errors";
+import { googleCalendarStatusLine, GOOGLE_CALENDAR_STATUS_TIMEOUT_MS } from "@/lib/google-calendar/status-line";
 import { BANNER_INFO_CLASS } from "@/lib/ui-styles";
 
 type GoogleCalendarStatus = {
@@ -28,7 +29,19 @@ type GoogleCalendarStatus = {
   revoked?: boolean;
   /** Vendor only: push assigned visits/availability to this account's own Google Calendar. Default off. */
   vendorPushEnabled?: boolean;
+  lastSyncedAt?: string | null;
 };
+
+/** A request that gives up after `ms` instead of hanging the row on "Loading…". */
+async function fetchWithin(url: string, init: RequestInit, ms: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 const DEFAULT_API_BASE = "/api/portal/google-calendar";
 
@@ -65,30 +78,43 @@ export function GoogleCalendarConnectPanel({
 }) {
   const { showToast } = useAppUi();
   const [status, setStatus] = useState<GoogleCalendarStatus | null>(null);
+  // The read's own failure, so a hung or refused status never leaves the row on "Loading…" or blank.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [connectBlocked, setConnectBlocked] = useState(false);
   const inDialog = presentation === "dialog";
 
   const load = useCallback(async () => {
+    setLoadError(null);
     try {
       // link-session finishes a manager's post-sign-in Google link from the live auth session. The
       // vendor connect has its own OAuth flow and no such route, so it never asks (it 404'd).
       if (apiBase === DEFAULT_API_BASE) {
-        await fetch(`${apiBase}/link-session`, {
-          method: "POST",
-          credentials: "include",
-        }).catch(() => undefined);
+        await fetchWithin(`${apiBase}/link-session`, { method: "POST", credentials: "include" }, GOOGLE_CALENDAR_STATUS_TIMEOUT_MS).catch(
+          () => undefined,
+        );
       }
-      const res = await fetch(
+      const res = await fetchWithin(
         `${apiBase}?origin=${encodeURIComponent(window.location.origin)}`,
-        { credentials: "include" },
+        { credentials: "include", cache: "no-store" },
+        GOOGLE_CALENDAR_STATUS_TIMEOUT_MS,
       );
-      if (!res.ok) return;
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(res.status === 401 ? "Sign in again to see Google Calendar." : body?.error || `Could not read Google Calendar (${res.status}).`);
+      }
       const data = (await res.json()) as GoogleCalendarStatus;
       setStatus(data);
-    } catch {
+    } catch (e) {
       setStatus(null);
+      setLoadError(
+        e instanceof DOMException && e.name === "AbortError"
+          ? "Google Calendar did not answer. Try again."
+          : e instanceof Error && e.message
+            ? e.message
+            : "Could not read Google Calendar.",
+      );
     }
   }, [apiBase]);
 
@@ -197,6 +223,14 @@ export function GoogleCalendarConnectPanel({
     }
   };
 
+  const statusLine = googleCalendarStatusLine(
+    loadError && !status
+      ? { state: "error", message: loadError }
+      : status
+        ? { state: "ready", connected: status.connected, email: status.email, revoked: status.revoked, configured: status.configured, lastSyncedAt: status.lastSyncedAt }
+        : { state: "loading" },
+  );
+
   if (presentation === "integration") {
     const connected = Boolean(status?.connected);
     return (
@@ -206,15 +240,15 @@ export function GoogleCalendarConnectPanel({
           tone="text-blue-500"
           name="Google Calendar"
           dataAttr="integrations-google-calendar-row"
-          fact={connected ? status?.email || "Connected" : status?.revoked ? "Reconnect needed" : ""}
+          fact={statusLine}
           action={
             <Button
               variant="ghost"
               data-attr="vendor-integrations-google-calendar-connect"
-              disabled={busy || !status || (!connected && !status.configured)}
-              onClick={connected ? () => void disconnect() : startConnect}
+              disabled={busy || (!status && !loadError) || (!connected && status ? !status.configured : false)}
+              onClick={loadError && !status ? () => void load() : connected ? () => void disconnect() : startConnect}
             >
-              {connected ? "Disconnect" : status?.revoked ? "Reconnect" : "Connect"}
+              {loadError && !status ? "Retry" : connected ? "Disconnect" : status?.revoked ? "Reconnect" : "Connect"}
             </Button>
           }
         />
@@ -240,8 +274,8 @@ export function GoogleCalendarConnectPanel({
 
   if (presentation === "row") return <>
     <PortalSettingsRow label={<span className="flex items-center gap-3"><CalendarDays className="h-5 w-5 text-blue-500" />Google Calendar</span>}>
-      <div className="flex items-center gap-2"><span className="hidden text-xs text-muted sm:inline">{status?.connected ? `Connected · ${status.email ?? ""}` : status ? "" : "Loading…"}</span>
-      <Button variant="ghost" disabled={busy || !status || (!status.connected && !status.configured)} onClick={status?.connected ? () => disconnect() : startConnect}>{status?.connected ? "Disconnect" : "Connect"}</Button></div>
+      <div className="flex items-center gap-2"><span className={`max-w-[60vw] truncate text-xs sm:max-w-none ${loadError && !status ? "text-danger" : "text-muted"}`} role={loadError && !status ? "alert" : "status"} data-attr="settings-google-calendar-status">{statusLine}</span>
+      <Button variant="ghost" disabled={busy || (!status && !loadError) || (status ? !status.connected && !status.configured : false)} onClick={loadError && !status ? () => void load() : status?.connected ? () => disconnect() : startConnect}>{loadError && !status ? "Retry" : status?.connected ? "Disconnect" : status?.revoked ? "Reconnect" : "Connect"}</Button></div>
     </PortalSettingsRow>
     {connectError ? <p role="alert" className="px-4 py-2 text-sm text-danger">{connectError}</p> : null}
   </>;

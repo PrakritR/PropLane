@@ -23,6 +23,26 @@ describe("public occupancy refresh", () => {
     expect(mocks.load).toHaveBeenCalledWith(mocks.db, [{ id: "home" }]);
     expect(mocks.rate).toHaveBeenCalledWith("room-availability:test-ip", 10, 60_000);
   });
+
+  // AGENTS.md § Performance & egress: a snapshot cache is "Never for anything scoped to a viewer, a workspace, or a
+  // `fresh=1` read". The fresh branch therefore asks the loader for the ONE named listing, never the shared catalog
+  // the snapshot keeps for 60 s — which is what would let a just-closed room keep being offered.
+  it("builds only the named listing on a fresh read, and never the shared catalog", async () => {
+    await GET(request("?fresh=1&propertyId=home"));
+    expect(mocks.listings).toHaveBeenCalledTimes(1);
+    expect(mocks.listings).toHaveBeenCalledWith({ liveAvailability: false, propertyId: "home" });
+  });
+
+  it("reflects a room the manager just changed, with no catalog kept between fresh reads", async () => {
+    mocks.listings.mockResolvedValueOnce([{ id: "home", rooms: [{ id: "r3", availability: "Available now" }] }]);
+    mocks.load.mockResolvedValueOnce([{ roomId: "r3", open: true }]);
+    expect(await (await GET(request("?fresh=1&propertyId=home"))).json()).toEqual({ rooms: [{ roomId: "r3", open: true }] });
+
+    mocks.listings.mockResolvedValueOnce([{ id: "home", rooms: [{ id: "r3", availability: "Not available" }] }]);
+    mocks.load.mockResolvedValueOnce([{ roomId: "r3", open: false }]);
+    expect(await (await GET(request("?fresh=1&propertyId=home"))).json()).toEqual({ rooms: [{ roomId: "r3", open: false }] });
+    expect(mocks.listings).toHaveBeenCalledTimes(2);
+  });
   it("rejects unscoped or private-listing fresh reads", async () => {
     expect((await GET(request("?fresh=1"))).status).toBe(400);
     expect((await GET(request("?fresh=1&propertyId=private"))).status).toBe(404);
@@ -33,10 +53,11 @@ describe("public occupancy refresh", () => {
     expect((await GET(request("?fresh=1&propertyId=home"))).status).toBe(429);
     expect(mocks.listings).not.toHaveBeenCalled();
   });
-  it("retains CDN caching for the background snapshot", async () => {
+  it("retains CDN caching for the background snapshot, over the whole catalog", async () => {
     const res = await GET(request(""));
     expect(res.headers.get("cache-control")).toContain("s-maxage=60");
     expect(mocks.load).toHaveBeenCalledWith(mocks.db, [{ id: "home" }, { id: "other" }]);
+    expect(mocks.listings).toHaveBeenCalledWith({ liveAvailability: false });
   });
   it("rate-limits the cached snapshot read too", async () => {
     await GET(request(""));

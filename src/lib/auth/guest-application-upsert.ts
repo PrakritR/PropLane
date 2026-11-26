@@ -225,6 +225,8 @@ export async function prepareGuestApplicationUpsert(
     signedMonthlyRent: params.existing?.signedMonthlyRent ?? params.row.signedMonthlyRent,
     backgroundCheckStatus: params.existing?.backgroundCheckStatus ?? params.row.backgroundCheckStatus,
     screening: params.existing?.screening ?? params.row.screening,
+    // Verified income is server-owned (a guest has no session to verify with): only what is already stored counts.
+    incomeVerification: params.existing?.incomeVerification,
     manuallyAdded: params.existing?.manuallyAdded === true,
     manualResidentDetails: params.existing?.manualResidentDetails,
     moveInInstructions: params.existing?.moveInInstructions ?? params.row.moveInInstructions,

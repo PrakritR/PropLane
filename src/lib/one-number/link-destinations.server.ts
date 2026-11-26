@@ -2,7 +2,8 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HouseholdCharge } from "@/lib/household-charges";
-import { buildManagerApplyUrl, buildManagerListingUrl } from "@/lib/manager-property-links";
+import { buildManagerApplyUrl } from "@/lib/manager-property-links";
+import { buildReadableListingUrl } from "@/lib/seo/listing-slugs.server";
 import type { PhoneBoundLink } from "@/lib/one-number/links.server";
 import { revokePhoneBoundLinksForTarget } from "@/lib/one-number/links.server";
 import { normalizeE164 } from "@/lib/phone-e164";
@@ -250,7 +251,7 @@ export async function resolveLinkDestination(db: SupabaseClient, link: PhoneBoun
     case "application": {
       if (link.targetType !== "listing") return GONE;
       if (!(await propertyBelongsToWorkspace(db, link.targetId, link.workspaceId))) return GONE;
-      if (link.purpose === "gallery") return { kind: "redirect", href: buildManagerListingUrl("", link.targetId) };
+      if (link.purpose === "gallery") return { kind: "redirect", href: await buildReadableListingUrl("", link.targetId) };
       if (link.purpose === "tour") {
         return { kind: "redirect", href: `/rent/tours-contact?propertyId=${encodeURIComponent(link.targetId)}` };
       }

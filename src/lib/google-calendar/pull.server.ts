@@ -14,6 +14,7 @@ import {
   type GoogleCalendarConnection,
 } from "@/lib/google-calendar/settings";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { shouldRestamp } from "@/lib/write-skip";
 
 const GOOGLE_MEETING_RECORD_PREFIX = "axis_google_meeting_";
 
@@ -151,6 +152,12 @@ export async function pullGoogleCalendarMeetings(
   // the mirror; a transient Supabase failure otherwise drops those changes
   // from every future incremental pull.
   if (page.nextSyncToken && !page.truncated && writeFailures === 0) patch.syncToken = page.nextSyncToken;
+
+  // "Last sync" for the Integrations row: a pull that wrote everything. Re-stamped on the one shared interval, so a
+  // busy calendar page does not turn every poll into a connection write.
+  if (writeFailures === 0 && shouldRestamp({ lastStampIso: connection.lastSyncedAt, now: new Date(), changed: false })) {
+    patch.lastSyncedAt = new Date().toISOString();
+  }
 
   const needsChannel =
     !connection.channelId ||

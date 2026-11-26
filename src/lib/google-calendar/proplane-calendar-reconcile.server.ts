@@ -1,5 +1,6 @@
 import "server-only";
 
+import { tourEventFactsFromRecord } from "@/lib/google-calendar/tour-event-payload";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
@@ -453,6 +454,11 @@ async function dismissChange(
       await syncPlannedTourToGoogleCalendar(db, ownerUserId, {
         plannedEventId: owned.recordId,
         title: typeof owned.event.title === "string" ? owned.event.title : "Tour",
+        ...tourEventFactsFromRecord(owned.event),
+        propertyTitle: typeof owned.event.propertyTitle === "string" ? owned.event.propertyTitle : undefined,
+        attendeeName: typeof owned.event.attendeeName === "string" ? owned.event.attendeeName : undefined,
+        attendeeEmail: typeof owned.event.attendeeEmail === "string" ? owned.event.attendeeEmail : undefined,
+        attendeePhone: typeof owned.event.attendeePhone === "string" ? owned.event.attendeePhone : undefined,
         start: owned.expectedStart ?? change.previousStart ?? "",
         end: owned.expectedEnd ?? change.previousEnd ?? "",
         googleCalendarEventId: change.googleCalendarEventId,

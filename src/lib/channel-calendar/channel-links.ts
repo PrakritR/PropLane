@@ -70,7 +70,7 @@ export type ChannelConnectionStatus = {
  * "Error:" in red) composes them instead of cutting segments back off a formatted string.
  */
 export type ChannelStatusParts = {
-  /** "Not linked", "Synced" or "Waiting for <channel>"; "" when the error is the state. */
+  /** "Not linked", "Synced", "Not pulling" or "<channel> has not fetched PropLane yet"; "" when the error is the state. */
   state: string;
   /** The last error, without a leading "Error:", or null. */
   error: string | null;
@@ -78,19 +78,37 @@ export type ChannelStatusParts = {
   details: string[];
 };
 
+/** Agoda says its calendar connections "refresh several times a day": a full day of silence is not pulling. */
+export const AGODA_FEED_STALE_AFTER_MS = 24 * 60 * 60_000;
+
+/** "Agoda": the one site PropLane recognizes by the name on an Other calendar link, any case. One rule, one place. */
+export function isAgodaLabel(label: string | null | undefined): boolean {
+  return (label ?? "").trim().toLowerCase() === "agoda";
+}
+
+/** Whether an Other calendar link is the Agoda row (an `ical` link named "Agoda"). */
+export function isAgodaSite(provider: ChannelCalendarProvider, label?: string | null): boolean {
+  return provider === "ical" && isAgodaLabel(label);
+}
+
 export function channelStatusParts(
   connection: ChannelConnectionStatus | null | undefined,
   now: Date = new Date(),
   provider: ChannelCalendarProvider = "airbnb",
   label?: string | null,
+  /** How long since the platform's last fetch counts as having stopped: past it the line reads "Not pulling". */
+  opts?: { staleAfterMs?: number },
 ): ChannelStatusParts {
   const channel = channelCalendarProviderLabel(provider, label);
   if (!connection?.hasImportUrl) return { state: "Not linked", error: null, details: [] };
   const fetched = formatCheckedAt(connection.exportLastFetchedAt ?? null, now);
   const synced = formatCheckedAt(connection.lastSyncedAt, now);
   const error = connection.lastError?.trim().replace(/^Error:\s*/, "") || null;
+  const fetchedMs = connection.exportLastFetchedAt ? Date.parse(connection.exportLastFetchedAt) : NaN;
+  const stale =
+    opts?.staleAfterMs !== undefined && Number.isFinite(fetchedMs) && now.getTime() - fetchedMs > opts.staleAfterMs;
   return {
-    state: error ? "" : fetched ? "Synced" : `Waiting for ${channel}`,
+    state: error ? "" : fetched ? (stale ? "Not pulling" : "Synced") : `${channel} has not fetched PropLane yet`,
     error,
     details: [fetched && `${channel} ${fetched}`, synced && `PropLane ${synced}`].filter(
       (part): part is string => Boolean(part),
@@ -104,7 +122,8 @@ export function channelStatusLine(
   now: Date = new Date(),
   provider: ChannelCalendarProvider = "airbnb",
   label?: string | null,
+  opts?: { staleAfterMs?: number },
 ): string {
-  const parts = channelStatusParts(connection, now, provider, label);
+  const parts = channelStatusParts(connection, now, provider, label, opts);
   return [parts.error ? `Error: ${parts.error}` : parts.state, ...parts.details].filter(Boolean).join(" · ");
 }

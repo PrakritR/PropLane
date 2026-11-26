@@ -584,7 +584,10 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
   {
     table: "sms_inbound_receipts",
     phase: 1,
-    manager: { ids: ["manager_user_id"] },
+    // `reply_owner_user_id` is the workspace owner a prepared reply was delivered to, which for a
+    // multi-role sender is a DIFFERENT manager than the work number's owner. That manager is only
+    // referenced here, so their purge nulls the column and leaves the number owner's receipt row.
+    manager: { ids: ["manager_user_id"], detachIds: ["reply_owner_user_id"] },
     resident: { detachIds: ["counterparty_user_id"] },
     vendor: { detachIds: ["counterparty_user_id"] },
   },
@@ -711,6 +714,23 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     table: "manager_bank_accounts",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
+  },
+  {
+    // Plaid bank links (access token encrypted, service role only). One login can hold items of
+    // several purposes: a manager's bank feed, a resident's bank pay and income check. A single
+    // portal's removal drops only that portal's purposes (PLAID_PURPOSES_BY_SCOPE in
+    // purge-portal-account-data.ts); a full delete drops them all after a best-effort /item/remove.
+    table: "plaid_items",
+    phase: 2,
+    manager: { ids: ["owner_user_id"] },
+    resident: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
+  },
+  {
+    // Plaid-verified applicant income (a figure only, no token): the applicant's own, so a resident removal drops it.
+    table: "applicant_income_verifications",
+    phase: 2,
+    resident: { ids: ["user_id"] },
   },
   {
     table: "manager_budgets",
