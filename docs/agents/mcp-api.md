@@ -161,7 +161,7 @@ Anthropic egress addresses. "Too Many Requests" on connect came from the old
 - Discovery (`/.well-known/*`) and a request with no credential: not limited, no lookup.
 - `/api/mcp` authenticated: 300/min per grant (key or OAuth token), never per address.
 - `/api/mcp` failed credentials: 30/min per IP, counting failures only.
-- Registration: 60/min per IP. Token endpoint: 120/min per IP and 60/min per client id.
+- Registration: 60/min per IP. Token endpoint: 120/min per IP.
 
 The catalog is deliberate: a newly added tool is not externally available until
 it is assigned to a product area in the capabilities file. `EXTERNAL_EXCLUDED_TOOL_NAMES`

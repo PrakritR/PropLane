@@ -64,21 +64,24 @@ export function McpConnectNotice({ title, line, actionHref = "/portal", actionLa
 
 /**
  * The consent screen's "Connect as" control: a dropdown of the workspaces the person may connect (PropLane
- * Service workspaces they staff included) and "As resident", or plain text when there is only one. The value is
- * posted as `target`; the approve route re-derives the list and refuses anything not on it.
+ * Service workspaces they staff included) and "As resident", or plain text when there is only one. It renders
+ * OUTSIDE the approve form, so `formId` is what makes it part of that submission: without a form owner the
+ * control is not submitted at all and every connection would be minted for the server-computed default. The
+ * value is posted as `target`; the approve route re-derives the list and refuses anything not on it.
  */
-export function McpTargetPicker({ options, defaultValue }: { options: { value: string; label: string }[]; defaultValue: string }) {
+export function McpTargetPicker({ options, defaultValue, formId }: { options: { value: string; label: string }[]; defaultValue: string; formId: string }) {
   if (options.length === 1) {
     return (
       <>
         {options[0].label}
-        <input type="hidden" name="target" value={options[0].value} />
+        <input type="hidden" name="target" value={options[0].value} form={formId} />
       </>
     );
   }
   return (
     <select
       name="target"
+      form={formId}
       defaultValue={defaultValue}
       aria-label="Connect as"
       data-attr="mcp-consent-target-select"

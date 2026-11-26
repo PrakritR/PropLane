@@ -79,7 +79,11 @@ export async function listManagerConnectOptions(db: SupabaseClient, userId: stri
   return options;
 }
 
-/** Everything the consent screen shows for the signed-in browser session, or null when signed out / no door. */
+/**
+ * Everything the consent screen shows for the signed-in browser session, or null when SIGNED OUT — and only then.
+ * An empty `options` is "we could not work out a door right now" (no seat at all, or a workspace read that failed):
+ * the screen says so and offers a way back, because sending a signed-in person to sign in returns them here.
+ */
 export async function loadMcpConsent(): Promise<McpConsent | null> {
   const auth = await createSupabaseServerClient();
   const { data } = await auth.auth.getUser();
@@ -92,7 +96,6 @@ export async function loadMcpConsent(): Promise<McpConsent | null> {
   ]);
   const options: McpConsentOption[] = manager ? await listManagerConnectOptions(db, user.id).catch(() => []) : [];
   if (resident) options.push({ value: MCP_RESIDENT_TARGET, kind: "resident", label: "As resident" });
-  if (options.length === 0) return null;
   const activeWorkspaceId = manager?.workspace?.id?.trim() ?? "";
   const preferred = options.find((o) => o.kind === "workspace" && o.workspaceId === activeWorkspaceId);
   return {
@@ -100,7 +103,7 @@ export async function loadMcpConsent(): Promise<McpConsent | null> {
     email: (manager?.email || resident?.email || user.email || "").trim().toLowerCase(),
     db,
     options,
-    defaultValue: (preferred ?? options[0]).value,
+    defaultValue: (preferred ?? options[0])?.value ?? "",
   };
 }
 

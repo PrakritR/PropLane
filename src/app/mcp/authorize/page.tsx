@@ -8,6 +8,8 @@ import { getMcpOAuthClient, MCP_OAUTH_SCOPE, signMcpApproval } from "@/lib/mcp/o
 
 export const metadata = { title: "Connect to PropLane", robots: { index: false, follow: false } };
 
+const APPROVE_FORM_ID = "mcp-approve";
+
 type Search = Record<string, string | string[] | undefined>;
 function value(search: Search, key: string): string { const raw = search[key]; return typeof raw === "string" ? raw : ""; }
 
@@ -25,6 +27,14 @@ export default async function McpAuthorizePage({ searchParams }: { searchParams:
   const authorizeUrl = `/mcp/authorize?${authorizeParams.toString()}`;
   const actor = await loadMcpConsent();
   if (!actor) redirect(`/auth/sign-in?next=${encodeURIComponent(authorizeUrl)}`);
+  if (actor.options.length === 0) {
+    return (
+      <McpConnectNotice
+        title="Nothing to connect yet"
+        line="We couldn’t work out what this account may connect as. Open PropLane, pick the workspace you want, then start the connection again."
+      />
+    );
+  }
   const client = await getMcpOAuthClient(actor.db, clientId);
   const valid = responseType === "code" && method === "S256" && challenge.length >= 43 && scope.split(/\s+/).every((item) => item === MCP_OAUTH_SCOPE) && Boolean(client?.redirectUris.includes(redirectUri));
   if (!valid || !client) {
@@ -49,13 +59,13 @@ export default async function McpAuthorizePage({ searchParams }: { searchParams:
       <McpConnectRows
         rows={[
           { label: "Signed in as", value: <>{actor.email} <McpSwitchAccountLink returnTo={authorizeUrl} /></>, attr: "mcp-consent-account" },
-          { label: "Connect as", value: <McpTargetPicker options={actor.options} defaultValue={actor.defaultValue} />, attr: "mcp-consent-target" },
+          { label: "Connect as", value: <McpTargetPicker options={actor.options} defaultValue={actor.defaultValue} formId={APPROVE_FORM_ID} />, attr: "mcp-consent-target" },
           { label: "App", value: clientName, attr: "mcp-consent-app" },
           { label: "Can read", value: readLabel, attr: "mcp-consent-read" },
           { label: "Can do", value: doLabel, attr: "mcp-consent-do" },
         ]}
       />
-      <form action="/api/mcp/oauth/approve" method="post" className="mt-6 grid grid-cols-2 gap-3">
+      <form id={APPROVE_FORM_ID} action="/api/mcp/oauth/approve" method="post" className="mt-6 grid grid-cols-2 gap-3">
         <input type="hidden" name="approval" value={approval} />
         <Button type="submit" className="order-2 w-full" data-attr="mcp-consent-allow">Allow</Button>
         <Button type="submit" variant="ghost" className="order-1 w-full" formAction="/api/mcp/oauth/deny" formNoValidate data-attr="mcp-consent-cancel">Cancel</Button>

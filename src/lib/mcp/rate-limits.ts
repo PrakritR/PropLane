@@ -18,7 +18,6 @@ export const MCP_LIMITS = {
   callsPerGrant: 300,
   /** Dynamic client registrations per IP per minute: one per connect, with room for a shared egress address. */
   registerPerIp: 60,
-  /** Token requests per IP per minute (code exchange + refreshes), and per client id. */
+  /** Token requests per IP per minute (code exchange + refreshes). */
   tokenPerIp: 120,
-  tokenPerClient: 60,
 } as const;

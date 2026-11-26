@@ -102,21 +102,24 @@ export async function lookupPropertyKnowledge(
     topic: REPLY_TOPIC_LABELS[e.topic],
     appliesTo: e.propertyId ? "this house" : "all houses",
   }));
-  const found = answers.length > 0 || houseDetails.length > 0 || houseManual.length > 0;
   // A plain question about a WRITTEN fee or money policy (deposit return, a lockout fee) is answered from the manual; a
   // dispute, a waiver, a legal, a safety or a FAIR-HOUSING matter is handed to the team whatever the manual says.
   const answerFromManual = houseManual.length > 0 && mustEscalate === "money" && !isDisputeText(question);
   const escalate = answerFromManual ? null : mustEscalate;
+  // A fair-housing question goes to a person, so the policy text does not travel with it: the model never holds the
+  // manual and a hand-off instruction on the same turn.
+  const manual = escalate === "fair_housing" ? [] : houseManual;
+  const found = answers.length > 0 || houseDetails.length > 0 || manual.length > 0;
   return {
     found,
     answers,
     houseDetails,
-    ...(houseManual.length > 0 ? { houseManual } : {}),
+    ...(manual.length > 0 ? { houseManual: manual } : {}),
     mustEscalate: escalate,
     guidance: escalate
       ? `This touches ${escalate!.replace("_", " ")}. Always hand it to the team: tell the person the team will follow up, then escalate.`
       : found
-        ? houseManual.length > 0
+        ? manual.length > 0
           ? "Answer fees and policies from houseManual, quoting its amounts and terms exactly (never a number it does not state). Say it is not in PropLane only when neither the manual, the answers nor the details cover it, then offer to pass it to the manager."
           : "Answer only from these approved facts and the house details. If they do not fully cover the question, say so and escalate."
         : NOT_FOUND_GUIDANCE,

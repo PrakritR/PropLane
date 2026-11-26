@@ -107,16 +107,18 @@ describe("MCP rate limits fit a normal Claude client", () => {
     expect(statuses.slice(MCP_LIMITS.registerPerIp)).toEqual([429, 429]);
   });
 
-  it("token exchanges and refreshes fit, per address and per client", async () => {
+  it("token exchanges and refreshes fit one address, and only the address brakes them", async () => {
     m.exchangeMcpAuthorizationCode.mockResolvedValue({ accessToken: "a", refreshToken: "r", scopes: ["mcp:tools"] });
     const address = ip();
-    const req = (clientId: string) => {
+    const req = (clientId: string, from = address) => {
       const form = new URLSearchParams({ grant_type: "authorization_code", client_id: clientId, code: "c", redirect_uri: "https://claude.ai/cb", code_verifier: "v" });
-      return new Request("https://proplane.ai/api/mcp/oauth/token", { method: "POST", headers: { "x-forwarded-for": address, "content-type": "application/x-www-form-urlencoded" }, body: form });
+      return new Request("https://proplane.ai/api/mcp/oauth/token", { method: "POST", headers: { "x-forwarded-for": from, "content-type": "application/x-www-form-urlencoded" }, body: form });
     };
-    for (let i = 0; i < MCP_LIMITS.tokenPerClient; i++) expect((await token(req(`client_${address}`))).status).toBe(200);
-    expect((await token(req(`client_${address}`))).status).toBe(429);
-    expect((await token(req(`other_${address}`))).status).toBe(200);
+    // Every connect and refresh from one shared Anthropic address fits, whichever registered client made it: the
+    // `client_id` is a value the caller picks (registration is unauthenticated), so it never gets a bucket of its own.
+    for (let i = 0; i < MCP_LIMITS.tokenPerIp; i++) expect((await token(req(`client_${i % 3}`))).status).toBe(200);
+    expect((await token(req("client_0"))).status).toBe(429);
+    expect((await token(req("client_0", ip()))).status).toBe(200);
   });
 });
 

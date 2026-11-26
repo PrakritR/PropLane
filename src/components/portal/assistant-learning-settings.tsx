@@ -104,9 +104,11 @@ export function EscalationContactSection() {
             }}
           />
         </PortalSettingsRow>
-        <PortalSettingsRow label="Number shared">
-          <span className="text-[15px] text-foreground" data-attr="escalation-contact-phone">{view.phone ?? "None verified"}</span>
-        </PortalSettingsRow>
+        {view.canEdit ? (
+          <PortalSettingsRow label="Number shared">
+            <span className="text-[15px] text-foreground" data-attr="escalation-contact-phone">{view.phone ?? "None verified"}</span>
+          </PortalSettingsRow>
+        ) : null}
       </PortalSettingsGroup>
     </PortalSettingsSection>
   );

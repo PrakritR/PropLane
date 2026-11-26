@@ -9,6 +9,7 @@ import { lookupPropertyKnowledge } from "@/lib/one-number/knowledge/lookup.serve
 import { houseManualForScope, isDisputeText } from "@/lib/one-number/knowledge/house-manual";
 import { KNOWLEDGE_RULES_RESIDENT_PROSPECT_VENDOR } from "@/lib/one-number/knowledge/prompt";
 import { RESIDENT_SMS_AGENT_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
+import { RESIDENT_SYSTEM_PROMPT } from "@/lib/agent/resident-system-prompt";
 
 const MANUAL = [
   "Lockout fee: $25 each time.",
@@ -62,6 +63,9 @@ describe("house manual: fees and policies come from the tool", () => {
       expect(out.mustEscalate, q).toBe("fair_housing");
       expect(out.guidance, q).toMatch(/Always hand it to the team/);
       expect(out.guidance, q).not.toMatch(/Answer fees and policies from houseManual/);
+      // The policy text does not ride along with the hand-off: the model never holds the manual and "escalate" at once.
+      expect(out.houseManual, q).toBeUndefined();
+      expect(JSON.stringify(out), q).not.toContain("Emotional support");
     }
   });
 
@@ -94,11 +98,23 @@ describe("house manual: fees and policies come from the tool", () => {
   });
 });
 
-describe("prompts send fee and policy questions to the manual", () => {
+// The emitted system prompt is the generated interface handed to the agent, so it is read here as text. What it must
+// NOT say is the point: a protected-class example in an "answer it from the manual" list contradicts the gate above.
+describe("the emitted prompts send fees to the manual and fair housing to a person", () => {
   it("the shared knowledge rules and the resident SMS prompt name houseManual and forbid inventing a fee", () => {
     expect(KNOWLEDGE_RULES_RESIDENT_PROSPECT_VENDOR).toMatch(/houseManual/);
     expect(KNOWLEDGE_RULES_RESIDENT_PROSPECT_VENDOR).toMatch(/not in PropLane/);
-    expect(RESIDENT_SMS_AGENT_SYSTEM_PROMPT).toMatch(/lockout, luggage storage, extension pricing, guests, service or support animals, deposit return/);
+    expect(RESIDENT_SMS_AGENT_SYSTEM_PROMPT).toMatch(/lockout, luggage storage, extension pricing, guests, deposit return/);
     expect(RESIDENT_SMS_AGENT_SYSTEM_PROMPT).toMatch(/Never invent a fee/);
+  });
+
+  it("every sentence that names a protected class hands the question to a person", () => {
+    for (const prompt of [KNOWLEDGE_RULES_RESIDENT_PROSPECT_VENDOR, RESIDENT_SMS_AGENT_SYSTEM_PROMPT, RESIDENT_SYSTEM_PROMPT]) {
+      const risky = prompt.split(/(?<=[.!?])\s+/).filter((sentence) => /support animal|service animal|protected class|housing voucher|\bchildren\b/i.test(sentence));
+      expect(risky.length, prompt.slice(0, 40)).toBeGreaterThan(0);
+      for (const sentence of risky) {
+        expect(sentence, sentence).toMatch(/never answered|Always hand|hand it to the team|property manager will answer/i);
+      }
+    }
   });
 });

@@ -154,31 +154,8 @@ describe("the work email belongs to the workspace, exactly like the work number"
   });
 });
 
-/**
- * The identity half: a manager's outbound mail carries the WORKSPACE work email with the
- * sender's own name on it, from BOTH send paths — the compose route was the one still
- * leaving as the shared "PropLane" sender.
+/*
+ * The identity half — a manager's outbound mail carries the WORKSPACE work email with the sender's own name, and a
+ * PropLane Service staff send leaves on the workspace OWNER's address — is asserted over the real resolvers in
+ * tests/unit/communication-managed-workspace-accuracy.test.ts ("staff answer as the workspace").
  */
-describe("outbound identity is the workspace address on every manager send path", () => {
-  it("the shared delivery path resolves the sender's workspace work email", () => {
-    const delivery = readFileSync("src/lib/portal-inbox-delivery.ts", "utf8");
-    expect(delivery).toContain("resolveManagerOutboundFrom");
-    expect(delivery).toContain("fromAddress");
-  });
-
-  it("the compose route does too, for manager senders only", () => {
-    const route = readFileSync("src/app/api/portal/send-inbox-message/route.ts", "utf8");
-    expect(route).toContain("resolveManagerOutboundFrom(db, managedSendOwnerId ?? user.id)");
-    expect(route).toMatch(/senderRole === "manager"\s*\?\s*await resolveManagerOutboundFrom/);
-  });
-
-  it("the identity resolver reads the workspace address", () => {
-    const identity = readFileSync("src/lib/manager-outbound-identity.server.ts", "utf8");
-    expect(identity).toContain("resolveWorkspaceWorkEmail");
-  });
-
-  it("the email transport prefers it over the shared sender", () => {
-    const send = readFileSync("src/lib/portal-email-send.server.ts", "utf8");
-    expect(send).toMatch(/opts\.fromAddress\?\.trim\(\)\s*\|\|\s*sharedPortalFromAddress\(\)/);
-  });
-});

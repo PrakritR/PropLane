@@ -9,8 +9,15 @@ import {
 } from "@/lib/communication/conversation-visibility.server";
 import { mergeInboxThreadRowData } from "@/lib/communication/shared-thread-merge";
 import { recipientReachFromScope, managerMayMessageNewContacts } from "@/lib/inbox-recipient-scope";
+import { managerOutboundFromHeader, resolveManagerOutboundFrom, sharedPortalFromAddress } from "@/lib/manager-outbound-identity.server";
 
 vi.mock("server-only", () => ({}));
+// Boundary: whether a workspace HAS a work address is that module's own business (tests/unit/workspace-send-identity).
+// Here the only question is WHOSE identity the outbound From is resolved for.
+vi.mock("@/lib/manager-assistant-email/manager-assistant-email.server", () => ({
+  resolveWorkspaceWorkEmail: async (_db: unknown, userId: string) =>
+    userId === "client-ambika" ? { address: "assist-ambika@proplane.ai" } : null,
+}));
 
 /**
  * One managed workspace's Communication shows every conversation stamped with it, whoever holds the row, and the
@@ -105,6 +112,24 @@ describe("staff answer as the workspace", () => {
     expect(managedWorkspaceOwnerOf(scope())).toBe(CLIENT);
     expect(managedWorkspaceOwnerOf(ownWorkspace)).toBeNull();
     expect(managedWorkspaceOwnerOf(scope({ activeWorkspaceId: "ws-other" }))).toBeNull();
+  });
+
+  // The mail a staff send leaves on is the WORKSPACE's, so the From is resolved for the workspace owner the seat
+  // names — not the operator whose own default workspace is another one. Oracle: the module's documented header form
+  // ("<sender name> <workspace address>") and `sharedPortalFromAddress()` as the no-work-email fallback. A send
+  // resolved for the signed-in operator instead would carry no workspace address at all.
+  it("a staff send's From is the managed workspace owner's work address, not the operator's", async () => {
+    const profiles = { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { full_name: "Prakrit R" } }) }) }) }) } as never;
+    const staffSendOwner = managedWorkspaceOwnerOf(scope()) ?? STAFF;
+    expect(await resolveManagerOutboundFrom(profiles, staffSendOwner)).toBe("Prakrit R <assist-ambika@proplane.ai>");
+    expect(await resolveManagerOutboundFrom(profiles, STAFF)).toBeNull();
+  });
+
+  it("a self-serve sender keeps their own id, and no work address keeps the shared PropLane sender", async () => {
+    const profiles = { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { full_name: "Dana" } }) }) }) }) } as never;
+    expect(managedWorkspaceOwnerOf(ownWorkspace) ?? STAFF).toBe(STAFF);
+    expect(await managerOutboundFromHeader(profiles, STAFF)).toBe(sharedPortalFromAddress());
+    expect(await managerOutboundFromHeader(profiles, CLIENT)).toBe("Dana <assist-ambika@proplane.ai>");
   });
 
   it("staff may append an outbound turn to the client's thread with no house grant, attributed by the server", () => {

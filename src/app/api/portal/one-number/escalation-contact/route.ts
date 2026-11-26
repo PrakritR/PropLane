@@ -12,7 +12,9 @@ export const runtime = "nodejs";
 async function view(actor: { db: Parameters<typeof resolveEscalationContact>[0]; workspaceId: string; ownerUserId: string; userId: string; isOwner: boolean }) {
   const contact = await resolveEscalationContact(actor.db, { ownerUserId: actor.ownerUserId, workspaceId: actor.workspaceId });
   const canEdit = contact.kind === "managed" ? await isAdminUser(actor.userId).catch(() => false) : actor.isOwner;
-  return { enabled: contact.enabled, phone: contact.phoneDisplay, managed: contact.kind === "managed", canEdit };
+  // The number is the owner's own verified mobile (the operator's on a managed workspace): only whoever may change
+  // this setting reads it. A Communication-read teammate sees the setting, never the personal number behind it.
+  return { enabled: contact.enabled, phone: canEdit ? contact.phoneDisplay : null, managed: contact.kind === "managed", canEdit };
 }
 
 export async function GET() {

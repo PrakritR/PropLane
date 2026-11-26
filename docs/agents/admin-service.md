@@ -30,6 +30,7 @@ them after the move.
   the dispatcher's readiness check, the number resolvers and Settings > Communication > Work identity all read it, an unreadable own
   number falls to the PropLane line, and an unresolvable PropLane line refuses the send. The 206 tells a text about such a home to use
   the workspace's number. Nothing here releases or buys a number. Detail: [`one-number.md`](one-number.md) § W29.
+- Opening a workspace sets the portal workspace cookie after `authorizeOpenServiceWorkspace` re-derives membership.
 - Work number column: the row states `resolveServiceLine`'s number for that workspace (own, or the PropLane line) as
   "(206) 678-1909 · PropLane line" (`workNumberFactLabel`), never a number the workspace once held; an unresolvable or unreadable line
   shows "No number". A live number the workspace still holds besides the line is its **old number**: it keeps receiving (a text to it

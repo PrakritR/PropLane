@@ -14,8 +14,6 @@ export async function POST(req: Request) {
   if (!form) return oauthError("invalid_request");
   const grantType = String(form.get("grant_type") ?? "");
   const clientId = String(form.get("client_id") ?? "");
-  // A second, per-client bucket: one client's refreshes cannot be starved by (or starve) others on a shared address.
-  if (clientId && !(await rateLimit(`mcp-oauth-token-client:${clientId.slice(0, 80)}`, MCP_LIMITS.tokenPerClient, MCP_LIMITS.windowMs)).ok) return oauthError("slow_down", 429);
   const db = createSupabaseServiceRoleClient();
   const issued = grantType === "authorization_code"
     ? await exchangeMcpAuthorizationCode(db, { code: String(form.get("code") ?? ""), clientId, redirectUri: String(form.get("redirect_uri") ?? ""), codeVerifier: String(form.get("code_verifier") ?? "") })
