@@ -186,7 +186,8 @@ describe("Test workflow resource budget", () => {
     // The deploy ladder added a staging rung, so the bounded smoke now also
     // guards pushes to staging. Still bounded — still not the full suite.
     expect(e2e.if).toBe("github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging')");
-    expect(jobTimeoutMinutes("e2e")).toBeLessThanOrEqual(20);
+    // Bounded, but sized for the production build Playwright runs first (~15 min on Nov 26).
+    expect(jobTimeoutMinutes("e2e")).toBeLessThanOrEqual(36);
     expect(e2e.steps).toContainEqual(expect.objectContaining({ run: "npm run test:e2e:smoke" }));
   });
 

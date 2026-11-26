@@ -33,7 +33,7 @@
     "one-number:migrations": "node scripts/one-number/list-migrations.mjs",
     "test:integration": "vitest run tests/integration",
     "test:e2e": "playwright test",
-    "test:e2e:smoke": "playwright test tests/e2e/ladder-smoke.spec.ts tests/e2e/public-home.spec.ts tests/e2e/public-tours.spec.ts --no-deps --global-timeout=840000",
+    "test:e2e:smoke": "playwright test tests/e2e/ladder-smoke.spec.ts tests/e2e/public-home.spec.ts tests/e2e/public-tours.spec.ts --no-deps --global-timeout=1680000",
     "test:e2e:ui": "playwright test --ui",
     "mcp:playwright:install": "playwright install chromium",
     "test:e2e:ladder-smoke": "playwright test tests/e2e/ladder-smoke.spec.ts",

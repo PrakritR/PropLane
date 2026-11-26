@@ -58,11 +58,12 @@ export default defineConfig({
         stdout: "pipe",
         url: baseURL,
         reuseExistingServer: !process.env.CI,
-        // The CI production build (`npm run build`) alone now exceeds 3 minutes, so allow 7.
+        // The CI production build (`npm run build`) now takes about 15 minutes (Nov 26: the
+        // `build` job ran 15m02s and staging e2e timed out twice at 7), so allow 18.
         // This is spent inside whichever `--global-timeout` governs the run, so it must
         // leave the specs room; `tests/unit/ci-test-workflow.test.ts` pins that against
         // `test:e2e:smoke`'s own cap.
-        timeout: 420_000,
+        timeout: 1_080_000,
       },
   projects: [
     ...(portalE2eEnabled
