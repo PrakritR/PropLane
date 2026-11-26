@@ -78,20 +78,23 @@ export const listVacantRoomsTool = defineTool({
       return { count: 0, houses: [], message: ask ? `No house matching "${ask}" on this account.` : "No houses on this account." };
     }
     const today = pacificTodayKey();
-    const houses: Array<{ propertyId: string; title: string; vacantNow: Array<{ room: string; rent: string | null }>; opening: Array<{ room: string; from: string }>; verified: boolean }> = [];
-    for (const property of readable.slice(0, MAX_HOUSES)) {
-      const result = await roomAvailabilityForRange({ propertyId: property.id, moveIn: today }, { submission: property.submission });
-      if (!result.ok) {
-        houses.push({ propertyId: property.id, title: property.title, vacantNow: [], opening: [], verified: false });
-        continue;
-      }
-      const vacantNow = result.rooms.filter((r) => r.available === true).map((r) => ({ room: r.roomLabel, rent: r.rentLabel }));
-      const opening = result.rooms
-        .filter((r) => r.available === false && r.nextAvailableFrom)
-        .map((r) => ({ room: r.roomLabel, from: r.nextAvailableFrom! }))
-        .sort((a, b) => a.from.localeCompare(b.from));
-      houses.push({ propertyId: property.id, title: property.title, vacantNow, opening, verified: result.verified });
-    }
+    type VacantHouse = { propertyId: string; title: string; vacantNow: Array<{ room: string; rent: string | null }>; opening: Array<{ room: string; from: string }>; verified: boolean };
+    // The houses are independent reads: run them together (up to MAX_HOUSES) instead of one after another. The result
+    // keeps the calendar's house order.
+    const houses: VacantHouse[] = await Promise.all(
+      readable.slice(0, MAX_HOUSES).map(async (property): Promise<VacantHouse> => {
+        const result = await roomAvailabilityForRange({ propertyId: property.id, moveIn: today }, { submission: property.submission });
+        if (!result.ok) {
+          return { propertyId: property.id, title: property.title, vacantNow: [], opening: [], verified: false };
+        }
+        const vacantNow = result.rooms.filter((r) => r.available === true).map((r) => ({ room: r.roomLabel, rent: r.rentLabel }));
+        const opening = result.rooms
+          .filter((r) => r.available === false && r.nextAvailableFrom)
+          .map((r) => ({ room: r.roomLabel, from: r.nextAvailableFrom! }))
+          .sort((a, b) => a.from.localeCompare(b.from));
+        return { propertyId: property.id, title: property.title, vacantNow, opening, verified: result.verified };
+      }),
+    );
     return { count: houses.reduce((n, h) => n + h.vacantNow.length, 0), houses };
   },
 });

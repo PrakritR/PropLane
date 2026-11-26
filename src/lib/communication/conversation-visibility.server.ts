@@ -145,6 +145,33 @@ function threadWorkLines(rowData: unknown): string[] {
   return typeof line === "string" && line.trim() ? [line.trim()] : [];
 }
 
+/**
+ * The workspace a stored thread is stamped with: the `workspace_id` column, else the `row_data.workspaceId` the writer
+ * stamped before the column existed (older SMS notices and leasing threads carry only that one). The column wins.
+ * Without the fallback an unstamped-by-column thread followed the OWNER's default workspace, so a managed workspace's
+ * texts showed in the operator's own workspace and were missing from the managed one.
+ */
+export function storedThreadWorkspaceId(record: { workspace_id?: string | null; row_data?: unknown }): string | null {
+  const column = clean(record.workspace_id);
+  if (column) return column;
+  const rowData = record.row_data;
+  if (rowData && typeof rowData === "object" && !Array.isArray(rowData)) {
+    const stamped = clean((rowData as { workspaceId?: unknown }).workspaceId);
+    if (stamped) return stamped;
+  }
+  return null;
+}
+
+/**
+ * The client owner of the ACTIVE managed workspace when the viewer runs it as PropLane Service staff, else null. The
+ * one answer to "whose conversations am I writing as": derived from the viewer's seat (`staffWorkspaceOwners`), never
+ * from a body id.
+ */
+export function managedWorkspaceOwnerOf(scope: Pick<CommunicationScope, "activeWorkspaceId" | "staffWorkspaceOwners">): string | null {
+  const active = clean(scope.activeWorkspaceId);
+  return (active ? scope.staffWorkspaceOwners?.get(active) : undefined) ?? null;
+}
+
 /** Every workspace a house-less conversation is visible in by the line it used, or null when no line places it. */
 function workspaceHoldersForLines(scope: CommunicationScope, lines: readonly string[] | undefined): Set<string> | null {
   if (!lines || scope.workspaceByLine.size === 0) return null;
@@ -659,7 +686,7 @@ export async function filterVisibleInboxThreadRecords<T extends StoredInboxThrea
         houseIds: houses.map((h) => h.propertyId),
         threadType: record.thread_type ?? null,
         threadId: record.id,
-        workspaceId: record.workspace_id ?? null,
+        workspaceId: storedThreadWorkspaceId(record),
         lines: threadWorkLines(record.row_data),
       })
     ) {

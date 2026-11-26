@@ -1,5 +1,6 @@
 /**
- * One rule for the number a public listing says to text: PropLane-managed workspace -> the PropLane line;
+ * One rule for the number a public listing says to text: PropLane-managed workspace -> its own registered number when it
+ * has one (`resolveServiceLine`, Nov 24: (814) 679-3694), else the PropLane line;
  * a customer's own workspace -> its own active work number, else the PropLane line. A failed is_service
  * read is treated as not managed.
  */
@@ -11,6 +12,15 @@ const OWN = "+14255550123";
 const ownNumber = vi.hoisted(() => vi.fn());
 const publicConfig = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/sms/manager-number-provisioning.server", () => ({ resolveActiveManagerSendNumber: ownNumber }));
+const MANAGED_OWN = "+18146793694";
+const managedHasOwn = vi.hoisted(() => ({ value: true }));
+vi.mock("@/lib/one-number/service-line.server", () => ({
+  resolveServiceLine: vi.fn(async () =>
+    managedHasOwn.value
+      ? { ok: true, kind: "owner_number", source: "workspace", phoneNumber: "+18146793694" }
+      : { ok: true, kind: "owner_number", source: "service_owner", phoneNumber: "+12065550100" },
+  ),
+}));
 vi.mock("@/lib/marketing/public-texting.server", () => ({ getPublicTextingConfig: publicConfig }));
 
 import { resolveListingTextNumber, resolveListingTextNumbers, listingTextNumberKey } from "@/lib/listing-text-number.server";
@@ -40,12 +50,19 @@ const workspaces = {
 beforeEach(() => {
   ownNumber.mockReset();
   publicConfig.mockReset();
+  managedHasOwn.value = true;
   publicConfig.mockResolvedValue({ phone: PROPLANE_LINE, smsHref: `sms:${PROPLANE_LINE}` });
   ownNumber.mockImplementation(async (_db: unknown, owner: string) => (owner === "owner-empty" ? null : OWN));
 });
 
 describe("resolveListingTextNumber", () => {
-  it("texts the PropLane line for a managed workspace even when it has its own number", async () => {
+  it("texts a managed workspace's own registered number when it has one", async () => {
+    const { db } = makeDb(workspaces);
+    await expect(resolveListingTextNumber(db, { ownerUserId: "owner-a", workspaceId: MANAGED_WS })).resolves.toBe(MANAGED_OWN);
+  });
+
+  it("texts the PropLane line for a managed workspace with no number of its own", async () => {
+    managedHasOwn.value = false;
     const { db } = makeDb(workspaces);
     await expect(resolveListingTextNumber(db, { ownerUserId: "owner-a", workspaceId: MANAGED_WS })).resolves.toBe(PROPLANE_LINE);
   });
@@ -93,7 +110,7 @@ describe("resolveListingTextNumbers (catalog batch)", () => {
       { ownerUserId: "owner-a", workspaceId: MANAGED_WS },
     ];
     const out = await resolveListingTextNumbers(db, targets);
-    expect(out.get(listingTextNumberKey(targets[0]!))).toBe(PROPLANE_LINE);
+    expect(out.get(listingTextNumberKey(targets[0]!))).toBe(MANAGED_OWN);
     expect(out.get(listingTextNumberKey(targets[1]!))).toBe(OWN);
     expect(out.get(listingTextNumberKey(targets[2]!))).toBe(PROPLANE_LINE);
     expect(from).toHaveBeenCalledTimes(1);

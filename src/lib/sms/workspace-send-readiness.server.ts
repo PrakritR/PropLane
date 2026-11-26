@@ -10,7 +10,7 @@ import {
 import { evaluateManagerCommsBillingGate } from "@/lib/comms-billing/eligibility.server";
 import { loadSharedLineConfig, workspaceHasDedicatedNumber, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import { resolveSendWorkspaceId } from "@/lib/one-number/shared-line-number.server";
-import { resolveManagedSendTarget, resolveServiceLine } from "@/lib/one-number/service-line.server";
+import { resolveAdminLine, resolveManagedSendTarget, resolveServiceLine } from "@/lib/one-number/service-line.server";
 
 export type SendNumberRow = {
   manager_user_id: string;
@@ -60,6 +60,11 @@ export type WorkspaceSendReadiness =
        */
       viaSharedLine?: true;
       providerMessagingServiceSid?: string;
+      /**
+       * Set when an admin-surface send (the operator or staff) leaves on the admin line, a number held by a DIFFERENT
+       * account than the one paying (`resolveAdminLine`). The provider boundary then accepts the payer's hold for it.
+       */
+      adminLine?: true;
     }
   | { canSend: false; reason: string };
 
@@ -89,6 +94,12 @@ export async function evaluateWorkspaceSendReadiness(input: {
    * branch (line_mode `shared`); under `per_workspace` it changes nothing.
    */
   sharedLineWorkspaceId?: string | null;
+  /**
+   * An admin-initiated send (the operator or invited staff acting, or PropLane's own alert/notice to its people): it leaves
+   * on the ADMIN line (`resolveAdminLine`, the operator's registered number) whatever workspace it is about, and that
+   * workspace's wallet still pays. Automated replies never set it: they answer on the line the person texted.
+   */
+  adminSurface?: boolean;
   now?: Date;
 }): Promise<WorkspaceSendReadiness> {
   const { db, requiredCents } = input;
@@ -105,6 +116,22 @@ export async function evaluateWorkspaceSendReadiness(input: {
     workLineId: input.workLineId ?? null,
   });
   if (managedTarget.managed === null) return { canSend: false, reason: "control_plane_unreadable" };
+  if (input.adminSurface) {
+    const billingWorkspaceId =
+      managedTarget.workspaceId ??
+      (await resolveSendWorkspaceId(db, ownerId, { workspaceId: input.workspaceId ?? input.sharedLineWorkspaceId ?? null, propertyId: input.propertyId ?? null }));
+    if (billingWorkspaceId) {
+      return evaluateServiceLineReadiness({
+        db,
+        ownerId,
+        workspaceId: billingWorkspaceId,
+        requiredCents,
+        runtime: input.runtime ?? null,
+        now,
+        admin: true,
+      });
+    }
+  }
   if (managedTarget.managed && managedTarget.workspaceId) {
     return evaluateServiceLineReadiness({
       db,
@@ -253,9 +280,11 @@ async function evaluateServiceLineReadiness(input: {
   requiredCents: number;
   runtime: RuntimeConfigResult | null;
   now: Date;
+  /** The admin line (`resolveAdminLine`) instead of the workspace's own decision. */
+  admin?: boolean;
 }): Promise<WorkspaceSendReadiness> {
   const { db, ownerId, workspaceId, requiredCents } = input;
-  const line = await resolveServiceLine<SendNumberRow>(db, SEND_NUMBER_COLUMNS);
+  const line = input.admin ? await resolveAdminLine<SendNumberRow>(db, SEND_NUMBER_COLUMNS) : await resolveServiceLine<SendNumberRow>(db, SEND_NUMBER_COLUMNS, workspaceId);
   if (!line.ok) return { canSend: false, reason: line.reason === "unreadable" ? "control_plane_unreadable" : WORKSPACE_NO_WORK_NUMBER_CODE };
   if (line.kind === "shared") {
     return evaluateSharedLineReadiness({
@@ -276,7 +305,7 @@ async function evaluateServiceLineReadiness(input: {
         .eq("singleton", true)
         .maybeSingle()) as unknown as RuntimeConfigResult);
   if (runtimeError || !runtime) return { canSend: false, reason: "control_plane_unreadable" };
-  return evaluateNumberRowReadiness({
+  const ready = await evaluateNumberRowReadiness({
     db,
     ownerId,
     runtime: runtime as RuntimeRow,
@@ -288,6 +317,8 @@ async function evaluateServiceLineReadiness(input: {
     // `owner_user_id`), so the pilot allowlist is read against the holder of the number being left on.
     allowlistUserId: line.serviceOwnerUserId,
   });
+  // The admin line is held by the operator's managed workspace's manager, not by the account that pays for this text.
+  return ready.canSend && input.admin && line.source === "workspace" && line.serviceOwnerUserId !== ownerId ? { ...ready, adminLine: true } : ready;
 }
 
 /**

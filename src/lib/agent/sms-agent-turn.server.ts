@@ -724,6 +724,20 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
   }
 
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  // The hourly count, the conversation history and the person's custom instructions are independent reads (the
+  // inbound text is already stored). Start the model-path reads now so they overlap the cap check and the
+  // confirmation lookup instead of running one after another. A lane that never reaches the model drops them.
+  const historyPromise = Promise.resolve(
+    db
+      .from("agent_messages")
+      .select("role, content")
+      .eq("session_id", session.id)
+      .order("created_at", { ascending: false })
+      .limit(HISTORY_LIMIT),
+  );
+  const customInstructionsPromise = loadAgentCustomInstructions(db, ctx.userId);
+  historyPromise.catch(() => undefined);
+  customInstructionsPromise.catch(() => undefined);
   const { count } = await db
     .from("agent_messages")
     .select("id", { count: "exact", head: true })
@@ -763,12 +777,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     return { reply: precomputedReply, sessionId: session.id, inboundMessageId, assistantMessageId, toolTrace: [], lane: args.precomputedLane ?? "scripted", model: null };
   }
 
-  const { data: historyRows } = await db
-    .from("agent_messages")
-    .select("role, content")
-    .eq("session_id", session.id)
-    .order("created_at", { ascending: false })
-    .limit(HISTORY_LIMIT);
+  const { data: historyRows } = await historyPromise;
   const history = buildAlternatingHistory(
     ((historyRows ?? []) as { role: string; content: string }[]).reverse(),
   );
@@ -786,7 +795,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
   let traceId: string | null = null;
   let result;
   try {
-    const customInstructions = await loadAgentCustomInstructions(db, ctx.userId);
+    const customInstructions = await customInstructionsPromise;
     const system = smsAgentSystemPrompt({
       basePrompt: surface.basePrompt,
       additionalSystemContext: args.additionalSystemContext,

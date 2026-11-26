@@ -8,6 +8,17 @@
 export function inboxStoreOwnerIds(scope: {
   ownerIds: readonly string[];
   teamWorkspacesByOwner?: ReadonlyMap<string, unknown>;
+  /** PropLane Service staff: the ACTIVE managed workspace -> its client owner (server-derived from the seat). */
+  staffWorkspaceOwners?: ReadonlyMap<string, string>;
 }): string[] {
-  return [...new Set([...scope.ownerIds, ...(scope.teamWorkspacesByOwner?.keys() ?? [])])];
+  // Staff run a managed workspace for its client owner: that owner's rows are fetched too, and
+  // `conversationVisible` still decides which of them show. Without this the client-owned conversations of the
+  // workspace were never read (list), nor found (open, send, mark read, archive) by the staff running it.
+  return [
+    ...new Set([
+      ...scope.ownerIds,
+      ...(scope.teamWorkspacesByOwner?.keys() ?? []),
+      ...(scope.staffWorkspaceOwners?.values() ?? []),
+    ]),
+  ];
 }

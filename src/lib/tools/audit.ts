@@ -18,6 +18,8 @@
  * emails beyond the action's own target, or any other PII.
  */
 
+import { invalidateTurnCache } from "./turn-cache";
+
 /** The minimal context surface the helper needs; all three portal contexts satisfy it. */
 export type AuditActor = {
   /** The audit_log.landlord_id scope column: the manager id for manager
@@ -55,6 +57,8 @@ export async function writeAuditLog(
     dedupeKey?: string | null;
   },
 ): Promise<AuditOutcome> {
+  // Every write tool records intent here before it changes anything: whatever the turn read before is stale from now.
+  invalidateTurnCache(actor);
   const { error } = await actor.db.from("audit_log").insert({
     actor_user_id: actor.userId,
     landlord_id: actor.landlordId,
@@ -83,6 +87,8 @@ export async function updateAuditResult(
   resultSummary: Record<string, unknown>,
   opts: { clearDedupeKey?: boolean } = {},
 ): Promise<void> {
+  // The side effect has happened: drop anything read since the intent was recorded.
+  invalidateTurnCache(actor);
   try {
     await actor.db
       .from("audit_log")

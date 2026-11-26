@@ -1604,6 +1604,7 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   sms_onboarding_state: "Role and house hints of an unknown texter keyed on a phone; carries no account column.",
   sms_onboarding_replies: "Replay record of an unknown texter's turn keyed on a message sid; pruned after an hour; no account column.",
   sms_moved_notices: "Once-per-30-days moved-number marker keyed on a phone; cascades with the workspace.",
+  sms_managed_home_redirects: "Once-per-30-days managed-home redirect marker keyed on a phone and workspace; cascades with the workspace.",
   sms_unassigned_leads: "Platform lead queue keyed on a phone; carries no account column.",
   sms_unassigned_lead_turns: "Messages of a platform lead; cascade with the lead.",
   sms_media_files: "MMS file index keyed on message sid and phone; no account column.",

@@ -220,7 +220,7 @@ describe("one move-in payment", () => {
   it("Pay all from the list still sends every payable line, the move-in ones included, in one checkout", async () => {
     render(<ResidentPaymentsPanel bucket="pending" />);
     await waitFor(() => expect(screen.getAllByText("Move-in total").length).toBeGreaterThan(0));
-    fireEvent.click(screen.getByRole("button", { name: "Pay all" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Pay \$/ }));
     const sheet = await screen.findByRole("dialog");
     expect(within(sheet.querySelector("[data-popup-form]") as HTMLElement).getByText("$3,405.00")).toBeTruthy();
     expect(within(sheet.querySelector("[data-popup-preview]") as HTMLElement).getByText("$3,405.00")).toBeTruthy();
@@ -229,9 +229,23 @@ describe("one move-in payment", () => {
     await waitFor(() => expect(checkoutBodies.at(-1)?.chargeIds.slice().sort()).toEqual(["clean", "dep", "fee", "nov", "rent1"]));
   });
 
+  it("opens with a Your stay summary: stay, deposit, additional charges and one Pay for everything due", async () => {
+    render(<ResidentPaymentsPanel bucket="pending" />);
+    const card = await screen.findByText("Your stay").then((el) => el.closest("[data-attr='resident-stay-summary']") as HTMLElement);
+    const text = card.textContent ?? "";
+    // Sums of the server's charges: rent 1,100 + 1,100, deposit 800, move-in cost 250 + cleaning 150.
+    expect(text).toContain("$2,200.00");
+    expect(text).toContain("$800.00");
+    expect(text).toContain("$400.00");
+    expect(text).toContain("Total due now");
+    expect(within(card).getAllByText("$3,400.00").length).toBeGreaterThan(0);
+    expect(within(card).getByRole("button", { name: "Pay $3,400.00" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /^Pay \$/ })).toHaveLength(1);
+  });
+
   it("switches from the default bank choice to Card before creating exactly one rail", async () => {
     render(<ResidentPaymentsPanel bucket="pending" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Pay all" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Pay \$/ }));
     expect(checkoutBodies).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: /Card.*Apple Pay/ }));
     expect(checkoutBodies).toHaveLength(0);
@@ -245,7 +259,7 @@ describe("one move-in payment", () => {
   it("retries the same selected card rail after an uncertain request failure", async () => {
     checkoutFailures = 1;
     render(<ResidentPaymentsPanel bucket="pending" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Pay all" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Pay \$/ }));
     fireEvent.click(screen.getByRole("button", { name: /Card.*Apple Pay/ }));
     fireEvent.click(screen.getByRole("button", { name: /Continue with Card/ }));
     fireEvent.click(await screen.findByRole("button", { name: /Retry Card/ }));

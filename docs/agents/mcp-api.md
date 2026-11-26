@@ -1,6 +1,7 @@
 # MCP server and public tool API
 
-PropLane exposes the manager tool registry over two bearer-authenticated,
+PropLane exposes the manager tool registry (and, for a resident who connects
+"As resident", the resident registry) over two bearer-authenticated,
 server-to-server transports:
 
 - `POST /api/mcp` — stateless Streamable HTTP using JSON-RPC (`initialize`,
@@ -13,8 +14,9 @@ webhooks a manager registers in the same Settings panel — is
 [`webhooks.md`](webhooks.md); it shares this file's credential posture (no
 client grants, service-role routes, secret shown once) but not its tool layer.
 
-The source of truth is `src/lib/mcp/gateway.ts`. Never add a third dispatch or
-confirmation implementation: this gateway calls the existing registry,
+The source of truth is `src/lib/mcp/gateway.ts` (manager) and
+`src/lib/mcp/resident-gateway.ts` (resident). Never add a third dispatch or
+confirmation implementation: the manager gateway calls the existing registry,
 `runReadTool`, and `previewWriteTool`; a signed-in manager approves the resulting
 pending action through the existing `runConfirmedPendingActionForPortal` path.
 
@@ -67,6 +69,54 @@ never redirect anywhere the approve route did not itself build; it renders only 
 the signed-in manager who just approved, and a copied link is inert. A token that
 cannot be signed falls back to redirecting straight to the callback.
 
+### What a connection is: one portal, one workspace
+
+A connection is bound at consent to exactly ONE target, stored on the grant
+(`mcp_oauth_authorization_codes` / `mcp_oauth_tokens`: `portal` `manager|resident`,
+`workspace_id`), carried unchanged through the code exchange and every refresh, and
+never read from a request. **Connecting twice gives two connections**: connect once
+per workspace, and once more "As resident" if you want both.
+
+The `/mcp/authorize` **Connect as** dropdown (`src/lib/mcp/consent.server.ts`) lists:
+
+- every workspace the portal switcher lists (`listViewerWorkspaces`: owned,
+  co-managed, PropLane Service seats), and
+- every PropLane-managed (`is_service`) workspace the viewer STAFFS, from the
+  same resolver the admin service shell uses (`loadServiceStaffWorkspaces`), so a
+  platform admin or service staffer picks Ambika's or Vinod's workspace and
+  edits it. Never a client-supplied id: the approve route re-derives the list and
+  refuses a posted `target` that is not on it (`resolveMcpTarget`). If the staff
+  read fails, a service workspace the viewer does not own is not offered.
+- **As resident**, when the account holds a resident role.
+
+**Manager connection.** `resolveApiKeyContext` builds the same manager
+`AgentContext` the service shell does (`loadWorkspaces` membership: staff seat,
+owner of record, house scope, `managerSmsAccess` for co-manager/staff widening,
+Property-owner seat withheld). Re-derived on EVERY request and STRICT: the stored
+workspace must still be in the viewer's membership, otherwise 403. It never falls
+back to the holder's own workspace, so a revoked seat loses the workspace on the
+next call. Writes are previewed and parked; the managed read-only lock still
+applies at approval.
+
+**Resident connection.** `resolveMcpBearerContext` sees `portal = resident` and
+builds the resident portal's own context (`resolveResidentAgentContextForUser`,
+the same builder as `resolveResidentAgentContext`, every request; a lapsed
+resident role is a 403). Tools are `buildResidentRegistry(ctx)` only (the portal's
+phase/plan filtering, plus its portal-channel `find_homes_on_proplane`), every
+read scoped on `resident_user_id`. A resident write is previewed and parked as
+`agent_pending_actions` with `portal: "resident"`; the resident confirms it in the
+resident portal, as with the portal assistant. `/api/mcp` dispatches on the
+grant's portal to ONE gateway; `gateway.ts` never imports the resident registry
+and `resident-gateway.ts` never imports the manager one
+(`tests/unit/mcp-resident-connection.test.ts` fails a crossing, both ways). A
+resident can disconnect from the same `mcp-connections` routes.
+
+**Connect Claude** (Settings → API & MCP for managers, Settings → Preferences for
+residents; `src/components/mcp/connect-claude-block.tsx`) shows the MCP URL
+`https://proplane.ai/api/mcp` with an icon Copy and one instruction list: Claude →
+Settings → Connectors → Add custom connector → paste the URL → sign in → pick a
+workspace or "As resident". The URL and steps live in `src/lib/mcp/public-url.ts`.
+
 **REST API** at `/api/v1/tools` uses manually created, bearer API keys. Do not make
 these credentials portable between endpoints; separate credentials make revocation
 and audit boundaries clearer.
@@ -99,9 +149,19 @@ key id, transport, input, and result; manager approvals retain their existing
 properties.
 
 Deployed rate limiting uses a shared Supabase counter and fails closed when
-unavailable: 120 calls/minute per key plus an unauthenticated IP limiter.
-Local development and tests use an in-memory counter. These limits are an
-abuse brake, not a daily billing quota.
+unavailable (a 503 with `Retry-After`, never a bare 429). Every limit is in
+`src/lib/mcp/rate-limits.ts`. Local development and tests use an in-memory
+counter. These limits are an abuse brake, not a daily billing quota.
+
+Sized for a normal Claude client, which does discovery + one registration + one
+token exchange + `initialize` / `tools/list` / a few calls in seconds, from SHARED
+Anthropic egress addresses. "Too Many Requests" on connect came from the old
+`mcp-auth:<ip>` gate (60/min per IP) spent on every call before auth. Now:
+
+- Discovery (`/.well-known/*`) and a request with no credential: not limited, no lookup.
+- `/api/mcp` authenticated: 300/min per grant (key or OAuth token), never per address.
+- `/api/mcp` failed credentials: 30/min per IP, counting failures only.
+- Registration: 60/min per IP. Token endpoint: 120/min per IP and 60/min per client id.
 
 The catalog is deliberate: a newly added tool is not externally available until
 it is assigned to a product area in the capabilities file. `EXTERNAL_EXCLUDED_TOOL_NAMES`

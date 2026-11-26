@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getPublicTextingConfig } from "@/lib/marketing/public-texting.server";
+import { resolveServiceLine } from "@/lib/one-number/service-line.server";
 import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
 
 /**
@@ -12,7 +13,7 @@ import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisi
  * publish one - the syndication feeds, which opt in with `{ workNumber: true }` - so two feeds of the same
  * catalog can never quote different numbers.
  *
- * - A listing on a PropLane-managed workspace (`portal_workspaces.is_service`) texts the PropLane line.
+ * - A listing on a PropLane-managed workspace (`portal_workspaces.is_service`) texts that workspace's own registered number when it has one (`resolveServiceLine`), else the PropLane line.
  * - A listing on a software customer's own workspace texts that workspace's own active work number; a
  *   workspace with none texts the PropLane line.
  *
@@ -67,7 +68,9 @@ export async function resolveListingTextNumbers(
     [...unique.entries()].map(async ([key, target]) => {
       const workspaceId = target.workspaceId ?? null;
       if (workspaceId && managed.has(workspaceId)) {
-        out.set(key, await propLaneLine());
+        // A managed home texts its workspace's own registered number (the one line decision), else the PropLane line.
+        const line = await resolveServiceLine(db, "phone_number", workspaceId).catch(() => null);
+        out.set(key, line && line.ok && line.kind === "owner_number" && line.source === "workspace" ? line.phoneNumber : await propLaneLine());
         return;
       }
       const own = await resolveActiveManagerSendNumber(db, target.ownerUserId, workspaceId).catch(() => null);

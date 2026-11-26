@@ -22,6 +22,7 @@ import { loadOwnThreadRows } from "./inbox";
 import { loadManagerCharges } from "./payments";
 import { loadManagerServiceRequests } from "./services";
 import { loadManagerApplications } from "./residents";
+import { resolveManagerResidents } from "./resident-lookup";
 import { loadManagerWorkOrders } from "./work-orders";
 import { listPropertiesTool } from "./properties";
 import { ownedSingletonItems, readSingletonItems } from "./calendar";
@@ -252,17 +253,21 @@ const CLOSED_CHARGE = new Set(["paid", "cancelled", "void", "refunded", "failed"
 export const getResidentSnapshotTool = defineTool({
   name: "get_resident_snapshot",
   description:
-    "Everything about one resident in one call: house, room, monthly rent, email, lease dates and days left, and what they owe now (open balance and the overdue part). Find them by `q`, part of a name, email, room or house; up to 5 matches are returned, so ask which one when more than one fits. Use for 'tell me about Priya', 'what does room 3 pay', 'does Sam owe anything', 'when does Jordan's lease end'. The balance is withheld (null) for a seat without the Payments grant on that house, and the lease for one without Leases; the rent needs either grant. Amounts and days are computed by the tool.",
+    "Everything about one resident in one call: house, room, monthly rent, email, lease dates and days left, and what they owe now (open balance and the overdue part). Find them by `q`: a name, an email, or `<house> Room <N>` (e.g. `5259 Room 2`, `room 2 at 5259`); the room is matched by its display name; up to 5 matches are returned, so ask which one when more than one fits. Use for 'tell me about Priya', 'what does room 3 pay', 'does Sam owe anything', 'when does Jordan's lease end'. The balance is withheld (null) for a seat without the Payments grant on that house, and the lease for one without Leases; the rent needs either grant. Amounts and days are computed by the tool.",
   kind: "read",
   inputSchema: z.object({ q: z.string().min(2).max(80).describe("Part of a resident's name, email, room or house.") }).strict(),
   handler: async (ctx, input) => {
-    const needle = norm(input.q);
-    const residents = (await loadManagerApplications(ctx))
-      .filter((r) => r.bucket === "approved")
-      .filter((r) => norm(`${str(r.name)} ${str(r.email)} ${str(r.assignedRoomChoice)} ${str(r.property)}`).includes(needle));
-    if (residents.length === 0) return { count: 0, residents: [], message: "No resident matches that." };
+    // Charges and leases are needed whenever anyone matches; start them with the resolver instead of after it.
+    const chargesPromise = loadManagerCharges(ctx);
+    const leasesPromise = loadManagerLeases(ctx);
+    chargesPromise.catch(() => undefined);
+    leasesPromise.catch(() => undefined);
+    const { matches } = await resolveManagerResidents(ctx, input.q);
+    const roomByRow = new Map(matches.map((m) => [m.row, m.roomLabel]));
+    const residents = matches.map((m) => m.row);
+    if (residents.length === 0) return { count: 0, residents: [], message: `No resident matches "${input.q}". Ask which house and room, or which name.` };
     const picked = residents.slice(0, 5);
-    const [charges, leases] = await Promise.all([loadManagerCharges(ctx), loadManagerLeases(ctx)]);
+    const [charges, leases] = await Promise.all([chargesPromise, leasesPromise]);
     const today = pacificTodayKey();
     const access = ctx.managerSmsAccess;
     const grants = access?.mode === "delegated" ? access.permissionsByOwner?.[ctx.landlordId] : undefined;
@@ -282,7 +287,7 @@ export const getResidentSnapshotTool = defineTool({
           name: r.name || null,
           email: email || null,
           house: str(r.property) || null,
-          room: str(r.assignedRoomChoice) || null,
+          room: roomByRow.get(r) || null,
           // Rent is lease/payment data: same read grant as the lease dates and the balance.
           monthlyRent: !(may(propertyId, "leases") || may(propertyId, "payments"))
             ? null

@@ -29,7 +29,6 @@ import { OPERATIONS_SETTINGS_KEY } from "@/lib/settings/property-overrides.serve
 import { resolveCreateListingOwner } from "@/lib/auth/workspace-add-property.server";
 import { preserveServerOwnedApplicationVersions } from "@/lib/rental-application/server-owned-template-versions";
 import { propertyRecordWithoutInternal } from "@/lib/house-info-visibility";
-import { resolveAllowedLeaseTerms, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { normalizeLegacyLeaseTerms } from "@/lib/rental-application/lease-terms";
 import { jsonEqual } from "@/lib/write-skip";
 import {
@@ -43,6 +42,8 @@ import {
   WORKSPACE_PROPERTY_LIMIT_ERROR_CODE,
   isWorkspacePropertyLimitDbMessage,
 } from "@/lib/workspaces/types";
+
+import { emptyLeaseTermsWrite, incomingListingSubmission } from "@/lib/property-records/listing-write-guards";
 
 export const runtime = "nodejs";
 
@@ -58,39 +59,6 @@ function listingApplicationFeeWaiverCodeFromPayload(rowData: unknown, propertyDa
   const fromRow = read(rowData);
   if (fromRow != null) return fromRow;
   return read(propertyData);
-}
-
-/** The listing submission this write's `rowData`/`propertyData` carries, checking either bucket
- * the same way `listingApplicationFeeWaiverCodeFromPayload` does — used only to size the door-cap
- * check below, never to store anything. */
-function incomingListingSubmission(rowData: unknown, propertyData: unknown): unknown {
-  const submissionFrom = (container: unknown): unknown => {
-    if (!container || typeof container !== "object" || Array.isArray(container)) return undefined;
-    const record = container as Record<string, unknown>;
-    return record.submission ?? record.listingSubmission;
-  };
-  return submissionFrom(rowData) ?? submissionFrom(propertyData);
-}
-
-/**
- * A property must offer at least one lease type. A submission that explicitly carries an EMPTY
- * `allowedLeaseTerms` is refused: `resolveAllowedLeaseTerms` then answers [], and the
- * applicant-side fallback reads that as EVERY lease term — the opposite of what the editor
- * showed. A submission that names no choice at all is a legacy row and keeps its existing
- * default, so this only ever refuses a write that actively clears the field.
- */
-function emptyLeaseTermsWrite(submission: unknown): boolean {
-  if (!submission || typeof submission !== "object" || Array.isArray(submission)) return false;
-  const sub = submission as Record<string, unknown>;
-  if (!Array.isArray(sub.allowedLeaseTerms)) return false;
-  return (
-    resolveAllowedLeaseTerms(
-      sub as Pick<
-        ManagerListingSubmissionV1,
-        "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed"
-      >,
-    ).length === 0
-  );
 }
 
 /**

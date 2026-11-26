@@ -1,5 +1,6 @@
 "use client";
 
+import { ConnectClaudeBlock } from "@/components/mcp/connect-claude-block";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Lock, MessageSquareText, Pencil, Phone, Settings, SlidersHorizontal, Smartphone, UserRound } from "lucide-react";
@@ -470,6 +471,7 @@ export function ResidentProfilePanel({
             <ResidentNotificationPreferencesSettings />
             <AssistantCustomInstructionsSetting role="resident" />
             <NotificationsToggle />
+            {!demo ? <ConnectClaudeBlock /> : null}
           </>
         );
       case "security":

@@ -6,15 +6,18 @@ import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { KnowledgeEntryModal } from "@/components/portal/knowledge-entry-modal";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalPropertyRecordRow, PortalRowFact, PortalRowIconTile } from "@/components/portal/portal-record-row";
-import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
+import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection, PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import type { TopicReplyMode } from "@/lib/one-number/contracts";
 import {
   deleteKnowledgeEntry,
+  fetchEscalationContact,
   fetchKnowledge,
   fetchReplyModes,
+  saveEscalationContact,
   saveReplyMode,
+  type EscalationContactView,
   type ReplyModeRow,
 } from "@/lib/one-number/knowledge/client";
 import { REPLY_TOPIC_LABELS } from "@/lib/one-number/knowledge/topics";
@@ -65,6 +68,45 @@ export function AssistantReplyModesSection() {
             />
           </PortalSettingsRow>
         ))}
+      </PortalSettingsGroup>
+    </PortalSettingsSection>
+  );
+}
+
+/**
+ * Settings, Communication: share the manager's phone when the assistant can't answer. The number is a plain value (the
+ * manager's verified phone, or the operator's on a PropLane-managed workspace); only the toggle changes, and on a managed
+ * workspace only an admin may change it. Absent when the read is refused.
+ */
+export function EscalationContactSection() {
+  const [view, setView] = useState<EscalationContactView | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void fetchEscalationContact().then(setView);
+  }, []);
+
+  if (!view) return null;
+  return (
+    <PortalSettingsSection title="When the assistant can't answer">
+      <PortalSettingsGroup>
+        <PortalSettingsRow label="Share my phone when the assistant can't answer">
+          <PortalSettingsToggle
+            checked={view.enabled}
+            label="Share my phone when the assistant can't answer"
+            disabled={!view.canEdit || busy}
+            dataAttr="escalation-contact-toggle"
+            onChange={async (next) => {
+              setBusy(true);
+              const saved = await saveEscalationContact(next);
+              if (saved) setView(saved);
+              setBusy(false);
+            }}
+          />
+        </PortalSettingsRow>
+        <PortalSettingsRow label="Number shared">
+          <span className="text-[15px] text-foreground" data-attr="escalation-contact-phone">{view.phone ?? "None verified"}</span>
+        </PortalSettingsRow>
       </PortalSettingsGroup>
     </PortalSettingsSection>
   );

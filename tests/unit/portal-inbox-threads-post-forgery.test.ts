@@ -48,6 +48,7 @@ vi.mock("@/lib/communication/conversation-visibility.server", () => ({
   }),
   grantedHouseIdsForOwner: (scope: { grantedHousesByOwner: Map<string, Set<string>> }, ownerId: string) =>
     scope.grantedHousesByOwner.get(ownerId) ?? new Set<string>(),
+  managedWorkspaceOwnerOf: () => null,
   filterVisibleInboxThreadRecords: async (_db: unknown, _scope: unknown, rows: unknown[]) => rows,
 }));
 vi.mock("@/lib/agent-notify.server", () => ({ ensureManagerAgentNoticeThread: vi.fn() }));

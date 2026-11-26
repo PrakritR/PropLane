@@ -26,6 +26,7 @@ import { isActivePlannedTourEvent, slotKeyForInstant } from "@/lib/tour-slot-mat
 import { emitTourClaimedEvent } from "@/lib/tour-events.server";
 import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
 import { canAssign, normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
+import { resolveTourAssigneeForCreate } from "@/lib/tour-assignee.server";
 import { createPrepareForTourTask } from "@/lib/manager-default-tasks.server";
 import { mutateConfirmedTourSchedule } from "@/lib/tour-schedule-persistence.server";
 import { settleTourFeeOnCancel, tourFeeConfirmGate } from "@/lib/tour-fee.server";
@@ -333,10 +334,19 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
   const requestedStart = opts.requestedStart?.trim() ?? "";
   const requestedEnd = opts.requestedEnd?.trim() ?? "";
   const instructions = opts.instructions?.trim() ?? "";
-  const assignee = normalizeAssignee(opts.assignee);
-  if (assignee && !canAssign(assignee.type, "tour")) {
+  const requestedAssignee = normalizeAssignee(opts.assignee);
+  if (requestedAssignee && !canAssign(requestedAssignee.type, "tour")) {
     return { ok: false, status: 400, error: "Invalid tour assignee." };
   }
+  // Every tour is ASSIGNED: a named teammate must be on the property's team, none named is the default (the PropLane
+  // operator on a managed house, the house owner otherwise). This decides which Google calendar holds the event.
+  const assigned = await resolveTourAssigneeForCreate(db, {
+    assignee: requestedAssignee,
+    propertyId: textField(row, "propertyId"),
+    hostUserId: managerUserId,
+  });
+  if (!assigned.ok) return assigned;
+  const assignee = assigned.assignee;
 
   const windows = windowsFromInquiry(row);
   const selectedWindow =

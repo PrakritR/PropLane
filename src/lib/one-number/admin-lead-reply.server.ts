@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { resolveAdminLine } from "@/lib/one-number/service-line.server";
 import { sendPlatformLeadText, type PlatformLeadSendResult } from "@/lib/one-number/lead-send.server";
 import { toGsm7 } from "@/lib/one-number/segments";
 import { e164FromPhoneKey, recordReply } from "@/lib/one-number/unassigned-leads.server";
@@ -28,7 +29,7 @@ const REFUSAL: Record<Exclude<PlatformLeadSendResult, { ok: true }>["reason"], {
 };
 
 /**
- * Admin answers an Unassigned lead from the PropLane line (the 206), in the lead's thread. The lead's number is resolved
+ * Admin answers an Unassigned lead from the admin line (the operator's registered 814 number; the PropLane line when none), in the lead's thread. The lead's number is resolved
  * HERE from the lead id (the browser only ever holds the masked number), and the send is the platform-lead transport:
  * the opt-out ledger, recipient shield and test capture apply exactly as for the lead agent's own texts. The caller has
  * already proved the viewer is a platform admin; a body id is a name, never a grant.
@@ -62,7 +63,13 @@ export async function sendAdminLeadReply(
   const now = input.now ?? new Date();
   const lastInbound = Date.parse(String(row.last_inbound_at ?? ""));
   const inboundReply = Number.isFinite(lastInbound) && now.getTime() - lastInbound >= 0 && now.getTime() - lastInbound <= ADMIN_LEAD_REPLY_WINDOW_MS;
-  const result = await send(db, { to: e164FromPhoneKey(phoneKey), body: text, inboundReply, now });
+  // The admin portal answers from the operator's registered number (captain, Nov 24); with none it is the PropLane line.
+  const line = await resolveAdminLine<{ messaging_service_sid?: string | null }>(db, "phone_number, messaging_service_sid").catch(() => null);
+  const adminLine =
+    line?.ok && line.kind === "owner_number" && line.source === "workspace"
+      ? { phoneNumber: line.phoneNumber, messagingServiceSid: line.row.messaging_service_sid ?? null }
+      : undefined;
+  const result = await send(db, { to: e164FromPhoneKey(phoneKey), body: text, inboundReply, now, ...(adminLine ? { adminLine } : {}) });
   if (!result.ok) return { ok: false, ...REFUSAL[result.reason] };
   const saved = await recordReply(db, input.leadId, `admin:${result.sid}`, text, [], input.adminUserId ? { sentByUserId: input.adminUserId } : {});
   if (!saved.ok) return { ok: false, status: 502, error: ADMIN_LEAD_REPLY_NOT_SAVED_ERROR, sent: true };

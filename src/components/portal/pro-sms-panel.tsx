@@ -40,6 +40,7 @@ import {
   InboxAvatar,
   InboxComposer,
   InboxThreadEmpty,
+  useThreadLoadExpired,
   InboxThreadSkeleton,
   InboxTwoPane,
   PortalInboxEmptyState,
@@ -529,6 +530,7 @@ export const ManagerSmsPanel = forwardRef<
     };
   }, [activeId, archivedConversationIds, hiddenConversationIds, openedSmsIds, residents, rows, selectedDetailResident, threadPages, visibleRows]);
 
+  const smsThreadLoadExpired = useThreadLoadExpired(!active && controlledActiveId ? controlledActiveId : null);
   const selectedResident = residents.find((resident) => conversationId(resident) === activeId)
     ?? (selectedDetailResident?.projectionId === activeId ? selectedDetailResident : null);
   const selectedSummaryTuple = selectedResident?.projectionId
@@ -1361,7 +1363,7 @@ export const ManagerSmsPanel = forwardRef<
 
   const threadPane = !active ? (
     controlledActiveId ? (
-      <InboxThreadSkeleton />
+      smsThreadLoadExpired ? <InboxThreadEmpty title="Conversation not found." /> : <InboxThreadSkeleton />
     ) : (
       <InboxThreadEmpty />
     )

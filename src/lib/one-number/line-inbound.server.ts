@@ -8,6 +8,7 @@ import { isHousingSearchText } from "@/lib/one-number/line-intent";
 import { findResidentCandidates, findVendorJobCandidates, findVerifiedProfileByPhone } from "@/lib/one-number/router-lookups.server";
 import { classifyLineWorkspaces, selfServeLineReply } from "@/lib/one-number/self-serve-line.server";
 import { asksForJobs } from "@/lib/one-number/vendor-jobs/intent";
+import { hasLiveFirstHomeSession } from "@/lib/one-number/signup/first-home.server";
 import { readSignupIntent } from "@/lib/one-number/signup/intent";
 import { isPropLaneServiceLine } from "@/lib/service/service-catalog.server";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
@@ -39,6 +40,11 @@ export async function answerPropLaneLineText(
   // "Sign me up as a manager" is the sign-up flow's, even from someone who already has an account: it tells them so and
   // texts a sign-in link instead of the member status ("I can only share status on this line").
   if (readSignupIntent(input.body).wantsSignup) return null;
+  // A landlord who just signed up by text is mid "add your first home": their address, rooms, photos and PUBLISH are the
+  // walkthrough's (`handlePropLaneLineSignupInbound`, later in the pipeline). Answering first would treat a free manager's
+  // address text as a self-serve manager asking the PropLane line something ("This line is for homes PropLane manages...").
+  // A phone that is not the account's verified phone is refused by the walkthrough itself, which fails closed.
+  if (await hasLiveFirstHomeSession(db, input.fromPhone).catch(() => false)) return null;
 
   // Someone who pays for their own PropLane number is pointed at it, in both line modes, before the line answers anything
   // else. Lapsed or unreadable = no redirect; keywords and emergencies are never redirected.

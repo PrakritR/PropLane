@@ -75,7 +75,7 @@ never exposed as the conversational handle.
 
 > Oct 18 2026: every workspace texts the set PropLane line by default; only Pro / Business may hold the personalized number described below. See [`one-number.md`](one-number.md) § Number model.
 >
-> Oct 25 2026: a PropLane-MANAGED workspace (`portal_workspaces.is_service`) always sends on the PropLane line (206), in both line modes, even with a live number of its own; the one decision is `resolveServiceLine` (`src/lib/one-number/service-line.server.ts`), consumed by `evaluateWorkspaceSendReadiness`, `resolveActiveManagerSendNumber` / `resolveWorkspaceSendLine`, `resolveOwnerSendNumberRow` and the Settings status. An unresolvable line refuses the send; inbound on the old number still routes to the workspace. See [`one-number.md`](one-number.md) § W29.
+> Nov 24 2026 (replaces Oct 25): a PropLane-MANAGED workspace (`portal_workspaces.is_service`) sends on its OWN active, registered number when it has one (Ambika's (814) 679-3694) and on the PropLane line (206) otherwise, in both line modes; the admin portal operates the operator's number (`resolveAdminLine`); the one decision is `resolveServiceLine(db, columns, workspaceId)` (`src/lib/one-number/service-line.server.ts`), consumed by `evaluateWorkspaceSendReadiness`, `resolveActiveManagerSendNumber` / `resolveWorkspaceSendLine`, `resolveOwnerSendNumberRow` and the Settings status. An unreadable own number falls to the PropLane line; an unresolvable PropLane line refuses the send. See [`one-number.md`](one-number.md) § W29.
 
 A work number belongs to a **workspace** — a `portal_workspaces` row — and
 every workspace the switcher can land on has its own: `manager_sms_numbers`

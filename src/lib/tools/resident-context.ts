@@ -8,6 +8,7 @@ import { verifiedSessionEmail } from "@/lib/auth/verified-session-email";
  * choke point, mirroring `resolveAgentContext` for managers.
  */
 import { getEffectiveSessionForPortal } from "@/lib/auth/effective-session";
+import type { ServerProfile } from "@/lib/auth/server-profile";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { isTestWorkspaceActorAllowed } from "@/lib/test-workspaces/index.server";
@@ -129,7 +130,31 @@ export async function loadMoveInDetailsLock(
 export async function resolveResidentAgentContext(): Promise<ResidentAgentContext | null> {
   const { user, profile } = await getEffectiveSessionForPortal("resident");
   if (!user) return null;
+  return buildResidentAgentContext(user.id, profile);
+}
 
+/**
+ * The same resident context for a bearer credential (the resident MCP connection), which has no browser
+ * session: the subject is the token's own user id, the profile is read here, and every other derivation is
+ * `buildResidentAgentContext` — the one the portal uses — so the two can never disagree. Re-run on every
+ * request; a resident role that is gone is a null.
+ */
+export async function resolveResidentAgentContextForUser(userId: string): Promise<ResidentAgentContext | null> {
+  const id = userId.trim();
+  if (!id) return null;
+  const { data } = await createSupabaseServiceRoleClient()
+    .from("profiles")
+    .select("id, email, role, manager_id")
+    .eq("id", id)
+    .maybeSingle();
+  return buildResidentAgentContext(id, (data as Pick<ServerProfile, "email" | "role" | "manager_id"> | null) ?? null);
+}
+
+async function buildResidentAgentContext(
+  userId: string,
+  profile: Pick<ServerProfile, "email" | "role" | "manager_id"> | null,
+): Promise<ResidentAgentContext | null> {
+  const user = { id: userId };
   const db = createSupabaseServiceRoleClient();
   if (!(await isTestWorkspaceActorAllowed(user.id, db))) return null;
   const { data: roleRows, error: roleError } = await db.from("profile_roles").select("role").eq("user_id", user.id);

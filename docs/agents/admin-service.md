@@ -23,19 +23,14 @@ them after the move.
   TODO(managed-workspaces-to-admin-20261112): a client who still OWNS an attached workspace is its owner of record by ownership
   until the move. `src/lib/property-owner/access.server.ts` gives them owner access; sign-in and "Property portal" land in the
   Property portal, view-only (`workspace.readOnly`).
-- **A service workspace texts on the PropLane line (206), always (Oct 25).** Every `is_service` workspace sends from the PropLane
-  line in BOTH line modes, even an attached client workspace that still holds a live number of its own (Ambika's +1 (814) 679-3694,
-  Vinod's). The decision is `resolveServiceLine` (`src/lib/one-number/service-line.server.ts`); the dispatcher's readiness check, the
-  number resolvers and Settings > Communication > Work identity (the "PropLane line" row, no request or release) all read it, and an
-  unresolvable line refuses the send rather than using the old number. Inbound on the old number still routes to the workspace. Nothing
-  here releases or buys a number: retiring the old one is an operator step. Detail: [`one-number.md`](one-number.md) § W29.
-- Opening a workspace sets the portal workspace cookie after `authorizeOpenServiceWorkspace` re-derives membership.
-- Every `/api/admin/service-workspaces` verb starts with `requireAdminRoute()`; a body id is a name, never a grant.
-- **One sidebar row (Oct 25).** Service is ONE row under Software (`ADMIN_SECTION_TABS.service`): tabs Workspaces
-  (`/admin/service`, today's panel with its inner Workspaces · Vendors · Network tabs) · PropLane line · Unassigned leads.
-  The rest of the admin nav — the retired "Property management" heading and all-owners Properties list, the redirects and
-  the phone bottom bar — is [`one-number.md`](one-number.md) § W15 (Admin navigation).
-- Work number column: a service workspace is always on the PropLane line, so the row states `resolveServiceLine`'s number as
+- **A service workspace texts on its own registered number, else the PropLane line (Nov 24; replaces "always the 206", Oct 25).** An
+  `is_service` workspace that holds an active, registered number of its own (Ambika's +1 (814) 679-3694) sends from it; one without
+  (Vinod) sends from the PropLane line (206), in BOTH line modes. The admin portal operates the operator's registered number
+  (`resolveAdminLine`). The decision is `resolveServiceLine(db, columns, workspaceId)` (`src/lib/one-number/service-line.server.ts`);
+  the dispatcher's readiness check, the number resolvers and Settings > Communication > Work identity all read it, an unreadable own
+  number falls to the PropLane line, and an unresolvable PropLane line refuses the send. The 206 tells a text about such a home to use
+  the workspace's number. Nothing here releases or buys a number. Detail: [`one-number.md`](one-number.md) § W29.
+- Work number column: the row states `resolveServiceLine`'s number for that workspace (own, or the PropLane line) as
   "(206) 678-1909 · PropLane line" (`workNumberFactLabel`), never a number the workspace once held; an unresolvable or unreadable line
   shows "No number". A live number the workspace still holds besides the line is its **old number**: it keeps receiving (a text to it
   lands in that workspace, the reply leaves from the 206, send paths refuse the old row) and the row carries one more fact,

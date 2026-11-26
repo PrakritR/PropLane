@@ -40,7 +40,8 @@ const FIXED_SURFACES: { finding: string; path: string; requiredPattern: RegExp }
   {
     finding: "W001",
     path: "src/app/api/mcp/oauth/approve/route.ts",
-    requiredPattern: /actor\.workspace/,
+    // The workspace is now picked at consent and re-derived from membership by `resolveMcpTarget`.
+    requiredPattern: /resolveMcpTarget|actor\.workspace/,
   },
   {
     finding: "W002",

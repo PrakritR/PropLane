@@ -5,10 +5,13 @@ import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 import { loadAnswerableEntries } from "@/lib/one-number/knowledge/store.server";
 import { loadOwnedProperty, resolveResidentKnowledgeScope } from "@/lib/one-number/knowledge/scope.server";
 import { houseInfoForScope } from "@/lib/one-number/knowledge/types";
+import { loadOwnResolvedMoveIn } from "@/lib/tools/domains/resident/lease";
 import {
+  asksDoorCode,
   isFastPathCandidate,
   matchResidentFastPath,
   type FastPathAnswer,
+  type FastPathFacts,
 } from "@/lib/one-number/resident-fast-path";
 
 /**
@@ -38,20 +41,35 @@ export async function tryResidentFastPath(
     const scope = resolved.scope;
     if (!scope.focusPropertyId) return null;
 
+    // The three reads are independent: the house, the approved Q&A and (only for a door-code question) the resident's own room.
+    const wantsRoom = scope.includeHouseInfo && scope.includeHouseSecrets && asksDoorCode(text);
+    const [property, entries, moveIn] = await Promise.all([
+      scope.includeHouseInfo ? loadOwnedProperty(db, scope.ownerUserId, scope.focusPropertyId) : Promise.resolve(null),
+      loadAnswerableEntries(db, {
+        workspaceId: scope.workspaceId,
+        allowedPropertyIds: scope.allowedPropertyIds,
+        audiences: scope.audiences,
+      }),
+      wantsRoom ? loadOwnResolvedMoveIn(ctx).catch(() => null) : Promise.resolve(null),
+    ]);
     let houseInfo = null;
-    if (scope.includeHouseInfo) {
-      const property = await loadOwnedProperty(db, scope.ownerUserId, scope.focusPropertyId);
-      if (property && property.workspaceId === scope.workspaceId) houseInfo = houseInfoForScope(scope, property);
+    let own: FastPathFacts["own"];
+    if (property && property.workspaceId === scope.workspaceId) {
+      houseInfo = houseInfoForScope(scope, property);
+      if (scope.includeHouseSecrets) {
+        // The reveal has opened (the SAME decision the portal makes), so the resident's OWN room code may go out.
+        own = {
+          houseLabel: property.label,
+          roomLabel: moveIn?.roomLabel ?? "",
+          roomDoorCode: moveIn?.roomDoorCode ?? null,
+          roomCodesExist: (property.roomSecrets ?? []).length > 0,
+        };
+      }
     }
-    const entries = await loadAnswerableEntries(db, {
-      workspaceId: scope.workspaceId,
-      allowedPropertyIds: scope.allowedPropertyIds,
-      audiences: scope.audiences,
-    });
     const knowledge = entries
       .filter((entry) => entry.propertyId === null || entry.propertyId === scope.focusPropertyId)
       .map((entry) => ({ question: entry.question, answer: entry.answer }));
-    return matchResidentFastPath(text, { houseInfo, knowledge });
+    return matchResidentFastPath(text, { houseInfo, knowledge, own });
   } catch {
     return null;
   }

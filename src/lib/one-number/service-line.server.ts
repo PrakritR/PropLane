@@ -3,12 +3,17 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingSchemaError, loadSharedLineConfigStrict } from "@/lib/one-number/config.server";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { managerCanSendFromOwnNumber } from "@/lib/sms/number-registration-policy";
 
 /**
- * The PropLane line for PropLane-MANAGED workspaces (captain, Oct 25: "anything under that management use main 206 number
- * now"). Every workspace carrying `portal_workspaces.is_service` texts on the PropLane line, in BOTH line modes, even when it
- * still holds a live `manager_sms_numbers` row of its own. This module is the ONE place that decides that:
+ * The line for PropLane-MANAGED workspaces. Captain, Nov 24: a managed workspace that holds its OWN active, registered
+ * work number (Ambika: (814) 679-3694) texts on THAT number; a managed workspace without one (Vinod) texts on the PropLane
+ * line (206). This module is the ONE place that decides that. `resolveServiceLine(db, columns, workspaceId)` returns, in order:
  *
+ *   the workspace's own number    its live `manager_sms_numbers` row, provision active and registration approved
+ *                                 (`kind: "owner_number"`, `source: "workspace"`); a row that is not sendable, or an own-number
+ *                                 read that fails, is NOT the line: it falls through to the PropLane line (never to another
+ *                                 workspace's number);
  *   shared mode                    the configured shared number (`sms_runtime_config.shared_number_e164`), no per-workspace row;
  *   per_workspace / shadow mode    the number the platform service owner holds, on the owner's DEFAULT workspace
  *                                  (the same line `isPropLaneServiceLine` recognises).
@@ -20,7 +25,16 @@ import { normalizeE164 } from "@/lib/phone-e164";
 
 export type ServiceLine<T = Record<string, unknown>> =
   | { ok: true; kind: "shared"; phoneNumber: string; messagingServiceSid: string | null }
-  | { ok: true; kind: "owner_number"; phoneNumber: string; row: T; serviceOwnerUserId: string }
+  | {
+      ok: true;
+      kind: "owner_number";
+      phoneNumber: string;
+      row: T;
+      /** The holder of the number row: the platform service owner, or the managed workspace's own manager. */
+      serviceOwnerUserId: string;
+      /** `workspace` = the managed workspace's own number; `service_owner` = the PropLane line held by the service owner. */
+      source: "workspace" | "service_owner";
+    }
   | { ok: false; reason: "no_service_line" | "unreadable" };
 
 /** Columns the resolution itself filters on; guaranteed present whatever the caller selects. */
@@ -77,7 +91,17 @@ export async function readServiceOwnerOrThrow(db: SupabaseClient): Promise<strin
  * The PropLane line a managed workspace sends on. `columns` is what the caller wants of the service owner's number row
  * (`kind: "owner_number"` only; the registration and provider checks stay with the caller).
  */
-export async function resolveServiceLine<T = Record<string, unknown>>(db: SupabaseClient, columns = "phone_number"): Promise<ServiceLine<T>> {
+export async function resolveServiceLine<T = Record<string, unknown>>(
+  db: SupabaseClient,
+  columns = "phone_number",
+  /** The managed workspace the send is about; when it holds its own sendable number, that is the line. */
+  workspaceId?: string | null,
+): Promise<ServiceLine<T>> {
+  const ownId = String(workspaceId ?? "").trim();
+  if (ownId) {
+    const own = await resolveWorkspaceOwnLine<T>(db, columns, ownId);
+    if (own) return own;
+  }
   const config = await loadSharedLineConfigStrict(db);
   if (!config.ok) return { ok: false, reason: "unreadable" };
   if (config.config.mode === "shared" && config.config.sharedNumber) {
@@ -111,7 +135,37 @@ export async function resolveServiceLine<T = Record<string, unknown>>(db: Supaba
   const row = home ?? live(rows.filter((r) => !String(r.workspace_id ?? "").trim()));
   const phoneNumber = row ? normalizeE164(String(row.phone_number ?? "")) : null;
   if (!row || !phoneNumber) return { ok: false, reason: "no_service_line" };
-  return { ok: true, kind: "owner_number", phoneNumber, row: row as T, serviceOwnerUserId: serviceOwner };
+  return { ok: true, kind: "owner_number", phoneNumber, row: row as T, serviceOwnerUserId: serviceOwner, source: "service_owner" };
+}
+
+/**
+ * A managed workspace's OWN line: its live, active, registered `manager_sms_numbers` row. Null when it has none, when the
+ * row is not sendable, or when the read fails (the caller then resolves the PropLane line: fail closed to the shared line).
+ */
+async function resolveWorkspaceOwnLine<T>(db: SupabaseClient, columns: string, workspaceId: string): Promise<ServiceLine<T> | null> {
+  try {
+    const select = withLineColumns(`${columns}, provision_state, registration_state, registration_ref`);
+    const { data, error } = await db.from("manager_sms_numbers").select(select).eq("workspace_id", workspaceId);
+    if (error) return null;
+    const rows = ((Array.isArray(data) ? data : data ? [data] : []) as unknown as Array<Record<string, unknown>>).filter(Boolean);
+    for (const row of rows) {
+      if (row.released_at) continue;
+      const phoneNumber = normalizeE164(String(row.phone_number ?? ""));
+      const holder = String(row.manager_user_id ?? "").trim();
+      if (!phoneNumber || !holder) continue;
+      const sendable = managerCanSendFromOwnNumber({
+        provisionState: row.provision_state as never,
+        phoneNumber,
+        registrationState: row.registration_state as never,
+        registrationRef: typeof row.registration_ref === "string" ? row.registration_ref : null,
+      });
+      if (!sendable) continue;
+      return { ok: true, kind: "owner_number", phoneNumber, row: row as T, serviceOwnerUserId: holder, source: "workspace" };
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 /**
@@ -166,4 +220,61 @@ export async function resolveManagedSendTarget(
   }
   if (unreadable) return { managed: null, workspaceId: candidates[0] ?? null };
   return { managed: false, workspaceId: candidates[0] ?? null };
+}
+
+/**
+ * The line the ADMIN portal operates and shows (captain, Nov 24: "use the 814 number for the admin portal always"): the
+ * managed operator's registered number, i.e. the first PropLane-managed (`is_service`) workspace that holds a live, active,
+ * registered number of its own (earliest requested first, so the answer is stable). With none, or when anything cannot be
+ * read, it is the PropLane line (`resolveServiceLine` with no workspace): fail closed, never a self-serve manager's number.
+ * Conversations that arrived on the PropLane line stay listed; this decides only what NEW admin texts leave on and show.
+ */
+export async function resolveAdminLine<T = Record<string, unknown>>(db: SupabaseClient, columns = "phone_number"): Promise<ServiceLine<T>> {
+  try {
+    const { data, error } = await db.from("portal_workspaces").select("id").eq("is_service", true);
+    if (!error) {
+      const ids = ((data ?? []) as Array<{ id?: unknown }>).map((r) => String(r.id ?? "").trim()).filter(Boolean);
+      if (ids.length > 0) {
+        const { data: rows, error: rowsError } = await db
+          .from("manager_sms_numbers")
+          .select("workspace_id, requested_at")
+          .in("workspace_id", ids)
+          .is("released_at", null);
+        if (!rowsError) {
+          const ordered = ((rows ?? []) as Array<{ workspace_id?: unknown; requested_at?: unknown }>)
+            .slice()
+            .sort((a, b) => String(a.requested_at ?? "").localeCompare(String(b.requested_at ?? "")));
+          for (const r of ordered) {
+            const own = await resolveWorkspaceOwnLine<T>(db, columns, String(r.workspace_id ?? ""));
+            if (own) return own;
+          }
+        }
+      }
+    }
+  } catch {
+    // fall through to the PropLane line
+  }
+  return resolveServiceLine<T>(db, columns);
+}
+
+/**
+ * Is `phone` the OWN line of a PropLane-managed workspace (its live, active, registered number)? Returns that workspace's id,
+ * or null (not one, or unreadable). Inbound recognises operator and staff texting it exactly as on the PropLane line.
+ */
+export async function managedWorkspaceOwningLine(db: SupabaseClient, phone: string | null | undefined): Promise<string | null> {
+  const number = normalizeE164(phone ?? "");
+  if (!number) return null;
+  try {
+    const { data, error } = await db.from("manager_sms_numbers").select("workspace_id, phone_number").is("released_at", null).eq("phone_number", number);
+    if (error) return null;
+    for (const r of (data ?? []) as Array<{ workspace_id?: unknown }>) {
+      const id = String(r.workspace_id ?? "").trim();
+      if (!id || (await isServiceWorkspace(db, id)) !== true) continue;
+      const own = await resolveWorkspaceOwnLine(db, "phone_number", id);
+      if (own?.ok && own.phoneNumber === number) return id;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }

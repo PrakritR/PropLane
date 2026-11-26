@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { tourEventDescription, tourEventSummary, type TourEventFacts } from "@/lib/google-calendar/tour-event-payload";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
+import { captureSmsTestDelivery, currentSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import {
@@ -12,6 +12,11 @@ import {
   updateGoogleCalendarEvent,
 } from "@/lib/google-calendar/api.server";
 import { loadGoogleCalendarConnection } from "@/lib/google-calendar/settings";
+import {
+  recordTourCalendarOwner,
+  resolveStoredTourCalendarOwner,
+  resolveTourCalendarConnectionOwner,
+} from "@/lib/google-calendar/tour-calendar-owner.server";
 import { syncVendorServiceVisitToGoogleCalendar } from "@/lib/google-calendar/vendor-calendar-push.server";
 import { mergeTourAvailabilitySlotsIntoWindows, payloadSlots } from "@/lib/tour-slot-math";
 import { mutateConfirmedTourSchedule } from "@/lib/tour-schedule-persistence.server";
@@ -55,6 +60,8 @@ async function upsertGoogleCalendarEvent(
   input: GoogleCalendarUpsertInput,
   beforeWrite?: () => Promise<boolean>,
   validateCurrent?: () => Promise<boolean>,
+  /** Whose Google connection receives the write; defaults to `managerUserId`. */
+  connectionOwnerUserId: string = managerUserId,
 ): Promise<GoogleCalendarUpsertResult> {
   if (captureSmsTestDelivery({
     kind: "calendar",
@@ -64,7 +71,7 @@ async function upsertGoogleCalendarEvent(
   })) {
     return { googleCalendarEventId: null, created: false };
   }
-  const connection = await loadGoogleCalendarConnection(db, managerUserId);
+  const connection = await loadGoogleCalendarConnection(db, connectionOwnerUserId);
   if (!connection.connected || !connection.syncEnabled) return { googleCalendarEventId: null, created: false };
   if (beforeWrite && !await beforeWrite()) return { googleCalendarEventId: null, created: false };
 
@@ -74,7 +81,7 @@ async function upsertGoogleCalendarEvent(
       return {
         googleCalendarEventId: await updateGoogleCalendarEvent(
           db,
-          managerUserId,
+          connectionOwnerUserId,
           existingId,
           input,
           validateCurrent ? { validateCurrent } : undefined,
@@ -89,7 +96,7 @@ async function upsertGoogleCalendarEvent(
   return {
     googleCalendarEventId: await createGoogleCalendarEvent(
       db,
-      managerUserId,
+      connectionOwnerUserId,
       input,
       validateCurrent ? { validateCurrent } : undefined,
     ),
@@ -266,6 +273,26 @@ export async function syncPlannedTourToGoogleCalendarAttempt(
     let createGeneration: string | null = null;
     let createDeferred = false;
     let upsert: GoogleCalendarUpsertResult;
+    // Which Google connection holds this tour's event: the stored one for an event that has one, the PropLane operator
+    // for a new tour on a managed house, the house manager otherwise. Recorded BEFORE the write so a crash between the
+    // remote insert and the id persisting still leaves recovery knowing which calendar to look in.
+    // A captured SMS-test delivery never touches persistence or a provider, so it keeps the house manager.
+    const resolvedOwner = currentSmsTestTransport()
+      ? { ownerUserId: managerUserId, assigneeUserId: managerUserId, stored: true }
+      : await resolveTourCalendarConnectionOwner(db, {
+          houseManagerUserId: managerUserId,
+          plannedEventId: current.plannedEventId,
+          existingGoogleEventId: current.googleCalendarEventId,
+        });
+    const calendarOwnerUserId = resolvedOwner.ownerUserId;
+    if (!resolvedOwner.stored && (calendarOwnerUserId !== managerUserId || resolvedOwner.assigneeUserId !== managerUserId)) {
+      await recordTourCalendarOwner(db, {
+        plannedEventId: current.plannedEventId,
+        houseManagerUserId: managerUserId,
+        connectionOwnerUserId: calendarOwnerUserId,
+        assigneeUserId: resolvedOwner.assigneeUserId,
+      });
+    }
     try {
       upsert = await upsertGoogleCalendarEvent(db, managerUserId, {
         id: deterministicGoogleEventId(managerUserId, current.plannedEventId),
@@ -291,7 +318,7 @@ export async function syncPlannedTourToGoogleCalendarAttempt(
           generation,
           options?.ownsGoogleCreateIntent ? options.googleCreateWorkerId : undefined,
         );
-      });
+      }, calendarOwnerUserId);
     } catch (error) {
       if (error instanceof GoogleCalendarWriteSupersededError) {
         return { googleCalendarEventId: null, deferred: true };
@@ -336,7 +363,7 @@ export async function syncPlannedTourToGoogleCalendarAttempt(
       // crash between remote insert and that mutation becoming observable.
       await enqueuePlannedTourGoogleCleanup(db, managerUserId, current.plannedEventId, googleCalendarEventId);
       try {
-        await deleteGoogleCalendarEvent(db, managerUserId, googleCalendarEventId);
+        await deleteGoogleCalendarEvent(db, calendarOwnerUserId, googleCalendarEventId);
         await completePlannedTourGoogleCleanup(db, current.plannedEventId);
       } catch (error) {
         await recordPlannedTourGoogleCleanupFailure(db, managerUserId, googleCalendarEventId, error);
@@ -752,11 +779,15 @@ export async function deleteProplaneGoogleCalendarEvent(
     status: "captured",
     metadata: { operation: "delete" },
   });
-  if (!captured) await deleteGoogleCalendarEvent(db, managerUserId, eventId);
   const { data: plannedRecord } = await db.from("portal_schedule_records")
     .select("row_data").eq("id", PLANNED_RECORD_ID).maybeSingle();
   const plannedEventId = String(rowsFromPlannedRecord(plannedRecord?.row_data)
     .find((row) => String(row.googleCalendarEventId ?? "") === eventId)?.id ?? "");
+  // Delete from the connection the create stored (the PropLane operator's for a managed house), not blindly the house owner's.
+  const connectionOwnerUserId = plannedEventId
+    ? await resolveStoredTourCalendarOwner(db, plannedEventId, managerUserId)
+    : managerUserId;
+  if (!captured) await deleteGoogleCalendarEvent(db, connectionOwnerUserId, eventId);
   await deletePlannedTourByGoogleCalendarEventId(db, eventId).catch(() => undefined);
   // A schedule cancel/delete creates a durable cleanup row. Completing it
   // here makes an already-successful direct delete idempotent for recovery.

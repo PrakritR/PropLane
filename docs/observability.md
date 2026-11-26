@@ -7,7 +7,7 @@ Two systems, two different questions. Keep them straight:
 | Answers | What are users doing on the site? | What did the AI agent do, and was it any good? |
 | Scope | Pageviews, clicks, funnels, performance, errors, session replay | Agent turns: prompt, tools offered, tool chosen, arguments, results, tokens, cost |
 | Project | `Default project` (`492655`), US cloud | US cloud (`LANGFUSE_BASE_URL`) |
-| Code | `instrumentation-client.ts`, `src/lib/analytics/` | `src/lib/observability/langfuse.ts` |
+| Code | `instrumentation-client.ts`, `src/lib/analytics/` | `src/lib/observability/langfuse.ts` (traces ride OTel via `langfuse-trace.ts`; scores POST `/api/public/scores`; the v3 `langfuse` ingestion API was removed 2026-11-16) |
 
 > It is **Langfuse**, not LangGraph. LangGraph is an agent-orchestration
 > framework and is not used here — the agent loop is a thin custom one

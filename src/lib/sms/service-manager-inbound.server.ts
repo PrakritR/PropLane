@@ -10,6 +10,7 @@ import { decideFromCandidates, looksLikePendingAnswerAttempt, resolvePendingAnsw
 import { loadSharedLineSession, PENDING_QUESTION_TTL_MS, saveSharedLinePending, saveSharedLineRoute } from "@/lib/one-number/session.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { serviceWorkspaceLabel } from "@/lib/service/service-label";
+import { managedWorkspaceOwningLine } from "@/lib/one-number/service-line.server";
 import { identifyServiceManagerPhone } from "@/lib/service/service-manager.server";
 import { isPropLaneServiceLine } from "@/lib/service/service-catalog.server";
 import type { ManagerSmsAccess } from "@/lib/sms/manager-sms-access";
@@ -86,7 +87,10 @@ export async function recognizeServiceManagerInbound(
     config ??= await loadSharedLineConfig(db);
     return (
       isSharedLineNumber(config, toPhone) ||
-      (await isPropLaneServiceLine(db, { ownerUserId: args.managerId, workNumber: toPhone, sharedNumber: config.sharedNumber }))
+      (await isPropLaneServiceLine(db, { ownerUserId: args.managerId, workNumber: toPhone, sharedNumber: config.sharedNumber })) ||
+      // A managed workspace's OWN registered line ((814) 679-3694, Nov 24) is the operator's line too: the admin and invited
+      // staff text it exactly as they text the PropLane line.
+      (await managedWorkspaceOwningLine(db, toPhone)) !== null
     );
   };
 

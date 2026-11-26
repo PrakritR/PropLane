@@ -15,6 +15,7 @@ import {
   type ResidentAxisPaymentMethod,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
+import { RESIDENT_PAY_MAX_CHARGES } from "@/lib/resident-stay-summary";
 import { getStripe } from "@/lib/stripe";
 import { ensureResidentStripeCustomerId } from "@/lib/stripe-resident-customer";
 import {
@@ -49,7 +50,7 @@ import { chargeRowActionableByResident, loadResidentChargeActionBinding, type Re
 // `charge_ids` value the webhook reads back, so cap the bulk count to keep the
 // CSV safely under that limit and never truncate an id (which would silently
 // leave a paid charge unmarked).
-export const MAX_BULK_CHARGES = 10;
+export const MAX_BULK_CHARGES = RESIDENT_PAY_MAX_CHARGES;
 
 export function chargeOwnedByUser(charge: HouseholdCharge, userId: string, email: string): boolean {
   const e = email.trim().toLowerCase();

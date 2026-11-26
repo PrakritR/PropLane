@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { resolveAgentContext, verifyMcpApproval, getMcpOAuthClient } = vi.hoisted(() => ({
-  resolveAgentContext: vi.fn(),
+const { loadMcpConsent, verifyMcpApproval, getMcpOAuthClient } = vi.hoisted(() => ({
+  loadMcpConsent: vi.fn(),
   verifyMcpApproval: vi.fn(),
   getMcpOAuthClient: vi.fn(),
 }));
 
-vi.mock("@/lib/tools/context", () => ({ resolveAgentContext }));
+vi.mock("@/lib/mcp/consent.server", () => ({ loadMcpConsent }));
 vi.mock("@/lib/mcp/oauth.server", () => ({ verifyMcpApproval, getMcpOAuthClient }));
 
 import { POST } from "@/app/api/mcp/oauth/deny/route";
@@ -14,7 +14,7 @@ import { POST } from "@/app/api/mcp/oauth/deny/route";
 describe("MCP OAuth denial", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    resolveAgentContext.mockResolvedValue({ userId: "manager_1", db: {} });
+    loadMcpConsent.mockResolvedValue({ userId: "manager_1", db: {} });
     verifyMcpApproval.mockReturnValue({
       userId: "manager_1",
       clientId: "client_1",

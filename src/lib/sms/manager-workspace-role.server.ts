@@ -309,8 +309,9 @@ async function resolveHeldNumberRow<T>(
 async function resolveManagedLineRow<T>(
   db: SupabaseClient,
   columns: string,
+  workspaceId?: string | null,
 ): Promise<{ data: T | null; error: { message: string; code?: string } | null }> {
-  const line = await resolveServiceLine<T>(db, columns);
+  const line = await resolveServiceLine<T>(db, columns, workspaceId);
   if (!line.ok) {
     return line.reason === "unreadable"
       ? { data: null, error: { message: "The PropLane line could not be read." } }
@@ -373,7 +374,7 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
     // A line the owner IS entitled to that belongs to a PropLane-managed workspace is the PropLane line, whatever id was pinned.
     const pinnedManaged = await isServiceWorkspace(db, String(row.workspace_id ?? ""));
     if (pinnedManaged === null) return { data: null, error: { message: "Service workspace unreadable." } };
-    if (pinnedManaged) return resolveManagedLineRow<T>(db, columns);
+    if (pinnedManaged) return resolveManagedLineRow<T>(db, columns, String(row.workspace_id ?? ""));
     return { data: row, error: null };
   }
   const noNumber = { data: null, error: { message: WORKSPACE_NO_WORK_NUMBER_MESSAGE, code: WORKSPACE_NO_WORK_NUMBER_CODE } };
@@ -406,7 +407,7 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
   if (targetWorkspaceId) {
     const managed = await isServiceWorkspace(db, targetWorkspaceId);
     if (managed === null) return { data: null, error: { message: "Service workspace unreadable." } };
-    if (managed) return resolveManagedLineRow<T>(db, columns);
+    if (managed) return resolveManagedLineRow<T>(db, columns, targetWorkspaceId);
   }
 
   const query = db.from("manager_sms_numbers").select(withResolutionColumns(columns)).eq("manager_user_id", ownerUserId);

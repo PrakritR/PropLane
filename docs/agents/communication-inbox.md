@@ -796,6 +796,12 @@ Communication built "No messages yet" rows for another owner's residents.
   (`workspaceContainsProperty`) AND the viewer owns the row or holds
   Communication on that house (`applicationVisibleToPortalUser(..., "inbox")`).
   A cancelled grant, or a grant without Communication, lists nobody.
+- **PropLane Service staff read and answer as the workspace** (comms-accuracy, Nov 24). The store query fetches the active managed
+  workspace's client owner too (`inboxStoreOwnerIds` takes `staffWorkspaceOwners`), a thread's stamp is its `workspace_id` column, else
+  `row_data.workspaceId` (`storedThreadWorkspaceId`), and the SMS projection passes its own stamp to `conversationVisible`. Staff answer
+  through the `staff` append rule (outbound only, attributed by the server, no house grant), SMS replies/deletes/contacts check
+  `resolveSmsActableOwnerIds`, and a new conversation staff start is owned by and keyed in the workspace owner's workspace
+  (`managedWorkspaceOwnerOf`, never a body id). The operator's own workspace never lists another workspace's stamped threads.
 - **A stamped thread belongs to its workspace** — rule (3) of
   `conversationVisible` above, which owns that order.
 - **Deleting an empty chat is permanent.** A placeholder has nothing stored, so

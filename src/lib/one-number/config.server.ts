@@ -128,15 +128,22 @@ async function loadDedicatedWorkspaceIds(db: SupabaseClient): Promise<string[] |
       if (id) ids.add(id);
     }
   }
-  // A PropLane-managed (`is_service`) workspace never takes a personalized number: it always texts on the PropLane
-  // line (`resolveServiceLine`), whatever old number row it carries and whoever pays for it. Counting it dedicated
-  // sent its own residents a "text (206) ... instead" redirect to the very line they were already texting.
-  if (ids.size > 0) {
+  // A PropLane-managed (`is_service`) workspace is dedicated exactly when it holds a working number of its OWN
+  // (`resolveServiceLine`, captain Nov 24: Ambika's (814) 679-3694), whoever pays for it: its people are told to text
+  // that line. One without a working number of its own (Vinod) stays on the PropLane line and is never counted dedicated
+  // (that sent its residents a "text (206) instead" redirect to the line they were already texting).
+  const workingWorkspaceIds = new Set(working.map((row) => String((row as { workspace_id?: unknown }).workspace_id ?? "").trim()).filter(Boolean));
+  const candidates = [...new Set([...ids, ...workingWorkspaceIds])];
+  if (candidates.length > 0) {
     // Asked about THESE workspaces only, so the answer can never be partial: a page limit over every service
     // workspace silently left the ones it did not reach counted as dedicated, which is the bug this removes.
-    const service = await db.from("portal_workspaces").select("id").eq("is_service", true).in("id", [...ids]);
+    const service = await db.from("portal_workspaces").select("id").eq("is_service", true).in("id", candidates);
     if (service.error) return isMissingSchemaError(service.error) ? [...ids] : null;
-    for (const row of service.data ?? []) ids.delete(String((row as { id?: unknown }).id ?? "").trim());
+    for (const row of service.data ?? []) {
+      const id = String((row as { id?: unknown }).id ?? "").trim();
+      if (workingWorkspaceIds.has(id)) ids.add(id);
+      else ids.delete(id);
+    }
   }
   return [...ids];
 }

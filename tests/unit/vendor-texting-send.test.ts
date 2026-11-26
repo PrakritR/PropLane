@@ -17,7 +17,7 @@ const hoisted = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/manager-sms-messages.server", () => ({
   fetchManagerSmsConversations: vi.fn(async () => ({ residents: [] })),
-  resolveSmsScopeManagerIds: hoisted.scope,
+  resolveSmsScopeManagerIds: hoisted.scope, resolveSmsActableOwnerIds: hoisted.scope,
 }));
 vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({
   enqueueOwnerSms: hoisted.enqueue,

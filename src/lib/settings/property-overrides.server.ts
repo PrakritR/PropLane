@@ -123,7 +123,12 @@ export type OperationsNamespace =
    * the ID check and the applicant-paid background check, separately. Property override, then workspace row, then
    * the built-in default (OFF for every workspace).
    */
-  | "applicantScreening";
+  | "applicantScreening"
+  /**
+   * Whether an escalation reply from the work number / PropLane line shares the manager's phone
+   * (`EscalationContactSettings`, `one-number/escalation-contact.ts`). Workspace-rung only.
+   */
+  | "escalationContact";
 
 /** A `propertyId` that is not in this manager's workspace. Routes map it to 403. */
 export class ForeignPropertyError extends Error {

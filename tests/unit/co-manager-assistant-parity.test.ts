@@ -168,7 +168,7 @@ describe("outbound identity is the workspace address on every manager send path"
 
   it("the compose route does too, for manager senders only", () => {
     const route = readFileSync("src/app/api/portal/send-inbox-message/route.ts", "utf8");
-    expect(route).toContain("resolveManagerOutboundFrom(db, user.id)");
+    expect(route).toContain("resolveManagerOutboundFrom(db, managedSendOwnerId ?? user.id)");
     expect(route).toMatch(/senderRole === "manager"\s*\?\s*await resolveManagerOutboundFrom/);
   });
 

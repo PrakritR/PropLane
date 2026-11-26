@@ -63,12 +63,20 @@ export const listResidentsTool = defineTool({
         .string()
         .optional()
         .describe("Optional case-insensitive filter on the property label."),
+      q: z
+        .string()
+        .max(120)
+        .optional()
+        .describe('Optional "<house> Room <N>" (e.g. "5259 Room 2") or a name: returns only that resident, the room matched by its display name.'),
     })
     .strict(),
   handler: async (ctx, input) => {
     const wantProperty = input.property?.trim().toLowerCase();
+    const { resolveManagerResidents } = await import("./resident-lookup");
+    const byRef = input.q?.trim() ? new Set((await resolveManagerResidents(ctx, input.q)).matches.map((m) => m.row.id)) : null;
     const residents = (await loadManagerApplications(ctx))
       .filter((r) => r.bucket === "approved")
+      .filter((r) => !byRef || byRef.has(r.id))
       .filter((r) => !wantProperty || String(r.property ?? "").toLowerCase().includes(wantProperty))
       .map(summarizeResident);
     return { count: residents.length, residents };

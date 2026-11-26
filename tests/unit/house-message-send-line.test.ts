@@ -92,18 +92,14 @@ describe("resolveHouseSmsLine: the line is the HOUSE's workspace's, never the ow
     expect(other).toMatchObject({ ok: true, fromNumber: OWN_A, selectedWorkLineId: "n-a" });
   });
 
-  it("a PropLane-managed (is_service) workspace texts on the PropLane line, not the number it still holds", async () => {
+  it("a PropLane-managed (is_service) workspace with its own registered number texts from it (Nov 24)", async () => {
     const line = await resolveHouseSmsLine(world("per_workspace") as never, target("h-client", "ws-client", CLIENT));
-    expect(line).toMatchObject({ ok: true, fromNumber: LINE_206 });
-    expect(line.ok && line.fromNumber).not.toBe(CLIENT_OLD);
+    expect(line).toMatchObject({ ok: true, fromNumber: CLIENT_OLD });
   });
 
-  it("shared line mode: the managed workspace leaves on the PropLane number, never the one it still holds", async () => {
+  it("shared line mode: the managed workspace with its own number still leaves from it", async () => {
     const line = await resolveHouseSmsLine(world("shared") as never, target("h-client", "ws-client", CLIENT));
-    expect(line.ok).toBe(true);
-    // A managed workspace never counts as dedicated, so it is on the shared line (no row of its own to pin).
-    expect(line.ok && line.fromNumber).not.toBe(CLIENT_OLD);
-    expect(line.ok && line.selectedWorkLineId).toBeNull();
+    expect(line).toMatchObject({ ok: true, fromNumber: CLIENT_OLD });
   });
 
   it("shared line mode: a self-serve workspace with a paid number of its own still sends from it", async () => {
@@ -111,9 +107,9 @@ describe("resolveHouseSmsLine: the line is the HOUSE's workspace's, never the ow
     expect(line).toMatchObject({ ok: true, fromNumber: OWN_B, selectedWorkLineId: "n-b" });
   });
 
-  it("a managed workspace whose PropLane line cannot be resolved REFUSES (never the old number)", async () => {
+  it("a managed workspace keeps its own number when the PropLane line cannot be resolved", async () => {
     const line = await resolveHouseSmsLine(world("per_workspace", { noServiceOwner: true }) as never, target("h-client", "ws-client", CLIENT));
-    expect(line).toEqual({ ok: false, error: WORKSPACE_NO_WORK_NUMBER_CODE });
+    expect(line).toMatchObject({ ok: true, fromNumber: CLIENT_OLD });
   });
 
   it("a workspace with no work number refuses; it does not borrow the owner's other workspace's number", async () => {

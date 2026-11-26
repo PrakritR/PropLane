@@ -57,14 +57,27 @@ export const listLeasesTool = defineTool({
         .string()
         .optional()
         .describe("Optional case-insensitive filter on lease status, e.g. 'Fully Signed'."),
+      resident: z
+        .string()
+        .max(120)
+        .optional()
+        .describe('Optional resident reference: a name, an email, or "<house> Room <N>" (e.g. "4709a Room 5"). Returns only that resident\'s leases.'),
     })
     .strict(),
   handler: async (ctx, input) => {
     const rows = await loadManagerLeases(ctx);
     const wanted = input.status?.trim().toLowerCase();
-    const filtered = wanted
+    const byStatus = wanted
       ? rows.filter((r) => String(r.status ?? r.stageLabel ?? "").toLowerCase() === wanted)
       : rows;
+    let filtered = byStatus;
+    if (input.resident?.trim()) {
+      const { resolveManagerResidents } = await import("./resident-lookup");
+      const { matches, question } = await resolveManagerResidents(ctx, input.resident, { includeMovedOut: true });
+      if (question) return { count: 0, leases: [], message: question };
+      const emails = new Set(matches.map((m) => m.email).filter(Boolean));
+      filtered = byStatus.filter((r) => emails.has(String(r.residentEmail ?? "").trim().toLowerCase()));
+    }
     return {
       count: filtered.length,
       leases: filtered.map((r) => ({

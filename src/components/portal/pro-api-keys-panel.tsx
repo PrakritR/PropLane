@@ -20,6 +20,7 @@ import {
   toolsForProductAreas,
   type ApiKeyTransport,
 } from "@/lib/mcp/capabilities";
+import { ConnectClaudeBlock } from "@/components/mcp/connect-claude-block";
 import { MCP_OAUTH_SCOPE_LABEL } from "@/lib/mcp/oauth-scope-label";
 import { WEBHOOK_EVENT_TYPES, type WebhookEventType } from "@/lib/webhooks/events";
 
@@ -41,6 +42,7 @@ type ApiKey = {
 
 type McpConnection = {
   clientId: string;
+  portal?: "manager" | "resident";
   clientName: string | null;
   createdAt: string;
   lastUsedAt: string | null;
@@ -310,7 +312,6 @@ export function ManagerApiKeysPanel() {
   const [allowedTools, setAllowedTools] = useState<string[]>([]);
   const [freshToken, setFreshToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [claudeStepsOpen, setClaudeStepsOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{ kind: "key" | "app"; id: string; name: string } | null>(null);
 
@@ -344,7 +345,6 @@ export function ManagerApiKeysPanel() {
     const origin = typeof window === "undefined" ? "https://prop-lane.space" : window.location.origin;
     return JSON.stringify({ baseUrl: `${origin}/api/v1/tools`, headers: { Authorization: `Bearer ${freshToken ?? "YOUR_KEY"}` } }, null, 2);
   }, [freshToken]);
-  const mcpUrl = useMemo(() => (typeof window === "undefined" ? "https://prop-lane.space" : window.location.origin) + "/api/mcp", []);
 
   const selectedAreaScopes = useMemo(() => productAreaSelectionsForTools(allowedTools), [allowedTools]);
   const toggleArea = (areaId: string, level: "read" | "write") => {
@@ -437,7 +437,6 @@ export function ManagerApiKeysPanel() {
     setConnections((current) => current.filter((connection) => connection.clientId !== clientId));
   };
 
-  const claudeCommand = `claude mcp add --transport http proplane ${mcpUrl}`;
 
   return (
     <div className="space-y-6" data-attr="settings-api">
@@ -608,7 +607,7 @@ export function ManagerApiKeysPanel() {
               <PortalSettingsRow key={connection.clientId} label={connection.clientName || "MCP client"}>
                 <div className="flex flex-wrap items-center justify-end gap-x-2">
                   <span className="text-[13px] text-foreground/80" data-attr="mcp-connection-row-value">
-                    {formatWhen(connection.createdAt)} · {MCP_OAUTH_SCOPE_LABEL}
+                    {formatWhen(connection.createdAt)} · {connection.portal === "resident" ? "As resident" : MCP_OAUTH_SCOPE_LABEL}
                   </span>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -625,33 +624,7 @@ export function ManagerApiKeysPanel() {
         </PortalSettingsGroup>
       </PortalSettingsSection>
 
-      <PortalSettingsSection title="Claude setup">
-        <PortalSettingsGroup>
-          <PortalSettingsRow label={<button type="button" className="text-left text-[15px] text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary/30" data-attr="settings-mcp-claude-connect" onClick={() => setClaudeStepsOpen(true)}>Claude</button>}>
-            <CopyButton value={claudeCommand} label="claude-setup" />
-          </PortalSettingsRow>
-        </PortalSettingsGroup>
-      </PortalSettingsSection>
-
-      {claudeStepsOpen ? (
-        <PortalDialog open={claudeStepsOpen} onClose={() => setClaudeStepsOpen(false)} title="Claude setup" primaryAction={null}>
-          <div className="space-y-4 p-4" data-attr="settings-mcp-claude-steps">
-            <PortalSettingsGroup>
-              <PortalSettingsRow label="Server URL">
-                <div className="flex min-w-0 items-center gap-2"><code className="max-w-[48vw] truncate text-xs">{mcpUrl}</code><CopyButton value={mcpUrl} label="mcp-url" /></div>
-              </PortalSettingsRow>
-              <PortalSettingsRow label="Claude Code">
-                <div className="flex min-w-0 items-center gap-2"><code className="max-w-[48vw] truncate text-xs">{claudeCommand}</code><CopyButton value={claudeCommand} label="claude-command" /></div>
-              </PortalSettingsRow>
-            </PortalSettingsGroup>
-            <ol className="list-decimal space-y-1 pl-5 text-sm text-foreground">
-              <li>claude.ai → Settings → Connectors → Add custom connector.</li>
-              <li>Name PropLane, paste the Server URL, leave client ID and secret blank, save.</li>
-              <li>Connect, then Allow.</li>
-            </ol>
-          </div>
-        </PortalDialog>
-      ) : null}
+      <ConnectClaudeBlock includeClaudeCode />
 
       <PortalSettingsSection title="Webhooks"><ManagerWebhooksBlock /></PortalSettingsSection>
 

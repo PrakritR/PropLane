@@ -122,8 +122,8 @@ afterEach(() => {
 describe("resident charges modal — one checkout sheet", () => {
   it('shows the rent subtotal and the resident-paid processing fee before Continue', async () => {
     render(<ResidentPaymentsPanel bucket="pending" />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Pay all" })).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: "Pay all" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Pay \$/ })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /^Pay \$/ }));
 
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(dialog.textContent ?? "").toContain("$1,205.00"));
@@ -140,8 +140,8 @@ describe("resident charges modal — one checkout sheet", () => {
 
   it("opens embedded Card checkout only after explicit Continue", async () => {
     render(<ResidentPaymentsPanel bucket="pending" />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Pay all" })).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: "Pay all" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Pay \$/ })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /^Pay \$/ }));
 
     await screen.findByRole("dialog");
     expect(checkoutRequests).toHaveLength(0);

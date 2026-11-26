@@ -120,6 +120,9 @@ export const EXTERNAL_EXCLUDED_TOOL_NAMES = new Set([
   "mark_room_rented",
   // One resident across applications, leases and charges in one answer: the balance would bypass a key's Payments area.
   "get_resident_snapshot",
+  // A held deposit by resident or room, and a room's door code (a secret): neither leaves the texting assistants.
+  "find_security_deposit",
+  "get_room_door_code",
 ]);
 
 export const API_KEY_TOOL_NAMES = new Set(

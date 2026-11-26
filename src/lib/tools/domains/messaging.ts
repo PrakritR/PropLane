@@ -5,6 +5,7 @@
  * interactive compose route uses — so the agent can never message anyone the
  * landlord couldn't message from the UI.
  */
+import { expandResidentRefs, resolveResidentRefToEmail } from "./resident-lookup";
 import { z } from "zod";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { defineWriteTool } from "../registry";
@@ -307,7 +308,7 @@ export const sendMessageTool = defineWriteTool({
         .min(1)
         .max(20)
         .optional()
-        .describe("Recipient email addresses (residents, co-managers, or vendors connected to this landlord)."),
+        .describe('Recipient email addresses (residents, co-managers, or vendors connected to this landlord). A resident may also be named as "<house> Room <N>" (e.g. "5259 Room 2"); one that names none or several is refused with a question to ask.'),
       toAllResidents: z
         .boolean()
         .optional()
@@ -328,10 +329,11 @@ export const sendMessageTool = defineWriteTool({
         ),
     })
     .strict(),
-  preview: async (ctx, input) => {
-    if (!input.toEmails?.length && input.toAllResidents !== true) {
+  preview: async (ctx, rawInput) => {
+    if (!rawInput.toEmails?.length && rawInput.toAllResidents !== true) {
       throw new Error("Provide toEmails and/or set toAllResidents: true.");
     }
+    const input = { ...rawInput, toEmails: await expandResidentRefs(ctx, rawInput.toEmails) };
     const { allowed, blocked } = await resolveMessageRecipients(ctx, input);
     if (allowed.length === 0) {
       throw new Error(blocked.length > 0
@@ -823,13 +825,14 @@ export const scheduleMessageTool = defineWriteTool({
     "Schedule a message from the landlord to one connected recipient (resident, co-manager, or vendor) to be delivered at a future date/time instead of immediately. For immediate delivery use send_message; scheduled messages appear in list_scheduled_messages.",
   inputSchema: z
     .object({
-      toEmail: z.string().min(3).max(200).describe("Recipient email address — someone connected to this landlord."),
+      toEmail: z.string().min(3).max(200).describe('Recipient email address — someone connected to this landlord — or a resident as "<house> Room <N>".'),
       subject: z.string().min(1).max(200).describe("Message subject line."),
       body: z.string().min(1).max(5000).describe("Message body (plain text)."),
       sendAtIso: z.string().min(1).describe("Future ISO 8601 datetime at which to send the message."),
     })
     .strict(),
-  preview: async (ctx, input) => {
+  preview: async (ctx, rawInput) => {
+    const input = { ...rawInput, toEmail: await resolveResidentRefToEmail(ctx, rawInput.toEmail) };
     const when = parseFutureSendAt(input.sendAtIso);
     if (!when.ok) throw new Error(when.error);
     const { allowed } = await resolveMessageRecipients(ctx, { toEmails: [input.toEmail] });

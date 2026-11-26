@@ -48,6 +48,23 @@ const MANAGER_SELF_ID: RegExp[] = [
   /\bmanage \d+ (?:units?|propert(?:y|ies)|houses?|rooms|doors)\b/,
 ];
 
+/**
+ * "I want to list my property", "post my rental", "rent out my place", "I have a room for rent": a landlord asking to put a
+ * home on PropLane, with no sign-up verb. Needs "my/our" (or an explicit "a room for rent"): "list rooms near UW" and
+ * "any rooms for rent?" are a renter's search and never match.
+ */
+const HOME_NOUN = String.raw`(?:propert(?:y|ies)|house|houses|home|homes|room|rooms|rental|rentals|apartments?|units?|place|duplex|condo|building|listings?|basement|studio|flat)`;
+const LISTING_ASK: RegExp[] = [
+  new RegExp(String.raw`\b(?:list|post|advertise|publish|put up|add|put)\s+(?:my|our)\s+(?:[a-z0-9]+\s+){0,3}?${HOME_NOUN}\b`),
+  new RegExp(String.raw`\b(?:list|post|advertise)\s+(?:a|an|some)\s+(?:[a-z0-9]+\s+){0,2}?${HOME_NOUN}\s+(?:for rent|to rent|on propl\w+|with propl\w+)\b`),
+  new RegExp(String.raw`\b(?:rent(?:ing)? out|lease out|sublet(?:ting)?)\s+(?:my|our|a|an|the|some)\s+(?:[a-z0-9]+\s+){0,2}?${HOME_NOUN}\b`),
+  new RegExp(String.raw`\b(?:i|we)\s+(?:have|own|got)\s+(?:a|an|some|\d+|two|three|four|five)\s+(?:[a-z0-9]+\s+){0,2}?${HOME_NOUN}\s+(?:for rent|to rent|to list|to post|available for rent)\b`),
+  /\b(?:i|we)(?:'d like|\s+(?:want|need|would like|wanna|hope))\s+to\s+(?:rent|lease)\s+(?:it|them|this|that|my \w+)\s+out\b/,
+  /\b(?:become|be)\s+a\s+(?:landlord|host)\s+on\s+propl\w+\b/,
+];
+/** A tour / application ask is the leasing flow's, even when the words "my place" appear. */
+const TOUR_OR_APPLY = /\b(?:tours?|touring|apply|applying|application|applications|viewing|showing|waitlist)\b/;
+
 /** A person already living in a home on PropLane, asking to be set up. */
 const RESIDENT_SELF_ID: RegExp[] = [
   /\bmy (?:landlord|property manager|manager|building|house) (?:uses|is on|is using|signed (?:me )?up (?:for|on|with))\b[^.?!]{0,20}\bpropl\w+/,
@@ -92,6 +109,9 @@ export function readSignupIntent(text: string): SignupIntent {
     // "sign up for a tour" style asks were excluded above; a bare renter search that merely contains "register" is not one either.
     if (isHousingSearchText(t) && !MANAGER_WORDS.test(t) && !VENDOR_WORDS.test(t) && !RESIDENT_WORDS.test(t)) return none;
     return { wantsSignup: true, role: readSignupRole(t), implicit: false };
+  }
+  if (LISTING_ASK.some((re) => re.test(t)) && !TOUR_OR_APPLY.test(t)) {
+    return { wantsSignup: true, role: "manager", implicit: true };
   }
   if (MANAGER_SELF_ID.some((re) => re.test(t))) {
     // "I'm a landlord looking for a place to rent" is a search, not a sign-up.

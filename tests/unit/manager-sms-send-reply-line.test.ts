@@ -11,7 +11,7 @@ const dispatch = vi.hoisted(() => vi.fn());
 const fetchConversations = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/manager-sms-messages.server", () => ({
   fetchManagerSmsConversations: fetchConversations,
-  resolveSmsScopeManagerIds: vi.fn(async () => ["owner-1"]),
+  resolveSmsScopeManagerIds: vi.fn(async () => ["owner-1"]), resolveSmsActableOwnerIds: vi.fn(async () => ["owner-1"]),
 }));
 vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({ enqueueOwnerSms: enqueue, dispatchOwnerSmsOutbox: dispatch }));
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));

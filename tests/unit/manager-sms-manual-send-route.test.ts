@@ -52,7 +52,7 @@ vi.mock("@/lib/supabase/service", () => ({
 vi.mock("@/lib/manager-sms-messages.server", () => ({
   deleteManagerSmsConversation: vi.fn(),
   fetchManagerSmsConversations: mocks.fetchConversations,
-  resolveSmsScopeManagerIds: vi.fn(async () => []),
+  resolveSmsScopeManagerIds: vi.fn(async () => []), resolveSmsActableOwnerIds: vi.fn(async () => []),
 }));
 vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({
   dispatchOwnerSmsOutbox: mocks.dispatch,

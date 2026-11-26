@@ -7,6 +7,7 @@ import { loadAnswerableEntries, recordEntryUse } from "./store.server";
 import { loadOwnedProperty, loadWorkspaceProperties, type PropertyBrief } from "./scope.server";
 import { detectAlwaysEscalate, REPLY_TOPIC_LABELS, type AlwaysEscalateTopic } from "./topics";
 import { houseInfoForScope, type KnowledgeScope } from "./types";
+import { houseManualForScope, isDisputeText, type HouseManualSection } from "./house-manual";
 
 export type KnowledgeAnswer = {
   question: string;
@@ -21,6 +22,8 @@ export type KnowledgeLookupResult = {
   found: boolean;
   answers: KnowledgeAnswer[];
   houseDetails: HouseDetailHit[];
+  /** The house manual (rules + general info), quoted data. Fees and policies live here: answer from it. Absent when none is on file or the asker may not read house details. */
+  houseManual?: HouseManualSection[];
   /** When set, the texter's question is one the agent must hand to the team whatever is found. */
   mustEscalate: AlwaysEscalateTopic | null;
   guidance: string;
@@ -53,6 +56,7 @@ export async function lookupPropertyKnowledge(
   );
 
   const houseDetails: HouseDetailHit[] = [];
+  const houseManual: HouseManualSection[] = [];
   // includeHouseInfo is only true when the scope already proved the asker may read house details
   // (a manager, or a resident past the move-in lock). Prospects and vendors never get here, and the
   // codes inside those details wait for `includeHouseSecrets` (`houseInfoForScope`).
@@ -64,6 +68,8 @@ export async function lookupPropertyKnowledge(
     } else if (scope.viewer === "manager") {
       houses = await loadWorkspaceProperties(db, scope.ownerUserId, scope.workspaceId, scope.allowedPropertyIds);
     }
+    // The manual is read for the one focus house only (a manager asking across houses uses the structured sections).
+    if (scope.focusPropertyId && houses[0]) houseManual.push(...houseManualForScope(scope, houses[0]));
     const sections = houses.flatMap((house) =>
       houseInfoRenderSections(houseInfoForScope(scope, house))
         .map((section) => ({ house, section })),
@@ -96,16 +102,24 @@ export async function lookupPropertyKnowledge(
     topic: REPLY_TOPIC_LABELS[e.topic],
     appliesTo: e.propertyId ? "this house" : "all houses",
   }));
-  const found = answers.length > 0 || houseDetails.length > 0;
+  const found = answers.length > 0 || houseDetails.length > 0 || houseManual.length > 0;
+  // A plain question about a WRITTEN policy (service animal, deposit return, a fee) is answered from the manual; only
+  // a dispute, a waiver, a legal or a safety matter is handed to the team whatever the manual says.
+  const answerFromManual =
+    houseManual.length > 0 && (mustEscalate === "money" || mustEscalate === "fair_housing") && !isDisputeText(question);
+  const escalate = answerFromManual ? null : mustEscalate;
   return {
     found,
     answers,
     houseDetails,
-    mustEscalate,
-    guidance: mustEscalate
-      ? `This touches ${mustEscalate.replace("_", " ")}. Always hand it to the team: tell the person the team will follow up, then escalate.`
+    ...(houseManual.length > 0 ? { houseManual } : {}),
+    mustEscalate: escalate,
+    guidance: escalate
+      ? `This touches ${escalate!.replace("_", " ")}. Always hand it to the team: tell the person the team will follow up, then escalate.`
       : found
-        ? "Answer only from these approved facts and the house details. If they do not fully cover the question, say so and escalate."
+        ? houseManual.length > 0
+          ? "Answer fees and policies from houseManual, quoting its amounts and terms exactly (never a number it does not state). Say it is not in PropLane only when neither the manual, the answers nor the details cover it, then offer to pass it to the manager."
+          : "Answer only from these approved facts and the house details. If they do not fully cover the question, say so and escalate."
         : NOT_FOUND_GUIDANCE,
   };
 }

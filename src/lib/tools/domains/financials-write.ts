@@ -35,6 +35,25 @@ function money(cents: number | null | undefined): string {
 }
 
 /**
+ * The deduction the confirmation card itemizes: the withheld amount comes from `withholdCents`, or from the sum of the
+ * itemization when only that was given; both together must agree. Pure, so the card and the handler can never differ.
+ */
+export function resolveDepositDeduction(input: {
+  withholdCents?: number;
+  itemization?: Array<{ label: string; amountCents: number }>;
+  memo?: string;
+}): { withholdCents: number; lines: Array<{ label: string; amountCents: number }> } {
+  const listed = (input.itemization ?? []).filter((l) => l.amountCents > 0);
+  const listedTotal = listed.reduce((n, l) => n + l.amountCents, 0);
+  if (input.withholdCents !== undefined && listed.length > 0 && listedTotal !== input.withholdCents) {
+    throw new Error(`The itemized deductions add up to ${money(listedTotal)} but the amount withheld is ${money(input.withholdCents)}. Make them agree.`);
+  }
+  const withholdCents = input.withholdCents ?? listedTotal;
+  const lines = listed.length > 0 ? listed : withholdCents > 0 ? [{ label: input.memo?.trim() || "Deduction", amountCents: withholdCents }] : [];
+  return { withholdCents, lines };
+}
+
+/**
  * Read one of the landlord's own rows for a preview. The `manager_user_id`
  * filter is not optional: a preview that skipped it would render another
  * landlord's record onto this landlord's confirmation card.
@@ -232,7 +251,7 @@ export const updateManagerBudgetTool = defineWriteTool({
 export const disposeSecurityDepositTool = defineWriteTool({
   name: "dispose_security_deposit",
   description:
-    "Dispose a held security deposit at move-out. Supply only the damages/withheld amount in cents; the refund is computed server-side as the remainder of the amount held (the tool computes the split, never the model). Records an already completed offline refund; supply its method and reference. Posts the disposition GL entry. Requires explicit user confirmation.",
+    "Dispose a held security deposit at move-out. Get the depositId from find_security_deposit (by resident name or \"<house> Room <N>\"). Itemize each deduction (label + amount in cents, e.g. \"Cleaning\" 5000); the card states every line and the net to the resident. Supply only the damages/withheld amount in cents; the refund is computed server-side as the remainder of the amount held (the tool computes the split, never the model). Records an already completed offline refund; supply its method and reference. Posts the disposition GL entry. Requires explicit user confirmation.",
   inputSchema: z
     .object({
       depositId: z.string().min(1),
@@ -250,7 +269,9 @@ export const disposeSecurityDepositTool = defineWriteTool({
     // The split is computed here from the stored amount held, exactly as the
     // handler recomputes it — the landlord confirms the real refund figure, not
     // a model-supplied one.
-    const split = computeDispositionSplit(deposit.amountHeldCents, input.withholdCents ?? 0);
+    const deduction = resolveDepositDeduction(input);
+    if (deduction.withholdCents > deposit.amountHeldCents) throw new Error(`The deductions (${money(deduction.withholdCents)}) are more than the ${money(deposit.amountHeldCents)} held.`);
+    const split = computeDispositionSplit(deposit.amountHeldCents, deduction.withholdCents);
     if (split.refundCents > 0 && !input.offlineReturn) throw new Error("Provide the completed offline return method and reference.");
     return {
       kind: "dispose_security_deposit",
@@ -258,8 +279,9 @@ export const disposeSecurityDepositTool = defineWriteTool({
       confirmLabel: "Post disposition",
       fields: [
         { label: "Amount held", value: money(deposit.amountHeldCents) },
+        ...deduction.lines.map((l) => ({ label: `Deduction: ${l.label}`, value: `-${money(l.amountCents)}` })),
         { label: "Withheld for damages", value: money(split.withholdCents) },
-        { label: "Refunded to resident", value: money(split.refundCents) },
+        { label: "Net returned to resident", value: money(split.refundCents) },
         { label: "Disposition type", value: split.dispositionType },
         ...(input.offlineReturn ? [{ label: "Offline return method", value: input.offlineReturn.method }, { label: "Return reference", value: input.offlineReturn.reference }] : []),
         ...(input.memo ? [{ label: "Memo", value: input.memo }] : []),
@@ -270,14 +292,15 @@ export const disposeSecurityDepositTool = defineWriteTool({
   handler: async (ctx: AgentContext, input) => {
     const deposit = await getSecurityDepositById(ctx.db, ctx.landlordId, input.depositId);
     if (!deposit) throw new Error("Security deposit not found.");
-    const split = computeDispositionSplit(deposit.amountHeldCents, input.withholdCents ?? 0);
+    const deduction = resolveDepositDeduction(input);
+    const split = computeDispositionSplit(deposit.amountHeldCents, deduction.withholdCents);
     return disposeSecurityDeposit(ctx.db, {
       managerUserId: ctx.landlordId,
       depositId: input.depositId,
       dispositionType: split.dispositionType,
       refundCents: split.refundCents,
       withholdCents: split.withholdCents,
-      itemization: input.itemization,
+      itemization: deduction.lines.length > 0 ? deduction.lines : input.itemization,
       memo: input.memo,
       offlineReturn: input.offlineReturn,
     });

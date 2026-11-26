@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { resolveApiKeyContext, rateLimit, listTools, callTool } = vi.hoisted(() => ({
-  resolveApiKeyContext: vi.fn(),
+const { resolveMcpBearerContext: resolveApiKeyContext, rateLimit, listTools, callTool } = vi.hoisted(() => ({
+  resolveMcpBearerContext: vi.fn(),
   rateLimit: vi.fn(() => ({ ok: true })),
   listTools: vi.fn(() => [{ name: "get_portfolio", description: "Get the portfolio.", inputSchema: { type: "object" } }]),
   callTool: vi.fn(),
 }));
 
-vi.mock("@/lib/mcp/context.server", () => ({ resolveApiKeyContext }));
+vi.mock("@/lib/mcp/context.server", () => ({ resolveMcpBearerContext: resolveApiKeyContext }));
+vi.mock("@/lib/mcp/resident-gateway", () => ({ listResidentTools: vi.fn(), callResidentTool: vi.fn() }));
 vi.mock("@/lib/rate-limit", () => ({ clientIpFrom: () => "127.0.0.1", rateLimit }));
 vi.mock("@/lib/mcp/gateway", () => ({ listTools, callTool }));
 
@@ -27,6 +28,7 @@ describe("MCP JSON-RPC transport", () => {
     rateLimit.mockReturnValue({ ok: true });
     resolveApiKeyContext.mockResolvedValue({
       ok: true,
+      portal: "manager",
       keyId: "key_1",
       scopes: ["read"],
       allowedTools: ["get_portfolio"],

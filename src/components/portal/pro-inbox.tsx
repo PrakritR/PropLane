@@ -93,6 +93,7 @@ import {
   InboxScheduledCard,
   InboxScheduledThreadList,
   InboxThreadEmpty,
+  useThreadLoadExpired,
   InboxThreadSkeleton,
   InboxThreadView,
   PORTAL_INBOX_LIST_TOOLBAR_CLASS,
@@ -1285,6 +1286,7 @@ export const ManagerInbox = forwardRef<
       ),
     [expandedId, emailThreads, local, userId],
   );
+  const threadLoadExpired = useThreadLoadExpired(expandedId && !activeThread ? expandedId : null);
   const activeAiDraftAdopted = Boolean(
     activeThread?.aiDraft?.status === "pending_approval"
       && activeThread.aiDraft.text.trim()
@@ -2924,7 +2926,7 @@ export const ManagerInbox = forwardRef<
   ) : emptyThreadFallback && suppressListPane ? (
     emptyThreadFallback
   ) : expandedId ? (
-    <InboxThreadSkeleton />
+    threadLoadExpired ? <InboxThreadEmpty title="Conversation not found." /> : <InboxThreadSkeleton />
   ) : (
     <InboxThreadEmpty />
   );

@@ -451,7 +451,8 @@ async function dismissChange(
     const owned = await findOwnedRecord(db, change.googleCalendarEventId);
     if (!owned || owned.kind !== "tour") return { ok: false, reason: "stale_event" };
     try {
-      await syncPlannedTourToGoogleCalendar(db, ownerUserId, {
+      // The house manager owns the tour's durable state; the stored connection owner (possibly this operator) holds the event.
+      await syncPlannedTourToGoogleCalendar(db, (typeof owned.event.managerUserId === "string" && owned.event.managerUserId.trim()) || ownerUserId, {
         plannedEventId: owned.recordId,
         title: typeof owned.event.title === "string" ? owned.event.title : "Tour",
         ...tourEventFactsFromRecord(owned.event),

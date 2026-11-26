@@ -109,9 +109,8 @@ export type ServiceWorkspaceListRow = {
   isDefault: boolean;
   houseCount: number;
   /**
-   * The number this workspace texts from. Every row here is PropLane-managed, so it is ALWAYS the PropLane line
-   * (`resolveServiceLine`, source "shared"), never a number the workspace once held; null when that line cannot be
-   * resolved. "own" is kept in the type for older callers and is never produced.
+   * The number this workspace texts from, from the one line decision (`resolveServiceLine`): its own registered number
+   * ("own", Nov 24: Ambika's (814)) or else the PropLane line ("shared"); null when that line cannot be resolved.
    */
   workNumber: string | null;
   workNumberSource: "own" | "shared" | null;
@@ -141,7 +140,8 @@ export type ServiceListPayload = {
  * answer and nothing else. A line that cannot be resolved or read shows no number (never the workspace's old one).
  */
 function resolveTextingNumber(line: ServiceLine): { workNumber: string | null; workNumberSource: "own" | "shared" | null } {
-  return line.ok ? { workNumber: line.phoneNumber, workNumberSource: "shared" } : { workNumber: null, workNumberSource: null };
+  if (!line.ok) return { workNumber: null, workNumberSource: null };
+  return { workNumber: line.phoneNumber, workNumberSource: line.kind === "owner_number" && line.source === "workspace" ? "own" : "shared" };
 }
 
 /**
@@ -266,8 +266,11 @@ export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: 
     ((flaggedProfiles.data ?? []) as { id: string; full_name: string | null; email: string | null }[]).map((p) => [p.id, p.full_name?.trim() || p.email?.trim() || ""]),
   );
 
+  const rowLines = new Map<string, ServiceLine>();
+  for (const row of rows) rowLines.set(row.id, await resolveServiceLine(db, "phone_number", row.id).catch((): ServiceLine => ({ ok: false, reason: "unreadable" })));
   const out: ServiceWorkspaceListRow[] = rows.map((row) => {
-    const old = oldNumberRow((numbers.data ?? []) as Record<string, unknown>[], row.id, serviceLine);
+    const line = rowLines.get(row.id) ?? serviceLine;
+    const old = oldNumberRow((numbers.data ?? []) as Record<string, unknown>[], row.id, line);
     // Memberships of THIS workspace, granted by its own owner (a row from anyone else is not a membership of it).
     const members = ((links.data ?? []) as Record<string, unknown>[]).filter((l) => l.workspace_id === row.id && l.inviter_user_id === row.owner_user_id);
     const mine = members.find((l) => l.invitee_user_id === operatorUserId && l.status === "accepted");
@@ -280,7 +283,7 @@ export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: 
       ownerOfRecord: ownerOfRecordFor(row.owner_of_record_name, members, profileName, ownerIsRecord(row) ? { userId: row.owner_user_id } : null),
       isDefault: row.is_default,
       houseCount: ((houses.data ?? []) as Record<string, unknown>[]).filter((h) => h.workspace_id === row.id).length,
-      ...resolveTextingNumber(serviceLine),
+      ...resolveTextingNumber(line),
       oldNumber: old
         ? { phoneNumber: String(old.phone_number), since: attachedAt.get(row.id) ?? (typeof old.requested_at === "string" ? old.requested_at : null) }
         : null,
@@ -808,7 +811,7 @@ export async function releaseServiceWorkspaceOldNumber(
   if (!(await userHoldsAdminRole(db, operatorUserId))) return fail(403, "Only a PropLane admin can release a workspace's old number.");
   const workspace = await loadServiceWorkspace(db, input.id);
   if (!workspace) return fail(404, NOT_FOUND);
-  const line = await resolveServiceLine(db);
+  const line = await resolveServiceLine(db, "phone_number", workspace.id);
   if (!line.ok) return fail(503, "Could not resolve the PropLane line, so nothing was released. Please retry.");
   const held = await db
     .from("manager_sms_numbers")
@@ -818,7 +821,7 @@ export async function releaseServiceWorkspaceOldNumber(
   if (held.error) return fail(503, "Could not read the workspace's numbers. Please retry.");
   const live = ((held.data ?? []) as Record<string, unknown>[]).filter((r) => normalizeE164(String(r.phone_number ?? "")));
   if (live.some((r) => normalizeE164(String(r.phone_number)) === line.phoneNumber)) {
-    return fail(409, "This workspace holds the PropLane line itself, so there is no old number to release.");
+    return fail(409, "This workspace's own number is its line, so there is no old number to release.");
   }
   const old = live[0];
   if (!old) return fail(409, "This workspace has no old number to release.");

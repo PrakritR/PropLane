@@ -228,8 +228,20 @@ export const sendMessageToManagerTool = defineWriteTool({
       });
     }
     const sentLine = `Sent "${subject}" to ${resolved.targets.map((t) => managerLabelForPreview(t.name)).join(", ")}.`;
+    // A resident texting the work number hands a question to the team: the reply also names who to text. Resolved on the
+    // server from the manager the resident reached, never from the model; one line, SMS only.
+    let contactLine: string | null = null;
+    if (ctx.channel === "sms" && resolved.targets.length === 1) {
+      try {
+        const { escalationContactLine } = await import("@/lib/one-number/escalation-contact.server");
+        contactLine = await escalationContactLine(ctx.db, { ownerUserId: resolved.targets[0]!.id });
+      } catch {
+        contactLine = null;
+      }
+    }
+    const confirmation = managerNotified ? `${sentLine} They have been notified.` : sentLine;
     return {
-      reply: managerNotified ? `${sentLine} They have been notified.` : sentLine,
+      reply: contactLine ? `${confirmation}\n${contactLine}` : confirmation,
       resultSummary: { recipientCount: result.recipientCount, managerNotified },
     };
   },

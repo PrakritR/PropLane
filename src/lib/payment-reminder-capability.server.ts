@@ -1,3 +1,5 @@
+import { resolveManagedSendTarget } from "@/lib/one-number/service-line.server";
+import { evaluateWorkspaceSendReadiness } from "@/lib/sms/workspace-send-readiness.server";
 import "server-only";
 
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
@@ -140,7 +142,13 @@ export async function resolvePaymentReminderCapability(
   else if (residentUserId && recipientEmail && String(recipient?.email ?? "").trim().toLowerCase() !== recipientEmail) block = "recipient_identity_mismatch";
   else if (!recipient?.phone) block = "recipient_phone_missing";
   else {
-    const decision = evaluateManagerSmsNumberSendability(
+    // A PropLane-managed workspace is judged on the line it really sends on (its own number, else the PropLane line), not
+    // on whatever row the owner's account holds: the same answer the dispatcher gives.
+    const managedTarget = await resolveManagedSendTarget(db, { ownerUserId });
+    const managedReady = managedTarget.managed === true
+      ? await evaluateWorkspaceSendReadiness({ db, ownerUserId, workspaceId: managedTarget.workspaceId, requiredCents: 0 })
+      : null;
+    const decision = managedReady ? (managedReady.canSend ? { sendable: true as const, reason: null } : { sendable: false as const, reason: managedReady.reason }) : evaluateManagerSmsNumberSendability(
       number
         ? {
             provisionState: number.provision_state,
@@ -169,7 +177,7 @@ export async function resolvePaymentReminderCapability(
       if (!billing.allowed) block = billing.reason;
       else if (!suppression.ok) block = suppression.error;
       else if (suppression.optedOut) block = "recipient_opted_out";
-      else result.sms = { available: true, reason: null, fromNumber: String(number?.phone_number ?? "") };
+      else result.sms = { available: true, reason: null, fromNumber: String(managedReady?.canSend ? managedReady.numberRow.phone_number : number?.phone_number ?? "") };
     }
   }
   if (block) result.sms.reason = smsReason(block);

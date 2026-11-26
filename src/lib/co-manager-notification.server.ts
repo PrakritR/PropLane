@@ -93,7 +93,8 @@ async function textCoManagerInvite(
   const verified = Boolean((data as { phone_verified_at?: unknown } | null)?.phone_verified_at);
   if (!phone || !verified) return;
   const { resolveManagerWorkNumber } = await import("@/lib/twilio-provisioning");
-  const fromNumber = await resolveManagerWorkNumber(db, input.inviterUserId);
+  const { resolveManagedAwareFromNumber } = await import("@/lib/sms/prospect-send-number.server");
+  const fromNumber = await resolveManagedAwareFromNumber(db, input.inviterUserId, () => resolveManagerWorkNumber(db, input.inviterUserId));
   if (!fromNumber) return;
   const { sendFromManagerWorkNumber } = await import("@/lib/proplane-sms-transport.server");
   await sendFromManagerWorkNumber({

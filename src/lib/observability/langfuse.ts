@@ -8,14 +8,20 @@
  * first-class. Degrades to a no-op when Langfuse env is unset or the SDK
  * misbehaves — tracing must never break a turn.
  */
-import { Langfuse } from "langfuse";
-import { startObservation } from "@langfuse/tracing";
+import { createOtelTrace, postTraceScore, type OtelTrace } from "@/lib/observability/langfuse-trace";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { AgentObserver, PendingActionProposal, ToolEvidenceEntry } from "@/lib/agent/loop";
 import { estimateCostDetailsUsd } from "@/lib/agent/model";
 import type { AgentPromptMeta } from "@/lib/agent/prompt-metadata";
 
-let client: Langfuse | null = null;
+/** What the rest of this module needs from Langfuse: a trace factory, scoring and a flush. */
+type LangfuseHandle = {
+  trace(init: Parameters<typeof createOtelTrace>[0]): OtelTrace;
+  score(opts: { traceId: string; name: string; value: number; id?: string; comment?: string }): Promise<boolean>;
+  flushAsync(): Promise<void>;
+};
+
+let client: LangfuseHandle | null = null;
 let initialized = false;
 
 function resolveEnvironment(): string {
@@ -30,7 +36,7 @@ function resolveEnvironment(): string {
   return cleaned.slice(0, 40);
 }
 
-function getClient(): Langfuse | null {
+function getClient(): LangfuseHandle | null {
   if (initialized) return client;
   initialized = true;
   // Tests share the same keys that production uses when someone points a
@@ -41,12 +47,18 @@ function getClient(): Langfuse | null {
   const publicKey = process.env.LANGFUSE_PUBLIC_KEY?.trim();
   if (!secretKey || !publicKey) return (client = null);
   try {
-    client = new Langfuse({
-      secretKey,
-      publicKey,
-      baseUrl: process.env.LANGFUSE_BASE_URL?.trim() || "https://us.cloud.langfuse.com",
-      environment: resolveEnvironment(),
-    });
+    const baseUrl = process.env.LANGFUSE_BASE_URL?.trim() || "https://us.cloud.langfuse.com";
+    const environment = resolveEnvironment();
+    client = {
+      trace: (init) => createOtelTrace(init, environment),
+      score: (opts) => postTraceScore({ publicKey, secretKey, baseUrl, environment, ...opts }),
+      // The span processor is registered in src/instrumentation.ts; a missing
+      // processor (scripts, tests) means there is nothing to flush.
+      flushAsync: async () => {
+        const { getLangfuseSpanProcessor } = await import("@/lib/observability/langfuse-otel.server");
+        await getLangfuseSpanProcessor()?.forceFlush();
+      },
+    };
   } catch {
     client = null;
   }
@@ -87,7 +99,7 @@ export async function traceProspectShadowComparison(args: {
       },
     });
     trace.update({ output: args.metadata });
-    await lf.flushAsync();
+    await flushTelemetry(lf, trace);
   } catch {
     /* shadow observability never affects the incumbent */
   }
@@ -110,7 +122,7 @@ export async function traceSystemNotification<T>(opts: {
   const lf = getClient();
   if (!lf) return opts.run();
 
-  let trace: ReturnType<Langfuse["trace"]> | null = null;
+  let trace: OtelTrace | null = null;
   try {
     trace = lf.trace({
       name: "axis-system-notification",
@@ -148,7 +160,7 @@ export async function traceSystemNotification<T>(opts: {
     );
     throw error;
   } finally {
-    await flushTelemetry(lf);
+    await flushTelemetry(lf, trace);
   }
 }
 
@@ -385,7 +397,7 @@ export async function tracePublicToolTurn<T>(opts: {
   const lf = getClient();
   if (!lf) return opts.run({ llmCall: () => {}, toolCall: () => {} });
 
-  let trace: ReturnType<Langfuse["trace"]> | null = null;
+  let trace: OtelTrace | null = null;
   try {
     trace = lf.trace({
       name: opts.name,
@@ -435,11 +447,7 @@ export async function tracePublicToolTurn<T>(opts: {
     safe(() => trace?.update({ output: e instanceof Error ? e.message : "error" }));
     throw e;
   } finally {
-    try {
-      await lf.flushAsync();
-    } catch {
-      /* ignore */
-    }
+    await flushTelemetry(lf, trace);
   }
 }
 
@@ -532,16 +540,13 @@ async function scoreTraceNumeric(opts: {
   const lf = getClient();
   if (!lf) return false;
   try {
-    lf.score({
+    return await lf.score({
       traceId: opts.traceId,
       name: opts.name,
       value: opts.value,
-      dataType: "NUMERIC",
       id: opts.id,
       comment: opts.comment,
     });
-    await lf.flushAsync();
-    return true;
   } catch {
     return false;
   }
@@ -603,36 +608,14 @@ type TracedResult = {
  * Awaiting the flush costs a small amount of tail latency, but guarantees
  * serverless invocations do not terminate before telemetry is delivered.
  */
-async function flushTelemetry(lf: Langfuse): Promise<void> {
+async function flushTelemetry(lf: LangfuseHandle, trace?: OtelTrace | null): Promise<void> {
   try {
-    await lf.flushAsync();
+    trace?.end();
   } catch {
     /* observability must never fail a turn */
   }
-}
-
-async function emitManagedEvaluatorSummary(args: {
-  input: unknown;
-  output: unknown;
-  metadata: Record<string, unknown>;
-}): Promise<void> {
-  const { getLangfuseSpanProcessor } = await import(
-    "@/lib/observability/langfuse-otel.server"
-  );
-  const processor = getLangfuseSpanProcessor();
-  if (!processor) return;
   try {
-    startObservation(
-      TURN_SUMMARY_OBSERVATION,
-      {
-        input: args.input,
-        output: args.output,
-        metadata: args.metadata,
-        environment: resolveEnvironment(),
-      },
-      { asType: "span" },
-    ).end();
-    await processor.forceFlush();
+    await lf.flushAsync();
   } catch {
     /* observability must never fail a turn */
   }
@@ -668,7 +651,7 @@ export async function traceAgentTurn<T extends TracedResult>(
   if (!lf) return run();
 
   const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
-  let trace: ReturnType<Langfuse["trace"]> | null = null;
+  let trace: OtelTrace | null = null;
   try {
     trace = lf.trace({
       name: opts?.name ?? "axis-agent-turn",
@@ -762,7 +745,6 @@ export async function traceAgentTurn<T extends TracedResult>(
           finalStopReason: result.finalStopReason ?? null,
           toolSuccessCount: toolOk,
           toolFailureCount: toolFail,
-          legacyTraceId: trace?.id,
           ...(actor.metadata ?? {}),
         };
         safe(() => {
@@ -773,11 +755,6 @@ export async function traceAgentTurn<T extends TracedResult>(
             output: result.reply,
             metadata: summaryMetadata,
           }));
-        });
-        await emitManagedEvaluatorSummary({
-          input: summaryInput,
-          output: result.reply,
-          metadata: summaryMetadata,
         });
       }
     } catch {
@@ -812,7 +789,7 @@ export async function traceAgentTurn<T extends TracedResult>(
     }
     throw e;
   } finally {
-    await flushTelemetry(lf);
+    await flushTelemetry(lf, trace);
   }
 }
 
@@ -839,7 +816,7 @@ export async function traceAgentAction<T extends TracedActionResult | { ok: true
   const lf = getClient();
   if (!lf) return run();
 
-  let trace: ReturnType<Langfuse["trace"]> | null = null;
+  let trace: OtelTrace | null = null;
   try {
     trace = lf.trace({
       name: "axis-agent-action",
@@ -875,7 +852,7 @@ export async function traceAgentAction<T extends TracedActionResult | { ok: true
     safe(() => trace?.update({ output: e instanceof Error ? e.message : "error" }));
     throw e;
   } finally {
-    await flushTelemetry(lf);
+    await flushTelemetry(lf, trace);
   }
 }
 
@@ -894,7 +871,7 @@ export async function traceExternalToolCall<T>(
   const lf = getClient();
   if (!lf) return run();
 
-  let trace: ReturnType<Langfuse["trace"]> | null = null;
+  let trace: OtelTrace | null = null;
   try {
     trace = lf.trace({
       name: "axis-mcp-tool-call",
@@ -921,6 +898,6 @@ export async function traceExternalToolCall<T>(
     safe(() => trace?.update({ output: e instanceof Error ? e.message : "error" }));
     throw e;
   } finally {
-    await flushTelemetry(lf);
+    await flushTelemetry(lf, trace);
   }
 }

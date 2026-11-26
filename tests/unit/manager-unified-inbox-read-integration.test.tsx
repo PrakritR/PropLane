@@ -119,6 +119,7 @@ vi.mock("@/components/portal/portal-inbox-ui", () => ({
   INBOX_THREAD_ICON_BTN: "",
   INBOX_THREAD_ICON_BTN_DANGER: "",
   useInboxDetailsPanelMode: () => false,
+  useThreadLoadExpired: () => false,
   useRegisterInboxContactEdit: () => {},
   PortalInboxEmptyState: ({ title }: { title: string }) => <div>{title}</div>,
   CommunicationInboxInitialState: () => <div>Loading</div>,

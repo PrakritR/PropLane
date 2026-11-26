@@ -12,7 +12,7 @@ import { isAdminUser } from "@/lib/auth/admin-preview";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { filterRecipientsBySenderScope, managerMayMessageNewContacts, recipientReachFromScope } from "@/lib/inbox-recipient-scope";
 import { applyOwnerMessageInboxScope } from "@/lib/property-owner/access.server";
-import { resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
+import { managedWorkspaceOwnerOf, resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
 import { loadThreadConversation, propertyLabelFor, replyRecipientsMatchThread } from "@/lib/communication/conversation-key.server";
 import { postgrestFilterValue } from "@/lib/supabase/or-filter";
 import { resolveInboxSenderRoleForPortal } from "@/lib/inbox-portal-sender";
@@ -637,6 +637,7 @@ export async function POST(req: Request) {
     let recipients = [...recipientsByEmail.values()];
     // The workspace a manager send leaves from; also names whose plan the send is held to.
     let managerSendScope: Awaited<ReturnType<typeof resolveCommunicationScope>> | null = null;
+    let managedSendOwnerId: string | null = null;
     // A house text is about ONE workspace (the house's): its line, wallet and plan, whoever is signed in.
     const houseSendPropertyId = String(body.houseSendPropertyId ?? "").trim();
     let houseTarget: HouseSendTarget | null = null;
@@ -659,6 +660,10 @@ export async function POST(req: Request) {
         }
         houseTarget = resolved.target;
       }
+      // PropLane Service staff sending in the managed workspace they run: the conversation is the workspace's, so it
+      // is owned by (and stamped with) the workspace OWNER, never the operator whose own default workspace is another.
+      // Derived from the seat; a body can name neither.
+      managedSendOwnerId = managerSendScope ? managedWorkspaceOwnerOf(managerSendScope) : null;
       const reach = managerSendScope ? recipientReachFromScope(managerSendScope) : undefined;
       const { allowed, typedNewContacts } = await filterRecipientsBySenderScope(
         db,
@@ -1115,7 +1120,7 @@ export async function POST(req: Request) {
         const sentSide = coHostReply ? null : await deliverPortalMessageThreadSide(db, {
           scope: senderScope,
           folder: "sent",
-          ownerUserId: user.id,
+          ownerUserId: senderScope === MANAGER_INBOX_SCOPE && managedSendOwnerId ? managedSendOwnerId : user.id,
           participantEmail: null,
           otherPartyEmail: recipientLower,
           messageId: sentMessageId,
@@ -1125,7 +1130,10 @@ export async function POST(req: Request) {
           conversation: {
             propertyId: propertyId || null,
             otherPartyUserId: recipient.userId,
-            managerUserId: senderScope === MANAGER_INBOX_SCOPE ? user.id : recipient.userId,
+            managerUserId: senderScope === MANAGER_INBOX_SCOPE ? (managedSendOwnerId ?? user.id) : recipient.userId,
+            ...(senderScope === MANAGER_INBOX_SCOPE && managedSendOwnerId && managerSendScope?.activeWorkspaceId
+              ? { workspaceId: managerSendScope.activeWorkspaceId }
+              : {}),
           },
           fallbackId: `msg_${user.id}_${ts}_${rand}`,
           fromName,
@@ -1168,8 +1176,13 @@ export async function POST(req: Request) {
           conversation: {
             propertyId: propertyId || hostReply?.propertyId || null,
             otherPartyUserId: user.id,
-            managerUserId: hostReply?.managerUserId ?? (senderScope === MANAGER_INBOX_SCOPE ? user.id : recipient.userId),
-            ...(hostReply?.workspaceId ? { workspaceId: hostReply.workspaceId } : {}),
+            managerUserId:
+              hostReply?.managerUserId ?? (senderScope === MANAGER_INBOX_SCOPE ? (managedSendOwnerId ?? user.id) : recipient.userId),
+            ...(hostReply?.workspaceId
+              ? { workspaceId: hostReply.workspaceId }
+              : managedSendOwnerId && managerSendScope?.activeWorkspaceId
+                ? { workspaceId: managerSendScope.activeWorkspaceId }
+                : {}),
           },
           ...(coHostReply ? { senderDisplayName: coHostDisplayName(fromName) } : {}),
           fallbackId: `msg_inbox_${ts}_${rand}`,
@@ -1294,7 +1307,7 @@ export async function POST(req: Request) {
         // Residents, vendors and admins keep the shared sender: the address is a
         // manager identity, not a portal one.
         fromAddress:
-          senderRole === "manager" ? await resolveManagerOutboundFrom(db, user.id) : null,
+          senderRole === "manager" ? await resolveManagerOutboundFrom(db, managedSendOwnerId ?? user.id) : null,
       });
       for (const email of emailToSendNow) {
         const result = emailResults.get(email);
