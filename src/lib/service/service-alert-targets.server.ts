@@ -250,10 +250,20 @@ export async function serviceAlertPayerUserId(db: SupabaseClient): Promise<strin
 
 /** Is this workspace PropLane-managed (`is_service`)? False for none, a missing row and an unreadable read. */
 export async function isManagedWorkspaceId(db: SupabaseClient, workspaceId: string | null | undefined): Promise<boolean> {
+  try {
+    return await isManagedWorkspaceIdOrThrow(db, workspaceId);
+  } catch {
+    return false;
+  }
+}
+
+/** The same answer, but an unreadable workspace row throws instead of answering "not managed". */
+export async function isManagedWorkspaceIdOrThrow(db: SupabaseClient, workspaceId: string | null | undefined): Promise<boolean> {
   const id = workspaceId?.trim();
   if (!id) return false;
   const { data, error } = await db.from("portal_workspaces").select("is_service").eq("id", id).maybeSingle();
-  return !error && (data as { is_service?: unknown } | null)?.is_service === true;
+  if (error) throw new Error("portal_workspaces unreadable");
+  return (data as { is_service?: unknown } | null)?.is_service === true;
 }
 
 /** Is `actorUserId` the client owner of record of this PropLane-managed workspace (not staff, not an admin)? */

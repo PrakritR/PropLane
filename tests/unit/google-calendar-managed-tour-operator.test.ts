@@ -18,7 +18,10 @@ vi.mock("@/lib/google-calendar/settings", () => ({ loadGoogleCalendarConnection:
 vi.mock("@/lib/communication/manager-assistant-workspace.server", () => ({
   resolveManagerAssistantWorkspace: vi.fn(async () => ({ workspaceId: "ws-1", isDefault: false })),
 }));
-vi.mock("@/lib/service/service-alert-targets.server", () => ({ isManagedWorkspaceId: managed.isManaged }));
+vi.mock("@/lib/service/service-alert-targets.server", () => ({
+  isManagedWorkspaceId: managed.isManaged,
+  isManagedWorkspaceIdOrThrow: managed.isManaged,
+}));
 vi.mock("@/lib/service/service-owner.server", () => ({ platformServiceOwnerId: managed.operator, readStoredOwner: managed.operator }));
 
 import {
@@ -221,9 +224,17 @@ describe("managed-house tours write to the PropLane operator's Google connection
 
   // A team read that fails is not evidence that the holder left: the event stays where it is, nothing is deleted and
   // the stored row is not rewritten. Each read the team check depends on is failed in turn.
-  for (const failing of ["axis_admin_planned_events_v1", "manager_property_records", "account_link_invites", "platform_service_settings"]) {
+  for (const failing of [
+    "axis_admin_planned_events_v1",
+    "manager_property_records",
+    "portal_workspaces",
+    "account_link_invites",
+    "platform_service_settings",
+    "is_service",
+  ]) {
     it(`a failed ${failing} read keeps the stored holder and moves nothing`, async () => {
-      managed.isManaged.mockResolvedValue(false);
+      managed.isManaged.mockResolvedValue(failing === "platform_service_settings");
+      if (failing === "is_service") managed.isManaged.mockRejectedValue(new Error("portal_workspaces unreadable"));
       google.connection.mockImplementation(connectionFor({ [HOUSE_OWNER]: true, "co-manager": true }));
       const stored = {
         id: "axis_gcal_tour_owner_planned-1",
@@ -242,4 +253,41 @@ describe("managed-house tours write to the PropLane operator's Google connection
       expect(db.rows.get(stored.id)).toEqual(stored);
     });
   }
+  // A workspace detached from PropLane Service (`is_service` false) is self-serve again: the operator is no longer on
+  // the house's team, so a reschedule moves the event off the operator's calendar to the house owner's, once.
+  it("a detached workspace's reschedule moves the event off the operator to the house owner", async () => {
+    managed.isManaged.mockResolvedValue(false);
+    google.connection.mockImplementation(connectionFor({ [OPERATOR]: true, [HOUSE_OWNER]: true }));
+    google.create.mockResolvedValue("g-event-2");
+    const db = makeDb({ ...PLANNED, googleCalendarEventId: "g-event-1" });
+    db.rows.set("axis_gcal_tour_owner_planned-1", {
+      id: "axis_gcal_tour_owner_planned-1",
+      manager_user_id: HOUSE_OWNER,
+      record_type: "google_tour_calendar_owner",
+      row_data: { connectionOwnerUserId: OPERATOR, assigneeUserId: OPERATOR },
+    });
+    await syncPlannedTourToGoogleCalendar(db as never, HOUSE_OWNER, facts("g-event-1"));
+    expect(google.remove).toHaveBeenCalledOnce();
+    expect(google.remove).toHaveBeenCalledWith(db, OPERATOR, "g-event-1");
+    expect(google.update).not.toHaveBeenCalled();
+    expect(google.create).toHaveBeenCalledOnce();
+    expect(google.create.mock.calls[0]?.[1]).toBe(HOUSE_OWNER);
+    expect(db.rows.get("axis_gcal_tour_owner_planned-1")?.row_data).toMatchObject({ connectionOwnerUserId: HOUSE_OWNER });
+  });
+
+  it("a managed house keeps the operator as the holder on reschedule", async () => {
+    google.connection.mockImplementation(connectionFor({ [OPERATOR]: true, [HOUSE_OWNER]: true }));
+    const db = makeDb({ ...PLANNED, googleCalendarEventId: "g-event-1" });
+    const stored = {
+      id: "axis_gcal_tour_owner_planned-1",
+      manager_user_id: HOUSE_OWNER,
+      record_type: "google_tour_calendar_owner",
+      row_data: { connectionOwnerUserId: OPERATOR, assigneeUserId: OPERATOR },
+    };
+    db.rows.set(stored.id, stored);
+    await syncPlannedTourToGoogleCalendar(db as never, HOUSE_OWNER, facts("g-event-1"));
+    expect(google.remove).not.toHaveBeenCalled();
+    expect(google.update.mock.calls[0]?.[1]).toBe(OPERATOR);
+    expect(db.rows.get(stored.id)).toEqual(stored);
+  });
 });

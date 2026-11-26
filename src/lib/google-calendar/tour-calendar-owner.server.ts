@@ -32,9 +32,10 @@ function text(value: unknown): string {
 }
 
 /**
- * Everyone a tour's Google event may be WRITTEN to: the house manager, the house owner, the property's tour hosts and
- * the platform service owner (the operator of every managed house). Every read here must succeed: an unreadable planned event, owner, host table or service owner
- * answers `ok: false`, so a failed read is never taken as "this holder left the team".
+ * Everyone a tour's Google event may be WRITTEN to: the house manager, the house owner, the property's tour hosts and,
+ * only when the house's workspace is PropLane-managed (`is_service`), the platform service owner. Every read here must
+ * succeed: an unreadable planned event, house, workspace, host table or service owner answers `ok: false`, so a failed
+ * read is never taken as "this holder left the team".
  */
 async function tourCalendarPrincipals(
   db: SupabaseClient,
@@ -46,17 +47,32 @@ async function tourCalendarPrincipals(
     if (!propertyId) return { ok: false };
     const { data: property, error: propertyError } = await db
       .from("manager_property_records")
-      .select("manager_user_id")
+      .select("manager_user_id, workspace_id")
       .eq("id", propertyId)
       .maybeSingle();
     if (propertyError) return { ok: false };
-    const ownerUserId = text((property as { manager_user_id?: unknown } | null)?.manager_user_id) || input.houseManagerUserId;
+    const house = property as { manager_user_id?: unknown; workspace_id?: unknown } | null;
+    const ownerUserId = text(house?.manager_user_id) || input.houseManagerUserId;
+    let workspaceId = text(house?.workspace_id);
+    if (!workspaceId) {
+      const { data: fallback, error: fallbackError } = await db
+        .from("portal_workspaces")
+        .select("id")
+        .eq("owner_user_id", ownerUserId)
+        .eq("is_default", true)
+        .maybeSingle();
+      if (fallbackError) return { ok: false };
+      workspaceId = text((fallback as { id?: unknown } | null)?.id);
+    }
     const { listPropertyTourHostUserIdsOrThrow } = await import("@/lib/tour-host-enumeration.server");
-    const { readStoredOwner } = await import("@/lib/service/service-owner.server");
+    const { isManagedWorkspaceIdOrThrow } = await import("@/lib/service/service-alert-targets.server");
     const hosts = await listPropertyTourHostUserIdsOrThrow(db, { propertyId, ownerUserId });
-    const serviceOwner = await readStoredOwner(db);
     const allowed = new Set<string>([input.houseManagerUserId, ownerUserId, ...hosts]);
-    if (serviceOwner) allowed.add(serviceOwner);
+    if (await isManagedWorkspaceIdOrThrow(db, workspaceId)) {
+      const { readStoredOwner } = await import("@/lib/service/service-owner.server");
+      const serviceOwner = await readStoredOwner(db);
+      if (serviceOwner) allowed.add(serviceOwner);
+    }
     return { ok: true, allowed };
   } catch {
     return { ok: false };

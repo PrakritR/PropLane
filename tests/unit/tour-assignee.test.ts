@@ -20,7 +20,7 @@ vi.mock("@/lib/tour-host-enumeration.server", () => ({ listPropertyTourHostUserI
 vi.mock("@/lib/communication/manager-assistant-workspace.server", () => ({
   resolveManagerAssistantWorkspace: vi.fn(async () => ({ workspaceId: "ws-1", isDefault: false })),
 }));
-vi.mock("@/lib/service/service-alert-targets.server", () => ({ isManagedWorkspaceId: team.managed }));
+vi.mock("@/lib/service/service-alert-targets.server", () => ({ isManagedWorkspaceId: team.managed, isManagedWorkspaceIdOrThrow: team.managed }));
 vi.mock("@/lib/service/service-owner.server", () => ({ platformServiceOwnerId: team.operator, readStoredOwner: team.operator }));
 vi.mock("@/lib/tour-schedule-persistence.server", () => ({
   mutateConfirmedTourSchedule: vi.fn(async (db: { rows: Map<string, { row_data: { payload: Record<string, unknown>[] } }> }, m: { event: Record<string, unknown> }) => {
