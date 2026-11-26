@@ -19,7 +19,7 @@ vi.mock("@/lib/communication/manager-assistant-workspace.server", () => ({
   resolveManagerAssistantWorkspace: vi.fn(async () => ({ workspaceId: "ws-1", isDefault: false })),
 }));
 vi.mock("@/lib/service/service-alert-targets.server", () => ({ isManagedWorkspaceId: managed.isManaged }));
-vi.mock("@/lib/service/service-owner.server", () => ({ platformServiceOwnerId: managed.operator }));
+vi.mock("@/lib/service/service-owner.server", () => ({ platformServiceOwnerId: managed.operator, readStoredOwner: managed.operator }));
 
 import {
   deleteProplaneGoogleCalendarEvent,
@@ -35,7 +35,7 @@ const PLANNED = {
 };
 
 /** A tiny in-memory portal_schedule_records. */
-function makeDb(planned = PLANNED) {
+function makeDb(planned = PLANNED, failing: ReadonlySet<string> = new Set()) {
   const rows = new Map<string, Record<string, unknown>>();
   rows.set("axis_admin_planned_events_v1", { id: "axis_admin_planned_events_v1", row_data: { payload: [planned] } });
   const db = {
@@ -54,13 +54,15 @@ function makeDb(planned = PLANNED) {
       // Every filter ANDs, as PostgREST does: a row is returned only when it matches all of them.
       q.eq = (c: string, v: string) => { filters.push([c, v]); if (c === "id") id = v; return q; };
       q.maybeSingle = async () => {
+        if (failing.has(table) || failing.has(id)) return { data: null, error: { message: "unavailable" } };
         const row = table === "portal_schedule_records" ? rows.get(id) ?? null : null;
         const matches = row ? filters.every(([c, v]) => c === "id" || (row as Record<string, unknown>)[c] === v) : false;
         return { data: matches ? row : null, error: null };
       };
       q.upsert = async (row: Record<string, unknown>) => { rows.set(String(row.id), row); return { error: null }; };
       q.delete = () => q;
-      q.then = (resolve: (v: unknown) => unknown) => Promise.resolve({ error: null }).then(resolve);
+      q.then = (resolve: (v: unknown) => unknown) =>
+        Promise.resolve(failing.has(table) ? { data: null, error: { message: "unavailable" } } : { error: null }).then(resolve);
       return q;
     }),
   };
@@ -216,4 +218,28 @@ describe("managed-house tours write to the PropLane operator's Google connection
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });
+
+  // A team read that fails is not evidence that the holder left: the event stays where it is, nothing is deleted and
+  // the stored row is not rewritten. Each read the team check depends on is failed in turn.
+  for (const failing of ["axis_admin_planned_events_v1", "manager_property_records", "account_link_invites", "platform_service_settings"]) {
+    it(`a failed ${failing} read keeps the stored holder and moves nothing`, async () => {
+      managed.isManaged.mockResolvedValue(false);
+      google.connection.mockImplementation(connectionFor({ [HOUSE_OWNER]: true, "co-manager": true }));
+      const stored = {
+        id: "axis_gcal_tour_owner_planned-1",
+        manager_user_id: HOUSE_OWNER,
+        record_type: "google_tour_calendar_owner",
+        row_data: { connectionOwnerUserId: "co-manager", assigneeUserId: "co-manager" },
+      };
+      if (failing === "platform_service_settings") managed.operator.mockRejectedValue(new Error("service owner unreadable"));
+      const db = makeDb({ ...PLANNED, googleCalendarEventId: "g-event-1" }, new Set([failing]));
+      db.rows.set(stored.id, stored);
+      await syncPlannedTourToGoogleCalendar(db as never, HOUSE_OWNER, facts("g-event-1"));
+      expect(google.remove).not.toHaveBeenCalled();
+      expect(google.create).not.toHaveBeenCalled();
+      expect(google.update).toHaveBeenCalledOnce();
+      expect(google.update.mock.calls[0]?.[1]).toBe("co-manager");
+      expect(db.rows.get(stored.id)).toEqual(stored);
+    });
+  }
 });

@@ -32,26 +32,35 @@ function text(value: unknown): string {
 }
 
 /**
- * Everyone a tour's Google event may be WRITTEN to: the house manager and the property's tour team (the operator on a
- * managed house included). An unreadable team keeps the house manager alone.
+ * Everyone a tour's Google event may be WRITTEN to: the house manager, the house owner, the property's tour hosts and
+ * the platform service owner (the operator of every managed house). Every read here must succeed: an unreadable planned event, owner, host table or service owner
+ * answers `ok: false`, so a failed read is never taken as "this holder left the team".
  */
 async function tourCalendarPrincipals(
   db: SupabaseClient,
   input: { plannedEventId: string; houseManagerUserId: string },
-): Promise<Set<string>> {
-  const allowed = new Set<string>([input.houseManagerUserId]);
+): Promise<{ ok: true; allowed: Set<string> } | { ok: false }> {
   try {
-    const row = await plannedEventRow(db, input.plannedEventId);
+    const row = await plannedEventRow(db, input.plannedEventId, { strict: true });
     const propertyId = row ? text(row.propertyId) : "";
-    if (!propertyId) return allowed;
-    const { listTourAssigneeUserIds } = await import("@/lib/tour-assignee.server");
-    const team = await listTourAssigneeUserIds(db, { propertyId, fallbackOwnerUserId: input.houseManagerUserId });
-    for (const id of team.userIds) if (id) allowed.add(id);
-    if (team.ownerUserId) allowed.add(team.ownerUserId);
+    if (!propertyId) return { ok: false };
+    const { data: property, error: propertyError } = await db
+      .from("manager_property_records")
+      .select("manager_user_id")
+      .eq("id", propertyId)
+      .maybeSingle();
+    if (propertyError) return { ok: false };
+    const ownerUserId = text((property as { manager_user_id?: unknown } | null)?.manager_user_id) || input.houseManagerUserId;
+    const { listPropertyTourHostUserIdsOrThrow } = await import("@/lib/tour-host-enumeration.server");
+    const { readStoredOwner } = await import("@/lib/service/service-owner.server");
+    const hosts = await listPropertyTourHostUserIdsOrThrow(db, { propertyId, ownerUserId });
+    const serviceOwner = await readStoredOwner(db);
+    const allowed = new Set<string>([input.houseManagerUserId, ownerUserId, ...hosts]);
+    if (serviceOwner) allowed.add(serviceOwner);
+    return { ok: true, allowed };
   } catch {
-    return allowed;
+    return { ok: false };
   }
-  return allowed;
 }
 
 type StoredTourCalendarHolder = { connectionOwnerUserId: string; assigneeUserId: string };
@@ -134,8 +143,13 @@ export async function readStoredTourCalendarHolder(
   return readPinnedOwnerRow(db, plannedEventId, houseManagerUserId);
 }
 
-async function plannedEventRow(db: SupabaseClient, plannedEventId: string): Promise<Record<string, unknown> | null> {
-  const { data } = await db.from("portal_schedule_records").select("row_data").eq("id", PLANNED_RECORD_ID).maybeSingle();
+async function plannedEventRow(
+  db: SupabaseClient,
+  plannedEventId: string,
+  options?: { strict?: boolean },
+): Promise<Record<string, unknown> | null> {
+  const { data, error } = await db.from("portal_schedule_records").select("row_data").eq("id", PLANNED_RECORD_ID).maybeSingle();
+  if (error && options?.strict) throw new Error("planned events unreadable");
   const payload = (data?.row_data as { payload?: unknown } | null)?.payload;
   const rows = Array.isArray(payload) ? payload : [];
   const row = rows.find((r) => r && typeof r === "object" && text((r as Record<string, unknown>).id) === plannedEventId);
@@ -232,6 +246,7 @@ export async function resolveTourCalendarHolder(
  * Google id but no stored owner is legacy (house owner's calendar); otherwise the assignee's calendar with the
  * operator / house owner fallback. A stored owner who has left the team is never written to again: the answer names
  * them in `retireFromUserId` so the caller moves the event off their calendar and rewrites the stored row.
+ * That move happens only on a complete team read; when any read fails the stored owner keeps the event this sync.
  */
 export async function resolveTourCalendarConnectionOwner(
   db: SupabaseClient,
@@ -239,10 +254,19 @@ export async function resolveTourCalendarConnectionOwner(
 ): Promise<{ ownerUserId: string; assigneeUserId: string; stored: boolean; retireFromUserId: string | null }> {
   const pinned = await readPinnedOwnerRow(db, input.plannedEventId, input.houseManagerUserId);
   if (pinned) {
-    const allowed = await tourCalendarPrincipals(db, {
+    const team = await tourCalendarPrincipals(db, {
       plannedEventId: input.plannedEventId,
       houseManagerUserId: input.houseManagerUserId,
     });
+    if (!team.ok) {
+      return {
+        ownerUserId: pinned.connectionOwnerUserId,
+        assigneeUserId: pinned.assigneeUserId,
+        stored: true,
+        retireFromUserId: null,
+      };
+    }
+    const allowed = team.allowed;
     if (allowed.has(pinned.connectionOwnerUserId)) {
       const assigneeUserId = allowed.has(pinned.assigneeUserId) ? pinned.assigneeUserId : pinned.connectionOwnerUserId;
       return { ownerUserId: pinned.connectionOwnerUserId, assigneeUserId, stored: true, retireFromUserId: null };
