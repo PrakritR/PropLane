@@ -229,24 +229,37 @@ export async function resolveTourCalendarHolder(
 /**
  * The connection owner a tour's Google create or update goes to. The stored owner wins while they are still on the
  * property's tour team (so a reschedule always finds the calendar the create used); an event that already has a
- * Google id but no usable stored owner is legacy (house owner's calendar); otherwise the assignee's calendar with the
- * operator / house owner fallback.
+ * Google id but no stored owner is legacy (house owner's calendar); otherwise the assignee's calendar with the
+ * operator / house owner fallback. A stored owner who has left the team is never written to again: the answer names
+ * them in `retireFromUserId` so the caller moves the event off their calendar and rewrites the stored row.
  */
 export async function resolveTourCalendarConnectionOwner(
   db: SupabaseClient,
   input: { houseManagerUserId: string; plannedEventId: string; existingGoogleEventId?: string | null },
-): Promise<{ ownerUserId: string; assigneeUserId: string; stored: boolean }> {
+): Promise<{ ownerUserId: string; assigneeUserId: string; stored: boolean; retireFromUserId: string | null }> {
   const pinned = await readPinnedOwnerRow(db, input.plannedEventId, input.houseManagerUserId);
-  const allowed = pinned
-    ? await tourCalendarPrincipals(db, { plannedEventId: input.plannedEventId, houseManagerUserId: input.houseManagerUserId })
-    : null;
-  if (pinned && allowed?.has(pinned.connectionOwnerUserId)) {
-    const assigneeUserId = allowed.has(pinned.assigneeUserId) ? pinned.assigneeUserId : pinned.connectionOwnerUserId;
-    return { ownerUserId: pinned.connectionOwnerUserId, assigneeUserId, stored: true };
+  if (pinned) {
+    const allowed = await tourCalendarPrincipals(db, {
+      plannedEventId: input.plannedEventId,
+      houseManagerUserId: input.houseManagerUserId,
+    });
+    if (allowed.has(pinned.connectionOwnerUserId)) {
+      const assigneeUserId = allowed.has(pinned.assigneeUserId) ? pinned.assigneeUserId : pinned.connectionOwnerUserId;
+      return { ownerUserId: pinned.connectionOwnerUserId, assigneeUserId, stored: true, retireFromUserId: null };
+    }
+    const holder = await resolveTourCalendarHolder(db, input);
+    const ownerUserId = allowed.has(holder.holderUserId) ? holder.holderUserId : input.houseManagerUserId;
+    const assigneeUserId = allowed.has(holder.assigneeUserId) ? holder.assigneeUserId : ownerUserId;
+    return { ownerUserId, assigneeUserId, stored: false, retireFromUserId: pinned.connectionOwnerUserId };
   }
   if (input.existingGoogleEventId?.trim()) {
-    return { ownerUserId: input.houseManagerUserId, assigneeUserId: input.houseManagerUserId, stored: false };
+    return {
+      ownerUserId: input.houseManagerUserId,
+      assigneeUserId: input.houseManagerUserId,
+      stored: false,
+      retireFromUserId: null,
+    };
   }
   const holder = await resolveTourCalendarHolder(db, input);
-  return { ownerUserId: holder.holderUserId, assigneeUserId: holder.assigneeUserId, stored: false };
+  return { ownerUserId: holder.holderUserId, assigneeUserId: holder.assigneeUserId, stored: false, retireFromUserId: null };
 }

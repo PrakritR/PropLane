@@ -171,4 +171,49 @@ describe("managed-house tours write to the PropLane operator's Google connection
     expect(google.create).toHaveBeenCalledOnce();
     expect(google.create.mock.calls[0]?.[1]).not.toBe("former-teammate");
   });
+  // Reschedule after the holder left the team, then cancel: the old event is retired from the former holder's
+  // calendar, exactly one event is written to the house manager's, the stored row names the house manager, and the
+  // cancel then deletes from the house manager's calendar.
+  it("a reschedule moves the event off a holder who left the team, and the cancel follows it", async () => {
+    managed.isManaged.mockResolvedValue(false);
+    google.connection.mockImplementation(connectionFor({ [HOUSE_OWNER]: true, "former-teammate": true }));
+    google.create.mockResolvedValue("g-event-2");
+    const db = makeDb({ ...PLANNED, googleCalendarEventId: "g-event-1" });
+    db.rows.set("axis_gcal_tour_owner_planned-1", {
+      id: "axis_gcal_tour_owner_planned-1",
+      manager_user_id: HOUSE_OWNER,
+      record_type: "google_tour_calendar_owner",
+      row_data: { connectionOwnerUserId: "former-teammate", assigneeUserId: "former-teammate" },
+    });
+
+    await syncPlannedTourToGoogleCalendar(db as never, HOUSE_OWNER, facts("g-event-1"));
+    expect(google.remove).toHaveBeenCalledWith(db, "former-teammate", "g-event-1");
+    expect(google.update).not.toHaveBeenCalled();
+    expect(google.create).toHaveBeenCalledOnce();
+    expect(google.create.mock.calls[0]?.[1]).toBe(HOUSE_OWNER);
+    expect(db.rows.get("axis_gcal_tour_owner_planned-1")?.row_data).toMatchObject({ connectionOwnerUserId: HOUSE_OWNER });
+
+    google.remove.mockClear();
+    await deleteProplaneGoogleCalendarEvent(db as never, HOUSE_OWNER, "g-event-2");
+    expect(google.remove).toHaveBeenCalledWith(db, HOUSE_OWNER, "g-event-2");
+  });
+
+  it("a revoked former holder still has the stored row moved to the new holder", async () => {
+    managed.isManaged.mockResolvedValue(false);
+    google.connection.mockImplementation(connectionFor({ [HOUSE_OWNER]: true }));
+    google.remove.mockRejectedValue(new Error("invalid_grant"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const db = makeDb({ ...PLANNED, googleCalendarEventId: "g-event-1" });
+    db.rows.set("axis_gcal_tour_owner_planned-1", {
+      id: "axis_gcal_tour_owner_planned-1",
+      manager_user_id: HOUSE_OWNER,
+      record_type: "google_tour_calendar_owner",
+      row_data: { connectionOwnerUserId: "former-teammate" },
+    });
+    await syncPlannedTourToGoogleCalendar(db as never, HOUSE_OWNER, facts("g-event-1"));
+    expect(google.create.mock.calls[0]?.[1]).toBe(HOUSE_OWNER);
+    expect(db.rows.get("axis_gcal_tour_owner_planned-1")?.row_data).toMatchObject({ connectionOwnerUserId: HOUSE_OWNER });
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
 });

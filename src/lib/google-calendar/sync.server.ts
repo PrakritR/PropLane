@@ -278,14 +278,30 @@ export async function syncPlannedTourToGoogleCalendarAttempt(
     // remote insert and the id persisting still leaves recovery knowing which calendar to look in.
     // A captured SMS-test delivery never touches persistence or a provider, so it keeps the house manager.
     const resolvedOwner = currentSmsTestTransport()
-      ? { ownerUserId: managerUserId, assigneeUserId: managerUserId, stored: true }
+      ? { ownerUserId: managerUserId, assigneeUserId: managerUserId, stored: true, retireFromUserId: null }
       : await resolveTourCalendarConnectionOwner(db, {
           houseManagerUserId: managerUserId,
           plannedEventId: current.plannedEventId,
           existingGoogleEventId: current.googleCalendarEventId,
         });
     const calendarOwnerUserId = resolvedOwner.ownerUserId;
-    if (!resolvedOwner.stored && (calendarOwnerUserId !== managerUserId || resolvedOwner.assigneeUserId !== managerUserId)) {
+    const existingGoogleEventId = current.googleCalendarEventId?.trim() || null;
+    let writeGoogleEventId = existingGoogleEventId;
+    if (resolvedOwner.retireFromUserId && existingGoogleEventId) {
+      try {
+        await deleteGoogleCalendarEvent(db, resolvedOwner.retireFromUserId, existingGoogleEventId);
+      } catch (error) {
+        console.warn("[google-calendar] could not retire a tour event from a former holder's calendar", {
+          plannedEventId: current.plannedEventId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      writeGoogleEventId = null;
+    }
+    if (
+      !resolvedOwner.stored &&
+      (resolvedOwner.retireFromUserId || calendarOwnerUserId !== managerUserId || resolvedOwner.assigneeUserId !== managerUserId)
+    ) {
       await recordTourCalendarOwner(db, {
         plannedEventId: current.plannedEventId,
         houseManagerUserId: managerUserId,
@@ -301,7 +317,7 @@ export async function syncPlannedTourToGoogleCalendarAttempt(
         start: current.start,
         end: current.end,
         location: current.propertyTitle,
-        googleCalendarEventId: current.googleCalendarEventId,
+        googleCalendarEventId: writeGoogleEventId,
       }, async () => {
         if (options?.ownsGoogleCreateIntent) return true;
         createGeneration = await beginPlannedTourGoogleWriteIntent(db, managerUserId, current);
