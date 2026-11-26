@@ -1,7 +1,8 @@
 /**
  * get_room_door_code: a manager asks for a room's door code by text ("door code for 5257 Room 6"). The workspace owner
  * may read any room of their own houses; a delegated seat (co-manager, staff) is refused because this tool is not in
- * the co-manager allow-list (new tools fail closed). The room is matched by its display name through the same house
+ * the co-manager allow-list (new tools fail closed), and a house someone else owns is refused even when the asker
+ * also owns houses (combined access). The room is matched by its display name through the same house
  * and room matchers the room tools use. The code is a secret: it is returned only here, never logged.
  */
 import { z } from "zod";
@@ -28,11 +29,13 @@ export const getRoomDoorCodeTool = defineTool({
   kind: "read",
   inputSchema: z.object({ house: z.string().min(1).max(120), room: z.string().min(1).max(60) }).strict(),
   handler: async (ctx, input) => {
-    if (ctx.managerSmsAccess?.mode === "delegated") throw new Error("Room door codes are not available on another manager's number.");
+    const ownerOnly = "Room door codes are not available on another manager's number.";
+    if (ctx.managerSmsAccess?.mode === "delegated") throw new Error(ownerOnly);
     const houses = (await calendarReadableProperties(ctx)).filter((p) => houseMatches(p.title, input.house));
     if (houses.length === 0) throw new Error(`No house matches "${input.house}". Which house do you mean?`);
     if (houses.length > 1) throw new Error(`More than one house matches "${input.house}": ${houses.map((h) => h.title).join(", ")}. Which one?`);
     const house = houses[0]!;
+    if (!ctx.landlordId || house.ownerId !== ctx.landlordId) throw new Error(ownerOnly);
     const room = resolveRoomByName(house, input.room);
     const code = roomDoorCodeFromSubmission(house.submission, room.id);
     return { house: house.title, room: room.label, doorCode: code || null, message: code ? null : `No door code is set for ${house.title} ${room.label}.` };
