@@ -105,9 +105,14 @@ export function GeneralAssistantTrigger() {
 const MARKETING_PATHS = ["/", "/pricing", "/why-proplane", "/partner", "/vendors", "/reviews", "/about", "/app", "/contact", "/security"];
 /** A sheet about to be printed, and the page a door-card QR opens, carry no chat bubble either. */
 const CHROMELESS_PATHS = ["/print", "/h"];
+/**
+ * A listing page carries its own Quick chat (`WebChatLauncher`, bottom-right). The site-wide bubble
+ * sat on top of it in the same corner (captain, Nov 26), so a listing shows only its own chat.
+ */
+const OWN_CHAT_PATHS = ["/rent/listings"];
 export function isMarketingPath(pathname: string | null): boolean {
   if (!pathname) return false;
-  return [...MARKETING_PATHS, ...CHROMELESS_PATHS].some((p) =>
+  return [...MARKETING_PATHS, ...CHROMELESS_PATHS, ...OWN_CHAT_PATHS].some((p) =>
     p === "/" ? pathname === "/" : pathname === p || pathname.startsWith(`${p}/`),
   );
 }
