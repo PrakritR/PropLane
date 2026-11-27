@@ -26,6 +26,7 @@ import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
 import { emitAvailabilityChangedEvent } from "@/lib/tour-events.server";
 import { replaceManagerPlannedScheduleSlice } from "@/lib/planned-schedule-persistence.server";
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import {
   PARTNER_INQUIRIES_RECORD_ID,
   PLANNED_EVENTS_RECORD_ID,
@@ -300,9 +301,9 @@ async function plannedItemsWithinClaims(
   const team = new Set<string>();
   if (judged.some((entry) => entry.checkAssignee)) {
     const [asInviter, asInvitee] = await Promise.all([
-      db.from("account_link_invites").select("invitee_user_id").eq("status", "accepted").eq("inviter_user_id", userId),
-      db.from("account_link_invites").select("inviter_user_id").eq("status", "accepted").eq("invitee_user_id", userId),
-    ]);
+      db.from("account_link_invites").select("invitee_user_id, team_role").eq("status", "accepted").eq("inviter_user_id", userId),
+      db.from("account_link_invites").select("inviter_user_id, team_role").eq("status", "accepted").eq("invitee_user_id", userId),
+    ]).then((results) => results.map(withoutOwnerLinks));
     if (asInviter.error || asInvitee.error) throw new Error("account_link_invites unreadable");
     for (const row of (asInviter.data ?? []) as Record<string, unknown>[]) team.add(String(row.invitee_user_id ?? "").trim());
     for (const row of (asInvitee.data ?? []) as Record<string, unknown>[]) team.add(String(row.inviter_user_id ?? "").trim());

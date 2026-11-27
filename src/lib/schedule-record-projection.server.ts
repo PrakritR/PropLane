@@ -8,6 +8,7 @@ import {
   readPropertyPermissionsFromRow,
 } from "@/lib/account-link-invite-row";
 import { hasCoManagerPermissionLevelForProperty } from "@/lib/co-manager-permissions";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { managedHouseIdsOrThrow, managedHouseWorkspacesOrThrow } from "@/lib/google-calendar/tour-calendar-owner.server";
 import { serviceSeatVerdict } from "@/lib/service/service-mode";
 import { platformServiceOwnerId, readStoredOwner } from "@/lib/service/service-owner.server";
@@ -194,6 +195,7 @@ export async function plannedHouseWritersByHouse(
             .select(`inviter_user_id, invitee_user_id, ${INVITE_PERMISSION_COLUMNS}`)
             .eq("status", "accepted")
             .in("inviter_user_id", owners)
+            .then(withoutOwnerLinks)
         : Promise.resolve({ data: [], error: null }),
       managedHouseWorkspacesOrThrow(db, ownersByHouse),
     ]);
@@ -219,7 +221,8 @@ export async function plannedHouseWritersByHouse(
         .from("account_link_invites")
         .select("workspace_id, inviter_user_id, invitee_user_id, team_role, is_service_seat, house_scope, assigned_property_ids")
         .eq("status", "accepted")
-        .in("workspace_id", workspaceIds),
+        .in("workspace_id", workspaceIds)
+        .then(withoutOwnerLinks),
       db.from("portal_workspaces").select("id, owner_user_id").in("id", workspaceIds),
     ]);
     if (seats.error) throw new Error("account_link_invites unreadable");
