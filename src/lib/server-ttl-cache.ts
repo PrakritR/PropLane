@@ -4,7 +4,8 @@
  * The public catalog and the room-occupancy snapshot are the same answer for everyone and already ride the CDN
  * (`s-maxage=60`), but a CDN miss, a dev server, or a cold lambda recomputes them in full: dozens of paged
  * database reads per browse load. This keeps one answer per instance for `ttlMs`, shares one in-flight
- * computation between concurrent callers, and never caches a failure.
+ * computation between concurrent callers, and never caches a failure. The per-manager plan facts
+ * (`manager-fact-caches.ts`) use it too: the same answer for every viewer, with its own invalidation contract.
  *
  * `maxEntries` bounds it as an LRU (a hit moves its key to the end, a write past the cap drops the
  * least-recently-used): pass it whenever the KEY is not a fixed name - a per-address answer, say - so a wide
