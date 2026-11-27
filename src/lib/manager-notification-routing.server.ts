@@ -9,6 +9,7 @@ import {
   type ManagerNotificationDestination,
 } from "@/lib/manager-notification-preferences";
 import { isPhoneOptedOut } from "@/lib/sms-consent";
+import { noticeSmsText } from "@/lib/manager-notice-format";
 import {
   resolveActiveManagerSendNumber,
   resolveWorkspaceSendLine,
@@ -213,7 +214,7 @@ export async function sendManagerNotificationSms(
   const result = await sendPropLaneSms({
     to,
     fromNumber,
-    text: `${input.sendFrom ? "PropLane: " : ""}${input.subject}\n${input.text}`.slice(0, 1500),
+    text: noticeSmsText({ prefix: input.sendFrom ? "PropLane: " : "", subject: input.subject, text: input.text }).slice(0, 1500),
     sendClass: "transactional",
     purpose: input.purpose,
     dedupeKey: input.dedupeKey,

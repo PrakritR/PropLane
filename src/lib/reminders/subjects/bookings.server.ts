@@ -385,6 +385,13 @@ export function bookingReminderHeadline(
   });
 }
 
+/** True unless the stay's (exclusive) check-out is on or before its check-in. An open stay with no check-out has nights. */
+export function stayHasNights(stay: Pick<Stay, "checkInKey" | "checkOutKey">): boolean {
+  const day = /^\d{4}-\d{2}-\d{2}$/;
+  if (!stay.checkOutKey || !day.test(stay.checkOutKey) || !day.test(stay.checkInKey)) return true;
+  return stay.checkOutKey > stay.checkInKey;
+}
+
 export async function sweepBookingReminders(db: SupabaseClient, now: Date = new Date()): Promise<number> {
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
   const stays = [...(await channelStays(db)), ...(await leaseStays(db)), ...(await roomDateBlockStays(db))];
@@ -399,6 +406,9 @@ export async function sweepBookingReminders(db: SupabaseClient, now: Date = new 
 
   let queued = 0;
   for (const stay of stays) {
+    // A range with no night in it (check-out on or before check-in: a zero-length block, a same-day row) is not a
+    // stay. Without this it announced "Check-in tomorrow" and "Check-out today" for the same day.
+    if (!stayHasNights(stay)) continue;
     // A house's own reminder override wins when it has one (PLAN-0916-1040).
     const settings = reminderResolver.resolve(stay.managerUserId, stay.propertyId);
     if (!settings.rules[KIND]?.enabled) continue;

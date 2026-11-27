@@ -17,6 +17,7 @@ import {
 import { bookingNoticeRollKey } from "@/lib/booking-notice-roll";
 import { serviceRecordRefForEvent } from "@/lib/service-record-ref";
 import { buildTeamNoticeLine } from "@/lib/team-notice-line";
+import { isRealGuestName } from "@/lib/manager-notice-format";
 import type { RecordRef } from "@/lib/portals/record-kinds";
 import { buildInboxEventStamp } from "@/lib/inbox-event-card";
 import { managerNotificationCategoryForEvent } from "@/lib/manager-notification-preferences";
@@ -319,10 +320,47 @@ export function teamNoticeFor(input: {
   };
 }
 
-/** `teamNotice` when there is a line; `noTeamNotice` when the rule says none (a null must never mean "derive one"). */
-function teamNoticeArgs(input: Parameters<typeof teamNoticeFor>[0]): { teamNotice: { text: string; messageId: string } } | { noTeamNotice: true } {
+/**
+ * The Team line for a ROUTINE booking event, for the one place it is still posted: a PropLane-managed workspace, whose
+ * staff have no other in-app record of it (`notifyPropertyScopedManagersFromAgent`). One short sentence of facts:
+ * "Booking created: 5259 Brooklyn Ave, Room 3, Nov 25 – Nov 28 (3 nights), Booking.com." The guest leads only when a
+ * real name is known (never "Airbnb guest HM..."); with no house, room or dates there is no line worth texting.
+ */
+export function routineBookingTeamNotice(input: Parameters<typeof teamNoticeFor>[0]): { text: string; messageId: string } | null {
+  if (!teamChatSkipsRoutineEvent(input.domain, input.eventType)) return null;
+  const payloadText = (key: string) => {
+    const value = input.payload?.[key];
+    return typeof value === "string" && value.trim() ? value.trim() : "";
+  };
+  const guest = payloadText("guestLabel");
+  const place = [payloadText("propertyLabel"), payloadText("roomLabel")].filter(Boolean).join(" · ");
+  const dates = payloadText("stayLabel");
+  if (!place && !dates) return null;
+  return {
+    messageId: `action-event:${input.eventKey}:team`,
+    text: buildTeamNoticeLine({
+      domain: input.domain,
+      event: input.eventType,
+      subject: isRealGuestName(guest) ? guest : "",
+      place,
+      extra: [dates, payloadText("channelLabel")],
+      urgent: input.urgent,
+    }),
+  };
+}
+
+/**
+ * `teamNotice` when there is a line; `noTeamNotice` when the rule says none (a null must never mean "derive one").
+ * A routine booking also carries the line a managed workspace posts in its place (`managedTeamNotice`), so that line
+ * names the house, room and dates instead of being derived from the bare subject ("Schedule · New Airbnb booking").
+ */
+function teamNoticeArgs(
+  input: Parameters<typeof teamNoticeFor>[0],
+): { teamNotice: { text: string; messageId: string } } | { noTeamNotice: true; managedTeamNotice?: { text: string; messageId: string } } {
   const teamNotice = teamNoticeFor(input);
-  return teamNotice ? { teamNotice } : { noTeamNotice: true };
+  if (teamNotice) return { teamNotice };
+  const managedTeamNotice = routineBookingTeamNotice(input);
+  return managedTeamNotice ? { noTeamNotice: true, managedTeamNotice } : { noTeamNotice: true };
 }
 
 async function deliverProjection(

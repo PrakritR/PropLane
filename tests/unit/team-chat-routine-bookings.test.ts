@@ -113,6 +113,11 @@ describe("Team chat skips routine booking events", () => {
       expect(call).toMatchObject({ idempotencyKey: `action-event:b-1:${event}:manager`, subject: "Booking" });
       expect(call.teamNotice).toBeUndefined();
       expect(call.noTeamNotice).toBe(true);
+      // The line a managed workspace posts in its place carries the facts, never the bare subject.
+      expect(call.managedTeamNotice).toEqual({
+        messageId: `action-event:b-1:${event}:team`,
+        text: `Booking ${event.endsWith("cancelled") ? "cancelled" : "created"}: Alex Kim, Maple.`,
+      });
 
       await emitActionEvent(db, { ...input(`${event}-mate`), event, recipients: mate });
       expect(postTeamNoticeLineForEvent.mock.calls.every((c) => (c[1] as { teamNotice: unknown }).teamNotice === null)).toBe(true);

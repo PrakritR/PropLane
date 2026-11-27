@@ -103,6 +103,17 @@ describe("check-in digest grouping", () => {
     expect(movesByHouse(entries, today)).toEqual([]);
   });
 
+  it("a one-night stay (start == last night, as Booking.com's CLOSED - Not available exports it) checks out the next day", () => {
+    const oneNight = entry({ source: "booking_com", summary: "CLOSED - Not available", start: "2026-11-25", end: "2026-11-25" });
+    const onCheckIn = movesByHouse([oneNight], "2026-11-25");
+    expect(onCheckIn[0]!.checkIns).toHaveLength(1);
+    expect(onCheckIn[0]!.checkOuts).toEqual([]);
+    const onCheckOut = movesByHouse([oneNight], "2026-11-26");
+    expect(onCheckOut[0]!.checkIns).toEqual([]);
+    expect(onCheckOut[0]!.checkOuts).toEqual([{ room: "Room 4", guest: "Guest", channel: "Booking.com", time: "11:00" }]);
+    expect(movesByHouse([oneNight], "2026-11-27")).toEqual([]);
+  });
+
   it("counts a duplicate reservation (channel range + the resident filed for it) once", () => {
     const entries = [entry({}), entry({ source: "proplane", summary: "Anthony" })];
     expect(movesByHouse(entries, today)[0]!.checkIns).toHaveLength(1);

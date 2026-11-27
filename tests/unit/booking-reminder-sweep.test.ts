@@ -189,6 +189,28 @@ describe("sweepBookingReminders", () => {
     expect((input.payload as { title: string }).title).toContain("Priya S.");
   });
 
+  it("a zero-night booking (check-out on the check-in day) is not a stay: no check-in and no check-out reminder", async () => {
+    const zero = { ...ROOM_DATE_BLOCK_ROW, id: "block-7", row_data: { ...ROOM_DATE_BLOCK_ROW.row_data, checkIn: "2026-09-19", checkOut: "2026-09-19" } };
+    const queued = await sweepBookingReminders(fakeDb([], [], [zero]), NOW);
+    expect(queued).toBe(0);
+    expect(materialize).not.toHaveBeenCalled();
+  });
+
+  it("a one-night Booking.com stay (stored start == last night, CLOSED - Not available) still checks out the NEXT day", async () => {
+    const booking = {
+      ...CONNECTION,
+      provider: "booking_com",
+      imported_ranges: [{ id: "bk1", start: "2026-09-18", end: "2026-09-18", summary: "CLOSED - Not available" }],
+    };
+    await sweepBookingReminders(fakeDb([booking], []), NOW);
+    const inputs = materialize.mock.calls.map((call) => call[1] as { subjectId: string; anchorIso: string; payload: { headline: string } });
+    expect(inputs.map((i) => i.subjectId)).toEqual(["channel:conn-1:bk1", "channel:conn-1:bk1:out"]);
+    const out = inputs.find((i) => i.subjectId.endsWith(":out"))!;
+    expect(out.anchorIso).toBe("2026-09-19T16:05:00.000Z");
+    expect(out.payload.headline).toMatch(/^Check-out today · Booking\.com guest/);
+    expect(out.payload.headline).toContain("room free from Sep 19");
+  });
+
   it("BUILD-WAVE2 C211: a plain closed-dates block with no name or channel reason never queues", async () => {
     const queued = await sweepBookingReminders(fakeDb([], [], [CLOSED_BLOCK_ROW]), NOW);
     expect(queued).toBe(0);
