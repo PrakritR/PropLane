@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   managerTourRowFromProposal,
   tourInquirySummaryForProposal,
@@ -38,6 +38,15 @@ const inquiry: PartnerInquiry = {
 };
 
 describe("manager Tours reads the saved tour (A1)", () => {
+  // Pin the clock before the fixture's requested window (Nov 19, the day the request was made),
+  // so a pending request reads Pending rather than Expired whatever day the suite runs.
+  beforeEach(() => {
+    vi.useFakeTimers({ now: new Date("2026-11-19T12:00:00.000Z"), toFake: ["Date"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("maps a saved inquiry row to the list row with the booked values", () => {
     const [row] = tourRowsFromInquiries([inquiry]);
     expect(row).toMatchObject({
@@ -49,6 +58,12 @@ describe("manager Tours reads the saved tour (A1)", () => {
       statusLabel: "Pending",
     });
     expect(row!.whenLabel).not.toBe("");
+  });
+
+  it("reads a pending request Expired once its only requested window has passed", () => {
+    vi.setSystemTime(new Date("2026-11-22T12:00:00.000Z"));
+    const [row] = tourRowsFromInquiries([inquiry]);
+    expect(row!.statusLabel).toBe("Expired");
   });
 
   it("a proposal row takes the contact and house from the saved inquiry, not placeholders", () => {

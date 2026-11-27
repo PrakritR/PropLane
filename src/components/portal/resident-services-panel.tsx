@@ -985,7 +985,7 @@ export function ResidentServicesPanel({
 
   const openAddService = () => {
     if (!servicesUnlocked) {
-      showToast("Services unlock after your lease is fully signed.");
+      showToast("Services unlock after your lease is signed.");
       return;
     }
     setAddServiceOpen(true);
@@ -1617,7 +1617,7 @@ export function ResidentServicesPanel({
       >
       {!servicesUnlocked ? (
         <p className={lockedEmpty ? PORTAL_INLINE_UNLOCK_NOTICE_STACKED_CLASS : PORTAL_INLINE_UNLOCK_NOTICE_CLASS}>
-          <span className="font-semibold">Services unlock after your lease is fully signed.</span>
+          <span className="font-semibold">Services unlock after your lease is signed.</span>
         </p>
       ) : null}
 
