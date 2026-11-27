@@ -12,6 +12,7 @@
  */
 
 import { PHONE_REQUIRED_MESSAGE, REACH_CHANNELS, normalizeReachBy, type ReachChannel } from "@/lib/recipient-channels";
+import { placeholderImportEmail } from "@/lib/portfolio-import/placeholder-email";
 
 export { PHONE_REQUIRED_MESSAGE };
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -342,6 +343,25 @@ export function phoneIsAnswered(form: Pick<AddPersonForm, "phone" | "noPhone">):
   return Boolean(form.phone.trim()) || form.noPhone;
 }
 
+/** The inline error when a current resident has neither an email nor a phone: at least one way to reach them. */
+export const RESIDENT_CONTACT_REQUIRED_MESSAGE = "Enter an email or a phone so you can reach them.";
+
+/** A current resident needs an email OR a phone; a phone alone is enough (portal + text, no email). */
+export function residentContactIsAnswered(form: Pick<AddPersonForm, "email" | "phone">): boolean {
+  return Boolean(form.email.trim()) || Boolean(form.phone.trim());
+}
+
+/**
+ * The address the resident row is stored under: the typed email, else (phone only) the import placeholder family
+ * (`@import.proplane.local`) that imports already use, unique per row. Outbound mail never goes to it.
+ */
+export function residentRowEmail(form: Pick<AddPersonForm, "email" | "name">, axisId: string): string {
+  const typed = form.email.trim();
+  if (typed) return typed;
+  const slug = form.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
+  return placeholderImportEmail(slug, axisId.replace(/^PROPLANE-/i, "").toLowerCase());
+}
+
 /**
  * What the form writes onto `manualResidentDetails`: `reachBy` only when the manager narrowed it (every
  * channel = "never chose", which narrows nothing), and `noPhone` only while the phone is actually blank.
@@ -375,8 +395,12 @@ export function buildManualResidentRow(
   customQuestions: readonly { key: string; label: string; type: RentalCustomFieldAnswer["type"]; section?: string }[] = [],
 ): BuildRowResult {
   if (!form.name.trim()) return { ok: false, error: "Enter the resident's name." };
-  if (!form.email.trim()) return { ok: false, error: "Enter the resident's email." };
+  if (!residentContactIsAnswered(form)) return { ok: false, error: RESIDENT_CONTACT_REQUIRED_MESSAGE };
   if (!phoneIsAnswered(form)) return { ok: false, error: PHONE_REQUIRED_MESSAGE };
+  const axisId = `PROPLANE-${(ctx.idSuffix ?? (() => Date.now().toString(36).toUpperCase().slice(-8)))()}`;
+  // A phone-only resident is a real resident: the row carries the import placeholder address (every resident read
+  // is keyed on an address, and outbound mail skips the placeholder), and they get portal + text until they add one.
+  const email = residentRowEmail(form, axisId);
   const rent = moneyOrNull(form.rent);
   const leaseFields = residentLeaseTermToApplicationFields(form.leaseTerm, form.leaseTermCustomMode, form.propertyId);
   const shortTerm = leaseFields.rentalType === "short_term";
@@ -389,7 +413,6 @@ export function buildManualResidentRow(
   const moveInFee = moneyOrNull(form.moveInFee);
   const secDeposit = moneyOrNull(form.securityDeposit);
   const now = ctx.now ?? (() => new Date());
-  const axisId = `PROPLANE-${(ctx.idSuffix ?? (() => Date.now().toString(36).toUpperCase().slice(-8)))()}`;
   const propLabel = form.propertyId ? (ctx.propertyLabelFor(form.propertyId) ?? form.propertyId) : "—";
   const placement = resolveManualResidentAssignment({ propertyId: form.propertyId, roomId: form.roomId, bundleId: form.bundleId });
   const selectedRoomLabel = placement.placementLabel?.trim() || "";
@@ -398,7 +421,7 @@ export function buildManualResidentRow(
   const leaseFiling = leaseFilingFor(form);
   const onboarding = resolveResidentOnboardingStage({
     name: form.name,
-    email: form.email,
+    email,
     propertyId: form.propertyId,
     roomChoice: placement.assignedRoomChoice,
     monthlyRent: rent ?? null,
@@ -419,7 +442,7 @@ export function buildManualResidentRow(
           leaseStart: form.moveInDate || undefined,
           leaseEnd: form.moveOutDate || undefined,
           fullLegalName: form.name.trim(),
-          email: form.email.trim(),
+          email,
           phone: form.phone.trim() || undefined,
           ...(otherFee && form.otherFeeLabel.trim()
             ? { managerOtherCostLabel: form.otherFeeLabel.trim(), managerOtherCostAmount: String(otherFee) }
@@ -431,7 +454,7 @@ export function buildManualResidentRow(
         ? ({
             propertyId: form.propertyId || undefined,
             fullLegalName: form.name.trim(),
-            email: form.email.trim(),
+            email,
             phone: form.phone.trim() || undefined,
             ...answers,
             ...(custom.length ? { customFieldAnswers: custom } : {}),
@@ -441,7 +464,7 @@ export function buildManualResidentRow(
   const row: DemoApplicantRow = {
     id: axisId,
     name: form.name.trim(),
-    email: form.email.trim(),
+    email,
     property: propLabel,
     stage: onboarding.stage,
     bucket: onboarding.bucket,
@@ -597,7 +620,7 @@ export function thingsToFinish(form: AddPersonForm, mode: "person" | "tour" | "a
     if (form.tourFormat !== "none" && (!form.tourDate || !form.tourStart)) out.push({ step: "tour", label: "Tour date and time" });
     return out;
   }
-  if (!form.email.trim()) out.push({ step: "contact", label: "Resident's email" });
+  if (!residentContactIsAnswered(form)) out.push({ step: "contact", label: "An email or phone" });
   if (!opts?.editing && !phoneIsAnswered(form)) out.push({ step: "contact", label: "A phone, or No phone" });
   if (!form.propertyId.trim()) out.push({ step: "home", label: "Property" });
   if (alsoCreates(form, "lease")) {

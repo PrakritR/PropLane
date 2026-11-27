@@ -51,6 +51,8 @@ export function ContactStep({
   editing?: boolean;
 }) {
   const prospect = form.kind === "prospect";
+  // A current resident needs an email OR a phone: with a phone on the form the email is optional (portal + text).
+  const emailRequired = !prospect && (mode === "application" || !form.phone.trim());
   const phoneId = useId();
   const invalidFields = useContext(WizardInvalidFields);
   const [phoneTouched, setPhoneTouched] = useState(false);
@@ -121,10 +123,10 @@ export function ContactStep({
               data-attr="residents-wizard-name"
             />
           </WizardField>
-          <WizardField label="Email" required={!prospect} mark={<FieldMark kind={form.marks.email} />}>
+          <WizardField label="Email" required={emailRequired} mark={<FieldMark kind={form.marks.email} />}>
             <Input
               type="email"
-              required={!prospect}
+              required={emailRequired}
               value={form.email}
               onChange={(e) => {
                 patch({ email: e.target.value });

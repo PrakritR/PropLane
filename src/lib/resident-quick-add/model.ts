@@ -105,7 +105,8 @@ export function validateQuickAdd(raw: QuickAddRaw, catalog: QuickAddCatalog, opt
   const name = String(raw.name ?? "").replace(/\s+/g, " ").trim();
   if (name.length < 2 || name.length > 80) errors.name = "Enter the full name.";
   const email = String(raw.email ?? "").trim().toLowerCase();
-  if (!email || email.length > 254 || !EMAIL_RE.test(email)) errors.email = "Enter a valid email.";
+  // Optional: a resident with only a phone is added with no email (portal + text until they add one).
+  if (email && (email.length > 254 || !EMAIL_RE.test(email))) errors.email = "Enter a valid email, or leave it blank.";
   const phone = normalizeE164(raw.phone);
   if (!String(raw.phone ?? "").trim() || !phone) errors.phone = "Enter a valid US phone number.";
 
@@ -281,7 +282,7 @@ export function previewQuickAddCsv(text: string, catalog: QuickAddCatalog): Quic
   const table = parseCsv(text);
   if (table.length === 0) return empty("The file is empty.");
   const header = table[0]!.map((h) => HEADER_ALIASES[h.trim().toLowerCase().replace(/[\s-]+/g, "_")] ?? null);
-  const missing = QUICK_ADD_CSV_COLUMNS.filter((c) => c !== "room" && c !== "lease_end" && c !== "deposit" && !header.includes(c));
+  const missing = QUICK_ADD_CSV_COLUMNS.filter((c) => c !== "room" && c !== "lease_end" && c !== "deposit" && c !== "email" && !header.includes(c));
   if (missing.length > 0) return empty(`Missing column${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}. Download the template.`);
   const body = table.slice(1);
   if (body.length === 0) return empty("There are no residents in the file.");
@@ -309,11 +310,11 @@ export function previewQuickAddCsv(text: string, catalog: QuickAddCatalog): Quic
     const checked = validateQuickAdd(raw, catalog);
     let rowError: string | null = null;
     if (checked.ok) {
-      const dupEmail = seenEmail.get(checked.value.email);
+      const dupEmail = checked.value.email ? seenEmail.get(checked.value.email) : undefined;
       const dupPhone = seenPhone.get(checked.value.phone);
       if (dupEmail) rowError = `Same email as line ${dupEmail}.`;
       else if (dupPhone) rowError = `Same phone as line ${dupPhone}.`;
-      seenEmail.set(checked.value.email, seenEmail.get(checked.value.email) ?? line);
+      if (checked.value.email) seenEmail.set(checked.value.email, seenEmail.get(checked.value.email) ?? line);
       seenPhone.set(checked.value.phone, seenPhone.get(checked.value.phone) ?? line);
     }
     return {

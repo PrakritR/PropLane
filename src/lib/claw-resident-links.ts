@@ -17,6 +17,7 @@ export type ResidentSmsLinkKind =
   | "tour"
   | "login"
   | "signup"
+  | "create_account"
   | "browse"
   | "apply";
 
@@ -55,6 +56,10 @@ export function residentPortalPath(
       return "/auth/sign-in";
     case "signup":
       return "/auth/resident-setup";
+    case "create_account":
+      // The open resident sign-up (phone code or email), for a resident PropLane already knows who has no account
+      // yet. Unlike `signup` it needs no emailed setup token, so it is safe in a text, the inbox and an email alike.
+      return "/auth/create-account?role=resident";
     case "browse":
       return "/rent/browse";
     case "apply": {
@@ -172,6 +177,7 @@ const LINK_LABEL: Record<ResidentSmsLinkKind, string> = {
   tour: "Your tour",
   login: "Sign in",
   signup: "Create account",
+  create_account: "Set up your account",
   browse: "Browse homes",
   apply: "Apply",
 };

@@ -28,13 +28,17 @@ export function isSandboxEmail(email: string | null | undefined): boolean {
 
 /**
  * An address with no mailbox behind it: an import placeholder (`@import.proplane.local`), a PropLane-minted
- * stand-in (a Facebook lead's thread key), sheet junk, or no address at all. Mirrors
+ * stand-in (a Facebook lead's thread key, a phone-only account's `@phone.proplane.invalid` login, a deleted
+ * resident's `@deleted.invalid` tombstone), sheet junk, or no address at all. Mirrors
  * `isPlaceholderResidentEmail` (resident-welcome.server.ts) without its server imports.
  */
 export function isPlaceholderMailbox(email: string | null | undefined): boolean {
   const to = String(email ?? "").trim().toLowerCase();
   if (!to) return true;
   if (to.endsWith("@import.proplane.local") || to.endsWith("@facebook.proplane.local")) return true;
+  // Reserved, never-routable top-level domains: a deleted resident's `@deleted.invalid` tombstone, a phone sign-up
+  // account's `@phone.proplane.invalid` login, and every `*.local` stand-in. No mailbox stands behind any of them.
+  if (to.endsWith(".invalid") || to.endsWith(".local")) return true;
   if (isSandboxEmail(to)) return true;
   if (/[()<>]/.test(to)) return true;
   return !EMAIL_SHAPE.test(to);

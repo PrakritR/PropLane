@@ -18,6 +18,7 @@ import { notifyPropertyScopedManagersFromAgent } from "@/lib/co-manager-notifica
 import { traceSystemNotification } from "@/lib/observability/langfuse";
 import { chargeNoticeChannel } from "@/lib/resident-notice-channel.server";
 import { withResidentPortalLink } from "@/lib/notice-channel";
+import { residentEmailDeliverable, withAccountSetupReminder } from "@/lib/resident-message-delivery";
 import {
   claimPaymentReminderChannel,
   paymentReminderOccurrenceId,
@@ -87,8 +88,7 @@ export async function deliverPaymentReminder(input: {
   const portalOnly = (await chargeNoticeChannel(db, { managerUserId: ownerManagerId, charge })) === "portal";
   const filledText = textUsesPayLinkToken(rawText) ? fillPayLinkToken(rawText, residentPaymentsPortalUrl()) : rawText;
   // Every reminder carries a way to pay: a portal-channel copy names the resident portal if it names no link.
-  const text = portalOnly && (input.eventCategory ?? "payments") === "payments" ? withResidentPortalLink(filledText, "payment") : filledText;
-  const html = reminderHtmlFromText(text);
+  const linkedText = portalOnly && (input.eventCategory ?? "payments") === "payments" ? withResidentPortalLink(filledText, "payment") : filledText;
   const residentLower = charge.residentEmail.trim().toLowerCase();
   const dedupEntries = [{ dedupId, chargeId: charge.id }, ...(input.bundledDedupEntries ?? [])];
   const occurrence = {
@@ -98,7 +98,7 @@ export async function deliverPaymentReminder(input: {
     chargeIds: [...new Set(dedupEntries.map((entry) => entry.chargeId))],
     dedupIds: [...new Set(dedupEntries.map((entry) => entry.dedupId))],
     subject,
-    body: text,
+    body: linkedText,
   };
   const states = new Map<PaymentReminderChannel, string>();
   const claim = async (channel: PaymentReminderChannel) => {
@@ -127,6 +127,10 @@ export async function deliverPaymentReminder(input: {
     .eq("email", residentLower)
     .maybeSingle();
   const residentUserId = String(residentProfile?.id ?? "").trim() || null;
+  // A resident PropLane knows but who has no account yet: the reminder ends with one account-setup line.
+  const hasAccount = Boolean(residentUserId || String(charge.residentUserId ?? "").trim());
+  const text = withAccountSetupReminder(linkedText, { hasAccount });
+  const html = reminderHtmlFromText(text);
   const channels = residentUserId
     ? await resolveChannels(db, residentUserId, category, {
         phone: (residentProfile?.phone as string | null) ?? null,
@@ -137,7 +141,9 @@ export async function deliverPaymentReminder(input: {
   const managerDeliverViaEmail = input.managerDeliverViaEmail !== false;
   const managerDeliverViaSms = input.managerDeliverViaSms === true;
   const managerDeliverViaInbox = input.managerDeliverViaInbox !== false;
-  const emailAllowed = managerDeliverViaEmail && channels.email;
+  // No real mailbox on file (blank, an import or phone-only placeholder, a deleted tombstone): skip the email; the
+  // portal inbox and the text still go.
+  const emailAllowed = managerDeliverViaEmail && channels.email && residentEmailDeliverable(residentLower);
   const smsAllowed = !portalOnly && managerDeliverViaSms && channels.sms;
   const inboxAllowed = managerDeliverViaInbox && channels.inbox;
 
@@ -176,7 +182,9 @@ export async function deliverPaymentReminder(input: {
 
   let inboxWritten = false;
   let inboxWrittenNow = false;
-  if (inboxAllowed && residentUserId) {
+  // The inbox is written for a resident with no account too: their copy waits under their address (it opens once
+  // they sign up with it) and the manager's sent copy is the Communication record of what went out.
+  if (inboxAllowed) {
     const inboxClaim = await claim("inbox");
     if (inboxClaim.outcome === "submitted") {
       inboxWritten = true;
@@ -316,12 +324,12 @@ export async function deliverPaymentReminder(input: {
     }
   }
 
-  const inboxDelivered = inboxWritten && Boolean(residentUserId);
-  const anyChannelEnabled = emailAllowed || smsAllowed || (inboxAllowed && Boolean(residentUserId));
+  const inboxDelivered = inboxWritten;
+  const anyChannelEnabled = emailAllowed || smsAllowed || inboxAllowed;
   const deliveryComplete =
     (!emailAllowed || states.get("email") === "submitted") &&
     (!smsAllowed || states.get("sms") === "submitted") &&
-    (!(inboxAllowed && residentUserId) || states.get("inbox") === "submitted");
+    (!inboxAllowed || states.get("inbox") === "submitted");
   const anySubmitted = emailSent || smsDelivered || inboxDelivered;
   const sentAt = new Date().toISOString();
   const { error: dedupError } = await db.from("portal_outbound_mail_records").upsert(

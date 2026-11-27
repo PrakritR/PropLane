@@ -9,6 +9,7 @@ import { buildPaymentReminderBody } from "@/lib/manual-payment-instructions";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { deliverManualPaymentReminder } from "@/lib/manual-payment-reminder-delivery.server";
 import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
+import { residentEmailDeliverable, withAccountSetupReminder } from "@/lib/resident-message-delivery";
 import { serviceChargeDisplayTitle } from "@/lib/service-charge-title";
 
 export const runtime = "nodejs";
@@ -170,7 +171,9 @@ export async function POST(req: Request) {
     }
     const canEmailExternally =
       wantEmail &&
-      isUsableEmail(inboxEmail) &&
+      // No real mailbox on file (blank, an import or phone-only placeholder, a deleted tombstone): no email,
+      // the portal inbox and the text still go.
+      residentEmailDeliverable(inboxEmail) &&
       !shouldSkipOutboundEmail(inboxEmail) &&
       inboxEmail !== String(requestor?.email ?? "").trim().toLowerCase();
     if (wantSms && !capability.sms.available) {
@@ -210,6 +213,8 @@ export async function POST(req: Request) {
     const smsBody =
       String(body.text ?? "").trim() ||
       `Hi ${residentName}, this is a payment reminder: ${chargeTitle}${balanceDue ? ` — ${balanceDue}` : ""}${propertyLabel ? ` (${propertyLabel})` : ""}. Reply here with questions. — ${managerName}`;
+    // A resident with no PropLane account yet: the reminder ends with one account-setup line, on every channel.
+    const hasAccount = Boolean(residentUserId);
     const delivery = await deliverManualPaymentReminder({
       db,
       ownerUserId: loaded.ownerUserId,
@@ -224,8 +229,8 @@ export async function POST(req: Request) {
       managerEmail: String(ownerProfile?.email ?? ""),
       managerName,
       subject,
-      text: messageBody,
-      smsText: smsBody,
+      text: withAccountSetupReminder(messageBody, { hasAccount }),
+      smsText: withAccountSetupReminder(smsBody, { hasAccount }),
       wantEmail,
       wantSms: canSms,
       canEmailExternally,

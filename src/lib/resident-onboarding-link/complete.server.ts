@@ -8,6 +8,8 @@ import { addResidentToHouseSmsGroup } from "@/lib/house-sms-group/sync.server";
 import { sendWorkspaceText } from "@/lib/one-number/link-text.server";
 import { type PhoneBoundLink } from "@/lib/one-number/links.server";
 import { provisionSmsSignupAccount } from "@/lib/one-number/signup/provision.server";
+import { startEmailProof } from "@/lib/personal-link/email-proof.server";
+import { residentEmailDeliverable } from "@/lib/resident-message-delivery";
 import { ROOM_DATE_BLOCK_RECORD_TYPE } from "@/lib/portal-schedule-record-scope";
 import {
   firstNameOf,
@@ -35,8 +37,16 @@ export type OnboardingDeps = {
   addToGroup?: typeof addResidentToHouseSmsGroup;
   sendText?: typeof sendWorkspaceText;
   optOut?: typeof recordOptOut;
+  /** True when an account already holds this email. Unreadable counts as taken (no proof is then sent). */
+  emailTaken?: (db: SupabaseClient, email: string) => Promise<boolean>;
+  sendEmailProof?: typeof startEmailProof;
   now?: () => Date;
 };
+
+async function defaultEmailTaken(db: SupabaseClient, email: string): Promise<boolean> {
+  const { data, error } = await db.from("profiles").select("id").eq("email", email.toLowerCase()).limit(1);
+  return Boolean(error) || (data ?? []).length > 0;
+}
 
 async function defaultVerifyIdRequired(db: SupabaseClient, facts: OnboardingFacts): Promise<boolean> {
   // The manager's own setting for this house, and only while an ID check can actually run in this environment.
@@ -76,7 +86,9 @@ export async function openOnboarding(
     facts,
     prefill: {
       fullName: facts.fullName,
-      email: facts.email,
+      // A placeholder address (a phone-only resident's import stand-in) is not theirs to see or keep: the field
+      // starts blank so they can add a real one.
+      email: residentEmailDeliverable(facts.email) ? facts.email : "",
       houseLabel: facts.houseLabel,
       roomLabel: facts.roomLabel,
       moveInDate: facts.moveInDate,
@@ -189,6 +201,13 @@ async function finishOnboarding(
   if (facts.kind === "booking" && !facts.residentUserId) {
     const stamped = await stampBooking(db, facts.id, userId);
     if (!stamped) return { ok: false, status: 409, error: "Sign in to continue." };
+  }
+
+  // An email they typed is only a claim until they prove it: a NEW phone account gets the emailed single-use proof
+  // (`startEmailProof`), and the address is attached to the account only when that link is opened
+  // (`verifyEmailProof`). An existing account's login is never changed from here. Best effort and silent.
+  if (created && form.email && residentEmailDeliverable(form.email)) {
+    await (deps.sendEmailProof ?? startEmailProof)(db, { userId, email: form.email }, { emailTaken: deps.emailTaken ?? defaultEmailTaken }).catch(() => false);
   }
 
   await recordRulesAcceptance(db, userId, facts, form.fullName, form.acceptRules, now);

@@ -11,6 +11,8 @@
  * option someone can remove: it is the durable record.
  */
 
+import { isPlaceholderMailbox } from "@/lib/inbox-delivery-status";
+
 export type ReachChannel = "app" | "email" | "sms";
 
 export const REACH_CHANNELS: ReachChannel[] = ["app", "email", "sms"];
@@ -30,13 +32,12 @@ export function normalizeReachBy(raw: unknown): ReachChannel[] | undefined {
   return REACH_CHANNELS.filter((channel) => picked.has(channel));
 }
 
-/** The same family `isPlaceholderResidentEmail` skips for outbound mail (import, harness, junk addresses). */
+/**
+ * A real mailbox: not blank and not one of the placeholder families `isPlaceholderMailbox` names (import, harness,
+ * phone-only, deleted, junk). One rule for every outbound email decision.
+ */
 export function hasRealEmailAddress(email: string | null | undefined): boolean {
-  const to = (email ?? "").trim().toLowerCase();
-  if (!to) return false;
-  if (to.endsWith("@axis.local") || to.endsWith("@test.proplane.local") || to.endsWith("@import.proplane.local")) return false;
-  if (/[()<>]/.test(to)) return false;
-  return /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(to);
+  return !isPlaceholderMailbox(email);
 }
 
 export type RecipientChannelInput = {
