@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isResidentPathAllowedForAccess,
   residentLockedSectionForPath,
+  residentNavLockReason,
   residentStageLockCopy,
 } from "@/lib/resident-portal-nav";
 import { RESIDENT_ASSISTANT_SUGGESTIONS } from "@/components/portal/assistant-shared";
@@ -21,11 +22,31 @@ describe("a stage-locked resident section opens its locked-state page, never hom
     }
     expect(residentStageLockCopy("services", "application_submitted")).toEqual({
       label: "Services",
-      message: "Services unlock after your application is approved.",
+      message: "Services unlock after your lease is signed.",
     });
     expect(residentStageLockCopy("move-in", "application_submitted")?.message).toBe(
-      "My home unlocks after your application is approved.",
+      "My home unlocks after your lease is signed.",
     );
+    expect(residentStageLockCopy("lease", "application_submitted")?.message).toBe(
+      "Lease unlocks after your application is approved.",
+    );
+    expect(residentStageLockCopy("payments", "application_submitted")?.message).toBe(
+      "Payments unlock after your application is approved.",
+    );
+    expect(residentStageLockCopy("forms", "application_submitted_forms")?.message).toBe(
+      "Forms unlock after your application is approved.",
+    );
+    expect(residentStageLockCopy("documents", "pre_approval")?.message).toBe(
+      "Documents unlock after your application is approved.",
+    );
+  });
+
+  it("the sidebar tooltip names the same unlock as the locked page", () => {
+    expect(residentNavLockReason("services", "application_submitted")).toBe("Available after your lease is signed");
+    expect(residentNavLockReason("move-in", "application_submitted")).toBe("Available after your lease is signed");
+    expect(residentNavLockReason("lease", "application_submitted")).toBe("Available after your application is approved");
+    expect(residentNavLockReason("services", "post_approval_pre_lease")).toBe("Available after your lease is signed");
+    expect(residentNavLockReason("lease", "post_approval_pre_lease")).toBeNull();
   });
 
   it("/resident/services is the locked page for an applicant and the real flow for a signed resident", () => {
@@ -38,7 +59,7 @@ describe("a stage-locked resident section opens its locked-state page, never hom
   it("an approved resident without a signed lease sees Services wait on the lease", () => {
     expect(residentLockedSectionForPath("/resident/services", approved)).toBe("services");
     expect(residentStageLockCopy("services", "post_approval_pre_lease")?.message).toBe(
-      "Services unlock after your lease is fully signed.",
+      "Services unlock after your lease is signed.",
     );
   });
 

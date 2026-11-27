@@ -170,10 +170,7 @@ export function ManagerDashboardView({ story, scrollWithinWindow = true, onNavig
                 label="Open requests"
                 value={dashboard.openRequests.value}
                 unit={dashboard.openRequests.unit}
-                delta={dashboard.openRequests.delta ?? null}
-                series={dashboard.openRequests.series}
-                seriesLabels={labels}
-                format={String}
+                delta={null}
                 href="#demo/services"
                 dataAttr="dashboard-metric-requests"
               />

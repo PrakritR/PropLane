@@ -25,7 +25,6 @@ import {
 import {
   ageLabel,
   bucketSeries,
-  openRequestsSeries,
   DASHBOARD_PERIOD_LABELS,
   dashboardPeriods,
   kpiDelta,
@@ -205,8 +204,6 @@ type DashboardServiceAttentionItem = {
   title: string;
   subtitle: string;
   sortKey: number;
-  /** When the request was raised; null when the record carries no date (maintenance rows). */
-  openedAtMs: number | null;
   rowTone: AttentionTone;
   pillLabel: string;
 };
@@ -874,7 +871,6 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
         rowTone: "pending" as const,
         pillLabel: "Scheduled",
         sortKey: new Date(r.requestedAt).getTime() || 0,
-        openedAtMs: toMs(r.requestedAt),
       })),
       ...pendingWorkOrders.map((w) => ({
         id: `wo-${w.id}`,
@@ -886,7 +882,6 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
         // `Date.now()`, which put it first only incidentally and made the render impure,
         // so two renders in the same tick could order the list differently.
         sortKey: w.scheduledAtIso ? new Date(w.scheduledAtIso).getTime() : Number.MAX_SAFE_INTEGER,
-        openedAtMs: null,
       })),
     ].sort((a, b) => b.sortKey - a.sortKey);
     const pendingServiceCount = serviceItems.length;
@@ -1090,10 +1085,6 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
       return due != null && due >= current.start && due < current.end ? sum + moneyToNumber(c.amountLabel) : sum;
     }, 0);
 
-    // Open requests: ONE list (`serviceItems`, Open / Scheduled per the services vocabulary) feeds the
-    // headline and the chart: the chart is how many were open at the end of each period, so its current
-    // period equals the headline on the same load.
-    const openedSeries = openRequestsSeries(data.serviceItems, periods, nowMs);
     const oldestMs = data.pendingServiceRequests
       .map((r) => toMs(r.requestedAt))
       .filter((n): n is number => n != null)
@@ -1123,10 +1114,8 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
         delta: kpiDelta(collectedSeries, usdWhole, previous),
       },
       requests: {
-        value: String(openedSeries[openedSeries.length - 1] ?? 0),
+        value: String(data.serviceItems.length),
         unit: oldestMs != null ? `oldest ${ageLabel(oldestMs, nowMs)}` : undefined,
-        series: openedSeries,
-        delta: kpiDelta(openedSeries, String, previous, true),
       },
     };
   }, [data, periodKind, nowMs, periods, occupancyIsLive, liveOccupancy, portfolioOccupancy.status]);
@@ -1629,10 +1618,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
             value={kpis?.requests.value ?? "—"}
             unit={kpis?.requests.unit}
             detail="Services and maintenance still open"
-            delta={kpis?.requests.delta ?? null}
-            series={kpis?.requests.series}
-            seriesLabels={kpis?.labels}
-            format={String}
+            delta={null}
             href={`${BASE}/services/requests`}
             dataAttr="dashboard-metric-requests"
           />

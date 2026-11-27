@@ -77,6 +77,32 @@ vi.mock("@/lib/manager-applications-storage", () => ({
   ],
 }));
 
+// Open requests: one add-on raised LAST month and still open, one raised this month.
+const OPEN_REQUESTS = [
+  { id: "sr-old", requestedAt: "2026-10-10T00:00:00.000Z" },
+  { id: "sr-new", requestedAt: "2026-11-10T00:00:00.000Z" },
+].map((r) => ({
+  ...r,
+  offerId: "offer-1",
+  offerName: "Deep clean",
+  offerDescription: "",
+  price: "$80.00",
+  deposit: "",
+  residentEmail: "",
+  residentName: "",
+  managerUserId: "mgr-1",
+  propertyId: "house-1",
+  returnByDate: "",
+  notes: "",
+  status: "pending" as const,
+}));
+
+vi.mock("@/lib/service-requests-storage", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/service-requests-storage")>()),
+  readAllServiceRequests: () => OPEN_REQUESTS,
+  serviceRequestsLastReadSucceeded: () => true,
+}));
+
 vi.mock("@/lib/manager-portfolio-access", () => ({
   applicationVisibleToPortalUser: () => true,
   collectLinkedPropertyIdsForModule: () => new Set<string>(),
@@ -203,5 +229,14 @@ describe("dashboard KPIs agree (evidence render)", () => {
     // attention list holds only the 2 nobody has decided on.
     expect(document.body.textContent).toContain("Applications ready");
     expect(document.body.textContent).toMatch(/Applications to approve2/);
+  });
+
+  it("Open requests is the count open now, with no comparison or history it cannot know", async () => {
+    render(<ManagerDashboard />);
+    await screen.findByText("Open requests");
+    const card = document.querySelector('[data-attr="dashboard-metric-requests"]');
+    expect(card?.textContent).toContain("2");
+    expect(card?.textContent).not.toMatch(/vs last/);
+    expect(card?.querySelector('[data-slot="kpi-sparkline"]')).toBeNull();
   });
 });

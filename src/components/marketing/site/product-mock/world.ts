@@ -147,7 +147,6 @@ const LEASE_BUCKET = ["manager", "resident", "signed", "completed"] as const;
 /** The seven periods before this one, for the KPI cards' bar history (the eighth bar is the figure itself). */
 const OCCUPIED_HISTORY = [2, 2, 3, 3, 4, 4, 4];
 const COLLECTED_HISTORY = [5200, 6100, 5800, 7400, 8100, 7900, 9100];
-const OPENED_HISTORY = [1, 0, 2, 1, 3, 1, 1];
 const LAST_MONTH = "last month";
 
 export type DashboardCard = {
@@ -356,8 +355,6 @@ function build(story: DemoStory): DemoWorld {
       openRequests: {
         value: String(openServices.length),
         unit: "oldest 1 day",
-        series: [...OPENED_HISTORY, openServices.length],
-        delta: kpiDelta([...OPENED_HISTORY, openServices.length], String, LAST_MONTH, true),
       },
       applicationsReady: {
         value: String(pendingApplications.length),

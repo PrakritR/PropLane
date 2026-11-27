@@ -268,6 +268,29 @@ export function residentLockedSectionForPath(
   return resolved in RESIDENT_STAGE_LOCKABLE_SECTIONS ? resolved : null;
 }
 
+/** The resident lifecycle, in order: the stages an applicant moves through on the way to a signed lease. */
+const RESIDENT_LIFECYCLE_STAGES = new Set<ResidentPortalNavStage>([
+  "pre_approval",
+  "application_submitted",
+  "application_submitted_forms",
+  "post_approval_pre_lease",
+]);
+
+/**
+ * What unlocks a section for a resident in the lifecycle: the first milestone whose stage opens it in
+ * `STAGE_UNLOCKED_SECTIONS` (approval → `post_approval_pre_lease`, a signed lease → `post_lease`).
+ * Null outside the lifecycle (a booking or a guest-only account), where neither milestone applies.
+ */
+function residentSectionUnlockMilestone(
+  section: string,
+  stage: ResidentPortalNavStage,
+): "approval" | "lease" | null {
+  if (!RESIDENT_LIFECYCLE_STAGES.has(stage)) return null;
+  if (residentSectionUnlockedForStage(section, "post_approval_pre_lease")) return "approval";
+  if (residentSectionUnlockedForStage(section, "post_lease")) return "lease";
+  return null;
+}
+
 /** The locked-state notice for a stage-locked section: names the section and what unlocks it. */
 export function residentStageLockCopy(
   section: string,
@@ -276,14 +299,13 @@ export function residentStageLockCopy(
   const meta = RESIDENT_STAGE_LOCKABLE_SECTIONS[section];
   if (!meta) return null;
   const verb = meta.plural ? "unlock" : "unlocks";
-  let when: string;
-  if (stage === "pre_approval" || stage === "application_submitted" || stage === "application_submitted_forms") {
-    when = "after your application is approved";
-  } else if (stage === "post_approval_pre_lease") {
-    when = "after your lease is fully signed";
-  } else {
-    when = "once you have a lease with your property manager";
-  }
+  const milestone = residentSectionUnlockMilestone(section, stage);
+  const when =
+    milestone === "approval"
+      ? "after your application is approved"
+      : milestone === "lease"
+        ? "after your lease is signed"
+        : "once you have a lease with your property manager";
   return { label: meta.label, message: `${meta.label} ${verb} ${when}.` };
 }
 
@@ -292,12 +314,9 @@ export function residentNavLockReason(
   stage: ResidentPortalNavStage,
 ): string | null {
   if (!residentSectionLockedForStage(section, stage)) return null;
-  if (stage === "pre_approval" || stage === "application_submitted" || stage === "application_submitted_forms") {
-    return "Available after your application is approved";
-  }
-  if (stage === "post_approval_pre_lease") {
-    return "Available after your lease is signed";
-  }
+  const milestone = residentSectionUnlockMilestone(section, stage);
+  if (milestone === "approval") return "Available after your application is approved";
+  if (milestone === "lease") return "Available after your lease is signed";
   return "Unavailable";
 }
 

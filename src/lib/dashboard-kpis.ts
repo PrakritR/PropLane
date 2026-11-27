@@ -121,28 +121,6 @@ export function stockSeries<T>(
   });
 }
 
-/**
- * The Open requests card, headline and chart from ONE list: the open service items (add-on requests and
- * maintenance in Open / Scheduled). The chart is a stock, how many of those were open at the end of each
- * period, so its current period IS the headline. `openedAtMs` is when the item was raised; an item with no
- * known date (maintenance rows carry none) counts in the current period only, never in history, and nothing
- * is dated after `nowMs`. Items closed since a past period are not in the list, so earlier periods show what
- * is still open that was raised by then.
- */
-export function openRequestsSeries(
-  items: readonly { openedAtMs: number | null }[],
-  periods: readonly DashboardPeriod[],
-  nowMs: number,
-): number[] {
-  return stockSeries(
-    items,
-    periods,
-    (item) => Math.min(item.openedAtMs != null && Number.isFinite(item.openedAtMs) ? item.openedAtMs : nowMs - 1, nowMs - 1),
-    () => null,
-    nowMs,
-  );
-}
-
 export type KpiDelta = {
   /** Signed change against the previous period, in the metric's own unit. */
   change: number;
