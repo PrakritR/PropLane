@@ -5,7 +5,7 @@
  */
 
 import {
-  AXIS_VENDOR_CATALOG,
+  curatedVendorCatalog,
   managerOwnsCatalogVendor,
   vendorCatalogEntryMatchesQuery,
   type AxisCatalogVendor,
@@ -85,7 +85,7 @@ export function filterVendorsForIssue(input: {
   roster: readonly VendorIssueSearchRosterRow[];
   catalog?: readonly AxisCatalogVendor[];
 }): { roster: VendorIssueSearchHit[]; catalog: VendorIssueSearchHit[] } {
-  const catalog = input.catalog ?? AXIS_VENDOR_CATALOG;
+  const catalog = input.catalog ?? curatedVendorCatalog();
   const rosterHits: VendorIssueSearchHit[] = [];
   for (const row of input.roster) {
     if (!matchesIssue(row, input.issue)) continue;
@@ -133,7 +133,7 @@ export function onlineDirectoryHits(input: {
   propertyZips: readonly string[];
   catalog?: readonly AxisCatalogVendor[];
 }): Array<Pick<VendorIssueSearchHit, "id" | "name" | "trade" | "phone" | "city">> {
-  const catalog = input.catalog ?? AXIS_VENDOR_CATALOG;
+  const catalog = input.catalog ?? curatedVendorCatalog();
   return catalog
     .filter((row) => matchesIssue(row, input.issue) && zipNear(row.zip, input.propertyZips))
     .map((row) => ({
