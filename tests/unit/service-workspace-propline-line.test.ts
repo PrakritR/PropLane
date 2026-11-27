@@ -1,9 +1,9 @@
 /**
- * Captain, Nov 24: a PropLane-managed workspace (`portal_workspaces.is_service`) that holds its OWN active, registered number
- * (Ambika: +1 814 679 3694) texts on THAT number; a managed workspace without one (Vinod) texts on the PropLane line (206),
- * in both line modes. One decision, `resolveServiceLine(db, columns, workspaceId)`, feeds the dispatcher's readiness check,
- * the number resolvers and the Settings status. An unreadable or unsendable own number fails closed to the PropLane line
- * (never another workspace's number); a PropLane line that cannot be resolved refuses. Self-serve workspaces are untouched.
+ * Owner, Nov 27: ONLY the admin uses the 814. Every PropLane-managed workspace (`portal_workspaces.is_service`) texts on the
+ * PropLane line (206), in both line modes, even one whose record holds a registered number (Ambika: +1 814 679 3694, which
+ * is the admin line). One decision, `resolveServiceLine(db, columns, workspaceId)`, feeds the dispatcher's readiness check,
+ * the number resolvers and the Settings status. A PropLane line that cannot be resolved refuses (never another workspace's
+ * number). Self-serve workspaces are untouched. (Nov 24 to Nov 27 a managed workspace with its own number texted on it.)
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryDb } from "./support/memory-supabase";
@@ -132,31 +132,31 @@ afterEach(() => {
   delete process.env.PROPLANE_ADMIN_SMS_LINE;
 });
 
-describe("outbound: a managed workspace with its own registered number sends from it; one without sends from the 206", () => {
-  it("per_workspace: Ambika sends from the 814, billed to the managed workspace", async () => {
+describe("outbound: every managed workspace sends from the 206, even one whose record holds the 814", () => {
+  it("per_workspace: Ambika sends from the 206, billed to the managed workspace", async () => {
     const result = await readiness(world("per_workspace"), AMBIKA, { workspaceId: "ws-ambika" });
     expect(result).toMatchObject({ canSend: true, workspaceId: "ws-ambika" });
-    expect(result.canSend && result.numberRow.phone_number).toBe(AMBIKA_OWN);
-    expect(result.canSend && result.viaSharedLine).toBeFalsy();
+    expect(result.canSend && result.numberRow.phone_number).toBe(LINE_206);
+    expect(result.canSend && result.adminLine).toBeFalsy();
   });
 
   it("per_workspace: however the workspace is named - a house, a stamped outbox workspace, a pinned line, or the owner's default", async () => {
     const db = world("per_workspace");
     for (const hint of [{ propertyId: "h-ambika" }, { sharedLineWorkspaceId: "ws-ambika" }, { workLineId: "n-ambika" }, {}]) {
       const result = await readiness(db, AMBIKA, hint);
-      expect(result.canSend && result.numberRow.phone_number, JSON.stringify(hint)).toBe(AMBIKA_OWN);
+      expect(result.canSend && result.numberRow.phone_number, JSON.stringify(hint)).toBe(LINE_206);
     }
   });
 
   it("shadow mode behaves like per_workspace", async () => {
     const result = await readiness(world("shadow"), AMBIKA, { workspaceId: "ws-ambika" });
-    expect(result.canSend && result.numberRow.phone_number).toBe(AMBIKA_OWN);
+    expect(result.canSend && result.numberRow.phone_number).toBe(LINE_206);
   });
 
-  it("shared mode: Ambika still sends from its own 814, not through the shared sender", async () => {
+  it("shared mode: Ambika sends through the shared sender on the 206, never its record's 814", async () => {
     const result = await readiness(world("shared"), AMBIKA, { workspaceId: "ws-ambika" });
-    expect(result.canSend && result.numberRow.phone_number).toBe(AMBIKA_OWN);
-    expect(result.canSend && result.viaSharedLine).toBeFalsy();
+    expect(result).toMatchObject({ canSend: true, viaSharedLine: true, workspaceId: "ws-ambika", providerMessagingServiceSid: "MGshared" });
+    expect(result.canSend && result.numberRow.phone_number).toBe(SHARED);
   });
 
   it("Vinod (managed, no number of its own) sends from the 206 in per_workspace and the shared sender in shared mode", async () => {
@@ -172,20 +172,21 @@ describe("outbound: a managed workspace with its own registered number sends fro
     expect(result.canSend && result.numberRow.phone_number).toBe(LINE_206);
   });
 
-  it("the number resolvers agree: Ambika is the 814, Vinod the 206", async () => {
+  it("the number resolvers agree: Ambika and Vinod are both the 206", async () => {
     for (const mode of ["per_workspace", "shared"] as const) {
       const db = world(mode);
-      expect(await resolveActiveManagerSendNumber(db as never, AMBIKA, "ws-ambika")).toBe(AMBIKA_OWN);
-      expect((await resolveWorkspaceSendLine(db as never, AMBIKA, "ws-ambika"))?.phoneNumber).toBe(AMBIKA_OWN);
-      expect(await resolveActiveManagerSendNumber(db as never, AMBIKA, "ws-ambika", { ownLineOnly: true })).toBe(AMBIKA_OWN);
-      expect(await resolveActiveManagerSendNumber(db as never, VINOD, "ws-vinod")).toBe(mode === "shared" ? SHARED : LINE_206);
+      const line = mode === "shared" ? SHARED : LINE_206;
+      expect(await resolveActiveManagerSendNumber(db as never, AMBIKA, "ws-ambika")).toBe(line);
+      expect((await resolveWorkspaceSendLine(db as never, AMBIKA, "ws-ambika"))?.phoneNumber).toBe(line);
+      expect(await resolveActiveManagerSendNumber(db as never, VINOD, "ws-vinod")).toBe(line);
     }
-    expect(await resolveWorkspaceSendLine(world("per_workspace") as never, AMBIKA, "ws-ambika")).toEqual({ phoneNumber: AMBIKA_OWN, numberId: "n-ambika" });
+    // The pin stays the workspace's own row: it names the workspace to the dispatcher, whose readiness turns it into the 206.
+    expect(await resolveWorkspaceSendLine(world("per_workspace") as never, AMBIKA, "ws-ambika")).toEqual({ phoneNumber: LINE_206, numberId: "n-ambika" });
   });
 
   it("resolveServiceLine names the source of the line", async () => {
     const db = world("per_workspace");
-    expect(await resolveServiceLine(db as never, "phone_number", "ws-ambika")).toMatchObject({ ok: true, kind: "owner_number", source: "workspace", phoneNumber: AMBIKA_OWN, serviceOwnerUserId: AMBIKA });
+    expect(await resolveServiceLine(db as never, "phone_number", "ws-ambika")).toMatchObject({ ok: true, kind: "owner_number", source: "service_owner", phoneNumber: LINE_206, serviceOwnerUserId: SVC_OWNER });
     expect(await resolveServiceLine(db as never, "phone_number", "ws-vinod")).toMatchObject({ ok: true, kind: "owner_number", source: "service_owner", phoneNumber: LINE_206 });
   });
 });
@@ -196,11 +197,10 @@ describe("fail closed: an unresolvable line refuses the send; an unreadable own 
     expect(result).toEqual({ canSend: false, reason: WORKSPACE_NO_WORK_NUMBER_CODE });
   });
 
-  it("the service owner's line is released: Vinod refuses, Ambika still sends from its own 814", async () => {
+  it("the service owner's line is released: both managed workspaces refuse; Ambika never falls back to the 814", async () => {
     const db = world("per_workspace", { releasedLine: true });
     expect(await readiness(db, VINOD, { workspaceId: "ws-vinod" })).toEqual({ canSend: false, reason: WORKSPACE_NO_WORK_NUMBER_CODE });
-    const ambika = await readiness(db, AMBIKA, { workspaceId: "ws-ambika" });
-    expect(ambika.canSend && ambika.numberRow.phone_number).toBe(AMBIKA_OWN);
+    expect(await readiness(db, AMBIKA, { workspaceId: "ws-ambika" })).toEqual({ canSend: false, reason: WORKSPACE_NO_WORK_NUMBER_CODE });
   });
 
   it("the line cannot be read at all", async () => {
@@ -307,12 +307,12 @@ describe("self-serve workspaces are unchanged", () => {
   });
 });
 
-describe("inbound: a text arriving on the managed workspace's own 814 routes to that workspace's agents", () => {
-  it("resolves the 814 to its workspace, and the reply leaves from the 814", async () => {
+describe("inbound: a text arriving on the 814 is still recorded in the workspace its record belongs to", () => {
+  it("resolves the 814 to that workspace, and the workspace's own reply leaves from the 206", async () => {
     const db = world("per_workspace");
     expect(await resolveOwnedWorkNumber(db as never, AMBIKA_OLD)).toMatchObject({ managerId: AMBIKA, workspaceId: "ws-ambika" });
     const reply = await readiness(db, AMBIKA, { workLineId: "n-ambika" });
-    expect(reply.canSend && reply.numberRow.phone_number).toBe(AMBIKA_OWN);
+    expect(reply.canSend && reply.numberRow.phone_number).toBe(LINE_206);
   });
 });
 
@@ -322,15 +322,13 @@ describe("Settings > Communication > Work identity", () => {
     return (await GET(new Request("http://localhost"))).json();
   };
 
-  it("shows the workspace's own 814 as its line in both modes and offers no request", async () => {
+  it("shows the 206 as the managed workspace's line in both modes (never the 814 its record holds) and offers no request", async () => {
     for (const mode of ["per_workspace", "shared"] as const) {
       const body = await ambikaStatus(mode);
-      expect(body.sharedLine, mode).toEqual({ number: AMBIKA_OWN, onSharedLine: false });
-      expect(body.number, mode).toMatchObject({ phoneNumber: AMBIKA_OWN });
+      expect(body.sharedLine, mode).toEqual({ number: LINE_206, onSharedLine: true });
       expect(body.canRequest, mode).toBe(false);
       expect(body.lineReady, mode).toBe(false); // the runtime env switches are off in a unit run: the same state a send would report
-      const own = body.workspaces.find((w: { workspaceId: string }) => w.workspaceId === "ws-ambika");
-      expect(own).toMatchObject({ phoneNumber: AMBIKA_OWN });
+      expect(JSON.stringify(body.sharedLine), mode).not.toContain(AMBIKA_OWN);
     }
   });
 
@@ -339,7 +337,7 @@ describe("Settings > Communication > Work identity", () => {
     process.env.SMS_OUTBOX_SCHEDULER_READY = "1";
     try {
       const body = await ambikaStatus("per_workspace");
-      expect(body).toMatchObject({ lineReady: true, canSend: true, sharedLine: { number: AMBIKA_OWN, onSharedLine: false } });
+      expect(body).toMatchObject({ lineReady: true, canSend: true, sharedLine: { number: LINE_206, onSharedLine: true } });
     } finally {
       delete process.env.SMS_RUNTIME_ENABLED;
       delete process.env.SMS_OUTBOX_SCHEDULER_READY;

@@ -151,12 +151,12 @@ async function buildStatus(
   // failures draw nothing managed here; the send path stays fail-closed on its own.
   const managedIds = await loadManagedWorkspaceIds(db, [workspace.id, ...(all?.numbers ?? []).map((n) => n.workspaceId)]);
   const managedActive = managedIds?.has(workspace.id) === true;
-  // A managed workspace on its OWN registered number (Ambika's 814) shows that number as its own line.
+  // A managed workspace always texts on the PropLane line (owner, Nov 27), so `managedOwnLine` stays false: a number its
+  // record holds (the 814 is the admin line) is never shown as its line.
   let managedOwnLine = false;
   if (managedActive) {
     const serviceLine = await resolveServiceLine(db, "phone_number", workspace.id).catch(() => null);
     managedOwnLine = Boolean(serviceLine?.ok && serviceLine.kind === "owner_number" && serviceLine.source === "workspace");
-    // Its own registered number (Ambika's 814) is NOT the shared line: onSharedLine false with that number shown.
     sharedLine = serviceLine?.ok
       ? { number: serviceLine.phoneNumber, onSharedLine: !(serviceLine.kind === "owner_number" && serviceLine.source === "workspace") }
       : null;

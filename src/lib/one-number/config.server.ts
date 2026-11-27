@@ -138,22 +138,16 @@ async function readDedicatedWorkspaceIds(db: SupabaseClient): Promise<DedicatedW
       if (id) ids.add(id);
     }
   }
-  // A PropLane-managed (`is_service`) workspace is dedicated exactly when it holds a working number of its OWN
-  // (`resolveServiceLine`, captain Nov 24: Ambika's (814) 679-3694), whoever pays for it: its people are told to text
-  // that line. One without a working number of its own (Vinod) stays on the PropLane line and is never counted dedicated
-  // (that sent its residents a "text (206) instead" redirect to the line they were already texting).
-  const workingWorkspaceIds = new Set(working.map((row) => String((row as { workspace_id?: unknown }).workspace_id ?? "").trim()).filter(Boolean));
-  const candidates = [...new Set([...ids, ...workingWorkspaceIds])];
+  // A PropLane-managed (`is_service`) workspace is NEVER dedicated (owner, Nov 27: every manager texts on the main 206; only
+  // the admin uses the 814). The number a managed workspace holds ("1. Ambika": (814) 679-3694) is the admin line, so
+  // counting that workspace dedicated took it off the 206 and told its residents to "text (814) instead".
+  const candidates = [...ids];
   if (candidates.length > 0) {
     // Asked about THESE workspaces only, so the answer can never be partial: a page limit over every service
-    // workspace silently left the ones it did not reach counted as dedicated, which is the bug this removes.
+    // workspace silently left the ones it did not reach counted as dedicated.
     const service = await db.from("portal_workspaces").select("id").eq("is_service", true).in("id", candidates);
     if (service.error) return isMissingSchemaError(service.error) ? { workspaceIds: [...ids], numberOwnerIds: owners } : null;
-    for (const row of service.data ?? []) {
-      const id = String((row as { id?: unknown }).id ?? "").trim();
-      if (workingWorkspaceIds.has(id)) ids.add(id);
-      else ids.delete(id);
-    }
+    for (const row of service.data ?? []) ids.delete(String((row as { id?: unknown }).id ?? "").trim());
   }
   return { workspaceIds: [...ids], numberOwnerIds: owners };
 }

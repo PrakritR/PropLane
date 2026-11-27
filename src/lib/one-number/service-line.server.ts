@@ -6,17 +6,17 @@ import { normalizeE164 } from "@/lib/phone-e164";
 import { managerCanSendFromOwnNumber } from "@/lib/sms/number-registration-policy";
 
 /**
- * The line for PropLane-MANAGED workspaces. Captain, Nov 24: a managed workspace that holds its OWN active, registered
- * work number (Ambika: (814) 679-3694) texts on THAT number; a managed workspace without one (Vinod) texts on the PropLane
- * line (206). This module is the ONE place that decides that. `resolveServiceLine(db, columns, workspaceId)` returns, in order:
+ * The line for PropLane-MANAGED workspaces. Owner, Nov 27: ONLY the admin uses the 814; every manager workspace, managed
+ * ones included, texts on the main PropLane line (206). A number a managed workspace holds (the "1. Ambika" record holds
+ * (814) 679-3694) is the ADMIN line (`resolveAdminLine`): it carries admin-initiated texts only and is never that
+ * workspace's own sending line. This module is the ONE place that decides that. `resolveServiceLine(db, columns)` returns:
  *
- *   the workspace's own number    its live `manager_sms_numbers` row, provision active and registration approved
- *                                 (`kind: "owner_number"`, `source: "workspace"`); a row that is not sendable, or an own-number
- *                                 read that fails, is NOT the line: it falls through to the PropLane line (never to another
- *                                 workspace's number);
  *   shared mode                    the configured shared number (`sms_runtime_config.shared_number_e164`), no per-workspace row;
  *   per_workspace / shadow mode    the number the platform service owner holds, on the owner's DEFAULT workspace
  *                                  (the same line `isPropLaneServiceLine` recognises).
+ *
+ * (Nov 24 to Nov 27 a managed workspace with its own registered number texted on it, which moved the "1. Ambika"
+ * workspace's texts onto the 814.)
  *
  * Fail closed: a line that cannot be resolved is `no_service_line` (callers refuse with the existing
  * `workspace_has_no_work_number`) and one that cannot be READ is `unreadable`. Nothing here ever falls back to the
@@ -94,14 +94,13 @@ export async function readServiceOwnerOrThrow(db: SupabaseClient): Promise<strin
 export async function resolveServiceLine<T = Record<string, unknown>>(
   db: SupabaseClient,
   columns = "phone_number",
-  /** The managed workspace the send is about; when it holds its own sendable number, that is the line. */
+  /**
+   * The managed workspace the send is about. Accepted so every caller names it, but it never picks a number of the
+   * workspace's own: a managed workspace always texts on the PropLane line (owner, Nov 27).
+   */
   workspaceId?: string | null,
 ): Promise<ServiceLine<T>> {
-  const ownId = String(workspaceId ?? "").trim();
-  if (ownId) {
-    const own = await resolveWorkspaceOwnLine<T>(db, columns, ownId);
-    if (own) return own;
-  }
+  void workspaceId;
   const config = await loadSharedLineConfigStrict(db);
   if (!config.ok) return { ok: false, reason: "unreadable" };
   if (config.config.mode === "shared" && config.config.sharedNumber) {
@@ -139,7 +138,7 @@ export async function resolveServiceLine<T = Record<string, unknown>>(
 }
 
 /**
- * A managed workspace's OWN line: its live, active, registered `manager_sms_numbers` row. Null when it has none, when the
+ * A managed workspace's OWN registered number (only ever the ADMIN line, `resolveAdminLine`; never that workspace's sending line): its live, active, registered `manager_sms_numbers` row. Null when it has none, when the
  * row is not sendable, or when the read fails (the caller then resolves the PropLane line: fail closed to the shared line).
  */
 async function resolveWorkspaceOwnLine<T>(db: SupabaseClient, columns: string, workspaceId: string): Promise<ServiceLine<T> | null> {

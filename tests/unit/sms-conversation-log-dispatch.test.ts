@@ -5,7 +5,10 @@ const mocks = vi.hoisted(() => ({
   log: vi.fn(),
   readSuppression: vi.fn(),
   followupCurrent: vi.fn(),
+  mirror: vi.fn(async () => "skipped"),
 }));
+
+vi.mock("@/lib/sms/manager-assistant-thread-mirror.server", () => ({ mirrorManagerOwnOutboxToAssistantThread: mocks.mirror }));
 
 vi.mock("@/lib/reminders/subjects/tour-interest.server", () => ({
   tourInterestOutboxIsCurrent: mocks.followupCurrent,
@@ -111,7 +114,7 @@ function dispatchDb({
       lte(column: string, value: string) { filters.push((r) => String(r[column] ?? "") <= value); return q; },
       in(column: string, values: unknown[]) { if (table === "sms_outbox" && column === "id") selectedLineIds = true; filters.push((r) => values.includes(r[column])); return q; },
       not(column: string, _operator: string, value: unknown) { filters.push((r) => r[column] !== value); return q; },
-      is(column: string, value: unknown) { filters.push((r) => r[column] === value); return q; },
+      is(column: string, value: unknown) { filters.push((r) => (r[column] ?? null) === value); return q; },
       order() { return q; },
       limit() { limitCalled = true; return q; },
       update(payload: Row) { update = payload; return q; },
@@ -237,6 +240,62 @@ describe("dispatcher conversation-log repair handoff", () => {
     expect(mocks.log).toHaveBeenCalledTimes(2);
     expect(mocks.log.mock.calls[1]?.[1]).toMatchObject({ fromPhone: "+12065550999", messageSid: "SM-original" });
     expect(outbox).toMatchObject({ conversation_log_status: "persisted", conversation_log_attempts: 2 });
+  });
+
+  it("records a text the provider refused (account suspended, no SID) as the outbound message it was meant to be", async () => {
+    mocks.log.mockReset().mockResolvedValue(true);
+    mocks.sendSms.mockReset().mockResolvedValue({ sent: false, providerAttempted: true, error: "Twilio 20003: Authenticate - account not active" });
+    const { db, outbox } = dispatchDb();
+    await expect(dispatchOwnerSmsOutbox({ workerId: "worker-1" }, db)).resolves.toMatchObject({ claimed: 1, submitted: 0, unknown: 1 });
+    expect(mocks.sendSms).toHaveBeenCalledTimes(1);
+    // The status stays the honest one; only the conversation record is written.
+    expect(outbox).toMatchObject({
+      status: "unknown", blocked_reason: "provider_submission_outcome_unknown", provider_error_code: "20003",
+      provider_from_phone: "+12065550999", conversation_log_status: "persisted", conversation_log_attempts: 1,
+    });
+    expect(outbox.provider_message_sid ?? null).toBeNull();
+    expect(mocks.log).toHaveBeenCalledTimes(1);
+    expect(mocks.log).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      direction: "outbound",
+      body: "Your application has been approved.",
+      residentPhone: "+12065550142",
+      toPhone: "+12065550142",
+      fromPhone: "+12065550999",
+      messageSid: "outbox:outbox-1",
+      conversationKey: "manager-1:prospect:+12065550142",
+    }));
+    // Nothing left to repair, and no resend: one Communication row per text.
+    await expect(reconcileSubmittedSmsConversationLogs(db, 10)).resolves.toEqual({ ok: true, attempted: 0, persisted: 0, failed: 0 });
+    expect(mocks.sendSms).toHaveBeenCalledTimes(1);
+    expect(mocks.log).toHaveBeenCalledTimes(1);
+  });
+
+  it("repairs a refused text's record later when the first log write fails, still without a resend", async () => {
+    mocks.log.mockReset().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    mocks.sendSms.mockReset().mockResolvedValue({ sent: false, providerAttempted: true, error: "Twilio 20003" });
+    const { db, outbox } = dispatchDb();
+    await expect(dispatchOwnerSmsOutbox({ workerId: "worker-1" }, db)).resolves.toMatchObject({
+      unknown: 1, infrastructureErrors: ["conversation_log_persistence_unavailable"],
+    });
+    expect(outbox).toMatchObject({ status: "unknown", conversation_log_status: "failed" });
+    outbox.conversation_log_next_attempt_at = "2020-01-01T00:00:00.000Z";
+    await expect(reconcileSubmittedSmsConversationLogs(db, 10)).resolves.toEqual({ ok: true, attempted: 1, persisted: 1, failed: 0 });
+    expect(mocks.sendSms).toHaveBeenCalledTimes(1);
+    expect(mocks.log.mock.calls[1]?.[1]).toMatchObject({ messageSid: "outbox:outbox-1", fromPhone: "+12065550999" });
+    expect(outbox).toMatchObject({ status: "unknown", conversation_log_status: "persisted" });
+  });
+
+  it("keeps a mirror delivery out of the SMS log when the provider refused it, and still mirrors it to the Assistant", async () => {
+    mocks.log.mockReset().mockResolvedValue(true);
+    mocks.sendSms.mockReset().mockResolvedValue({ sent: false, providerAttempted: true, error: "Twilio 20003" });
+    const { db, outbox } = dispatchDb();
+    outbox.suppress_conversation_log = true;
+    mocks.mirror.mockClear().mockResolvedValueOnce("mirrored");
+    await dispatchOwnerSmsOutbox({ workerId: "worker-1" }, db);
+    expect(mocks.log).not.toHaveBeenCalled();
+    // A text to the manager's own phone still lands in their PropLane Assistant thread, like a delivered one.
+    expect(mocks.mirror).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: "outbox-1", body: "Your application has been approved." }), "+12065550999");
+    expect(outbox).toMatchObject({ status: "unknown", conversation_log_status: "persisted" });
   });
 
   it("repairs the atomically stored pending marker when the first marker write fails", async () => {

@@ -13,7 +13,7 @@ import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisi
  * publish one - the syndication feeds, which opt in with `{ workNumber: true }` - so two feeds of the same
  * catalog can never quote different numbers.
  *
- * - A listing on a PropLane-managed workspace (`portal_workspaces.is_service`) texts that workspace's own registered number when it has one (`resolveServiceLine`), else the PropLane line.
+ * - A listing on a PropLane-managed workspace (`portal_workspaces.is_service`) texts the PropLane line (`resolveServiceLine`; owner, Nov 27).
  * - A listing on a software customer's own workspace texts that workspace's own active work number; a
  *   workspace with none texts the PropLane line.
  *

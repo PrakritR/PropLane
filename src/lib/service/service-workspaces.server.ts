@@ -109,8 +109,8 @@ export type ServiceWorkspaceListRow = {
   isDefault: boolean;
   houseCount: number;
   /**
-   * The number this workspace texts from, from the one line decision (`resolveServiceLine`): its own registered number
-   * ("own", Nov 24: Ambika's (814)) or else the PropLane line ("shared"); null when that line cannot be resolved.
+   * The number this workspace texts from, from the one line decision (`resolveServiceLine`): the PropLane line ("shared";
+   * owner, Nov 27: a managed workspace never texts on a number of its own); null when that line cannot be resolved.
    */
   workNumber: string | null;
   workNumberSource: "own" | "shared" | null;

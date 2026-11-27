@@ -14,6 +14,7 @@ function fakeDb(rows: Row[], onMessageInsert?: () => void) {
       not(column: string, _op: string, value: unknown) { filters.push((r) => r[column] !== value); return q; },
       lte(column: string, value: string) { filters.push((r) => String(r[column] ?? "") <= value); return q; },
       eq(column: string, value: unknown) { filters.push((r) => r[column] === value); return q; },
+      is(column: string, value: unknown) { filters.push((r) => (r[column] ?? null) === value); return q; },
       order() { return q; },
       // A database query is a snapshot. Returning row references here would let
       // a concurrent fake update rewrite another worker's already-read due key.
@@ -69,6 +70,38 @@ describe("submitted SMS conversation-log repair", () => {
     expect(messages).toHaveLength(0);
   });
 
+  it("records a text the provider refused with no SID under its outbox id, from the sender it was meant to leave on", async () => {
+    // Twilio suspended the account (error 20003): no SID, status unknown. The text is still the outbound message.
+    const refused = row({
+      id: "outbox-refused", status: "unknown", blocked_reason: "provider_submission_outcome_unknown",
+      provider_message_sid: null, conversation_log_status: "pending", conversation_log_attempts: 0,
+    });
+    const { db, messages } = fakeDb([refused]);
+    await expect(reconcileSubmittedSmsConversationLogs(db, 10)).resolves.toEqual({ ok: true, attempted: 1, persisted: 1, failed: 0 });
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      message_sid: "outbox:outbox-refused",
+      direction: "outbound",
+      body: "Approved",
+      to_phone: "+12065550142",
+      from_phone: "+12065550100",
+      conversation_key: "manager-1:prospect:+12065550142",
+    });
+    expect(refused).toMatchObject({ conversation_log_status: "persisted", status: "unknown" });
+    // A second pass finds nothing left to record: one row per text.
+    await expect(reconcileSubmittedSmsConversationLogs(db, 10)).resolves.toEqual({ ok: true, attempted: 0, persisted: 0, failed: 0 });
+    expect(messages).toHaveLength(1);
+  });
+
+  it("leaves a refused text with no sender snapshot, or an ambiguous dispatch, out of the automatic repair", async () => {
+    const { db, messages } = fakeDb([
+      row({ id: "no-from", status: "unknown", blocked_reason: "provider_submission_outcome_unknown", provider_message_sid: null, provider_from_phone: null }),
+      row({ id: "lease-lost", status: "unknown", blocked_reason: "dispatch_outcome_unknown", provider_message_sid: null }),
+    ]);
+    await expect(reconcileSubmittedSmsConversationLogs(db, 10)).resolves.toEqual({ ok: true, attempted: 0, persisted: 0, failed: 0 });
+    expect(messages).toHaveLength(0);
+  });
+
   it("repairs a submitted pending marker left by a crash before the first log write", async () => {
     const crashedSubmission = row({
       conversation_log_status: "pending",
@@ -111,7 +144,7 @@ describe("submitted SMS conversation-log repair", () => {
     const inventoryDb = {
       from: () => {
         const q = {
-          select: () => q, in: () => q, not: () => q, lte: () => q, order: () => q,
+          select: () => q, in: () => q, not: () => q, lte: () => q, order: () => q, eq: () => q, is: () => q,
           limit: async () => ({ data: null, error: { message: "inventory unavailable" } }),
         };
         return q;
@@ -126,7 +159,7 @@ describe("submitted SMS conversation-log repair", () => {
         const q = {
           select: () => q, in: () => q, not: () => q, lte: () => q, order: () => q,
           limit: async () => ({ data: [candidate], error: null }),
-          update: () => q, eq: () => q,
+          update: () => q, eq: () => q, is: () => q,
           maybeSingle: async () => ({ data: null, error: { message: "claim unavailable" } }),
         };
         return q;
