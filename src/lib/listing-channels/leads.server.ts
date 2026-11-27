@@ -7,6 +7,8 @@ import { applicantDisplayName } from "@/lib/rental-application/applicant-name";
 import { openApplicantRow } from "@/lib/security/applicant-identity";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { readCachedInquiryRows } from "@/lib/tour-resident-link.server";
+import { tourRowsFromInquiries } from "@/lib/manager-tour-list";
+import type { PartnerInquiry } from "@/lib/demo-admin-scheduling";
 import type { ListingSiteLead } from "@/lib/listing-channels/leads";
 import type { ListingChannelId } from "@/lib/listing-channels/registry";
 
@@ -17,15 +19,15 @@ const PAGE = 500;
 /** The newest leads a site's page lists; a page of leads, not an export. */
 export const LISTING_SITE_LEADS_LIMIT = 100;
 /**
- * The status each named tour request carries NOW: the per-window rows keep the payload they were created with, so
+ * Each named tour request as it stands NOW: the per-window rows keep the payload they were created with, so
  * the one singleton record decides. Read through the shared minute-long cache - it is a whole-platform blob, and a
  * Leads page wants one field off a handful of its rows.
  */
-async function inquiryStatuses(
+async function currentInquiries(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   ids: readonly string[],
-): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+): Promise<Map<string, Record<string, unknown>>> {
+  const out = new Map<string, Record<string, unknown>>();
   const wanted = new Set(ids);
   let rows: Record<string, unknown>[];
   try {
@@ -35,7 +37,7 @@ async function inquiryStatuses(
   }
   for (const row of rows) {
     const id = text(row.id);
-    if (id && wanted.has(id)) out.set(id, text(row.status) || "pending");
+    if (id && wanted.has(id)) out.set(id, row);
   }
   return out;
 }
@@ -118,12 +120,15 @@ export async function listingSiteLeads({
   // the window date: pending keeps its window row, declined its own, and a confirmed tour's row is the planned event
   // this request no longer names - that lead opens the list for the bucket its date puts it in.
   if (tours.size) {
-    const statuses = await inquiryStatuses(db, [...tours.keys()]);
+    const inquiries = await currentInquiries(db, [...tours.keys()]);
     for (const [id, lead] of tours) {
-      const status = statuses.get(id);
+      const inquiry = inquiries.get(id);
+      const status = inquiry ? text(inquiry.status) || "pending" : undefined;
       if (status === "pending") {
         lead.rowId = tourInquiryRowId(id, 0);
-        lead.bucket = "pending";
+        // The Tours list's own row builder decides the bucket: an expired request sits in Past, not Pending.
+        const [row] = tourRowsFromInquiries([{ ...inquiry, status } as unknown as PartnerInquiry]);
+        lead.bucket = row?.bucket ?? "pending";
       } else if (status === "declined") {
         lead.rowId = declinedTourRowId(id);
         lead.bucket = "past";
