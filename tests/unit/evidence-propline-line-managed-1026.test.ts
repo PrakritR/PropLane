@@ -132,22 +132,18 @@ afterEach(() => {
 });
 
 describe("which number a workspace's text leaves from", () => {
-  it("a managed workspace with its own registered number sends from it (Nov 24); a self-serve one keeps its own; Ambika never borrows the 206 while its 814 is live", async () => {
-    scene("SCENE 1 — Ambika Homes is PropLane-managed and holds its own registered number +1 814 679 3694");
+  it("a managed workspace sends from the PropLane 206 line, never its own 814 (Nov 27: only admin uses the 814); a self-serve one keeps its own", async () => {
+    scene("SCENE 1 — Ambika Homes is PropLane-managed and still holds the 814 on paper");
     for (const mode of ["per_workspace", "shared"] as const) {
       const db = world(mode);
       const ready = await sendsFrom(db, AMBIKA, { workspaceId: "ws-ambika" });
       const from = ready.canSend ? ready.numberRow.phone_number : null;
       say(`  line_mode ${mode.padEnd(14)} text about Ambika Homes leaves from ${from}${ready.canSend && ready.viaSharedLine ? " (shared sender)" : ""}`);
-      say(`  ${" ".repeat(25)}wallet charged: ${ready.canSend ? ready.workspaceId : "-"}`);
-      expect(from).toBe(AMBIKA_OWN);
-      expect(await resolveActiveManagerSendNumber(db as never, AMBIKA, "ws-ambika")).toBe(AMBIKA_OWN);
-      // The workspace's own line is still readable where that is what is asked for.
-      expect(await resolveActiveManagerSendNumber(db as never, AMBIKA, "ws-ambika", { ownLineOnly: true })).toBe(AMBIKA_OWN);
+      expect(from).toBe(LINE_206);
+      expect(from).not.toBe(AMBIKA_OWN);
     }
-    say(`  the workspace's own number is its line: ${AMBIKA_OWN}`);
 
-    scene("SCENE 2 — however the message names the workspace, the answer is the same line");
+    scene("SCENE 2 — however the message names the workspace, the answer is the 206");
     const db = world("per_workspace");
     for (const [label, hint] of [
       ["about one of its houses", { propertyId: "h-ambika" }],
@@ -157,7 +153,7 @@ describe("which number a workspace's text leaves from", () => {
     ] as const) {
       const ready = await sendsFrom(db, AMBIKA, hint);
       say(`  ${label.padEnd(30)} → ${ready.canSend ? ready.numberRow.phone_number : `refused (${ready.reason})`}`);
-      expect(ready.canSend && ready.numberRow.phone_number).toBe(AMBIKA_OWN);
+      expect(ready.canSend && ready.numberRow.phone_number).toBe(LINE_206);
     }
 
     scene("SCENE 3 — a self-serve workspace is untouched");
@@ -165,10 +161,10 @@ describe("which number a workspace's text leaves from", () => {
     say(`  Self Serve → ${self.canSend ? self.numberRow.phone_number : `refused (${self.reason})`} (its own number)`);
     expect(self.canSend && self.numberRow.phone_number).toBe(SELF_OWN);
 
-    scene("SCENE 4 — the 206 is released: Ambika still has its own 814");
+    scene("SCENE 4 — the 206 is released: Ambika does not fall back to the 814");
     const released = await sendsFrom(world("per_workspace", { releasedLine: true }), AMBIKA, { workspaceId: "ws-ambika" });
     say(`  Ambika Homes → ${released.canSend ? released.numberRow.phone_number : `refused (${released.reason})`}`);
-    expect(released.canSend && released.numberRow.phone_number).toBe(AMBIKA_OWN);
+    expect(released.canSend && released.numberRow.phone_number).not.toBe(AMBIKA_OWN);
   });
 });
 
