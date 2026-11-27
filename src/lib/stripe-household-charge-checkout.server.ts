@@ -145,7 +145,17 @@ export type LoadedHouseholdChargeForCheckout = {
  */
 export async function loadHouseholdChargesForCheckout(
   db: SupabaseClient,
-  input: { userId: string; userEmail: string; chargeIds: string[]; expectedManagerUserId?: string },
+  input: {
+    userId: string;
+    userEmail: string;
+    chargeIds: string[];
+    expectedManagerUserId?: string;
+    /**
+     * The payer has no PropLane login (an imported resident paying from a phone-bound rent link): `userId` is "" and
+     * every charge must carry no resident account of its own and this exact resident address.
+     */
+    accountlessResident?: boolean;
+  },
 ): Promise<
   | { ok: true; loaded: LoadedHouseholdChargeForCheckout[]; managerUserId: string }
   | HouseholdChargeCheckoutFailure
@@ -177,7 +187,17 @@ export async function loadHouseholdChargesForCheckout(
     if (!["pending", "failed", "processing", "partially_paid"].includes(row.status ?? charge.status)) {
       return { ok: false, status: 409, error: "One or more selected charges are no longer available for payment." };
     }
-    if (!chargeOwnedByUser(charge, input.userId, userEmail)) {
+    if (input.accountlessResident) {
+      // No account to own the charge: only a charge with no account of its own, for this exact address, qualifies.
+      const rowResident = (row.resident_user_id as string | null) ?? null;
+      if (input.userId || rowResident || charge.residentUserId?.trim() ||
+          !userEmail || charge.residentEmail.trim().toLowerCase() !== userEmail) {
+        return { ok: false, status: 403, error: "You do not have access to one of the selected charges." };
+      }
+    } else if (!input.userId) {
+      return { ok: false, status: 422, code: "RESIDENT_ACCOUNT_REQUIRED",
+        error: "This resident has no PropLane login yet. Text them their payment link instead." };
+    } else if (!chargeOwnedByUser(charge, input.userId, userEmail)) {
       // A charge with no resident id of its own that names an application bound to this Auth subject is theirs
       // to pay: the row their own application raised, whatever address the manager keyed it to.
       binding ??= await loadResidentChargeActionBinding(db, input.userId);
@@ -327,6 +347,8 @@ export async function createHouseholdChargeCheckout(
      * holder of the client secret).
      */
     useSavedPaymentMethods?: boolean;
+    /** See `loadHouseholdChargesForCheckout`: a login-less resident paying by card from a phone-bound rent link. */
+    accountlessResident?: boolean;
   },
 ): Promise<HouseholdChargeCheckoutResult> {
   try {
@@ -349,12 +371,18 @@ export async function createHouseholdChargeCheckout(
       return { ok: false, status: 422, code: "PAYMENT_METHOD_DISABLED",
         error: "A selected charge does not accept this payment method." };
     }
+    if (input.accountlessResident && input.paymentMethod === "ach") {
+      // A bank debit is verified and tracked on the resident's own account; a login-less payer pays by card.
+      return { ok: false, status: 422, code: "PAYMENT_METHOD_DISABLED",
+        error: "Bank payment needs a PropLane login. Pay by card instead." };
+    }
     if (input.paymentMethod === "ach" && input.mode === "hosted") {
       return { ok: false, status: 422, code: "IN_APP_BANK_PAYMENT",
         error: "Open Payments in PropLane to enter and verify a bank account." };
     }
     if ((await captureTestWorkspaceEffectForUser({
-      userId: input.userId,
+      // A login-less payer has no namespace of their own: the payee's decides (a test workspace never takes money).
+      userId: input.userId || managerUserId,
       kind: "payment",
       summary: "Resident payment refused for a test workspace.",
       db,
@@ -414,6 +442,8 @@ export async function createHouseholdChargeCheckout(
       bulk: loaded.length > 1 ? "true" : "false",
       source_arbitration_v: "1",
       resident_attempt_token: attemptToken,
+      // An attempt with no resident account is either this (never had one) or an account deleted afterwards.
+      ...(input.accountlessResident ? { resident_account: "none" } : {}),
       ...(input.paymentMethod === "ach"
         ? { resident_payment_flow: "manual_ach", manual_ach: "1" } : {}),
     };
@@ -446,7 +476,7 @@ export async function createHouseholdChargeCheckout(
     // original immutable provider request, even if pricing changed meanwhile.
     const { data: reserved, error: reserveError } = await db.rpc("reserve_resident_checkout_attempt", {
       p_attempt_token: attemptToken,
-      p_resident_user_id: input.userId,
+      p_resident_user_id: input.accountlessResident ? null : input.userId,
       p_resident_email: residentEmail,
       p_manager_user_id: managerUserId,
       p_charge_ids: chargeIds,
@@ -464,7 +494,8 @@ export async function createHouseholdChargeCheckout(
     const attempt = reserved as ResidentCheckoutAttempt;
     const frozenParams = assertResidentCheckoutAttemptTerms(attempt);
     const frozenFee = frozenParams.fixedFeeBreakdown!;
-    if (attempt.resident_user_id !== input.userId || attempt.manager_user_id !== managerUserId ||
+    if ((attempt.resident_user_id ?? "") !== (input.accountlessResident ? "" : input.userId) ||
+        attempt.manager_user_id !== managerUserId ||
         attempt.payment_method !== input.paymentMethod ||
         (attempt.status !== "pending" &&
          !(input.paymentMethod === "ach" && attempt.status === "processing"))) {
