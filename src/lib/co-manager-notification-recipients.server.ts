@@ -416,6 +416,11 @@ export async function notifyPropertyScopedManagersFromAgent(
     teamNotice?: { text: string; messageId: string };
     /** The event has NO Team line (never derive one): owner's Assistant notice only. */
     noTeamNotice?: boolean;
+    /**
+     * With `noTeamNotice`: the line a PropLane-managed workspace posts anyway (its staff have no other record of a
+     * routine event). Without it that line is derived from the subject alone.
+     */
+    managedTeamNotice?: { text: string; messageId: string };
     /** Names the event on a derived Team line when the caller built none ("Tour", "Booking", ...). */
     eventLabel?: string;
   },
@@ -459,12 +464,12 @@ export async function notifyPropertyScopedManagersFromAgent(
   // Team chat does not repeat it. On a PropLane-managed workspace the client-owner never hears a routine
   // event at all, and the staff who run the house would be left with no in-app record of it — so there
   // the line stays, as it was before the event was taken off the Team chat.
+  const given = (line?: { text: string; messageId: string }) =>
+    line?.text.trim() && line.messageId.trim() ? { text: line.text.trim(), messageId: line.messageId.trim() } : null;
   const teamNotice =
     input.noTeamNotice && ownerHearsIt
       ? null
-      : input.teamNotice?.text.trim() && input.teamNotice.messageId.trim()
-        ? { text: input.teamNotice.text.trim(), messageId: input.teamNotice.messageId.trim() }
-        : derivedTeamNotice(input);
+      : (input.noTeamNotice ? given(input.managedTeamNotice) : null) ?? given(input.teamNotice) ?? derivedTeamNotice(input);
   if (managedWorkspace && !ownerHearsIt) {
     // The service manager's verified phone (when set) still hears it, exactly as it did through the owner's notice.
     const { alertServiceManagerFromNotice } = await import("@/lib/service/service-manager-alerts.server");

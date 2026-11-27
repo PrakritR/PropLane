@@ -1,4 +1,5 @@
 import "server-only";
+import { invalidateManagerFactCaches } from "@/lib/manager-fact-caches";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadWorkspaceById } from "@/lib/workspaces/active.server";
 import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
@@ -190,6 +191,7 @@ export async function unassignNumber(
     .eq("workspace_id", workspaceId)
     .eq("number_id", numberId);
   if (error) return { ok: false, error: "Could not remove this number.", code: "not_found" };
+  invalidateManagerFactCaches();
 
   return { ok: true };
 }
@@ -355,6 +357,7 @@ export async function provisionNumberForWorkspace(
           { onConflict: "workspace_id,number_id", ignoreDuplicates: true },
         );
     }
+    invalidateManagerFactCaches();
   }
   return result;
 }

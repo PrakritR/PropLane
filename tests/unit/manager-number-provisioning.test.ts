@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryDb } from "./support/memory-supabase";
+import { invalidateManagerFactCaches, rememberDedicatedWorkspaceIds } from "@/lib/manager-fact-caches";
 
 const { purchaseMock, releaseMock, findByRequestMock, listAttachedMock } = vi.hoisted(() => ({
   purchaseMock: vi.fn(),
@@ -269,4 +270,51 @@ describe("resolveActiveManagerSendNumber — registration gate", () => {
     process.env.SMS_SHARED_REGISTRATION_STATE = "approved";
     expect(await resolveActiveManagerSendNumber(db, MGR)).toBe("+12065550777");
   });
+});
+
+describe("number state writers drop the cached plan facts", () => {
+  /** Primes this instance's "who texts from a paid number" snapshot, then reports what the next read answers. */
+  async function snapshotAfter(write: () => Promise<unknown>): Promise<string[] | null> {
+    process.env.MANAGER_FACT_CACHE_IN_TEST = "1";
+    try {
+      invalidateManagerFactCaches();
+      await rememberDedicatedWorkspaceIds(async () => ({ workspaceIds: ["ws-before"], numberOwnerIds: [] }));
+      await write();
+      return await rememberDedicatedWorkspaceIds(async () => ({ workspaceIds: ["ws-after"], numberOwnerIds: [] }));
+    } finally {
+      delete process.env.MANAGER_FACT_CACHE_IN_TEST;
+      invalidateManagerFactCaches();
+    }
+  }
+
+  it("a registration decision is seen at once", async () => {
+    const db = seed() as never;
+    expect(await snapshotAfter(() => setManagerRegistrationState(db, MGR, "approved"))).toEqual(["ws-after"]);
+  });
+
+  it("a provisioning attempt that fails is seen at once", async () => {
+    process.env.SMS_PROVISIONING_ENABLED = "1";
+    purchaseMock.mockResolvedValue({ ok: false, error: "No SMS-capable numbers available." });
+    const db = seed() as never;
+    expect(await snapshotAfter(() => provisionManagerNumber(db, MGR))).toEqual(["ws-after"]);
+  });
+
+  it("a reconcile pass that changes nothing keeps the snapshot", async () => {
+    process.env.SMS_PROVISIONING_ENABLED = "1";
+    listAttachedMock.mockResolvedValue({ ok: true, phoneNumbers: new Set<string>() });
+    const db = seed() as never;
+    expect(await snapshotAfter(() => reconcilePendingManagerNumberOperations(db))).toEqual(["ws-before"]);
+  });
+
+  it("a reconcile pass that finds a number detached from the sender pool is seen at once", async () => {
+    process.env.SMS_PROVISIONING_ENABLED = "1";
+    listAttachedMock.mockResolvedValue({ ok: true, phoneNumbers: new Set<string>() });
+    const db = createMemoryDb({
+      manager_sms_numbers: [
+        { manager_user_id: MGR, phone_number: "+12065550123", provision_state: "active", attachment_state: "attached", provider_reconciled_at: null },
+      ],
+    }) as never;
+    expect(await snapshotAfter(() => reconcilePendingManagerNumberOperations(db))).toEqual(["ws-after"]);
+  });
+
 });

@@ -5,6 +5,7 @@ import type Stripe from "stripe";
 import { z } from "zod";
 import { AdminInputError } from "@/lib/admin/admin-input-error";
 import { loadWaiverPurchases } from "@/lib/admin/admin-promo-codes.server";
+import { invalidateManagerFactCaches } from "@/lib/manager-fact-caches";
 import { normalizeAdminAuditReason, writeAdminBillingAudit } from "@/lib/admin-billing-audit.server";
 import { pacificEndOfDayMs } from "@/lib/pacific-time";
 import { LISTING_PROCESSING_FEE_PROMO_CODE } from "@/lib/processing-coverage-codes.server";
@@ -163,6 +164,7 @@ async function expireWaiverCode(
     throw new AdminInputError("Could not save that change. Try again.", 500);
   }
   clearPromoCodePolicyCache();
+  invalidateManagerFactCaches();
   return { kind: "waiver", code: key, expiresAt: expiresIso, accounts: holders.size, auditRecorded: true };
 }
 

@@ -209,7 +209,15 @@ export async function managedHouseIdsOrThrow(
   db: SupabaseClient,
   ownersByHouse: ReadonlyMap<string, string>,
 ): Promise<Set<string>> {
-  const managed = new Set<string>();
+  return new Set((await managedHouseWorkspacesOrThrow(db, ownersByHouse)).keys());
+}
+
+/** The same decision, keeping the managed workspace each managed house sits in (house id -> workspace id). */
+export async function managedHouseWorkspacesOrThrow(
+  db: SupabaseClient,
+  ownersByHouse: ReadonlyMap<string, string>,
+): Promise<Map<string, string>> {
+  const managed = new Map<string, string>();
   const houseIds = [...ownersByHouse.keys()].map((id) => id.trim()).filter(Boolean);
   if (houseIds.length === 0) return managed;
   const owners = [...new Set([...ownersByHouse.values()].map((id) => id.trim()).filter(Boolean))];
@@ -245,7 +253,7 @@ export async function managedHouseIdsOrThrow(
   for (const [house, owner] of ownersByHouse) {
     const own = houseWorkspace.get(house.trim()) ?? "";
     const workspaceId = own && existing.has(own) ? own : defaultWorkspace.get(owner.trim()) ?? "";
-    if (workspaceId && existing.get(workspaceId)) managed.add(house.trim());
+    if (workspaceId && existing.get(workspaceId)) managed.set(house.trim(), workspaceId);
   }
   return managed;
 }

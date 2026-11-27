@@ -3,6 +3,8 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SharedLineConfig, SharedLineMode } from "@/lib/one-number/contracts";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { isServiceRoleClient } from "@/lib/supabase/service-client-tag";
+import { rememberDedicatedWorkspaceIds, type DedicatedWorkspaceSnapshot } from "@/lib/manager-fact-caches";
 import { managerCanSendFromOwnNumber, normalizeProvisionState, normalizeRegistrationState } from "@/lib/sms/number-registration-policy";
 
 /** The state every caller gets when the line is off or unreadable: today's per-workspace numbers. */
@@ -98,11 +100,19 @@ function usableNumber(row: Record<string, unknown>): boolean {
  * owner's entitlement) cannot be read.
  */
 async function loadDedicatedWorkspaceIds(db: SupabaseClient): Promise<string[] | null> {
+  // Global and identical for every caller, but it walks EVERY number owner (a plan read and an Auth lookup each), so
+  // it is kept for a short while per instance. Only a service-role read sees every row; any other client reads live.
+  if (!isServiceRoleClient(db)) return (await readDedicatedWorkspaceIds(db))?.workspaceIds ?? null;
+  const ids = await rememberDedicatedWorkspaceIds(() => readDedicatedWorkspaceIds(db));
+  return ids ? [...ids] : ids;
+}
+
+async function readDedicatedWorkspaceIds(db: SupabaseClient): Promise<DedicatedWorkspaceSnapshot | null> {
   const numbers = await db
     .from("manager_sms_numbers")
     .select("id, manager_user_id, workspace_id, phone_number, provision_state, registration_state, registration_ref, released_at")
     .not("workspace_id", "is", null);
-  if (numbers.error) return isMissingSchemaError(numbers.error) ? [] : null;
+  if (numbers.error) return isMissingSchemaError(numbers.error) ? { workspaceIds: [], numberOwnerIds: [] } : null;
   const working = (Array.isArray(numbers.data) ? numbers.data : []).filter((row) => usableNumber(row as Record<string, unknown>));
   // Dedicated = a working number AND a paid personalized-number entitlement on its owner (a Pro or
   // Business plan, or the standalone PropLane Number add-on). A number nobody pays for does not take a
@@ -138,14 +148,14 @@ async function loadDedicatedWorkspaceIds(db: SupabaseClient): Promise<string[] |
     // Asked about THESE workspaces only, so the answer can never be partial: a page limit over every service
     // workspace silently left the ones it did not reach counted as dedicated, which is the bug this removes.
     const service = await db.from("portal_workspaces").select("id").eq("is_service", true).in("id", candidates);
-    if (service.error) return isMissingSchemaError(service.error) ? [...ids] : null;
+    if (service.error) return isMissingSchemaError(service.error) ? { workspaceIds: [...ids], numberOwnerIds: owners } : null;
     for (const row of service.data ?? []) {
       const id = String((row as { id?: unknown }).id ?? "").trim();
       if (workingWorkspaceIds.has(id)) ids.add(id);
       else ids.delete(id);
     }
   }
-  return [...ids];
+  return { workspaceIds: [...ids], numberOwnerIds: owners };
 }
 
 /** Is `toPhone` (any format) the PropLane shared number? Always false in per_workspace mode. */

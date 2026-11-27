@@ -18,6 +18,7 @@ import {
   type ManagerPurchaseRowRecord,
 } from "@/lib/manager-access";
 import { isAppleBilledManagerPurchase } from "@/lib/manager-apple-purchase";
+import { invalidateManagerPlanFacts, MANAGER_FACT_TTL_MS, rememberManagerPurchaseRow } from "@/lib/manager-fact-caches";
 import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-settings";
 import { resolveServiceFeePayerFor, type ServiceFeePayer } from "@/lib/payment-policy";
 import { track } from "@/lib/analytics/posthog";
@@ -25,7 +26,7 @@ import { isViewAsSessionOpen } from "@/lib/auth/view-as-guard";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { waiverGrantTier } from "@/lib/payment-waiver-grant";
 import { isWaiverOnlyGrant } from "@/lib/promo-code-expiry";
-import { waiverGrantEndedFor } from "@/lib/promo-code-policy.server";
+import { waiverGrantStatusFor } from "@/lib/promo-code-policy.server";
 
 /**
  * Server-only manager_purchases reads/writes (service role). Split out of
@@ -63,7 +64,7 @@ async function loadManagerPurchaseRowsForUser(userId: string): Promise<ManagerPu
   return (await loadManagerPurchaseRowsResult(userId)).rows;
 }
 
-const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
+type ManagerPurchaseRowView = {
   hasPurchaseRow: boolean;
   tier: string | null;
   billing: string | null;
@@ -78,12 +79,29 @@ const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
   waiverEndedCode: string | null;
   /** A Stripe subscription or an Apple grant backs the stored plan: the only BILLABLE sources. */
   billableSource: boolean;
-}> => {
+};
+
+/**
+ * The row view is a fact about ONE account (its own purchase row, its confirmed Auth mailbox, its waiver policy), the same
+ * for every viewer, yet a portal request resolves it for the viewer and for every linked owner through a dozen helpers.
+ * It is kept per instance for `MANAGER_FACT_TTL_MS` (`manager-fact-caches.ts`): shared in-flight, never a failed read,
+ * never an account with no row yet, and dropped by every writer (`invalidateManagerFactCaches`).
+ */
+const getManagerPurchaseRowByUserId = cache((userId: string): Promise<ManagerPurchaseRowView> =>
+  rememberManagerPurchaseRow(userId, async () => {
+    const { view, waiverStable } = await readManagerPurchaseRowView(userId);
+    return { value: view, cacheable: !view.readFailed && view.hasPurchaseRow && waiverStable };
+  }),
+);
+
+async function readManagerPurchaseRowView(
+  userId: string,
+): Promise<{ view: ManagerPurchaseRowView; waiverStable: boolean }> {
   const db = createSupabaseServiceRoleClient();
   const { rows, readFailed } = await loadManagerPurchaseRowsResult(userId, db);
   const best = pickBestManagerPurchaseRow(rows, userId);
   if (!best) {
-    return {
+    const view: ManagerPurchaseRowView = {
       hasPurchaseRow: rows.length > 0,
       tier: null,
       billing: null,
@@ -97,6 +115,7 @@ const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
       waiverEndedCode: null,
       billableSource: false,
     };
+    return { view, waiverStable: true };
   }
   const view = {
     hasPurchaseRow: true,
@@ -134,31 +153,39 @@ const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
   // An ENDED waiver grant (code expired by staff, or this account's promo ended) resolves to Free in
   // this view only - the stored row is never rewritten, exactly like a lapsed signup trial. Only a
   // waiver-ONLY grant can end; a Stripe, Apple, admin or trial row is paid or comped by something else.
-  // An unreadable policy leaves the grant valid (`waiverGrantEndedFor` fails safe).
+  // An unreadable policy leaves the grant valid (`waiverGrantStatusFor` fails safe) and is never cached.
   const tier = normalizeManagerSkuTier(view.tier);
   if (
-    (tier === "pro" || tier === "business") &&
-    isWaiverOnlyGrant({
+    !(tier === "pro" || tier === "business") ||
+    !isWaiverOnlyGrant({
       promoCode: view.promoCode,
       billing: view.billing,
       stripeSubscriptionId: view.stripeSubscriptionId,
       stripeCheckoutSessionId: view.stripeCheckoutSessionId,
       appleOriginalTransactionId: view.appleOriginalTransactionId,
-    }) &&
-    (await waiverGrantEndedFor({ promoCode: view.promoCode, promoEndsAt: best.promo_ends_at ?? null, db }))
+    })
   ) {
-    const endedCode = view.promoCode;
-    return {
+    return { view, waiverStable: true };
+  }
+  const waiver = await waiverGrantStatusFor({
+    promoCode: view.promoCode,
+    promoEndsAt: best.promo_ends_at ?? null,
+    db,
+    stableForMs: MANAGER_FACT_TTL_MS,
+  });
+  if (!waiver.ended) return { view, waiverStable: waiver.stable };
+  return {
+    view: {
       ...view,
       tier: "free",
       billing: "free",
       promoCode: null,
-      waiverEndedCode: endedCode,
+      waiverEndedCode: view.promoCode,
       billableSource: false,
-    };
-  }
-  return view;
-});
+    },
+    waiverStable: waiver.stable,
+  };
+}
 
 /**
  * Reconciliation is authoritative, but several plan views can resolve during one
@@ -516,6 +543,19 @@ export async function getEffectiveManagerSkuTier(userId: string): Promise<Manage
  * tier-sync treats the paid tier as authorized comp access without a Stripe subscription.
  */
 export async function setManagerPurchaseTier(
+  userId: string,
+  tier: ManagerSkuTier,
+  opts?: { adminOverride?: boolean; waiver?: { promoCode: string; billing: "monthly" | "annual" } },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    return await writeManagerPurchaseTier(userId, tier, opts);
+  } finally {
+    // The write may have landed even when a later step failed: drop the cached plan facts either way.
+    invalidateManagerPlanFacts(userId);
+  }
+}
+
+async function writeManagerPurchaseTier(
   userId: string,
   tier: ManagerSkuTier,
   opts?: { adminOverride?: boolean; waiver?: { promoCode: string; billing: "monthly" | "annual" } },

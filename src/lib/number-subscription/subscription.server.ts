@@ -1,4 +1,5 @@
 import "server-only";
+import { invalidateManagerFactCaches } from "@/lib/manager-fact-caches";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -284,6 +285,22 @@ export type NumberSyncResult = "applied" | "stale" | "other_subscription" | "cus
  * one it applied.
  */
 async function applyLiveSubscription(
+  db: SupabaseClient,
+  stripe: Pick<Stripe, "subscriptions">,
+  row: Row,
+  subscriptionId: string,
+  expectedCustomerId: string,
+): Promise<NumberSyncResult> {
+  try {
+    return await applyLiveSubscriptionWrite(db, stripe, row, subscriptionId, expectedCustomerId);
+  } finally {
+    // Whether a manager's number is paid for decides which workspaces text from a line of their own
+    // (`manager-fact-caches.ts`): the next read must see the new status.
+    invalidateManagerFactCaches();
+  }
+}
+
+async function applyLiveSubscriptionWrite(
   db: SupabaseClient,
   stripe: Pick<Stripe, "subscriptions">,
   row: Row,

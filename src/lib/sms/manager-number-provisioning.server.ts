@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { invalidateManagerFactCaches } from "@/lib/manager-fact-caches";
 import { randomUUID } from "node:crypto";
 import {
   isClawSharedLineBridgeEnabled,
@@ -197,6 +198,18 @@ export type ProvisionResult =
  * manager is parked in `pending_registration` and no purchase is attempted.
  */
 export async function provisionManagerNumber(
+  db: SupabaseClient,
+  managerUserId: string,
+  opts?: { areaCode?: string; workspaceId?: string | null },
+): Promise<ProvisionResult> {
+  try {
+    return await provisionManagerNumberOnce(db, managerUserId, opts);
+  } finally {
+    invalidateManagerFactCaches();
+  }
+}
+
+async function provisionManagerNumberOnce(
   db: SupabaseClient,
   managerUserId: string,
   opts?: { areaCode?: string; workspaceId?: string | null },
@@ -499,6 +512,19 @@ export async function reconcilePendingManagerNumberOperations(
   db: SupabaseClient,
   limit = 5,
 ): Promise<ProvisioningReconciliationResult> {
+  let result: ProvisioningReconciliationResult | null = null;
+  try {
+    result = await reconcilePendingManagerNumberOperationsOnce(db, limit);
+    return result;
+  } finally {
+    if (!result || result.recovered + result.safelyReset + result.attachmentDrifted > 0) invalidateManagerFactCaches();
+  }
+}
+
+async function reconcilePendingManagerNumberOperationsOnce(
+  db: SupabaseClient,
+  limit: number,
+): Promise<ProvisioningReconciliationResult> {
   const result: ProvisioningReconciliationResult = {
     considered: 0,
     recovered: 0,
@@ -757,6 +783,7 @@ export async function setManagerRegistrationState(
     updated_at: nowIso(),
   };
   await db.from(TABLE).update(patch).eq("manager_user_id", id).then(() => undefined, () => undefined);
+  invalidateManagerFactCaches();
 }
 
 /**
@@ -774,6 +801,7 @@ export async function releaseManagerNumber(db: SupabaseClient, managerUserId: st
     .eq("manager_user_id", id);
   if (workspaceId?.trim()) q = q.eq("workspace_id", workspaceId.trim());
   await q.then(() => undefined, () => undefined);
+  invalidateManagerFactCaches();
 }
 
 /** Restore a previously released number (reverse of {@link releaseManagerNumber}). */
@@ -787,6 +815,7 @@ export async function restoreManagerNumber(db: SupabaseClient, managerUserId: st
     .eq("provision_state", "released");
   if (workspaceId?.trim()) q = q.eq("workspace_id", workspaceId.trim());
   await q.then(() => undefined, () => undefined);
+  invalidateManagerFactCaches();
 }
 
 /**

@@ -4,7 +4,8 @@
  * The public catalog and the room-occupancy snapshot are the same answer for everyone and already ride the CDN
  * (`s-maxage=60`), but a CDN miss, a dev server, or a cold lambda recomputes them in full: dozens of paged
  * database reads per browse load. This keeps one answer per instance for `ttlMs`, shares one in-flight
- * computation between concurrent callers, and never caches a failure.
+ * computation between concurrent callers, and never caches a failure. The per-manager plan facts
+ * (`manager-fact-caches.ts`) use it too: the same answer for every viewer, with its own invalidation contract.
  *
  * `maxEntries` bounds it as an LRU (a hit moves its key to the end, a write past the cap drops the
  * least-recently-used): pass it whenever the KEY is not a fixed name - a per-address answer, say - so a wide
@@ -19,6 +20,8 @@
  */
 export type TtlCache<T> = {
   get(key: string, load: () => Promise<T>): Promise<T>;
+  /** Drops one key (and detaches its in-flight load) without disturbing the others. */
+  delete(key: string): void;
   clear(): void;
 };
 
@@ -35,6 +38,9 @@ export function createTtlCache<T>(
   // generation it started under and only caches its answer while that is still current — the same
   // guard `shared-get-cache.ts` uses.
   let generation = 0;
+  // `delete(key)` is the same guard for ONE key: a load that started before it must not write its answer back.
+  const keyGenerations = new Map<string, number>();
+  const MAX_KEY_GENERATIONS = 5000;
   return {
     async get(key, load) {
       const hit = entries.get(key);
@@ -48,9 +54,10 @@ export function createTtlCache<T>(
       const running = inflight.get(key);
       if (running) return running;
       const startedGeneration = generation;
+      const startedKeyGeneration = keyGenerations.get(key) ?? 0;
       const started = load().then(
         (value) => {
-          if (generation !== startedGeneration) return value;
+          if (generation !== startedGeneration || (keyGenerations.get(key) ?? 0) !== startedKeyGeneration) return value;
           entries.delete(key);
           entries.set(key, { value, expiresAt: now() + ttlMs });
           if (maxEntries) {
@@ -64,15 +71,29 @@ export function createTtlCache<T>(
           return value;
         },
         (error) => {
-          if (generation === startedGeneration) inflight.delete(key);
+          if (generation === startedGeneration && inflight.get(key) === started) inflight.delete(key);
           throw error;
         },
       );
       inflight.set(key, started);
       return started;
     },
+    delete(key) {
+      if (keyGenerations.size >= MAX_KEY_GENERATIONS) {
+        // Bound the bookkeeping: a full reset is always a safe (conservative) invalidation.
+        generation += 1;
+        entries.clear();
+        inflight.clear();
+        keyGenerations.clear();
+        return;
+      }
+      keyGenerations.set(key, (keyGenerations.get(key) ?? 0) + 1);
+      entries.delete(key);
+      inflight.delete(key);
+    },
     clear() {
       generation += 1;
+      keyGenerations.clear();
       entries.clear();
       inflight.clear();
     },

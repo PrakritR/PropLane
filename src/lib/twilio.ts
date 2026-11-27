@@ -214,6 +214,18 @@ export async function sendSms(
     });
     return { sent: true, sid: message.sid, providerAttempted: true };
   } catch (e) {
-    return { sent: false, providerAttempted: true, error: e instanceof Error ? e.message : String(e) };
+    return { sent: false, providerAttempted: true, error: twilioErrorText(e) };
   }
+}
+
+/**
+ * Twilio's REST errors carry their numeric code on `code`, not in `message`, so the dispatcher's
+ * five-digit match found nothing and every failed send was stored as an "unknown" outcome with no
+ * code (production, from Nov 26). Put the code in front of the message so the outbox records it.
+ */
+export function twilioErrorText(e: unknown): string {
+  const message = e instanceof Error ? e.message : String(e);
+  const code = e && typeof e === "object" ? (e as { code?: unknown }).code : undefined;
+  const text = typeof code === "number" || (typeof code === "string" && /^\d+$/.test(code)) ? String(code) : "";
+  return text && !message.includes(text) ? `${text}: ${message}` : message;
 }

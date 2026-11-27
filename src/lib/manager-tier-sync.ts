@@ -13,6 +13,7 @@ import {
   MANAGER_TIER_CACHE_TTL_MS,
   rememberManagerTierSync,
 } from "@/lib/manager-tier-sync-cache";
+import { invalidateManagerPurchaseRow } from "@/lib/manager-fact-caches";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 /** Clears self-assigned paid tiers that were never backed by Stripe or admin billing. */
@@ -49,6 +50,7 @@ export async function revokeUnauthorizedManagerPaidTier(userId: string): Promise
   const { error } = await writeManagerPurchasePatch(
     { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null, first_paid_at: null },
     (patch) => supabase.from("manager_purchases").update(patch).eq("id", data.id),
+    uid,
   );
 
   return !error;
@@ -90,6 +92,15 @@ export async function applyExpiredManagerPurchaseDowngrade(userId: string): Prom
 
 /** Runs one full sync. Resolves `true` only when no provider lookup failed. */
 async function runManagerPurchaseTierSync(uid: string): Promise<boolean> {
+  try {
+    return await reconcileManagerPurchaseTierState(uid);
+  } finally {
+    // The reconcile may have rewritten this account's row (a revoked or lapsed plan): its next plan read must see it.
+    invalidateManagerPurchaseRow(uid);
+  }
+}
+
+async function reconcileManagerPurchaseTierState(uid: string): Promise<boolean> {
   let clean = true;
   try {
     await reconcileManagerPurchaseWithStripe(uid);

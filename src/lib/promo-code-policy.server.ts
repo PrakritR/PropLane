@@ -122,8 +122,24 @@ export async function waiverGrantEndedFor(input: {
   db?: SupabaseClient;
   nowMs?: number;
 }): Promise<boolean> {
+  return (await waiverGrantStatusFor(input)).ended;
+}
+
+/**
+ * {@link waiverGrantEndedFor} plus whether the answer holds for the next `stableForMs`: `stable` is false when
+ * the policy could not be read (the "still valid" answer is a fail-safe, not a fact) or when a grant still
+ * running reaches its end inside that window.
+ */
+export async function waiverGrantStatusFor(input: {
+  promoCode: string | null | undefined;
+  rowId?: string | null;
+  promoEndsAt?: string | null;
+  db?: SupabaseClient;
+  nowMs?: number;
+  stableForMs?: number;
+}): Promise<{ ended: boolean; stable: boolean }> {
   const key = promoPolicyKey(input.promoCode);
-  if (!key) return false;
+  if (!key) return { ended: false, stable: true };
   const db = input.db ?? createSupabaseServiceRoleClient();
 
   let promoEndsAt = input.promoEndsAt ?? null;
@@ -138,7 +154,11 @@ export async function waiverGrantEndedFor(input: {
 
   const policies = await readPromoCodePolicies(db);
   const policyExpiresAt = policies.ok ? policies.expiresAtByCode.get(key) ?? null : null;
-  return isWaiverGrantEnded({ policyExpiresAt, promoEndsAt, nowMs: input.nowMs });
+  const nowMs = input.nowMs ?? Date.now();
+  const ended = isWaiverGrantEnded({ policyExpiresAt, promoEndsAt, nowMs });
+  const endsSoon =
+    !ended && isWaiverGrantEnded({ policyExpiresAt, promoEndsAt, nowMs: nowMs + Math.max(0, input.stableForMs ?? 0) });
+  return { ended, stable: policies.ok && !endsSoon };
 }
 
 /**

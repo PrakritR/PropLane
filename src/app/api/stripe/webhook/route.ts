@@ -678,6 +678,7 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
           const { error: downgradeError } = await writeManagerPurchasePatch(
             { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null, first_paid_at: null },
             (patch) => db.from("manager_purchases").update(patch).eq("stripe_subscription_id", sub.id),
+            smsManagerId,
           );
           if (downgradeError) throw new Error(downgradeError.message || "Could not downgrade the cancelled plan.");
         } else {
