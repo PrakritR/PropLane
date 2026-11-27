@@ -143,6 +143,7 @@ let memoryRows: ManagerVendorRow[] = [];
 const MANAGER_VENDORS_SYNC_TTL_MS = 15_000;
 let managerVendorsLastSyncedAt = 0;
 let managerVendorsSyncPromise: Promise<{ rows: ManagerVendorRow[]; ok: boolean }> | null = null;
+let managerVendorsGeneration = 0;
 
 function vendorRowsChanged(a: ManagerVendorRow[], b: ManagerVendorRow[]) {
   return JSON.stringify(a) !== JSON.stringify(b);
@@ -227,6 +228,7 @@ function deleteVendorFromServer(id: string) {
 
 /** Workspace switch: drop the memory mirror, TTL and in-flight read so the next sync fetches the new workspace. */
 export function resetManagerVendorsClientCache(): void {
+  managerVendorsGeneration++;
   memoryRows = [];
   managerVendorsLastSyncedAt = 0;
   managerVendorsSyncPromise = null;
@@ -256,11 +258,14 @@ async function syncManagerVendorsFromServerCore(opts?: { force?: boolean }): Pro
   if (!force && managerVendorsLastSyncedAt > 0 && Date.now() - managerVendorsLastSyncedAt < MANAGER_VENDORS_SYNC_TTL_MS) {
     return { rows: readManagerVendorRows(), ok: true };
   }
+  const generation = managerVendorsGeneration;
+  let current: Promise<{ rows: ManagerVendorRow[]; ok: boolean }> | null = null;
   try {
-    managerVendorsSyncPromise = (async () => {
+    current = (async () => {
       const res = await fetch(adminOversightUrl("/api/portal-vendors"), { credentials: "include" });
-      if (!res.ok) return { rows: readManagerVendorRows(), ok: false };
+      if (!res.ok || generation !== managerVendorsGeneration) return { rows: readManagerVendorRows(), ok: false };
       const body = (await res.json()) as { rows?: ManagerVendorRow[] };
+      if (generation !== managerVendorsGeneration) return { rows: readManagerVendorRows(), ok: false };
       const rows = Array.isArray(body.rows) ? body.rows : [];
       const changed = vendorRowsChanged(memoryRows, rows);
       memoryRows = rows;
@@ -269,11 +274,12 @@ async function syncManagerVendorsFromServerCore(opts?: { force?: boolean }): Pro
       if (changed) emit();
       return { rows, ok: true };
     })();
-    return await managerVendorsSyncPromise;
+    managerVendorsSyncPromise = current;
+    return await current;
   } catch {
     return { rows: readManagerVendorRows(), ok: false };
   } finally {
-    managerVendorsSyncPromise = null;
+    if (managerVendorsSyncPromise === current) managerVendorsSyncPromise = null;
   }
 }
 

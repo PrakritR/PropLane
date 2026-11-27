@@ -19,6 +19,7 @@ import { clearWorkspaceScopedClientCaches } from "@/lib/workspaces/clear-client-
 import { openServiceWorkspace, switchToPropertyPortal } from "@/lib/service/open-service-workspace";
 import { readManagerWorkOrderRows, syncManagerWorkOrdersFromServer } from "@/lib/manager-work-orders-storage";
 import { readManagerPromotionRows, syncManagerPromotionsFromServer } from "@/lib/manager-promotions-storage";
+import { readManagerVendorRows, syncManagerVendorsFromServer } from "@/lib/manager-vendors-storage";
 import {
   readAllServiceRequests,
   serviceRequestsLastReadSucceeded,
@@ -140,5 +141,28 @@ describe("workspace switch resets in-memory store mirrors", () => {
     await syncServiceRequestsFromServer();
     expect(second).toHaveBeenCalledTimes(1);
     expect(serviceRequestsLastReadSucceeded()).toBe(false);
+  });
+
+  // A read sent before the switch is answered with the OLD workspace's rows; landing after the clear, it must not
+  // put them back in memory or sessionStorage, nor stamp the TTL that would keep them on screen.
+  it.each([
+    ["work orders", "axis:manager-work-orders:v1", () => syncManagerWorkOrdersFromServer(), () => readManagerWorkOrderRows()],
+    ["promotions", "axis:manager-promotions:v1", () => syncManagerPromotionsFromServer(), () => readManagerPromotionRows()],
+    ["vendors", "axis:manager-vendors:v1", () => syncManagerVendorsFromServer(), () => readManagerVendorRows()],
+  ] as const)("%s: a read in flight across the switch does not repopulate the old workspace", async (_name, sessionKey, sync, read) => {
+    let release: (res: Response) => void = () => undefined;
+    const slow = vi.fn(() => new Promise<Response>((resolve) => { release = resolve; }));
+    vi.stubGlobal("fetch", slow);
+    const pending = sync();
+    await Promise.resolve();
+    clearWorkspaceScopedClientCaches();
+    release(new Response(JSON.stringify({ rows: [{ id: "old-a" }] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await pending;
+    expect(read()).toEqual([]);
+    expect(window.sessionStorage.getItem(sessionKey)).toBeNull();
+    const next = rowsFetch([{ id: "new-b" }]);
+    vi.stubGlobal("fetch", next);
+    expect((await sync()).map((r) => (r as { id: string }).id)).toEqual(["new-b"]);
+    expect(next).toHaveBeenCalledTimes(1);
   });
 });

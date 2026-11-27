@@ -12,6 +12,7 @@ let memoryRows: DemoManagerWorkOrderRow[] = [];
 const MANAGER_WORK_ORDERS_SYNC_TTL_MS = 15_000;
 let managerWorkOrdersLastSyncedAt = 0;
 let managerWorkOrdersSyncPromise: Promise<ManagerWorkOrdersSyncResult> | null = null;
+let managerWorkOrdersGeneration = 0;
 
 function workOrderRowsChanged(a: DemoManagerWorkOrderRow[], b: DemoManagerWorkOrderRow[]) {
   return JSON.stringify(a) !== JSON.stringify(b);
@@ -125,14 +126,18 @@ export async function syncManagerWorkOrdersFromServerWithStatus(opts?: {
   if (!force && managerWorkOrdersLastSyncedAt > 0 && Date.now() - managerWorkOrdersLastSyncedAt < MANAGER_WORK_ORDERS_SYNC_TTL_MS) {
     return { rows: readManagerWorkOrderRows(), ok: managerWorkOrdersLastReadOk };
   }
+  const generation = managerWorkOrdersGeneration;
+  let current: Promise<ManagerWorkOrdersSyncResult> | null = null;
   try {
-    managerWorkOrdersSyncPromise = (async () => {
+    current = (async () => {
       const res = await fetch(adminOversightUrl("/api/portal-work-orders"), { credentials: "include" });
+      if (generation !== managerWorkOrdersGeneration) return { rows: readManagerWorkOrderRows(), ok: false };
       if (!res.ok) {
         managerWorkOrdersLastReadOk = false;
         return { rows: readManagerWorkOrderRows(), ok: false };
       }
       const body = (await res.json()) as { rows?: DemoManagerWorkOrderRow[] };
+      if (generation !== managerWorkOrdersGeneration) return { rows: readManagerWorkOrderRows(), ok: false };
       const rows = Array.isArray(body.rows) ? body.rows : [];
       const changed = workOrderRowsChanged(memoryRows, rows);
       memoryRows = rows;
@@ -142,12 +147,13 @@ export async function syncManagerWorkOrdersFromServerWithStatus(opts?: {
       if (changed) emit();
       return { rows, ok: true };
     })();
-    return await managerWorkOrdersSyncPromise;
+    managerWorkOrdersSyncPromise = current;
+    return await current;
   } catch {
-    managerWorkOrdersLastReadOk = false;
+    if (generation === managerWorkOrdersGeneration) managerWorkOrdersLastReadOk = false;
     return { rows: readManagerWorkOrderRows(), ok: false };
   } finally {
-    managerWorkOrdersSyncPromise = null;
+    if (managerWorkOrdersSyncPromise === current) managerWorkOrdersSyncPromise = null;
   }
 }
 
@@ -244,6 +250,7 @@ export function deleteManagerWorkOrdersForResident(residentEmail: string): numbe
 
 /** Workspace switch: drop the memory mirror, TTL and in-flight read so the next sync fetches the new workspace. */
 export function resetManagerWorkOrdersClientCache(): void {
+  managerWorkOrdersGeneration++;
   memoryRows = [];
   managerWorkOrdersLastSyncedAt = 0;
   managerWorkOrdersLastReadOk = false;

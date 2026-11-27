@@ -29,6 +29,7 @@ const EMPTY_FALLBACK: ManagerPromotionRow[] = [];
 let memoryRows: ManagerPromotionRow[] = [];
 let lastSyncedAt = 0;
 let syncPromise: Promise<ManagerPromotionRow[]> | null = null;
+let syncGeneration = 0;
 
 function canUseStorage() {
   return typeof window !== "undefined";
@@ -86,6 +87,7 @@ function deleteFromServer(id: string) {
 
 /** Workspace switch: drop the memory mirror, TTL and in-flight read so the next sync fetches the new workspace. */
 export function resetManagerPromotionsClientCache(): void {
+  syncGeneration++;
   memoryRows = [];
   lastSyncedAt = 0;
   syncPromise = null;
@@ -106,11 +108,14 @@ export async function syncManagerPromotionsFromServer(opts?: { force?: boolean }
   if (!force && lastSyncedAt > 0 && Date.now() - lastSyncedAt < MANAGER_PROMOTIONS_SYNC_TTL_MS) {
     return readManagerPromotionRows();
   }
+  const generation = syncGeneration;
+  let current: Promise<ManagerPromotionRow[]> | null = null;
   try {
-    syncPromise = (async () => {
+    current = (async () => {
       const res = await fetch(adminOversightUrl("/api/portal-promotions"), { credentials: "include" });
-      if (!res.ok) return readManagerPromotionRows();
+      if (!res.ok || generation !== syncGeneration) return readManagerPromotionRows();
       const body = (await res.json()) as { rows?: ManagerPromotionRow[] };
+      if (generation !== syncGeneration) return readManagerPromotionRows();
       const rows = Array.isArray(body.rows) ? body.rows : [];
       const changed = rowsChanged(memoryRows, rows);
       memoryRows = rows;
@@ -119,11 +124,12 @@ export async function syncManagerPromotionsFromServer(opts?: { force?: boolean }
       if (changed) emit();
       return rows;
     })();
-    return await syncPromise;
+    syncPromise = current;
+    return await current;
   } catch {
     return readManagerPromotionRows();
   } finally {
-    syncPromise = null;
+    if (syncPromise === current) syncPromise = null;
   }
 }
 
