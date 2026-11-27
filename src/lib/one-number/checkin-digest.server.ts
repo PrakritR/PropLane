@@ -21,6 +21,7 @@ import { addHouseLineToRecipients, dedupeDigestRecipients, type HouseDigestBucke
 import { loadUsableManagerPhones, resolveHouseManagerUserIds } from "@/lib/one-number/house-digest-recipients.server";
 import { listWorkNumberRecipients } from "@/lib/work-number-recipients.server";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 
 /**
  * The 7 AM (Pacific) "who checks in and out today" text, always FROM a PropLane work number, TO every manager on each
@@ -92,9 +93,10 @@ async function ownersToTell(db: SupabaseClient): Promise<string[] | null> {
   }
   // Every owner with an accepted teammate: their co-managers hear the houses they are on even when the owner listed nobody.
   try {
-    const { data: links } = await db.from("account_link_invites").select("inviter_user_id, team_role").eq("status", "accepted").limit(5000);
+    const { data: links } = withoutOwnerLinks(
+      await db.from("account_link_invites").select("inviter_user_id, team_role").eq("status", "accepted").limit(5000),
+    );
     for (const row of (links ?? []) as Array<{ inviter_user_id?: unknown; team_role?: unknown }>) {
-      if (String(row.team_role ?? "").trim() === "property_owner") continue;
       const id = typeof row.inviter_user_id === "string" ? row.inviter_user_id.trim() : "";
       if (id) owners.add(id);
     }
