@@ -47,7 +47,7 @@ export function buildDemoApplicationAutofill(propertyId: string): RentalWizardFo
     leaseEnd,
     fullLegalName: CANONICAL_DEMO_GUIDED_NAME,
     dateOfBirth: "1995-06-15",
-    ssn: "123-45-6789",
+    ssn: "234-56-7891",
     driversLicense: "WA DL WDL12AB345CD",
     phone: "(206) 555-0142",
     email: CANONICAL_DEMO_GUIDED_EMAIL,

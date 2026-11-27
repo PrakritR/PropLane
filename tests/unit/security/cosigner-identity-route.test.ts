@@ -37,7 +37,7 @@ afterEach(() => vi.unstubAllEnvs());
 function request(overrides: Record<string, unknown> = {}) {
   return new Request("https://example.test/api/public/cosigner-submissions", { method: "POST", body: JSON.stringify({
     formRequestId: "request-a", signerAppId: "AXIS-123456", fullName: "Synthetic Cosigner", email: "synthetic@example.test", phone: "2065550123", consentCredit: true,
-    ssn: "123-45-6789", dob: "1980-01-01", dlNumber: "ID-123", _identityProtection: { version: 1, originOwnerId: "attacker" },
+    ssn: "234-56-7891", dob: "1980-01-01", dlNumber: "ID-123", _identityProtection: { version: 1, originOwnerId: "attacker" },
     ...overrides,
   }) });
 }
@@ -61,7 +61,7 @@ it("account-linked submission stores only protected identity and never trusts su
   expect(row.row_data.signerAppId).toBe("APP-a");
   expect(row.row_data._identityProtection.originOwnerId).toBe("manager-a");
   expect(row.row_data.dob).toMatch(/^proplane:/);
-  expect(openCosignerIdentity(row.row_data, row.id)).toMatchObject({ ssn: "***-**-6789", dob: "1980-01-01", dlNumber: "ID-123" });
+  expect(openCosignerIdentity(row.row_data, row.id)).toMatchObject({ ssn: "***-**-7891", dob: "1980-01-01", dlNumber: "ID-123" });
   expect(await res.json()).not.toHaveProperty("row_data");
   expect(JSON.stringify(mocks.notify.mock.calls)).not.toMatch(/1980|ID-123|6789/);
 });

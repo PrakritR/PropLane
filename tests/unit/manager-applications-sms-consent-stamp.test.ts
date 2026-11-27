@@ -117,7 +117,7 @@ function application(over: Partial<RentalWizardFormState> = {}): RentalWizardFor
     leaseEnd: "2028-07-31",
     fullLegalName: "Maya Alvarez",
     dateOfBirth: "1995-01-15",
-    ssn: "123-45-6789",
+    ssn: "234-56-7891",
     driversLicense: "WA1234567",
     phone: "(206) 555-0100",
     email: "maya.alvarez@example.com",

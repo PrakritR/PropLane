@@ -110,7 +110,7 @@ function cosignerBody(cosignerId: string, extra: Record<string, unknown> = {}) {
     email: "mom@example.com",
     phone: "2065550123",
     dob: "1970-01-01",
-    ssn: "123-45-6789",
+    ssn: "234-56-7891",
     consentCredit: true,
     signature: "Maria Lee",
     dateSigned: "2026-10-04",

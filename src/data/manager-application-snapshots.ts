@@ -17,7 +17,7 @@ export function snapshotJordanLee(): RentalWizardFormState {
     leaseEnd: "2027-05-31",
     fullLegalName: "Jordan Lee",
     dateOfBirth: "1998-03-14",
-    ssn: "123-45-6789",
+    ssn: "234-56-7891",
     driversLicense: "WA DL WDL12AB345CD",
     phone: "(206) 555-0142",
     email: "jordan.lee@example.com",

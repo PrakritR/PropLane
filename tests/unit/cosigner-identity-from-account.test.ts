@@ -109,7 +109,7 @@ const post = (body: unknown) =>
   });
 
 function body(extra: Record<string, unknown> = {}) {
-  return { dob: "1970-01-01", ssn: "123-45-6789", consentCredit: true, signature: "Maria Lee", dateSigned: "2026-10-04", customFieldAnswers: [], ...extra };
+  return { dob: "1970-01-01", ssn: "234-56-7891", consentCredit: true, signature: "Maria Lee", dateSigned: "2026-10-04", customFieldAnswers: [], ...extra };
 }
 
 describe("a co-signer template without name, email or phone questions", () => {
