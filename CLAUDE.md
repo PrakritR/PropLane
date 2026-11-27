@@ -55,4 +55,5 @@ Do not treat a web-only deploy as complete.
 
 Read the relevant feature contract, then use `rg` or a current Graphify index
 when useful. A stale index is not source evidence. Do not auto-rebuild or commit
-local graph caches as part of ordinary work.
+local graph caches as part of ordinary work; rebuild by hand only when the graph
+is needed. Rules: `AGENTS.md` § graphify (optional).

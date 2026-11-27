@@ -557,29 +557,16 @@ section owns that routing. `/demo` has its own prop list - forward `tabId` /
 
 This file wins over host-specific files (`CLAUDE.md`, `.cursor/rules/*`,
 skills, plugins). Prefer repo-visible artifacts over one host's chat history.
-After meaningful code edits, refresh `.graphify/` (`npx graphify hook-rebuild`).
 
-## graphify
+## graphify (optional)
 
-This project has a graphify knowledge graph at .graphify/.
+Graphify is an optional navigation aid, never source evidence.
 
-Rules:
-- For codebase or architecture questions, when `.graphify/graph.json` exists, first run `graphify query "<question>"` (or `graphify path "<A>" "<B>"` / `graphify explain "<concept>"`); these return a scoped subgraph, usually much smaller than `GRAPH_REPORT.md` or raw grep output
-- If .graphify/wiki/index.md exists, navigate it instead of reading raw files
-- In Codex, the reliable explicit skill invocation is `$graphify ...`; do not rely on `/graphify ...`
-- `$graphify ...` is a Codex skill trigger, not a Bash subcommand like `graphify .`
-- A successful TypeScript-backed Codex build should leave `.graphify/.graphify_runtime.json` with `runtime: typescript`
-- If .graphify/graph.json is missing but graphify-out/graph.json exists, run `graphify migrate-state --dry-run` first; if tracked legacy artifacts are reported, ask before using the recommended `git mv -f graphify-out .graphify` and commit message
-- If .graphify/needs_update exists or .graphify/branch.json has stale=true, warn before relying on semantic results and run the graphify skill with --update when appropriate
-- If the user asks to build, update, query, path, or explain the graph, use the installed `graphify` skill instead of ad-hoc file traversal
-- Before proposing or committing .graphify artifacts, run `graphify portable-check .graphify`; commit-safe graph artifacts must use repo-relative paths, and never commit .graphify/branch.json, .graphify/worktree.json, .graphify/needs_update, or .graphify/cache/. If a repo already tracks any of them, first add them to .gitignore, then propose `git rm --cached .graphify/branch.json .graphify/worktree.json .graphify/needs_update` and `git rm -r --cached .graphify/cache`; never mutate git state without asking
-- Before deep graph traversal, prefer `graphify summary --graph .graphify/graph.json` for compact first-hop orientation
-- For review impact on changed files, use `graphify review-delta --graph .graphify/graph.json` instead of generic traversal
-- Read `.graphify/GRAPH_REPORT.md` only for broad architecture review or when `query` / `path` / `explain` do not surface enough context
-- After modifying code files in this session, run `npx graphify hook-rebuild` to keep the graph current
-
-Host wiring (optional, once per machine): `graphify cursor|claude|codex|hook install`.
-Do not re-run `graphify agents install` just to refresh this file.
+- When `.graphify/graph.json` exists and is current, you MAY run `graphify query "<question>"`, `graphify path "<A>" "<B>"` or `graphify explain "<concept>"` for a scoped subgraph. Verify what it returns against current source.
+- If `.graphify/needs_update` exists or `.graphify/branch.json` has `stale=true`, treat results as stale.
+- Never auto-rebuild after edits. Rebuild by hand only when you actually need the graph.
+- Never commit local graph caches or worktree metadata: `.graphify/branch.json`, `.graphify/worktree.json`, `.graphify/needs_update`, `.graphify/cache/`.
+- Before proposing or committing other `.graphify` artifacts, run `graphify portable-check .graphify`; commit-safe artifacts use repo-relative paths. Never mutate git state for graph files without asking.
 
 ## Maintaining this file
 
