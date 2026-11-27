@@ -534,6 +534,24 @@ describe("unread results do not cascade", () => {
     await waitFor(() => expect(screen.queryByTestId("embedded-email-thread")).toBeNull());
   });
 
+  it("says a missing routed conversation is not found once, without re-fetching it in a loop", async () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
+    const detailUrl = (url: unknown) => /\/api\/manager\/sms-conversations\/[^?]*missing-thread/.test(String(url));
+    const fetchMock = vi.fn(async (url: unknown) =>
+      detailUrl(url) ? new Response(JSON.stringify({ error: "not found" }), { status: 404 }) : successfulFetch(url),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" routeThreadId="missing-thread" />);
+    await screen.findByText("Conversation not found.");
+    const detailCalls = () => fetchMock.mock.calls.filter(([url]) => detailUrl(url)).length;
+    const afterNotFound = detailCalls();
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    expect(screen.getByText("Conversation not found.")).toBeTruthy();
+    // A definitive 404 is remembered for that id: no further detail reads (the old code kept re-fetching).
+    expect(detailCalls()).toBe(afterNotFound);
+    expect(afterNotFound).toBeLessThanOrEqual(2);
+  }, 15000);
+
   it("clears unread retention after search, contact filter, or status context changes", async () => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })));
     vi.stubGlobal("fetch", vi.fn(async (url: unknown) => successfulFetch(url)));

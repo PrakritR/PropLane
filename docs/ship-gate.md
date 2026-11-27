@@ -110,14 +110,14 @@ Each browser job's Playwright `globalTimeout` must land under that job's own
 `playwright install --with-deps` steps Playwright does not govern — otherwise
 GitHub kills the runner first and you get no Playwright report at all. The
 config's 45 minutes is sized for `e2e-full` (50), and `test:e2e:smoke` passes its
-own `--global-timeout` of 14 minutes for the `e2e` job (20).
+own `--global-timeout` of 28 minutes for the `e2e` job (36).
 `tests/unit/ci-test-workflow.test.ts` fails if either pair drifts under 5 minutes
 of headroom.
 
 `webServer.timeout` is spent **inside** whichever `--global-timeout` governs the
 run, because Playwright builds and starts the production server as part of it. The
-CI production build alone exceeds 3 minutes, so that timeout is 7 of the smoke
-job's 14. The same unit test keeps at least 5 minutes of the cap for the specs
+CI production build alone takes about 15 minutes, so that timeout is 18 of the smoke
+job's 28. The same unit test keeps at least 5 minutes of the cap for the specs
 themselves, so a slow build can never abort the suite mid-build with no report at
 all.
 
