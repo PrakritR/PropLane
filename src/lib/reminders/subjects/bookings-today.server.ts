@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { traceSystemNotification } from "@/lib/observability/langfuse";
 import { channelStays, leaseStays, loadPlaceNames, roomDateBlockStays, type Stay } from "@/lib/reminders/subjects/bookings.server";
+import { isRealGuestName } from "@/lib/manager-notice-format";
 import { noticePlaceName } from "@/lib/notice-place-label";
 import { pacificTodayKey } from "@/lib/sheet-sync/dates";
 
@@ -37,8 +38,17 @@ export type BookingsTodaySummary = {
   items: BookingsTodayItem[];
 };
 
-function dedupeKey(stay: Stay, kind: "check-in" | "check-out"): string {
-  return `${kind}:${stay.propertyId ?? stay.propertyLabel}:${stay.guestName.toLowerCase()}`;
+/**
+ * One line per guest per house per day. A REAL name is the guest whichever source carries the stay (a lease and its
+ * room block), so it keys on the house alone. A channel's stand-in label ("Booking.com guest", "Agoda guest") names
+ * nobody: two such arrivals in two rooms of one house are two guests, so the room is part of the key. Keying them on
+ * the house alone counted two Booking.com check-ins at one house as one.
+ */
+export function bookingsTodayDedupeKey(stay: Pick<Stay, "propertyId" | "propertyLabel" | "roomId" | "guestName">, kind: "check-in" | "check-out"): string {
+  const house = stay.propertyId ?? stay.propertyLabel;
+  const guest = stay.guestName.toLowerCase();
+  if (isRealGuestName(stay.guestName)) return `${kind}:${house}:${guest}`;
+  return `${kind}:${house}:${stay.roomId ?? ""}:${guest}`;
 }
 
 /** Every manager's stays for today, in one pass over the three sources. */
@@ -69,7 +79,7 @@ export async function loadBookingsTodayByManager(
       seenKeys.set(stay.managerUserId, seen);
     }
     for (const kind of kinds) {
-      const key = dedupeKey(stay, kind);
+      const key = bookingsTodayDedupeKey(stay, kind);
       if (seen.has(key)) continue;
       seen.add(key);
       const names = stay.propertyId ? placeNames.get(stay.propertyId) : undefined;

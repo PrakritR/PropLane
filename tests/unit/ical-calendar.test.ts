@@ -69,3 +69,34 @@ describe("generateIcsCalendar", () => {
     expect(lines.find((line) => line.startsWith("X-WR-CALNAME:"))).toBe("X-WR-CALNAME:Mine\\nBEGIN:VEVENTX-EVIL:1\\nSUMMARY:x");
   });
 });
+
+describe("a one-night Airbnb reservation", () => {
+  // Airbnb exports a one-night stay as DTSTART Dec 1 / DTEND Dec 2 (exclusive). PropLane stores the LAST NIGHT as the
+  // end, so start == end is one night, not zero, and the export must close that night again (DTEND the next day).
+  const airbnb = [
+    "BEGIN:VCALENDAR",
+    "PRODID;X-RICAL-TZSOURCE=TZINFO:-//Airbnb Inc//Hosting Calendar 1.0//EN",
+    "BEGIN:VEVENT",
+    "DTEND;VALUE=DATE:20261202",
+    "DTSTART;VALUE=DATE:20261201",
+    "UID:1418fb94e984-one-night@airbnb.com",
+    "DESCRIPTION:Reservation URL: https://www.airbnb.com/hosting/reservations/de",
+    " tails/HMTESTCODE\\nPhone Number (Last 4 Digits): 0000",
+    "SUMMARY:Reserved",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+
+  it("imports as start == end (the last night), and exports DTEND the day after", () => {
+    const [event] = parseIcsCalendar(airbnb);
+    expect(event).toMatchObject({ startDate: "2026-12-01", endDate: "2026-12-01" });
+    const out = generateIcsCalendar([{ start: event!.startDate, end: event!.endDate }]);
+    expect(out).toContain("DTSTART;VALUE=DATE:20261201");
+    expect(out).toContain("DTEND;VALUE=DATE:20261202");
+  });
+
+  it("a multi-night stay keeps every night", () => {
+    const [event] = parseIcsCalendar(airbnb.replace("DTEND;VALUE=DATE:20261202", "DTEND;VALUE=DATE:20261205"));
+    expect(event).toMatchObject({ startDate: "2026-12-01", endDate: "2026-12-04" });
+  });
+});
