@@ -18,7 +18,8 @@ const NO_STORE = { "Cache-Control": "no-store" };
  * fee payer, the claim that stops a double debit, and the metadata the webhook reads (charge ids,
  * resident email, manager id) all come from it. This route adds only the proof that the caller
  * holds the phone: a live verified session on THIS link, plus a destination re-derived from the
- * live charge rows. Nothing about who pays or what is owed comes from the request.
+ * live charge rows. Nothing about who pays or what is owed comes from the request. A resident with no PropLane
+ * login (an imported resident) pays here too, by card: the code goes to the phone on their lease.
  */
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
@@ -52,6 +53,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     paymentMethod: bank ? "ach" : "card",
     appOrigin: resolveAppOrigin(req),
     returnPath: `/l/${encodeURIComponent(token)}`,
+    // A resident with no PropLane login (an imported resident): the phone was matched against their lease, and the
+    // core then requires charges with no account of their own and refuses a bank debit.
+    ...(destination.accountless ? { accountlessResident: true } : {}),
   });
   if (result.ok && result.mode === "manual_ach") {
     return NextResponse.json(

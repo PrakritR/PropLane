@@ -58,8 +58,12 @@ export function assertResidentCheckoutAttemptTerms(attempt: ResidentCheckoutAtte
       (attempt.payment_method === "card" && params.metadata?.resident_payment_flow) ||
       !originalEmail ||
       (actorDetached
-        ? !/^deleted-[0-9a-f-]+@deleted\.invalid$/.test(attempt.resident_email)
-        : originalEmail !== attempt.resident_email) ||
+        // No account on the attempt: either it never had one (a login-less resident's rent link, marked in the frozen
+        // metadata, keeps its address) or the account was deleted since (the address was scrubbed).
+        ? (params.metadata?.resident_account === "none"
+          ? originalEmail !== attempt.resident_email
+          : !/^deleted-[0-9a-f-]+@deleted\.invalid$/.test(attempt.resident_email))
+        : originalEmail !== attempt.resident_email || params.metadata?.resident_account !== undefined) ||
       params.paymentMethod !== attempt.payment_method ||
       params.destinationAccountId || params.fundingModel !== "connect_destination" ||
       params.idempotencyKey !== `resident-checkout:${attempt.attempt_token}` ||
