@@ -2,6 +2,7 @@ import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { DEMO_VENDOR_NAME, isDemoModeActive } from "@/lib/demo/demo-session";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { removePendingWorkOrderChargesForWorkOrder } from "@/lib/household-charges";
+import { registerWorkspaceCacheReset } from "@/lib/workspaces/workspace-cache-resets";
 
 export const MANAGER_WORK_ORDERS_EVENT = "axis:manager-work-orders";
 const MANAGER_WORK_ORDERS_SESSION_KEY = "axis:manager-work-orders:v1";
@@ -240,6 +241,16 @@ export function deleteManagerWorkOrdersForResident(residentEmail: string): numbe
   writeManagerWorkOrderRows(rows.filter((row) => (row.residentEmail ?? "").trim().toLowerCase() !== email));
   return removedRows.length;
 }
+
+/** Workspace switch: drop the memory mirror, TTL and in-flight read so the next sync fetches the new workspace. */
+export function resetManagerWorkOrdersClientCache(): void {
+  memoryRows = [];
+  managerWorkOrdersLastSyncedAt = 0;
+  managerWorkOrdersLastReadOk = false;
+  managerWorkOrdersSyncPromise = null;
+  emit();
+}
+registerWorkspaceCacheReset(resetManagerWorkOrdersClientCache);
 
 export function resetManagerWorkOrderRows(): void {
   memoryRows = [];

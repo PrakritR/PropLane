@@ -38,6 +38,11 @@ configured, or on a failed read, the heading stands alone and the rest of the pa
   therefore shows exactly one number, from that config and never a literal; `sms:` appears only on the Text us control
   (`ListingTextUsLink`) and never `tel:`; with no number configured Text us is not drawn and the page carries no number
   at all. Guard: `tests/unit/rent-web-channel.test.tsx`.
+  **Exception (captain, Nov 24: a managed home uses its own registered number):** the listing of a PropLane-managed
+  (`is_service`) workspace shows THAT workspace's own registered number on Text us, resolved by `resolveServiceLine`
+  (`resolveManagedListingTextPhone`; a managed workspace with no number of its own falls back to the PropLane line).
+  Self-serve listings and the homepage keep the configured PropLane line. Either way it is still the one number on
+  the page, only on the `sms:` Text us control, never `tel:`. Guard: `tests/unit/listing-text-us-managed-line.test.ts`.
 - **Guest tour and guest apply (captain, Nov 14: renters from Facebook, Zillow and Roomies book and apply with NO account).**
   *Tour:* `POST /api/public/partner-inquiries` accepts `kind:"tour"` with no session. It rate-limits per IP and per phone, re-derives the home
   from the database (`loadGuestTourListing`: a LIVE listing; the body never names an owner or a status), files through the one

@@ -291,7 +291,8 @@ export async function projectScheduleRecordsForViewer(
     /**
      * The viewer's ACTIVE workspace houses (`activeWorkspacePropertyScope`). `null`/absent = not narrowing. The shared
      * singleton containers hold every workspace's items under one row, so an item naming a house outside this set is
-     * dropped here, whatever the viewer's grants or seats would otherwise show.
+     * dropped here, whatever the viewer's grants or seats would otherwise show — except the viewer's own planned
+     * events: the planned-events save compares and replaces the viewer's whole slice, so all of it must be observed.
      */
     workspaceScope?: readonly string[] | null;
   } = {},
@@ -417,7 +418,7 @@ export async function projectScheduleRecordsForViewer(
       if (!admin && !manager) continue;
       const rowData = object(record.row_data) ?? {};
       const payload = recordPayload(record).flatMap((item) => {
-        if (outsideWorkspace(item)) return [];
+        if (outsideWorkspace(item) && !(sharedPlanned && itemManagerUserId(item) === user.id)) return [];
         const access = maySeeItem(
           item,
           sharedInquiries && text(item.status).toLowerCase() === "pending",

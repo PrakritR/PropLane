@@ -1,4 +1,5 @@
 import type { WorkOrderBid } from "@/lib/work-order-bids";
+import { registerWorkspaceCacheReset } from "@/lib/workspaces/workspace-cache-resets";
 
 export const WORK_ORDER_BIDS_EVENT = "axis:work-order-bids";
 const WORK_ORDER_BIDS_SESSION_KEY = "axis:work-order-bids:v1";
@@ -35,6 +36,13 @@ function emit() {
   if (!canUseStorage()) return;
   window.dispatchEvent(new Event(WORK_ORDER_BIDS_EVENT));
 }
+
+/** Workspace switch: drop the memory mirror so the next read rehydrates from the new workspace. */
+export function resetWorkOrderBidsClientCache(): void {
+  memoryBids = [];
+  emit();
+}
+registerWorkspaceCacheReset(resetWorkOrderBidsClientCache);
 
 /** Demo seed: overwrite local bid rows (no server mirror). */
 export function seedDemoWorkOrderBids(bids: WorkOrderBid[]): void {

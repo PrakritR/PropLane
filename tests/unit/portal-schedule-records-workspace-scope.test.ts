@@ -268,18 +268,31 @@ describe("GET /api/portal-schedule-records — shared singletons narrow by item,
     expect(await itemIds()).toEqual(["req-b1"]);
   });
 
-  it("narrows the planned-events container the same way", async () => {
+  // The planned-events save (`replace_manager_planned_schedule_slice`) compares the caller's WHOLE stored slice,
+  // every house and workspace, against what the browser observed — so the viewer's own items are never narrowed.
+  it("keeps the viewer's own planned events in every workspace so the whole-slice save still matches", async () => {
     state.scheduleRows = [
       singleton("axis_admin_planned_events_v1", "house-b1", [
         { id: "pl-a", propertyId: "house-a1", managerUserId: "owner-a" },
         { id: "pl-b", propertyId: "house-b1", managerUserId: "owner-a" },
       ]),
     ];
-    state.workspaceScope = ["house-b1"];
     const { GET } = await import("@/app/api/portal-schedule-records/route");
-    const body = (await (await GET()).json()) as { rows: { id: string; payload?: { id: string }[] }[] };
-    const planned = body.rows.find((r) => r.id === "axis_admin_planned_events_v1");
-    expect((planned?.payload ?? []).map((i) => i.id)).toEqual(["pl-b"]);
+    for (const scope of [["house-b1"], ["house-a1"]]) {
+      state.workspaceScope = scope;
+      const body = (await (await GET()).json()) as { rows: { id: string; payload?: { id: string }[] }[] };
+      const planned = body.rows.find((r) => r.id === "axis_admin_planned_events_v1");
+      expect((planned?.payload ?? []).map((i) => i.id).sort(), scope.join()).toEqual(["pl-a", "pl-b"]);
+    }
+  });
+
+  it("reads the active workspace once per GET", async () => {
+    state.scheduleRows = [event("ev-a", "house-a")];
+    state.workspaceScope = ["house-a"];
+    const { activeWorkspacePropertyScope } = await import("@/lib/workspaces/scope.server");
+    const { GET } = await import("@/app/api/portal-schedule-records/route");
+    await GET();
+    expect(vi.mocked(activeWorkspacePropertyScope)).toHaveBeenCalledTimes(1);
   });
 
   it("answers 503 (never an unfiltered 200) when the workspace cannot be resolved", async () => {

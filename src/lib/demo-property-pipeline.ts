@@ -21,6 +21,7 @@ import { listingBathroomCountForDisplay, listingSubmissionLocationLabel } from "
 import { parseRecordOfArrays } from "@/lib/safe-local-storage";
 import { PROPERTY_PIPELINE_EVENT, serverSyncOriginatedEvent } from "@/lib/property-pipeline-events";
 import { createCoalescedRefresher, type CoalescedRefresher } from "@/lib/coalesced-refresh";
+import { registerWorkspaceCacheReset } from "@/lib/workspaces/workspace-cache-resets";
 
 /** Admin-only / legacy listings not tied to a real manager auth user (demo localStorage bucket). */
 export const LEGACY_MANAGER_SCOPE_USER_ID = "__axis_legacy__";
@@ -491,6 +492,7 @@ export function resetPropertyPipelineClientCache(opts?: { preserveInflightViewer
     /* ignore */
   }
 }
+registerWorkspaceCacheReset(() => resetPropertyPipelineClientCache());
 
 /** How long the property-records request may take before the sync reports failure instead of hanging. */
 export const PROPERTY_PIPELINE_FETCH_TIMEOUT_MS = 15_000;

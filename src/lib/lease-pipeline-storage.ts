@@ -1,5 +1,6 @@
 import { shortStayPricingBlocker, type ShortStayPricingSubmission } from "@/lib/short-stay-pricing-gate";
 import { leaseRecipientEmailBlocker } from "@/lib/lease-send-recipient";
+import { registerWorkspaceCacheReset } from "@/lib/workspaces/workspace-cache-resets";
 /**
  * Unified manager / admin / resident lease workflow backed by Supabase records.
  * Buckets match UI tabs: manager → admin → resident → signed.
@@ -1472,6 +1473,22 @@ function ensureLeasePipelineScope(scopeUserId?: string | null) {
     hydrateSuppressedLeaseKeys(nextScope);
   }
 }
+
+/** Workspace switch: drop the memory mirror, suppressions, TTL and in-flight read so the next sync fetches the new workspace. */
+export function resetLeasePipelineClientCache(): void {
+  leaseScopeGeneration++;
+  leaseReadSucceeded = false;
+  memoryRows = [];
+  suppressedLeaseKeys = new Set();
+  leasePipelineLastSyncedAt = 0;
+  leasePipelineSyncPromise = null;
+  leasePipelineSyncPromiseScope = undefined;
+  leasePipelineLastServerIds = null;
+  approvalSeedSyncInFlight = new Set();
+  approvalSeedSyncAttempted = new Set();
+  emit();
+}
+registerWorkspaceCacheReset(resetLeasePipelineClientCache);
 
 if (typeof window !== "undefined") {
   onPortalSessionViewerChange((viewerId) => {

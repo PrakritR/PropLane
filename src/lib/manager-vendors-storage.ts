@@ -4,6 +4,7 @@ import type { VendorCheckIn } from "@/lib/vendor-check-ins";
 import type { VendorDocumentRecord } from "@/lib/vendor-documents";
 import type { VendorChannel, VendorMessaging } from "@/lib/vendor-messaging";
 import type { VendorDispatchFields } from "@/lib/vendor-dispatch/vendor-roles";
+import { registerWorkspaceCacheReset } from "@/lib/workspaces/workspace-cache-resets";
 
 export type ManagerVendorRow = {
   id: string;
@@ -223,6 +224,15 @@ function deleteVendorFromServer(id: string) {
     body: JSON.stringify({ action: "delete", id }),
   }).catch(() => undefined);
 }
+
+/** Workspace switch: drop the memory mirror, TTL and in-flight read so the next sync fetches the new workspace. */
+export function resetManagerVendorsClientCache(): void {
+  memoryRows = [];
+  managerVendorsLastSyncedAt = 0;
+  managerVendorsSyncPromise = null;
+  emit();
+}
+registerWorkspaceCacheReset(resetManagerVendorsClientCache);
 
 export function makeVendorId(): string {
   // crypto, not Math.random: the id becomes the vendor record key the portal

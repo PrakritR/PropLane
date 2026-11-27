@@ -7,6 +7,7 @@ import { logDemoOutboundEmail } from "@/lib/demo-outbound-mail";
 import { notePortalResponse, portalSessionEnded } from "@/lib/auth/portal-session-gate";
 import type { TourGuestNotification } from "@/lib/tour-planned-change.client";
 import { createCoalescedRefresher } from "@/lib/coalesced-refresh";
+import { registerWorkspaceCacheReset } from "@/lib/workspaces/workspace-cache-resets";
 
 const AVAIL_KEY = "axis_admin_avail_slots_v1";
 /** Per calendar date (local `YYYY-MM-DD`) + half-hour slot — supports future weeks. */
@@ -839,6 +840,7 @@ export function resetScheduleClientCache(): void {
   plannedScheduleState.observedRows = [];
   plannedScheduleState.serverEpoch += 1;
 }
+registerWorkspaceCacheReset(resetScheduleClientCache);
 
 export function readPartnerInquiries(): PartnerInquiry[] {
   const rows = readJson<PartnerInquiry[] | null>(INQ_KEY, null);

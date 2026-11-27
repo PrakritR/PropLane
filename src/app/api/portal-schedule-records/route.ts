@@ -66,6 +66,21 @@ function isServerOwnedScheduleRecord(record: Record<string, unknown>): boolean {
   return String(record.id ?? "").trim().startsWith(SERVER_OWNED_SCHEDULE_RECORD_ID_PREFIX);
 }
 
+/** One active-workspace read per GET: `readRecords` and `projectRead` receive the same per-request user object. */
+const workspaceScopeByRequestUser = new WeakMap<object, Promise<string[] | null>>();
+
+function requestWorkspaceScope(
+  db: Parameters<typeof activeWorkspacePropertyScope>[0],
+  user: { id: string },
+): Promise<string[] | null> {
+  let scope = workspaceScopeByRequestUser.get(user);
+  if (!scope) {
+    scope = activeWorkspacePropertyScope(db, user.id);
+    workspaceScopeByRequestUser.set(user, scope);
+  }
+  return scope;
+}
+
 type RoomDateBlockRow = { id?: unknown; row_data?: unknown };
 
 function isRoomDateBlockRecordType(recordType: string): boolean {
@@ -450,7 +465,7 @@ const route = createJsonRecordRoute({
     let workspaceScope: string[] | null = null;
     if (isManagerViewer) {
       try {
-        workspaceScope = await activeWorkspacePropertyScope(db, user.id);
+        workspaceScope = await requestWorkspaceScope(db, user);
       } catch (error) {
         // Fail closed: a workspace we cannot resolve is an error (the client keeps its cache), never "show everything".
         if (!isWorkspaceScopeUnavailable(error)) throw error;
@@ -602,7 +617,7 @@ const route = createJsonRecordRoute({
   },
   projectRead: async ({ db, user, records }) => {
     const isManagerViewer = !scheduleUserHasRole(user, "admin") && !scheduleUserHasRole(user, "vendor");
-    const workspaceScope = isManagerViewer ? await activeWorkspacePropertyScope(db, user.id) : null;
+    const workspaceScope = isManagerViewer ? await requestWorkspaceScope(db, user) : null;
     const projected = await projectScheduleRecordsForViewer(db, user, records, { throwOnError: true, workspaceScope });
     // Service staff also see the open workspace's room blocks (the projection above keeps only rows the
     // viewer wrote or may see through a grant). Only room-block rows of the workspace's own houses, only staff.

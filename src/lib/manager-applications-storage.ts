@@ -37,6 +37,7 @@ import {
   parseSkippedApplicationTargets,
   type SkippedApplicationTarget,
 } from "@/lib/rental-application/skipped-application-target";
+import { registerWorkspaceCacheReset } from "@/lib/workspaces/workspace-cache-resets";
 
 export { MANAGER_APPLICATIONS_EVENT };
 const MANAGER_APPLICATIONS_SESSION_KEY_PREFIX = "axis:manager-applications:v2";
@@ -182,6 +183,24 @@ if (typeof window !== "undefined") {
     managerApplicationsSyncPromise = null;
   });
 }
+
+/**
+ * Workspace switch: drop the TTL, in-flight read and the previous workspace's read evidence so the next sync is a
+ * fresh read of the new workspace. The rows stay (see the workspace listener above): an unconfirmed row is never
+ * evicted.
+ */
+export function resetManagerApplicationsClientCache(): void {
+  confirmedApplicationIds = new Set();
+  confirmedApplicationsWorkspaceId = null;
+  applicationsReadSucceeded = false;
+  applicationsReadWasComplete = false;
+  applicationsReadSkippedCount = 0;
+  applicationsReadGeneration++;
+  managerApplicationsLastSyncedAt = 0;
+  managerApplicationsSuccessfulServerSyncAt = 0;
+  managerApplicationsSyncPromise = null;
+}
+registerWorkspaceCacheReset(resetManagerApplicationsClientCache);
 
 export function normalizeApplicationAxisId(id: unknown): string {
   const raw = typeof id === "string" ? id.trim() : "";

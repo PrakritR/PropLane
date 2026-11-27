@@ -21,7 +21,7 @@ import {
   applicationFeeWaiverExplanation,
 } from "@/lib/rental-application/application-fee-display";
 import { ApplyFieldRow } from "@/app/(rent)/rent/apply/apply-field-row";
-import { GROUP_SIZE_MAX, GROUP_SIZE_MIN, normalizeGroupSize } from "@/app/(rent)/rent/apply/apply-validation";
+import { GROUP_SIZE_MAX, GROUP_SIZE_MIN, normalizeGroupSize, ssnFieldLabel } from "@/app/(rent)/rent/apply/apply-validation";
 import {
   APPLY_ROOM_AVAILABILITY_UNKNOWN,
   LEASE_TERM_CHOICES,
@@ -1538,7 +1538,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
         case "dateOfBirth":
           return gate(<><Label htmlFor="dateOfBirth" required={field.required}>{field.label.trim() === "Date of birth" ? "Date of birth (for screening)" : field.label}</Label><DateField id="dateOfBirth" value={form.dateOfBirth} onChange={(next) => patch({ dateOfBirth: next })} className={errors.dateOfBirth ? "border-red-400 ring-2 ring-red-100" : ""} /><FieldError msg={errors.dateOfBirth} /></>);
         case "ssn":
-          return gate(<><Label htmlFor="ssn" required={field.required}>{field.label}</Label><Input id="ssn" inputMode="numeric" autoComplete="off" value={form.ssn} onChange={(e) => p.setSsn(e.target.value)} placeholder="###-##-####" className={errors.ssn ? "border-red-400 ring-2 ring-red-100" : ""} /><FieldError msg={errors.ssn} /></>);
+          return gate(<><Label htmlFor="ssn" required={field.required}>{ssnFieldLabel(field.label)}</Label><Input id="ssn" inputMode="numeric" autoComplete="off" value={form.ssn} onChange={(e) => p.setSsn(e.target.value)} placeholder="###-##-####" className={errors.ssn ? "border-red-400 ring-2 ring-red-100" : ""} /><FieldError msg={errors.ssn} /></>);
         case "driversLicense":
           return gate(<><Label htmlFor="driversLicense" required={field.required}>{field.label}</Label><Input id="driversLicense" value={form.driversLicense} onChange={(e) => patch({ driversLicense: e.target.value })} className={errors.driversLicense ? "border-red-400 ring-2 ring-red-100" : ""} /><FieldError msg={errors.driversLicense} /></>);
         case "phone":
@@ -2267,7 +2267,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
             {showWizardField("phone") ? <ReviewRow k="Phone" v={displayOrDash(form.phone)} /> : null}
             {showWizardField("email") ? <ReviewRow k="Email" v={displayOrDash(form.email)} /> : null}
             {showWizardField("dateOfBirth") ? <ReviewRow k="Date of birth" v={displayOrDash(form.dateOfBirth)} /> : null}
-            {showWizardField("ssn") ? <ReviewRow k="SSN" v={maskSsnReview(form.ssn)} /> : null}
+            {showWizardField("ssn") ? <ReviewRow k="SSN or ITIN" v={maskSsnReview(form.ssn)} /> : null}
             {showWizardField("driversLicense") ? <ReviewRow k="ID number" v={displayOrDash(form.driversLicense)} /> : null}
           </ReviewSection>
           ) : null}

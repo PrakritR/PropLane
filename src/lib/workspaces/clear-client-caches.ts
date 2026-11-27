@@ -1,5 +1,4 @@
-import { resetPropertyPipelineClientCache } from "@/lib/demo-property-pipeline";
-import { resetScheduleClientCache } from "@/lib/demo-admin-scheduling";
+import { runWorkspaceCacheResets } from "@/lib/workspaces/workspace-cache-resets";
 
 /**
  * sessionStorage record caches that are NOT keyed by workspace. A workspace switch (a full navigation for service
@@ -33,12 +32,6 @@ export function clearWorkspaceScopedClientCaches(): number {
   if (typeof window === "undefined") return 0;
   let removed = 0;
   try {
-    resetScheduleClientCache();
-    resetPropertyPipelineClientCache();
-  } catch {
-    /* the storage sweep below still runs */
-  }
-  try {
     for (const key of Object.keys(window.sessionStorage)) {
       if (!WORKSPACE_SCOPED_SESSION_PREFIXES.some((prefix) => key.startsWith(prefix))) continue;
       window.sessionStorage.removeItem(key);
@@ -56,5 +49,6 @@ export function clearWorkspaceScopedClientCaches(): number {
   } catch {
     /* blocked storage */
   }
+  runWorkspaceCacheResets();
   return removed;
 }

@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * one's tours and houses. Every switch wipes them before navigating.
  */
 
-vi.mock("@/lib/auth/fetch-with-timeout", () => ({
+vi.mock("@/lib/auth/fetch-with-timeout", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/fetch-with-timeout")>()),
   fetchWithTimeout: vi.fn(async (url: string) =>
     new Response(JSON.stringify(url.includes("service-workspaces") ? { href: "/portal/dashboard" } : {}), { status: 200 }),
   ),
@@ -16,6 +17,13 @@ vi.mock("@/lib/auth/fetch-with-timeout", () => ({
 import { readPartnerInquiries, resetScheduleClientCache } from "@/lib/demo-admin-scheduling";
 import { clearWorkspaceScopedClientCaches } from "@/lib/workspaces/clear-client-caches";
 import { openServiceWorkspace, switchToPropertyPortal } from "@/lib/service/open-service-workspace";
+import { readManagerWorkOrderRows, syncManagerWorkOrdersFromServer } from "@/lib/manager-work-orders-storage";
+import { readManagerPromotionRows, syncManagerPromotionsFromServer } from "@/lib/manager-promotions-storage";
+import {
+  readAllServiceRequests,
+  serviceRequestsLastReadSucceeded,
+  syncServiceRequestsFromServer,
+} from "@/lib/service-requests-storage";
 
 const ambikaInquiry = { id: "req-a1", propertyId: "house-a", name: "Ambika's prospect", status: "pending" };
 
@@ -84,5 +92,53 @@ describe("workspace switch clears workspace-scoped caches", () => {
     vi.mocked(fetchWithTimeout).mockResolvedValueOnce(new Response("{}", { status: 500 }));
     expect(await openServiceWorkspace("ws-vinod", vi.fn())).not.toBeNull();
     expect(window.sessionStorage.getItem("axis:manager-work-orders:v1")).not.toBeNull();
+  });
+});
+
+// A client-side switch (the switcher's router.push) keeps every module's memory mirror. A sync inside the 15s TTL
+// answered from that mirror, so workspace B drew A's rows. After the clear, the next sync must hit the server.
+describe("workspace switch resets in-memory store mirrors", () => {
+  const rowsFetch = (rows: unknown[]) =>
+    vi.fn(async () => new Response(JSON.stringify({ rows }), { status: 200, headers: { "Content-Type": "application/json" } }));
+  beforeEach(() => window.history.replaceState(null, "", "/portal/dashboard"));
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("work orders: memory is empty after the switch and the next sync refetches inside the TTL", async () => {
+    const first = rowsFetch([{ id: "wo-a" }]);
+    vi.stubGlobal("fetch", first);
+    expect((await syncManagerWorkOrdersFromServer()).map((r) => r.id)).toEqual(["wo-a"]);
+    clearWorkspaceScopedClientCaches();
+    expect(readManagerWorkOrderRows()).toEqual([]);
+    const second = rowsFetch([{ id: "wo-b" }]);
+    vi.stubGlobal("fetch", second);
+    expect((await syncManagerWorkOrdersFromServer()).map((r) => r.id)).toEqual(["wo-b"]);
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it("promotions: the next sync refetches inside the TTL", async () => {
+    vi.stubGlobal("fetch", rowsFetch([{ id: "promo-a" }]));
+    await syncManagerPromotionsFromServer();
+    clearWorkspaceScopedClientCaches();
+    expect(readManagerPromotionRows()).toEqual([]);
+    const second = rowsFetch([{ id: "promo-b" }]);
+    vi.stubGlobal("fetch", second);
+    expect((await syncManagerPromotionsFromServer()).map((r) => r.id)).toEqual(["promo-b"]);
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it("service requests: a sync after the switch reads the server, never reports the wiped cache as a good read", async () => {
+    vi.stubGlobal("fetch", rowsFetch([{ id: "SR-a" }]));
+    await syncServiceRequestsFromServer();
+    clearWorkspaceScopedClientCaches();
+    expect(readAllServiceRequests()).toEqual([]);
+    expect(serviceRequestsLastReadSucceeded()).toBe(false);
+    const second = vi.fn(async () => new Response("{}", { status: 500 }));
+    vi.stubGlobal("fetch", second);
+    await syncServiceRequestsFromServer();
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(serviceRequestsLastReadSucceeded()).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { selectedWorkspaceId } from "@/lib/workspaces/selection";
 import { fetchManagerTimeSuggestion } from "@/lib/manager-schedule-suggest.client";
 import type { WorkAssignee } from "@/lib/work-assignment";
 import {
@@ -12,6 +13,7 @@ import {
   updateHouseholdChargeAmount,
 } from "@/lib/household-charges";
 import { getPropertyById } from "@/lib/rental-application/data";
+import { registerWorkspaceCacheReset } from "@/lib/workspaces/workspace-cache-resets";
 
 export const SERVICE_REQUESTS_EVENT = "axis:service-requests";
 const KEY = "axis_service_requests_v1";
@@ -243,8 +245,18 @@ function deleteServiceRequestFromServer(id: string): void {
 function serviceRequestsScopeKey(): string {
   const portal = document.cookie.split(";").map((part) => part.trim())
     .find((part) => part.startsWith("axis_active_portal=")) ?? "";
-  return JSON.stringify([portalSessionViewerId(), portal]);
+  return JSON.stringify([portalSessionViewerId(), portal, selectedWorkspaceId()]);
 }
+
+/** Workspace switch: drop the TTL, read verdict and in-flight read so the next sync fetches the new workspace. */
+export function resetServiceRequestsClientCache(): void {
+  serviceRequestsReadScope = "";
+  serviceRequestsReadGeneration++;
+  serviceRequestsLastSyncedAt = 0;
+  serviceRequestsLastReadOk = false;
+  serviceRequestsSyncPromise = null;
+}
+registerWorkspaceCacheReset(resetServiceRequestsClientCache);
 
 export async function syncServiceRequestsFromServer(opts?: { force?: boolean }): Promise<ServiceRequest[]> {
   if (typeof window === "undefined") return [];

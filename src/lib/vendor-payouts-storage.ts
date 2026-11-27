@@ -1,4 +1,5 @@
 import type { VendorPayout } from "@/lib/vendor-payouts";
+import { registerWorkspaceCacheReset } from "@/lib/workspaces/workspace-cache-resets";
 
 export const VENDOR_PAYOUTS_EVENT = "axis:vendor-payouts";
 const VENDOR_PAYOUTS_SESSION_KEY = "axis:vendor-payouts:v1";
@@ -35,6 +36,13 @@ function emit() {
   if (!canUseStorage()) return;
   window.dispatchEvent(new Event(VENDOR_PAYOUTS_EVENT));
 }
+
+/** Workspace switch: drop the memory mirror so the next read rehydrates from the new workspace. */
+export function resetVendorPayoutsClientCache(): void {
+  memoryPayouts = [];
+  emit();
+}
+registerWorkspaceCacheReset(resetVendorPayoutsClientCache);
 
 /** Demo seed: overwrite local payout rows (no server mirror). */
 export function seedDemoVendorPayouts(payouts: VendorPayout[]): void {

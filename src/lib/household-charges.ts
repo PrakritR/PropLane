@@ -105,6 +105,7 @@ import {
 import { formatChargeMoneyLabel, humanizeChargeDate } from "@/lib/charge-due-label";
 import { notePortalResponse, portalSessionEnded, portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import { WORKSPACE_SELECTION_EVENT, selectedWorkspaceId } from "@/lib/workspaces/selection";
+import { registerWorkspaceCacheReset } from "@/lib/workspaces/workspace-cache-resets";
 
 export const HOUSEHOLD_CHARGES_EVENT = "axis:household-charges";
 
@@ -502,6 +503,22 @@ export type RecurringRentProfile = {
 function isBrowser() {
   return typeof window !== "undefined";
 }
+
+/**
+ * Workspace switch: drop the TTL, in-flight reads and the incremental watermark so the next sync is a full read of
+ * the new workspace. The cached rows stay (see the workspace listener below): a row the server never confirmed is
+ * never evicted.
+ */
+export function resetHouseholdChargesClientCache(): void {
+  householdChargesLastSyncedAt = 0;
+  householdLastFullReadOk = false;
+  householdChargesSyncPromise = null;
+  householdChargesRefreshers.clear();
+  billingSnapshotRefreshers.clear();
+  householdSyncMark = null;
+  householdForceFullSyncPending = true;
+}
+registerWorkspaceCacheReset(resetHouseholdChargesClientCache);
 
 function registerConfirmedIdsWorkspaceListener() {
   if (confirmedIdsWorkspaceListenerRegistered || !isBrowser()) return;

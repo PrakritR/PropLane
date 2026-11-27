@@ -16,6 +16,7 @@ import {
   validateMoney,
   validatePhone10,
   validateRequired,
+  ssnFieldLabel,
   validateSsn,
 } from "./apply-validation";
 import { ApplyFieldRow } from "./apply-field-row";
@@ -288,7 +289,7 @@ export function CosignerApplyFlow({
     { key: "email", label: "Email", value: f.email },
     { key: "phone", label: "Phone number", value: f.phone },
     { key: "dateOfBirth", label: "Date of birth", value: f.dob },
-    { key: "ssn", label: "Social Security number", value: f.ssn ? `•••-••-${f.ssn.replace(/\D/g, "").slice(-4)}` : "" },
+    { key: "ssn", label: "SSN or ITIN", value: f.ssn ? `•••-••-${f.ssn.replace(/\D/g, "").slice(-4)}` : "" },
     ...(!f.notEmployed ? [
       { key: "employer", label: "Employer name", value: f.employerName },
       { key: "jobTitle", label: "Job title", value: f.jobTitle },
@@ -693,7 +694,7 @@ export function CosignerApplyFlow({
                   className={err("dob")}
                 />
               </Field> : null}
-              {shown("ssn") ? <Field fieldKey="ssn" label={builtIn("personal-social-security-number")?.label ?? "Social Security #"} optional={!required("ssn")} error={fieldErrors.ssn}>
+              {shown("ssn") ? <Field fieldKey="ssn" label={ssnFieldLabel(builtIn("personal-social-security-number")?.label)} optional={!required("ssn")} error={fieldErrors.ssn}>
                 <Input
                   value={f.ssn}
                   onChange={(e) => {

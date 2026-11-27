@@ -1,6 +1,7 @@
 import { smsNoticeIdentity } from "@/lib/sms-inbox-identity";
 import type { InboxMessageDelivery } from "@/lib/inbox-delivery-status";
 import { sharedGet, writeThroughFetch } from "@/lib/shared-get-cache";
+import { registerWorkspaceCacheReset } from "@/lib/workspaces/workspace-cache-resets";
 
 /** The list route, as `sharedGet` keys it (every scope starts with this). */
 const INBOX_THREADS_URL = "/api/portal-inbox-threads";
@@ -356,6 +357,12 @@ function purgeInboxCaches(): void {
     /* ignore */
   }
 }
+
+/** Workspace switch: drop every memory mirror, TTL stamp and in-flight read. */
+export function resetPortalInboxClientCache(): void {
+  purgeInboxCaches();
+}
+registerWorkspaceCacheReset(resetPortalInboxClientCache);
 
 if (typeof window !== "undefined") {
   onPortalSessionViewerChange(() => {

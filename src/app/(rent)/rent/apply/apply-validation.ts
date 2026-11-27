@@ -33,28 +33,47 @@ export function validateStateAbbrev(st: string): { ok: true } | { ok: false; mes
   return { ok: true };
 }
 
+const DEFAULT_SSN_FIELD_LABEL = "Social Security number";
+
+/** The applicant-facing label for the SSN field: the catalog default reads "SSN or ITIN"; a manager's own label stands. */
+export function ssnFieldLabel(label: string | null | undefined): string {
+  const t = label?.trim();
+  return !t || t === DEFAULT_SSN_FIELD_LABEL ? "SSN or ITIN" : t;
+}
+
 export function validateSsn(ssn: string): { ok: true } | { ok: false; message: string } {
   const d = digitsOnly(ssn);
-  if (d.length !== 9) return { ok: false, message: "Social Security number must be exactly 9 digits." };
-  if (!isPlausibleSsn(d)) return { ok: false, message: "Enter a valid Social Security number." };
+  if (d.length !== 9) return { ok: false, message: "SSN or ITIN must be exactly 9 digits." };
+  if (!isPlausibleSsn(d)) return { ok: false, message: "Enter a valid SSN or ITIN." };
   return { ok: true };
 }
 
 const OBVIOUS_FAKE_SSNS = new Set(["123456789", "987654321", "123121234", "111223333", "078051120", "219099999", "457555462"]);
 
 /**
- * Format rules the SSA has never issued: area 000, 666 or 9xx; group 00; serial 0000. Also the well-known
- * placeholders (123-45-6789, 987-65-4321, the Woolworth wallet number) and any run of one repeated digit.
+ * Format rules the SSA has never issued: area 000 or 666; group 00; serial 0000. Area 9xx is the IRS's: an ITIN
+ * (group 50-65, 70-88, 90-92 or 94-99) is accepted, any other 9xx is not. Also the well-known placeholders
+ * (123-45-6789, 987-65-4321, the Woolworth wallet number) and any run of one repeated digit.
  * Format only: it never says a number is real, and nothing here stores it.
  */
 export function isPlausibleSsn(nineDigits: string): boolean {
   if (!/^\d{9}$/.test(nineDigits)) return false;
   const area = nineDigits.slice(0, 3);
-  if (area === "000" || area === "666" || area.startsWith("9")) return false;
+  if (area === "000" || area === "666") return false;
+  if (area.startsWith("9") && !isItinGroup(Number(nineDigits.slice(3, 5)))) return false;
   if (nineDigits.slice(3, 5) === "00" || nineDigits.slice(5) === "0000") return false;
   if (/^(\d)\1{8}$/.test(nineDigits)) return false;
   if (OBVIOUS_FAKE_SSNS.has(nineDigits)) return false;
   return true;
+}
+
+function isItinGroup(group: number): boolean {
+  return (
+    (group >= 50 && group <= 65) ||
+    (group >= 70 && group <= 88) ||
+    (group >= 90 && group <= 92) ||
+    (group >= 94 && group <= 99)
+  );
 }
 
 export function validatePhone10(phone: string): { ok: true } | { ok: false; message: string } {

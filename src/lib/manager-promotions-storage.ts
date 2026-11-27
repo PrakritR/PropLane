@@ -17,6 +17,7 @@ import {
   type PromotionTextCopy,
   type PromotionTextFormat,
 } from "@/lib/promotion-text";
+import { registerWorkspaceCacheReset } from "@/lib/workspaces/workspace-cache-resets";
 
 export type { ManagerPromotionRow } from "@/lib/promotion-flyer";
 
@@ -82,6 +83,15 @@ function deleteFromServer(id: string) {
     body: JSON.stringify({ action: "delete", id }),
   }).catch(() => undefined);
 }
+
+/** Workspace switch: drop the memory mirror, TTL and in-flight read so the next sync fetches the new workspace. */
+export function resetManagerPromotionsClientCache(): void {
+  memoryRows = [];
+  lastSyncedAt = 0;
+  syncPromise = null;
+  emit();
+}
+registerWorkspaceCacheReset(resetManagerPromotionsClientCache);
 
 export function makePromotionId(): string {
   return `promo-${crypto.randomUUID()}`;

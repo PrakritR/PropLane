@@ -15,6 +15,7 @@ import {
   type ManagerPayee,
 } from "@/lib/manager-payees";
 import { serviceIsVendorPayable } from "@/lib/work-order-bid-cycle";
+import { registerWorkspaceCacheReset } from "@/lib/workspaces/workspace-cache-resets";
 
 export type ManagerExpenseSnapshot = {
   id: string;
@@ -65,6 +66,13 @@ onPortalSessionViewerChange(() => {
   viewerGeneration += 1;
   caches.clear();
 });
+/** Workspace switch: drop every memory cache and in-flight read so the next sync fetches the new workspace. */
+export function resetManagerOutgoingPaymentsClientCache(): void {
+  viewerGeneration += 1;
+  caches.clear();
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(MANAGER_OUTGOING_PAYMENTS_EVENT));
+}
+registerWorkspaceCacheReset(resetManagerOutgoingPaymentsClientCache);
 function viewerKey(): string | null {
   return isDemoModeActive() ? "demo" : portalSessionViewerId();
 }
