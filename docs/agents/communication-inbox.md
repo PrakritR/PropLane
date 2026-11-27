@@ -699,7 +699,7 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   residency with that owner (`emailThreadHouses`, every house kept). Owner
   scope in the store query only pre-narrows; it is never the answer. Every
   lookup degrades safely: a failed grant read shares nothing, a failed
-  workspace read narrows nothing. **A manager's inbox never includes another
+  workspace read closes the scope (an empty inbox until it succeeds). **A manager's inbox never includes another
   owner's thread just because the manager is the person it was sent to** —
   the `participant_email` clause covers legacy owner-less rows only
   (`participantOnlyWhenUnowned`). Coverage:

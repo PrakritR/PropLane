@@ -483,8 +483,10 @@ library tables, `resolveManagerWorkspaceRowScope` with
 `workspaceRowFilterClause` (`co-manager-module-scope.ts`) for the owned+linked
 merge, and `activeWorkspacePropertyScope`
 (`src/lib/workspaces/scope.server.ts`) for property-id lists. `null` means do
-not narrow (no workspace, or the load failed — a scope that cannot be read
-narrows nothing and widens nothing); an EMPTY ARRAY is a real answer, not "no
+not narrow (the viewer has no workspace at all); a workspace load that FAILS
+throws `WorkspaceScopeUnavailableError` (`src/lib/workspaces/scope-unavailable.ts`)
+and the route answers 503 — an unreadable scope is never "do not narrow"
+(`tests/unit/workspace-scope-fail-closed.test.ts`); an EMPTY ARRAY is a real answer, not "no
 filter"; a row tied to NO house is visible only when the active workspace is
 the viewer's own default. **One workspace narrows exactly like several** — the
 account still reaches another owner's houses through a grant, so "a single
