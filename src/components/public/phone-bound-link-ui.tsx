@@ -226,7 +226,7 @@ function totalLabel(charges: RentLinkCharge[]): string | null {
 }
 
 /** Pay the charge(s) a rent link names, by card. The amount comes from the live charge, never the page. */
-export function RentLinkCard({ token, charges }: { token: string; charges: RentLinkCharge[] }) {
+export function RentLinkCard({ token, charges, cardOnly = false }: { token: string; charges: RentLinkCharge[]; cardOnly?: boolean }) {
   const [error, setError] = useState("");
   const [signInHref, setSignInHref] = useState("");
   const [clientSecret, setClientSecret] = useState("");
@@ -309,9 +309,11 @@ export function RentLinkCard({ token, charges }: { token: string; charges: RentL
           <DoorButton dataAttr="phone-link-pay" onClick={pay}>
             {total ? `Pay ${total}` : "Pay"}
           </DoorButton>
-          <DoorButton tone="text" dataAttr="phone-link-pay-bank" onClick={payByBank}>
-            Pay from bank
-          </DoorButton>
+          {cardOnly ? null : (
+            <DoorButton tone="text" dataAttr="phone-link-pay-bank" onClick={payByBank}>
+              Pay from bank
+            </DoorButton>
+          )}
         </>
       )}
       {error ? (

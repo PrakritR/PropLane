@@ -78,7 +78,7 @@ export default async function PhoneBoundLinkPage({
     case "rent":
       // Back from Stripe: show the outcome, not the Pay button, while the webhook settles the charge.
       if (query.ach_checkout === "success") return <LinkMessageView title="Payment received" line="You can close this page." />;
-      return <RentLinkCard token={token} charges={destination.charges} />;
+      return <RentLinkCard token={token} charges={destination.charges} cardOnly={destination.accountless === true} />;
     case "paid":
       await markPhoneBoundLinkUsed(db, link.id);
       return <LinkMessageView title="Payment received" line="You can close this page." />;

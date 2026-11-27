@@ -12,6 +12,7 @@ import { openPersonalAccountLink } from "@/lib/personal-link/open.server";
 import { createServiceShareLink } from "@/lib/service-share-links.server";
 import { buildServiceShareUrl } from "@/lib/service-share-links.server";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
+import { accountlessResidentPhoneMatches, isDeletedResidentEmail } from "@/lib/payments/accountless-resident-phone.server";
 
 /**
  * Where a verified (or no-code) phone-bound link leads. The link row names a target, never a URL:
@@ -31,8 +32,13 @@ export type LinkDestination =
    * there instead of asking for a second sign-in.
    */
   | { kind: "portal"; href: string; directHref?: string; signedInAs?: string }
-  /** The rent page: charges the resident can pay by card from here (a part-paid charge shows what is still owed). */
-  | { kind: "rent"; chargeIds: string[]; charges: RentChargeView[]; residentUserId: string; residentEmail: string }
+  /**
+   * The rent page: charges the resident can pay by card from here (a part-paid charge shows what is still owed).
+   * `accountless` marks a resident with no PropLane login (an imported resident): `residentUserId` is then "" and
+   * the phone was matched against the manager's lease record instead of an account. Such a link pays by card only
+   * (a bank debit needs the resident's own account to verify and track it).
+   */
+  | { kind: "rent"; chargeIds: string[]; charges: RentChargeView[]; residentUserId: string; residentEmail: string; accountless?: true }
   /** Everything linked here is already paid. */
   | { kind: "paid" }
   /** A bank debit is clearing and nothing else is payable: the link stays open to show its status. */
@@ -173,10 +179,13 @@ async function rentDestination(db: SupabaseClient, link: PhoneBoundLink): Promis
   let processing = 0;
   let residentUserId = "";
   let residentEmail = "";
+  // Every charge on one link is either an account's or a login-less resident's, never a mix.
+  let accountless: boolean | null = null;
+  let accountlessScope: { managerUserId: string; propertyId: string } | null = null;
   for (const id of ids) {
     const { data, error } = await db
       .from("portal_household_charge_records")
-      .select("id, row_data, status")
+      .select("id, row_data, status, resident_user_id, manager_user_id")
       .eq("id", id)
       .maybeSingle();
     if (error || !data) return GONE;
@@ -185,10 +194,24 @@ async function rentDestination(db: SupabaseClient, link: PhoneBoundLink): Promis
     // The charge must belong to the workspace the link was issued from, and to the person whose
     // phone this is: a link for one resident's rent never opens another's.
     if (!(await propertyBelongsToWorkspace(db, str(charge.propertyId), link.workspaceId))) return GONE;
-    const owner = str(charge.residentUserId);
-    if (!owner || (residentUserId && owner !== residentUserId)) return GONE;
+    const owner = str(charge.residentUserId) || str((data as Row).resident_user_id);
+    const email = str(charge.residentEmail).toLowerCase();
+    const isAccountless = !owner;
+    if (accountless !== null && accountless !== isAccountless) return GONE;
+    accountless = isAccountless;
+    if (isAccountless) {
+      // No login: the resident is the address on the charge, and the house + manager must match across the link.
+      const managerUserId = str((data as Row).manager_user_id) || str(charge.managerUserId);
+      const propertyId = str(charge.propertyId);
+      if (!email || isDeletedResidentEmail(email) || !managerUserId || !propertyId) return GONE;
+      if (residentEmail && email !== residentEmail) return GONE;
+      if (accountlessScope && (accountlessScope.managerUserId !== managerUserId || accountlessScope.propertyId !== propertyId)) return GONE;
+      accountlessScope = { managerUserId, propertyId };
+    } else if (residentUserId && owner !== residentUserId) {
+      return GONE;
+    }
     residentUserId = owner;
-    residentEmail = str(charge.residentEmail).toLowerCase();
+    residentEmail = email;
     const status = str((data as Row).status) || str(charge.status);
     if (status === "paid") {
       paid += 1;
@@ -209,13 +232,24 @@ async function rentDestination(db: SupabaseClient, link: PhoneBoundLink): Promis
       propertyLabel: str(charge.propertyLabel),
     });
   }
-  // The phone on the resident's account moved on: this link, texted to the old number, must not pay or
-  // show anything. The person is told to ask for a new one (their old number cannot be told anything else).
-  if (!(await residentPhoneMatches(db, residentUserId, link.phoneKey))) return { kind: "phone_changed" };
+  // The phone on file moved on: this link, texted to the old number, must not pay or show anything. The person is
+  // told to ask for a new one (their old number cannot be told anything else). With an account that is the account's
+  // verified phone; without one, the phone the manager keeps on the resident's lease.
+  const phoneOk = accountless && accountlessScope
+    ? await accountlessResidentPhoneMatches(db, { ...accountlessScope, residentEmail }, link.phoneKey)
+    : await residentPhoneMatches(db, residentUserId, link.phoneKey);
+  if (!phoneOk) return { kind: "phone_changed" };
   if (charges.length === 0 && processing > 0) return { kind: "processing" };
   if (charges.length === 0 && paid > 0) return { kind: "paid" };
   if (charges.length === 0) return GONE;
-  return { kind: "rent", chargeIds: charges.map((c) => c.id), charges, residentUserId, residentEmail };
+  return {
+    kind: "rent",
+    chargeIds: charges.map((c) => c.id),
+    charges,
+    residentUserId,
+    residentEmail,
+    ...(accountless ? { accountless: true as const } : {}),
+  };
 }
 
 /**
