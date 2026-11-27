@@ -318,6 +318,65 @@ describe("deliverPaymentReminder", () => {
     expect(vi.mocked(deliverPortalMessageThreadSide).mock.calls[0]![1].body).toContain("/resident/");
   });
 
+  describe("three ways, no email on file, one account-setup line", () => {
+    function dbWithProfile(profile: Record<string, unknown> | null) {
+      const upsert = vi.fn().mockResolvedValue({ error: null });
+      const maybeSingle = vi.fn().mockResolvedValue({ data: profile });
+      return { from: vi.fn().mockImplementation((table: string) => (table === "profiles" ? { select: () => ({ eq: () => ({ maybeSingle }) }) } : { upsert })) };
+    }
+    const send = (db: unknown, charge: HouseholdCharge) =>
+      deliverPaymentReminder({
+        db: db as never,
+        charge,
+        managerId: "mgr-1",
+        dedupId: "payment_reminder_three_ways",
+        managerName: "Manager",
+        apiKey: "test-key",
+        from: "PropLane <test@example.com>",
+        subject: "Rent due",
+        text: "Your July rent is due.",
+        html: "<p>test</p>",
+        slotLabel: "due_date",
+      });
+
+    it("skips the email for a placeholder address, and still writes the portal inbox and the manager's sent copy", async () => {
+      const result = await send(dbWithProfile(null), makeCharge({ residentEmail: "maya-chen-ab12cd34@import.proplane.local", residentUserId: undefined }));
+      expect(fetch).not.toHaveBeenCalled();
+      const sides = vi.mocked(deliverPortalMessageThreadSide).mock.calls.map((c) => c[1]);
+      expect(sides.map((side) => `${side.scope}:${side.folder}`)).toEqual(["axis_portal_inbox_resident_v1:inbox", "axis_portal_inbox_manager_v1:sent"]);
+      expect(sides[0]!.ownerUserId).toBeNull();
+      expect(sides[0]!.participantEmail).toBe("maya-chen-ab12cd34@import.proplane.local");
+      expect(result.sent).toBe(true);
+    });
+
+    it("skips the email for a blank or deleted address", async () => {
+      await send(dbWithProfile(null), makeCharge({ residentEmail: "deleted-1@deleted.invalid", residentUserId: undefined }));
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("ends the email and the inbox copy with ONE setup line for a resident with no account", async () => {
+      await send(dbWithProfile(null), makeCharge({ residentEmail: "no-account@proton.me", residentUserId: undefined }));
+      const emailBody = JSON.parse(String(vi.mocked(fetch).mock.calls[0]![1]!.body)) as { text: string };
+      expect(emailBody.text.split("Set up your PropLane account").length - 1).toBe(1);
+      expect(emailBody.text).toContain("/auth/create-account?role=resident");
+      for (const call of vi.mocked(deliverPortalMessageThreadSide).mock.calls) {
+        expect(call[1].body.split("Set up your PropLane account").length - 1).toBe(1);
+      }
+    });
+
+    it("never adds the line for a resident with an account", async () => {
+      await send(dbWithProfile({ id: "user-res-1" }), makeCharge());
+      const emailBody = JSON.parse(String(vi.mocked(fetch).mock.calls[0]![1]!.body)) as { text: string };
+      expect(emailBody.text).not.toContain("Set up your PropLane account");
+      expect(vi.mocked(deliverPortalMessageThreadSide).mock.calls[0]![1].body).not.toContain("Set up your PropLane account");
+    });
+
+    it("a charge bound to an account (residentUserId) counts as having one, even under a placeholder address", async () => {
+      await send(dbWithProfile(null), makeCharge({ residentEmail: "maya@import.proplane.local", residentUserId: "user-res-1" }));
+      expect(vi.mocked(deliverPortalMessageThreadSide).mock.calls[0]![1].body).not.toContain("Set up your PropLane account");
+    });
+  });
+
   it("a workspace on the PropLane line still texts: no number on the manager's own row is needed", async () => {
     const upsert = vi.fn().mockResolvedValue({ error: null });
     const maybeSingle = vi.fn().mockResolvedValue({

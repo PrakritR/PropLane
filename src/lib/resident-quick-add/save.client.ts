@@ -91,12 +91,15 @@ export async function saveQuickAddResident(
   if (outcome.failures.row) return { ok: false, applicationId: null, problems: [outcome.failures.row], emailed: false, texted: false };
   for (const [stage, message] of Object.entries(outcome.failures)) if (message) problems.push(`${stage === "lease" ? "Lease" : stage === "charges" ? "Payments" : "Setup"}: ${message}`);
   const applicationId = outcome.row.id;
+  // A phone-only resident's row carries the import placeholder address: every later write keys on the row's address.
+  const residentEmail = outcome.row.email?.trim() || built.row.email?.trim() || resident.email;
+  const stored: QuickAddResident = { ...resident, email: residentEmail };
 
   // One-time charges: ids derived from the resident and the charge, so a retry upserts the same row.
   if (resident.oneTimeCharges.length > 0) {
     for (const charge of resident.oneTimeCharges) {
       const { created, unsaved } = await createChargesForResidentsConfirmed(
-        [{ applicationId, residentName: resident.name, residentEmail: resident.email, propertyId: resident.propertyId, propertyLabel: ctx.propertyLabelFor(resident.propertyId) ?? "", title: charge.label }],
+        [{ applicationId, residentName: resident.name, residentEmail, propertyId: resident.propertyId, propertyLabel: ctx.propertyLabelFor(resident.propertyId) ?? "", title: charge.label }],
         {
           managerUserId: ctx.userId,
           amount: charge.amount,
@@ -111,13 +114,17 @@ export async function saveQuickAddResident(
   }
 
   for (const entry of extras.files) {
-    const failed = await uploadDocument(entry, resident);
+    const failed = await uploadDocument(entry, stored);
     if (failed) problems.push(failed);
   }
 
-  const email = await postJson("/api/portal/onboard-existing-resident", { applicationId, sendWelcomeEmail: true, viaEmail: true, viaSms: false, viaInbox: true });
+  // No email on file: nothing to mail, and that is not a problem to report (the text link below still goes).
+  const hasEmail = Boolean(resident.email.trim());
+  const email = hasEmail
+    ? await postJson("/api/portal/onboard-existing-resident", { applicationId, sendWelcomeEmail: true, viaEmail: true, viaSms: false, viaInbox: true })
+    : { ok: false, data: {} as Record<string, unknown>, error: undefined };
   const emailSent = email.ok && email.data.welcomeEmailSent === true;
-  if (!emailSent) {
+  if (hasEmail && !emailSent) {
     const why = email.error ?? (email.data.communicationBlocked ? "this plan has no Communication yet" : typeof email.data.welcomeError === "string" ? email.data.welcomeError : "not sent");
     problems.push(`Email link: ${why}`);
   }

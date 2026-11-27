@@ -103,6 +103,7 @@ describe("every path the link builders hand out resolves to a real route", () =>
     "stays",
     "login",
     "signup",
+    "create_account",
     "browse",
     "apply",
   ];

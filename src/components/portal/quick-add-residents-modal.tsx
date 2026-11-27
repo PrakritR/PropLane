@@ -313,7 +313,7 @@ export function QuickAddResidentsModal({
                     <Input value={raw.name} onChange={(e) => patch({ name: e.target.value })} autoComplete="off" data-attr="residents-quick-add-name" aria-invalid={touched && Boolean(errors.name)} />
                     {fieldError("name")}
                   </WizardField>
-                  <WizardField label="Email" required>
+                  <WizardField label="Email">
                     <Input type="email" value={raw.email} onChange={(e) => patch({ email: e.target.value })} autoComplete="off" data-attr="residents-quick-add-email" aria-invalid={touched && Boolean(errors.email)} />
                     {fieldError("email")}
                   </WizardField>

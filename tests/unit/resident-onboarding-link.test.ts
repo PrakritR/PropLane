@@ -24,6 +24,11 @@ vi.mock("@/lib/one-number/link-text.server", async (orig) => ({
   sendWorkspaceText: texts.send,
   sendWorkspacePhoneText: texts.code,
 }));
+const emailProof = vi.hoisted(() => ({ start: vi.fn(async () => true) }));
+vi.mock("@/lib/personal-link/email-proof.server", async (orig) => ({
+  ...(await orig<typeof import("@/lib/personal-link/email-proof.server")>()),
+  startEmailProof: emailProof.start,
+}));
 const sources = vi.hoisted(() => ({ load: vi.fn() }));
 vi.mock("@/lib/resident-onboarding-link/sources.server", () => ({ loadOnboardingFacts: sources.load }));
 const serviceDb = vi.hoisted(() => ({ db: null as unknown }));
@@ -84,6 +89,7 @@ beforeEach(() => {
   auth.mint.mockReset().mockResolvedValue({ access_token: "a", refresh_token: "r" });
   group.add.mockClear();
   prefs.optOut.mockClear();
+  emailProof.start.mockClear();
   sessionClient.setSession.mockClear();
   sessionClient.user = null;
   jar.values.clear();
@@ -200,6 +206,37 @@ describe("the form", () => {
 
 describe("completeOnboarding", () => {
   const body = { fullName: "Maya Chen", email: "maya@example.com", acceptRules: true, joinGroupText: true };
+
+  it("an email typed at account creation is only sent a proof; it is attached by the proof link, never here", async () => {
+    const m = await minted();
+    const updates: unknown[] = [];
+    (m.db as unknown as { auth: { admin: { updateUserById: (id: string, patch: unknown) => Promise<unknown> } } }).auth.admin.updateUserById = async (_id, patch) => (updates.push(patch), { data: {}, error: null });
+    const r = await completeOnboarding(m.db, { link: m.link, body });
+    expect(r).toMatchObject({ ok: true, created: true });
+    expect(emailProof.start).toHaveBeenCalledTimes(1);
+    expect(emailProof.start).toHaveBeenCalledWith(m.db, { userId: "user-new", email: "maya@example.com" }, expect.objectContaining({ emailTaken: expect.any(Function) }));
+    // Nothing here sets the account's email: only `verifyEmailProof` (the opened link) does.
+    expect(updates.some((patch) => Boolean((patch as { email?: unknown }).email))).toBe(false);
+  });
+
+  it("sends no proof without an email, for a placeholder, or for an existing account", async () => {
+    const m = await minted();
+    await completeOnboarding(m.db, { link: m.link, body: { ...body, email: "" } });
+    expect(emailProof.start).not.toHaveBeenCalled();
+    const m2 = await minted();
+    await completeOnboarding(m2.db, { link: m2.link, body: { ...body, email: "x@import.proplane.local" } });
+    expect(emailProof.start).not.toHaveBeenCalled();
+    const m3 = await minted();
+    auth.owners.mockResolvedValueOnce(["user-existing"]);
+    await completeOnboarding(m3.db, { link: m3.link, body });
+    expect(emailProof.start).not.toHaveBeenCalled();
+  });
+
+  it("never prefills a phone-only resident's placeholder address", async () => {
+    const m = await minted({ email: "maya-chen-ab12@import.proplane.local" });
+    const opened = await openOnboarding(m.db, m.link);
+    expect(opened.ok && opened.prefill.email).toBe("");
+  });
 
   it("creates the account for the PROVEN phone, spends the link, adds the house group, texts one welcome and signs in", async () => {
     const m = await minted();

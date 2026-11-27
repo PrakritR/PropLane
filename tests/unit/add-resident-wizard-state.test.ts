@@ -77,9 +77,22 @@ describe("buildManualResidentRow — parity with the old modal", () => {
     });
   });
 
-  it("refuses without a name or email, exactly as before", () => {
+  it("refuses without a name, and without both an email and a phone", () => {
     expect(buildManualResidentRow(filled({ name: " " }), ctx)).toEqual({ ok: false, error: "Enter the resident's name." });
-    expect(buildManualResidentRow(filled({ email: "" }), ctx)).toEqual({ ok: false, error: "Enter the resident's email." });
+    expect(buildManualResidentRow(filled({ email: "", phone: "", noPhone: true }), ctx)).toEqual({ ok: false, error: "Enter an email or a phone so you can reach them." });
+  });
+
+  it("adds a phone-only resident under a unique import placeholder address that mail never reaches", () => {
+    const built = buildManualResidentRow(filled({ email: "" }), { ...ctx, idSuffix: () => "AB12CD34" });
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    expect(built.row.email).toBe("maya-chen-ab12cd34@import.proplane.local");
+    expect(built.row.manualResidentDetails?.phone).toBe("+12065550142");
+    const application = built.row.application as unknown as { email?: string };
+    expect(application.email).toBe("maya-chen-ab12cd34@import.proplane.local");
+    // A typed email is kept as typed.
+    const typed = buildManualResidentRow(filled(), { ...ctx, idSuffix: () => "AB12CD34" });
+    expect(typed.ok && typed.row.email).toBe("maya.chen@proton.me");
   });
 
   it("files a signed PDF as executed and a draft PDF as nothing on the row", () => {
@@ -164,12 +177,16 @@ describe("buildProspectRow", () => {
 describe("thingsToFinish", () => {
   it("lists contact, home and lease fields on an empty resident form — not a PDF", () => {
     const labels = thingsToFinish(emptyAddPersonForm("resident")).map((t) => t.label);
-    expect(labels).toEqual(["Resident's name", "Resident's email", "A phone, or No phone", "Property", "Lease term", "Move-in date", "Monthly rent"]);
+    expect(labels).toEqual(["Resident's name", "An email or phone", "A phone, or No phone", "Property", "Lease term", "Move-in date", "Monthly rent"]);
     expect(emptyAddPersonForm("resident").leaseDocument).toBe("later");
   });
 
   it("is empty once the resident form is filled", () => {
     expect(thingsToFinish(filled())).toEqual([]);
+  });
+
+  it("a phone alone answers the contact step (no email needed)", () => {
+    expect(thingsToFinish(filled({ email: "" }))).toEqual([]);
   });
 
   it("asks for the signed PDF only when the manager said the lease is already signed", () => {

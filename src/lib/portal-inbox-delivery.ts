@@ -68,6 +68,7 @@ import {
   type InboxMessageTarget,
 } from "@/lib/inbox-delivery-status.server";
 import { isPlaceholderMailbox } from "@/lib/inbox-delivery-status";
+import { withAccountSetupReminder } from "@/lib/resident-message-delivery";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 /** Re-reads a stale compare-and-set append may spend before it reports a failure the bus retries. */
@@ -1207,6 +1208,12 @@ export async function deliverPortalInboxMessage(
      * from request input.
      */
     recipientsAuthorizedByCaller?: boolean;
+    /**
+     * A resident recipient with no PropLane account gets one "Set up your PropLane account" line at the end of the
+     * message (inbox, email and the sender's copy alike; `withAccountSetupReminder`). On by default; a caller whose
+     * message IS the setup invitation turns it off (a body that already carries a setup link is left alone anyway).
+     */
+    accountSetupReminder?: boolean;
   },
 ): Promise<
   | { ok: true; recipientCount: number; emailOutcomes: InboxEmailOutcome[]; smsOutcomes: InboxSmsOutcome[] }
@@ -1394,6 +1401,31 @@ export async function deliverPortalInboxMessage(
     status: willEmail.has(recipient.email) ? "failed" : "skipped",
   }));
 
+  // Residents PropLane knows who have no account yet: every message they get ends with ONE setup line. An account
+  // is a profile row (by id, else by the address); an unreadable lookup adds nothing (no line beats a wrong one).
+  const setupReminderEmails = new Set<string>();
+  if (opts.accountSetupReminder !== false) {
+    const candidates = recipients.filter(
+      (r) =>
+        !r.userId &&
+        r.scope === RESIDENT_INBOX_SCOPE &&
+        !["manager", "owner", "pro", "admin", "vendor"].includes(String(r.role ?? "").toLowerCase()),
+    );
+    if (candidates.length > 0) {
+      try {
+        const { data: known, error } = await db.from("profiles").select("email").in("email", candidates.map((r) => r.email));
+        if (!error) {
+          const withAccount = new Set((known ?? []).map((p) => String((p as { email?: unknown }).email ?? "").trim().toLowerCase()));
+          for (const r of candidates) if (!withAccount.has(r.email)) setupReminderEmails.add(r.email);
+        }
+      } catch {
+        /* no line: the message itself still goes */
+      }
+    }
+  }
+  const bodyFor = (recipientEmail: string): string =>
+    setupReminderEmails.has(recipientEmail) ? withAccountSetupReminder(text, { hasAccount: false }) : text;
+
   // Where each recipient's sent copy of this message lives, so provider delivery status can be stamped on it.
   const sentTargets = new Map<string, InboxMessageTarget>();
   const sendKey = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -1439,7 +1471,7 @@ export async function deliverPortalInboxMessage(
         serializeCreate: true,
         fromName,
         subject,
-        body: text,
+        body: bodyFor(recipientLower),
         preview,
         when,
         unread: false,
@@ -1479,7 +1511,7 @@ export async function deliverPortalInboxMessage(
         serializeCreate: true,
         fromName,
         subject,
-        body: text,
+        body: bodyFor(recipientLower),
         preview,
         when,
         unread: true,
@@ -1531,24 +1563,35 @@ export async function deliverPortalInboxMessage(
   }
 
   if (toEmails.length > 0) {
-    const html = `<p style="white-space:pre-wrap;font-family:sans-serif;font-size:15px;line-height:1.6;color:#1e293b">${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p><hr style="margin:24px 0;border:none;border-top:1px solid #e2e8f0"><p style="font-family:sans-serif;font-size:12px;color:#94a3b8">Sent via PropLane portal by ${String(fromName).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")}</p>`; // the sender name is display text from the request — never HTML
+    const htmlFor = (body: string) =>
+      `<p style="white-space:pre-wrap;font-family:sans-serif;font-size:15px;line-height:1.6;color:#1e293b">${body.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p><hr style="margin:24px 0;border:none;border-top:1px solid #e2e8f0"><p style="font-family:sans-serif;font-size:12px;color:#94a3b8">Sent via PropLane portal by ${String(fromName).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")}</p>`; // the sender name is display text from the request — never HTML
     // Per-recipient sends carrying the signed Reply-To + threading anchor.
     // Inbox already written — email stays best-effort, now per recipient.
+    // Two bodies at most: the message as written, and the same message with the account-setup line.
     let emailResults: Awaited<ReturnType<typeof sendPortalConversationEmails>> | null = null;
-    try {
-      emailResults = await sendPortalConversationEmails({
-        senderUserId: opts.senderUserId,
-        toEmails,
-        subject,
-        text,
-        html,
-        // Resolved per SEND rather than cached: a manager can set up their work email at any
-        // time, and the next message should carry it without a deploy.
-        fromAddress: await resolveManagerOutboundFrom(db, opts.senderUserId),
-      });
-    } catch {
-      // Portal is already durable. Preserve channel independence and allow the
-      // SMS leg to continue while every attempted email remains failed.
+    const groups = [toEmails.filter((e) => !setupReminderEmails.has(e)), toEmails.filter((e) => setupReminderEmails.has(e))];
+    // Resolved per SEND rather than cached: a manager can set up their work email at any
+    // time, and the next message should carry it without a deploy.
+    let fromAddress: Awaited<ReturnType<typeof resolveManagerOutboundFrom>> | undefined;
+    for (const group of groups) {
+      if (group.length === 0) continue;
+      const body = bodyFor(group[0]!);
+      try {
+        if (fromAddress === undefined) fromAddress = await resolveManagerOutboundFrom(db, opts.senderUserId);
+        const results = await sendPortalConversationEmails({
+          senderUserId: opts.senderUserId,
+          toEmails: group,
+          subject,
+          text: body,
+          html: htmlFor(body),
+          fromAddress,
+        });
+        emailResults = emailResults ?? new Map();
+        for (const [email, result] of results) emailResults.set(email, result);
+      } catch {
+        // Portal is already durable. Preserve channel independence and allow the
+        // SMS leg to continue while every attempted email remains failed.
+      }
     }
     for (const email of toEmails) {
       await recordEmailAttempt(db, sentTargets.get(email), email, emailResults?.get(email));
