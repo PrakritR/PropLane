@@ -201,7 +201,9 @@ the manager dashboard's upcoming-tours count reads the same rule (a tour on a ho
 no house stays the viewer's own) instead of matching the filer and reading 0 while the Tours page listed them.
 A standalone request row is a free-form upsert, so its house is a claim: staff and co-managers see it only when the row was
 written by that house's owner, one of its eligible tour hosts (`tourHostIdsByHouse`: roster plus the managed house's operator)
-or the server (no `manager_user_id`), and its column house agrees; otherwise it is dropped, never busy. The schedule GET is a
+or the server (no `manager_user_id`), and its column house agrees; otherwise it is dropped, never busy. Who wrote it is the
+server-pinned `manager_user_id` column, never the payload's `managerUserId`, and an insert into another user's per-user id
+space is refused (`scheduleRecordIdInForeignReservedSpace`). The schedule GET is a
 strict read: an unreadable staff scope, co-manager scope or host lookup answers an error (the client keeps its cache), never a
 200 missing tours. Coverage: `tests/unit/schedule-projection-planted-inquiry.test.ts`.
 With open slots, only those slots are offered, exactly as before.
