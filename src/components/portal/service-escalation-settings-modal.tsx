@@ -9,9 +9,7 @@
  * timings, audiences and templates in full stays reachable at
  * Settings -> Notifications -> Services (`ServicesSettingsPanel`,
  * `pro-portal-settings-panels.tsx`) — this modal removes nothing, it just
- * gives the Services list a lighter entry point that matches the "escalation
- * rules + a link to the catalog" shape from the studio mock
- * (`~/proplane-mock-kit/proto/m-tenancy.js` `tenancy.serviceSettings`).
+ * gives the Services list an entry point with escalation rules and a catalog link.
  */
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";

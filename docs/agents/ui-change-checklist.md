@@ -1,6 +1,17 @@
 # UI change checklist (agents)
 
-Use this **before** editing portal UI. On Prakrit work, that is after the lane's studio plan is approved (no ticket unless requested). On Akhil work, start here when the change is UI.
+Use this **before** editing portal UI, under the matching developer's workflow.
+
+## Review evidence
+
+State the affected routes, roles, current behavior, intended result and acceptance
+checks in the task handoff. Copy the real PropLane reference screens and tokens.
+For a visual change, retain before/after screenshots and drive desktop/mobile,
+empty/loading/error states, keyboard access and the complete affected flow.
+Optional design references (including Mobbin) are inspiration, not the product spec.
+Before removing or redesigning a used feature, check available aggregate usage
+(e.g. PostHog event/insight names and time window); record uncertainty rather than
+inventing counts. Never include PII. A separate HTML plan or watcher is not required.
 
 ## The UI docs, in two tiers (PRP-183)
 

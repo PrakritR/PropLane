@@ -118,7 +118,7 @@ Insufficient balance answers 422 with the shortfall; the client falls back to
 the existing card-funded path. No manager-facing "review this invoice" screen
 calls this route yet — none exists in the app today (the decision route itself
 has zero UI call sites); wiring a button is deferred to whoever builds that
-screen. See `.lavish/night/build-vendor-pay.md` and `src/lib/proplane-balance/`.
+screen. See `src/lib/proplane-balance/` and [financials](financials.md).
 
 The 3% **PropLane service fee** applies to the Stripe invoice-pay rail only; the
 balance and offline rails carry none (rails table and revenue write-through in

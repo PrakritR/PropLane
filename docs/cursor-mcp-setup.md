@@ -6,7 +6,7 @@
 > below is the Cursor-specific enablement detail.
 
 
-MCP servers help agents **test and debug** during phases ③–④. They do **not**
+MCP servers help agents **test and debug** during implementation and validation. They do **not**
 replace Linear tickets — use `LINEAR_API_KEY` + `npm run linear:ticket` instead.
 
 Config file: **`.cursor/mcp.json`** (checked into the repo).
@@ -41,7 +41,7 @@ cursor agent mcp list
 
 ## Linear: API not MCP
 
-Tickets, triage, and plan linking use GraphQL:
+Explicitly requested ticket operations use GraphQL:
 
 ```bash
 # .env.local
@@ -51,13 +51,8 @@ npm run linear:ticket -- --chat "…"
 npm run linear:triage
 ```
 
-The plan itself is not an npm script — it lives in the PropLane studio:
-
-```bash
-node ~/proplane-mock-kit/tools/studio-plan.mjs new --lane <lane> --id <id> --title "…"
-```
-
-See `docs/share/proplane-collaborator-workflow.md`.
+No ticket is required for ordinary work. Follow
+[the lane workflow](agents/AGENTS-prakrit.md) for implementation and promotion.
 
 ## Troubleshooting
 
@@ -65,7 +60,7 @@ See `docs/share/proplane-collaborator-workflow.md`.
 | --- | --- |
 | MCP red / disconnected | Toggle off/on; **Output → MCP Logs** |
 | Supabase `needsAuth` | Connect in MCP settings |
-| Playwright can't reach :3011 | `npm run dev -- -p 3011` in cursor-2 worktree |
+| Playwright cannot reach the lane | Start `npm run dev -- --port <assigned-port>` in that lane |
 | browser-use can't attach | `browser-use --doctor`; enable Chrome remote debugging |
 | Wrong database | Never point MCP or `.env` at production |
 

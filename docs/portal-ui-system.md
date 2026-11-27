@@ -3,8 +3,8 @@
 Canonical patterns for expandable rows, section cards, and data tables across
 manager, resident, vendor, and admin portals.
 
-**Workflow:** portal changes follow **`docs/agents/captain-dev-workflow.md`**
-(studio lane plan → approved → build). **Read this file before editing portal UI.**
+**Workflow:** portal changes follow **`docs/agents/captain-dev-workflow.md`**.
+**Read this file before editing portal UI.**
 
 Reference implementations are owned by [`docs/agents/ui-page-structure.md`](agents/ui-page-structure.md) § Reference implementations (lists → the property Pricing tab; pop-ups and create/edit flows → Add property). Do not copy a reference screen name into this file.
 

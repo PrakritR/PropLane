@@ -1,4 +1,4 @@
-# Agent tooling index (MCP, docs, studio plans)
+# Agent tooling index
 
 One-page map for execution — what to connect, what to read, when to use
 which tool. Captain workflow phases: **`docs/agents/captain-dev-workflow.md`**.
@@ -27,22 +27,19 @@ app routes and agent tools, not ad-hoc SQL on production.
 
 ## CLI scripts (no MCP required)
 
-| Command | Phase | Purpose |
-| --- | --- | --- |
-| `npm run linear:ticket -- --chat "…"` | Explicit request only | Create the ticket Prakrit asked for |
-| `npm run linear:triage` | Explicit request only | Re-apply assignee + priority on open backlog |
-| `npm run linear:export -- --ticket PRP-###` | ② | Shareable `ticket.md` |
-| `studio-plan.mjs new --lane <lane> --id <id> --title "…"` | ② | Scaffold the lane's `plan.html` |
-| `studio-inbox.mjs --lane <lane> --wait` | ② | Watch for captain feedback |
-| `studio-plan.mjs status --lane <lane>` | ② | Exits 0 once the plan is buildable |
-| `npm run test:unit` | ③④ | Unit tests |
-| `npm run gate:prompt` | ③④ | Per-prompt gate: vitest + eslint on the changed files, then `tsc` |
-| `npm run typecheck` | ③④ | `tsc --noEmit` on the whole project |
-| `npm run ship:preflight` | ⑤ | Pre-promote checks |
-| `graphify query "…"` | ③ | Codebase orientation before grep |
+| Command | Purpose |
+| --- | --- |
+| `npm run linear:ticket -- --chat "…"` | Create a ticket only when explicitly requested |
+| `npm run linear:triage` | Explicitly requested backlog maintenance |
+| `npm run linear:export -- --ticket PRP-180 --out /tmp/PRP-180.md` | Export a requested ticket to the chosen path |
+| `npm run test:unit` | Unit tests |
+| `npm run gate:prompt` | Related tests, changed-file lint and full TypeScript |
+| `npm run typecheck` | Full-project type generation and TypeScript |
+| `npm run sandbox:open -- </route>` | Open the lane's real review route |
+| `npm run ship:preflight` | Required production preflight |
+| `graphify query "…"` | Optional orientation with a current index |
 
-The `studio-*.mjs` tools live in `~/proplane-mock-kit/tools/` (outside this
-repo); run them with `node`. Contract: [`lavish-plan-standard.md`](lavish-plan-standard.md).
+Promotion uses only the captain commands in [AGENTS-prakrit.md](AGENTS-prakrit.md).
 
 **Env:** `LINEAR_API_KEY` in `.env.local` for Linear scripts. `npm run seed:env` in
 new worktrees.
@@ -55,7 +52,7 @@ new worktrees.
 
 | Doc | When |
 | --- | --- |
-| `docs/agents/AGENTS-prakrit.md` | Prakrit: studio plan → approved → build + `gate:prompt` → `/promote` |
+| `docs/agents/AGENTS-prakrit.md` | Prakrit: lane implementation + validation → captain `/promote` |
 | `docs/agents/AGENTS-akhil.md` | Akhil: working style; no ticket/plan unless asked |
 | `docs/agents/captain-dev-workflow.md` | Full Prakrit pipeline |
 | `docs/linear-ticket-system.md` | Filing, labels, project folders, **priority & backlog sort** |
@@ -85,28 +82,13 @@ Examples: `communication-inbox.md`, `resident-payments.md`, `lease-generation.md
 
 ---
 
-## Writing the plan body (phase ②)
+## Handoff evidence
 
-The plan bar — five tabs, before/after, semi-interactive, decision forms — is
-owned by [`lavish-plan-standard.md`](lavish-plan-standard.md), and the extra
-evidence sections by [`plan-evidence.md`](plan-evidence.md). Match PropLane
-visual language when mocking UI — copy from real components
-(`docs/agents/marketing-mocks.md`).
-
----
-
-## Subagent brief snippet
-
-Paste into security-review, bugbot, explore:
-
-> An approved studio lane plan is required before product changes. No
-> Linear ticket unless Prakrit asks for one.
-> Dev/test data only. Read `docs/agents/<area>.md` + `docs/portal-ui-system.md`
-> for UI. Use the assigned standing lane and never push a protected branch —
-> `prakrit` is reached only by the captain typing `/promote prakrit`, and the
-> lane is kept afterward (AGENTS-prakrit.md).
-
----
+Use [the UI checklist](ui-change-checklist.md) for visual evidence and
+[the ship gate](../ship-gate.md) for tests, schema evidence and release reviews.
+Report the scope, verified SHA, real Review URL and remaining limitations.
+Read the relevant feature contract before edits; use dev/test data and the
+assigned standing lane. No automatic ticket or separate approval artifact.
 
 ## Keeping this index current
 

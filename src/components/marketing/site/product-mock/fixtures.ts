@@ -528,7 +528,7 @@ export const SERVICE_ROWS: ServiceFixtureRow[] = [
 
 /** A sensible wall-clock time N days out — never a raw `Date.now()` offset,
  * which lands on whatever minute the page happened to load
- * (`docs/agents/lavish-plan-standard.md`'s "sensible times"). */
+ * (use plausible, consistent times in product mock fixtures). */
 export function atTime(daysFromToday: number, hour: number, minute = 0): number {
   const d = new Date();
   d.setDate(d.getDate() + daysFromToday);

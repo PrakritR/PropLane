@@ -6,9 +6,7 @@
  * Scoring technique ported from interior.dev's Password Strength (MIT
  * license, github.com/ddoemonn/interior, © ozzy): length + case mix + digits
  * + symbols, with a common-password/keyboard-run penalty — scored locally,
- * no network call. See
- * ~/proplane-mock-kit/review-0927/interior-dev-research.md §2's "Password
- * Strength" row.
+ * no network call. Original pattern: github.com/ddoemonn/interior.
  */
 import { cn } from "@/lib/utils";
 

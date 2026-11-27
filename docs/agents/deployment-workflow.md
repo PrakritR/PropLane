@@ -85,29 +85,27 @@ variables because generic Preview defaults point at production (see
 
 ## Prakrit promote ladder
 
+The single command contract is [AGENTS-prakrit.md](AGENTS-prakrit.md).
+Agents commit and push only their assigned standing lane. The captain types:
+
 ```
-agent branch  →  prakrit (:3000)  →  main  →  staging  →  production
-  sandbox:open     /promote prakrit      /promote main → staging → production
-  + review path    (captain's word)      (captain's word, each rung)
+/promote prakrit
+/promote main
+/promote staging
+/promote staging to production
 ```
 
-1. Land feature work on your agent / feature branch only.
-2. **Before handoff:** `npm run sandbox:open -- </route>` (mandatory for all agents).
-3. **Captain** types **`/promote prakrit`** in the lane's pane (runs no-mistakes +
-   security review, syncs the lane, merges to prakrit, fans back to all lanes,
-   opens prakrit on the review route). `npm run ship:to-prakrit -- --source
-   <lane>` is only a thin wrapper around that command's prepare step, kept for
-   muscle memory — it never lands prakrit on its own.
-4. **Captain** types **`/promote main`** to move prakrit → main (no-mistakes again).
-5. For Akhil only, after his explicit ship request, agents working for him may
-   land his reviewed keeper directly on `main` without writing `prakrit`. They
-   do not run Prakrit's no-mistakes pipeline.
-6. **`npm run ship:staging`** then dedicated QA on staging URL by default. An explicit
-   Akhil-authorized release omits this rung under the standing policy and
-   passes `--skip-staging` to `ship:production`.
-7. Apply production Supabase migrations **before** pushing `production`.
-8. **`npm run ship:production`** after QA sign-off (live + TestFlight).
-9. Confirm Vercel Production **and** iOS TestFlight succeeded.
+Integration runs full no-mistakes and security review of the exact prepared tip.
+Protected rungs advance by fast-forward only. Retain staging QA, target checks,
+backups, migration verification before deployment, production preflight, Vercel
+Ready, TestFlight distribution and App Store delivery checks. A branch fix is
+not deployed until these complete. `npm run ship:to-prakrit` is a legacy
+prepare-only compatibility alias, not an independent landing path; use the
+captain command above.
+
+Akhil's explicit ship request follows his keeper → main → staging → production
+path as described above; only his standing policy can skip staging. His process
+does not write `prakrit` or run Prakrit's no-mistakes pipeline.
 
 ## Enforcement (do not weaken)
 

@@ -9,9 +9,9 @@ and **Milestones** as sub-folders inside each project.
 
 ---
 
-## Create tickets from Cursor chat (preferred)
+## Create tickets only when explicitly requested
 
-Just type in chat — the agent files Linear for you.
+An ordinary task or bug report does not authorize ticket creation. Explicit examples:
 
 **Examples:**
 
@@ -19,7 +19,7 @@ Just type in chat — the agent files Linear for you.
 - *"File this bug in Linear — manager Residents tab crashes on open"*
 - *"Linear: add feature for sending applications via SMS"*
 
-The agent runs `npm run linear:ticket -- --chat "…"` (or Linear MCP) and replies
+The agent runs `npm run linear:ticket -- --chat "…"` and replies
 with **PRP-###** + URL. Routing, labels, project, and milestone are inferred from
 `docs/linear-ticket-system.md` and `scripts/linear/ticket-routing.mjs`.
 
@@ -50,15 +50,11 @@ Cursor rule: `.cursor/rules/linear-chat-tickets.mdc`.
 **Full pipeline:** See **`docs/agents/captain-dev-workflow.md`** and
 **`docs/share/proplane-collaborator-workflow.md`** (share with collaborators).
 
-**Then the plan (the one plan pipeline):**
-`node ~/proplane-mock-kit/tools/studio-plan.mjs new --lane <lane> --id <id> --title "…" --ticket PRP-###`
-— the ticket id is a label on the lane's studio plan, not a second Linear call.
-`npm run workflow:plan` is retired; see `.cursor/rules/lavish-plan-gate.mdc`.
-
-**Export ticket for friends (phase ②):**
+**Export a requested ticket:** choose the output path explicitly. This does
+not create a plan, launch a listener or gate implementation.
 
 ```bash
-npm run linear:export -- --ticket PRP-180 --out ~/proplane-mock-kit/studio/plans/<lane>/<id>/ticket.md
+npm run linear:export -- --ticket PRP-180 --out /tmp/PRP-180.md
 ```
 
 ---
@@ -337,7 +333,7 @@ For **bugs**: role, URL, browser width, `/demo` yes/no.
 4. Do **not** move issues back to Backlog after another pane (or the captain) marked them Done for a verified tip.
 
 ```bash
-npm run linear:comment -- --ticket PRP-### --sha <commit> --lane cursor-1
+npm run linear:comment -- --ticket PRP-### --sha <commit> --lane <assigned-lane>
 # then set state to Done via GraphQL / Linear UI when the whole ticket is verified
 ```
 

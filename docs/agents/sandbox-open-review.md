@@ -33,7 +33,7 @@ reopen the same route on integration localhost.
 Options:
 
 - `npm run sandbox:open -- --print /portal/tasks` — print URL only
-- `npm run sandbox:open -- --port 3011 /portal/tasks` — override port
+- `npm run sandbox:open -- --port 3006 /portal/tasks` — override port
 
 Port resolution: `--port` → `PROPPLANE_SANDBOX_PORT` → `.env.local`
 `NEXT_PUBLIC_APP_URL` → optional gitignored `.cursor/rules/local-agent-branch.mdc`
@@ -43,7 +43,7 @@ Port resolution: `--port` → `PROPPLANE_SANDBOX_PORT` → `.env.local`
 
 Agents build on standing keeper branches. When ready, **the captain** types
 **`/promote prakrit`** in the lane's own pane. That command syncs the lane,
-runs the full no-mistakes pipeline, and merges to prakrit. Keep the keeper
+runs the full no-mistakes pipeline, and fast-forwards prakrit to the reviewed tip. Keep the keeper
 afterward. The ladder continues with captain-typed **`/promote main`** →
 **`/promote staging`** → **`/promote staging to production`**. See
 [`AGENTS-prakrit.md`](AGENTS-prakrit.md) § Standing branches, lanes, and the
@@ -53,16 +53,6 @@ Akhil's process defaults to the same keeper handoff. Only an explicit Akhil ship
 request authorizes agents working for him to promote his reviewed keeper →
 `main` → `staging` → `production`. They do not write `prakrit`, run
 no-mistakes, or waive staging and production safety.
-
-## Firstmate / multi-pane
-
-```bash
-bin/fm-proplane-open-localhost.sh --open-browser
-bin/fm-proplane-open-localhost.sh --open-browser --path /portal/tasks
-```
-
-`bin/fm-proplane-promote-to-prakrit.sh` is retired — landing on `prakrit` goes
-through the captain typing `/promote prakrit`, nothing else.
 
 ## Rule file
 
