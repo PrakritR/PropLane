@@ -961,7 +961,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
     const rooms = allRooms.filter(
       (o) => availableRooms.some((a) => a.value === o.value) || chosenRoomValues.has(o.value),
     );
-    // The picker always stands: with no occupancy read landed the rooms carry the listing's own dates, and the
+    // The picker always stands: with no occupancy read landed the rooms carry no availability label, and the
     // live check at Continue is what refuses an unavailable pick.
     const roomAvailabilityUnknown = Boolean(form.propertyId) && listingRoomAvailabilityUnknown(form.propertyId);
     const firstChoiceRooms = firstChoiceRoomOptions(form.propertyId, {

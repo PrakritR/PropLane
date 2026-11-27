@@ -7,15 +7,6 @@ export function setWorkspaceSelection(next: WorkspacePayload | null) {
   if (typeof window !== "undefined") window.dispatchEvent(new Event(WORKSPACE_SELECTION_EVENT));
 }
 
-/**
- * The selection has not answered yet (`GET /api/workspaces` in flight, or it failed). Every row filter below is CLOSED
- * in this state: drawing the whole account until the selection loads showed one workspace's cached rows under another's
- * name. A loaded selection with no workspace at all (a brand-new account) has nothing to narrow and passes everything.
- */
-export function workspaceSelectionPending(): boolean {
-  return selection === null;
-}
-
 function noWorkspaceToNarrowBy(): boolean {
   return selection !== null && selection.workspaces.length === 0;
 }
@@ -121,7 +112,7 @@ export function filterRowsInActiveWorkspace<T>(
  * The houses the active workspace holds, as a scope every list can pass down.
  * `null` means "not narrowing" — the account has no workspace at all. An EMPTY
  * ARRAY means the workspace holds no houses OR the selection has not loaded yet
- * (see `workspaceSelectionPending`): a caller that treats it as "no filter" shows
+ *: a caller that treats it as "no filter" shows
  * the whole account in an empty workspace.
  */
 export function activeWorkspacePropertyIds(): string[] | null {

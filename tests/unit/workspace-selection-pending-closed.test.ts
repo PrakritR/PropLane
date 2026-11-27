@@ -6,7 +6,6 @@ import {
   rowInActiveWorkspace,
   setWorkspaceSelection,
   workspaceContainsProperty,
-  workspaceSelectionPending,
 } from "@/lib/workspaces/selection";
 import type { WorkspacePayload } from "@/lib/workspaces/types";
 
@@ -23,7 +22,6 @@ afterEach(() => setWorkspaceSelection(null));
 describe("client workspace filters before the selection loads", () => {
   it("are closed while the selection is pending", () => {
     setWorkspaceSelection(null);
-    expect(workspaceSelectionPending()).toBe(true);
     expect(workspaceContainsProperty("house-a")).toBe(false);
     expect(workspaceContainsProperty(null)).toBe(false);
     expect(isActiveWorkspaceId("ws-a")).toBe(false);
@@ -35,7 +33,6 @@ describe("client workspace filters before the selection loads", () => {
 
   it("narrow to the active workspace once it loads", () => {
     setWorkspaceSelection(payload([{ id: "ws-a", propertyIds: ["house-a"] }, { id: "ws-b", propertyIds: ["house-b"] }], "ws-b"));
-    expect(workspaceSelectionPending()).toBe(false);
     expect(workspaceContainsProperty("house-b")).toBe(true);
     expect(workspaceContainsProperty("house-a")).toBe(false);
     expect(activeWorkspacePropertyIds()).toEqual(["house-b"]);

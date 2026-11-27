@@ -655,7 +655,7 @@ function listingRoomPick(propertyId: string, room: ListingPickRoom) {
 
 /** Said beside the Apply room dropdown - never instead of it - when no occupancy read has landed. */
 export const APPLY_ROOM_AVAILABILITY_UNKNOWN =
-  "Couldn't check live room availability just now; these are the listing's own dates. Reload to try again.";
+  "Couldn't check live room availability just now. Reload to try again.";
 
 /**
  * True when this listing has rooms and no public occupancy read has landed for it, so the dates beside each

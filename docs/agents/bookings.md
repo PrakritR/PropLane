@@ -550,8 +550,8 @@ Plan `channels-sync-1027` (captain, Oct 27). No migration; one production row wa
   the tour request's room dropdown and the Apply room dropdown can never offer a room the listing page calls
   "Leased until …" or word an open one differently. The tour flow lists only `tourable` rooms and a house whose
   rooms are all leased lists none (the tour is about the house); a **refused** occupancy read means unknown, so
-  no room is offered at all rather than a leased one. The apply picker falls back to the listing's own static
-  answer and says so beside the dropdown (`APPLY_ROOM_AVAILABILITY_UNKNOWN`), and only a `tourable` room may be
+  no room is offered at all rather than a leased one. The apply picker keeps the rooms with no availability label
+  and says so beside the dropdown (`APPLY_ROOM_AVAILABILITY_UNKNOWN`), and only a `tourable` room may be
   preselected from a link (`listingRoomMayPreselect`); the live check at Continue judges the applicant's dates.
   Coverage: `tests/unit/public-room-pick-availability.test.ts`.
 - **"Open now" is the ONE availability count.** Anything that says a house has rooms open — the listing header, the
