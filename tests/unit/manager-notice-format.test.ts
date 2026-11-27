@@ -10,6 +10,7 @@ import {
   isMenuAnswer,
   isRealGuestName,
   nightsBetween,
+  noticeSmsText,
   stayDatesLabel,
 } from "@/lib/manager-notice-format";
 import { renderChannelBookingEvent, renderNativeBookingEvent } from "@/lib/channel-booking-events.server";
@@ -136,5 +137,30 @@ describe("a privacy-stripped channel reservation is a guest, never a closed room
     expect(isClosedBlockLabel("Closed · painting")).toBe(true);
     expect(isClosedBlockLabel("Priya Nair")).toBe(false);
     expect(guestNoticeName({ name: "CLOSED - Not available", channel: "Booking.com" })).toBe("Booking.com guest");
+  });
+});
+
+describe("noticeSmsText: a line that is both the subject and the text reads once", () => {
+  const line = "Check-out today · Airbnb guest HMWR9TARYS · 5259 Brooklyn Ave · Room 3 · Airbnb · room free from Nov 26";
+  const url = "https://proplane.ai/portal/bookings/airbnb%3Ax";
+
+  it("a stay reminder (subject = headline, text = headline + link) is the line once, then the link", () => {
+    const headline = formatStayReminderLine({ kind: "check_out", channel: "Airbnb", code: "HMWR9TARYS", house: "5259 Brooklyn Ave", room: "Room 3", checkIn: "2026-11-24", checkOutExclusive: "2026-11-26" });
+    expect(headline).toBe(line);
+    const text = noticeSmsText({ prefix: "PropLane: ", subject: headline, text: managerReminderExternalText({ headline, subject: headline, url }) });
+    expect(text).toBe(`PropLane: ${line}\n${url}`);
+    expect(text.split(line)).toHaveLength(2);
+  });
+
+  it("a text cut short with ... still counts as the subject", () => {
+    expect(noticeSmsText({ subject: line, text: `${line.slice(0, 40)}...\n${url}` })).toBe(`${line.slice(0, 40)}...\n${url}`);
+  });
+
+  it("a subject that differs from the text's first line stays, as before", () => {
+    expect(noticeSmsText({ prefix: "PropLane: ", subject: "Rent · Payment update", text: "$1,000.00 was received" })).toBe("PropLane: Rent · Payment update\n$1,000.00 was received");
+    expect(noticeSmsText({ subject: "New Airbnb booking", text: "New booking: Priya Nair, 5259 Brooklyn Ave · Room 2, Nov 6–9 (3 nights).\nhttps://x.test/b" })).toBe(
+      "New Airbnb booking\nNew booking: Priya Nair, 5259 Brooklyn Ave · Room 2, Nov 6–9 (3 nights).\nhttps://x.test/b",
+    );
+    expect(noticeSmsText({ subject: "Subject", text: "Body" })).toBe("Subject\nBody");
   });
 });

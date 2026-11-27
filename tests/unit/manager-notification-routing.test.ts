@@ -230,4 +230,14 @@ describe("a notice texted from the workspace OWNER's line", () => {
     expect(sent.actorUserId).toBeUndefined();
     expect(sent.log.managerUserId).toBe(OWNER);
   });
+  it("a stay reminder whose text repeats its subject is texted with the line once", async () => {
+    const line = "Check-out today · Airbnb guest HMWR9TARYS · 5259 Brooklyn Ave · Room 3 · Airbnb · room free from Nov 26";
+    const url = "https://proplane.ai/portal/bookings/airbnb%3Ax";
+    await sendManagerNotificationSms(profileDb({ ...profile }), {
+      managerUserId: MATE, category: "leasing", subject: line, text: `${line}\n${url}`,
+      purpose: "manager_agent_notification_leasing", sendFrom: { ownerUserId: OWNER, workspaceId: "ws-1" },
+    });
+    const sent = sendPropLaneSms.mock.calls[0]![0] as Record<string, unknown>;
+    expect(sent.text).toBe(`PropLane: ${line}\n${url}`);
+  });
 });

@@ -8,6 +8,7 @@ import { sendManagerNoticeEmail } from "@/lib/manager-notice-email.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { userDefaultWorkspaceId } from "@/lib/communication/manager-assistant-workspace.server";
 import { ALERT_PHONE_SMS_PURPOSE } from "@/lib/sms/team-notice-consent.server";
+import { noticeSmsText } from "@/lib/manager-notice-format";
 
 /**
  * People who are not PropLane accounts but get every manager notice the workspace's work number
@@ -90,7 +91,7 @@ export async function notifyWorkNumberRecipients(
       const managed = await notifyServiceAlertTargets(db, {
         workspaceId,
         scope: "listed_only",
-        smsText: `PropLane: ${input.subject}\n${input.text}`.slice(0, 1500),
+        smsText: noticeSmsText({ prefix: "PropLane: ", subject: input.subject, text: input.text }).slice(0, 1500),
         emailSubject: input.subject,
         emailText: input.text,
         url: input.url,
@@ -122,7 +123,7 @@ export async function notifyWorkNumberRecipients(
         const sent = await sendFromManagerWorkNumber({
           managerUserId: input.ownerUserId,
           to: recipient.phone,
-          text: `PropLane: ${input.subject}\n${input.text}`.slice(0, 1500),
+          text: noticeSmsText({ prefix: "PropLane: ", subject: input.subject, text: input.text }).slice(0, 1500),
           fromNumber: line.phoneNumber,
           source: "automated",
           counterpartyRole: "manager",
