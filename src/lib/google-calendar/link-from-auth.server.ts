@@ -85,12 +85,32 @@ export async function maybeLinkGoogleCalendarFromOAuthSession(
     return { linked: false, reason: "already_connected" };
   }
 
+  // A sign-in token alone is not a calendar connection. Google sign-in asks for
+  // no offline access, so Supabase hands back an access token with no refresh
+  // token. Saving it wrote `connected: true` that the settings layer then
+  // normalized to `connected: false` (no refresh token), while this function
+  // still reported `linked` — so the caller skipped the dedicated Calendar
+  // connect and the manager was left silently disconnected. Production had a
+  // dozen rows in exactly that shape. Report it as not linked instead, so the
+  // dedicated consent flow (which does request offline access) runs.
+  if (!refreshToken) {
+    debugCalendarLink({
+      managerSuffix,
+      reason: "no_refresh_token",
+      intent: opts.intent,
+      nextPath: opts.nextPath,
+      hasRefresh: false,
+      hasAccess: Boolean(accessToken),
+    });
+    return { linked: false, reason: "no_refresh_token" };
+  }
+
   try {
     await saveGoogleCalendarConnection(db, user.id, {
       connected: true,
       email: user.email?.trim() || existing.email,
       syncEnabled: true,
-      refreshToken: refreshToken ?? existing.refreshToken,
+      refreshToken,
       accessToken: accessToken ?? existing.accessToken,
       accessTokenExpiresAt: session.expires_at
         ? new Date(session.expires_at * 1000).toISOString()

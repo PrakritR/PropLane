@@ -298,11 +298,22 @@ export async function exchangeGoogleCalendarCode(
       : null;
 
   const existing = await loadGoogleCalendarConnection(db, managerUserId);
+  const refreshToken = data.refresh_token?.trim() || existing.refreshToken;
+  // Without a refresh token the connection cannot outlive this access token,
+  // and the settings layer stores it as `connected: false`. Saving it anyway
+  // sent the manager back with `gcal=connected` to a calendar that read as
+  // disconnected an instant later. Fail the connect with a reason they can act on.
+  if (!refreshToken) {
+    throw new Error(
+      "Google did not grant PropLane lasting access to your calendar. Open your Google Account's " +
+        "third-party connections, remove PropLane, then click Connect again.",
+    );
+  }
   return saveGoogleCalendarConnection(db, managerUserId, {
     connected: true,
     email,
     syncEnabled: true,
-    refreshToken: data.refresh_token ?? existing.refreshToken,
+    refreshToken,
     accessToken: data.access_token,
     accessTokenExpiresAt: expiresAt,
     calendarId: existing.calendarId ?? "primary",
