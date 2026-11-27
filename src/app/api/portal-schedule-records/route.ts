@@ -249,6 +249,59 @@ function plannedEventOwner(event: PlannedEventValue): string {
   return typeof event.managerUserId === "string" ? event.managerUserId.trim() : "";
 }
 
+function plannedAssigneeTeamId(item: PlannedEventValue): string {
+  const assignee = item.assignee;
+  if (!assignee || typeof assignee !== "object" || Array.isArray(assignee)) return "";
+  const { type, id } = assignee as { type?: unknown; id?: unknown };
+  return type === "team" && typeof id === "string" ? id.trim() : "";
+}
+
+function plannedPropertyId(item: PlannedEventValue): string {
+  const value = item.propertyId ?? item.property_id;
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * The shared planned-events container is one JSON row every manager can read, so a NEW or CHANGED item that names
+ * a house or a teammate is a claim the caller must be entitled to make: the house needs Calendar edit (or a staff
+ * seat), and a team assignee must be the caller or someone on that house's server-derived roster (owner, hosts with
+ * Calendar/Applications edit, the operator of a managed house). Unchanged stored items are not re-judged.
+ */
+async function plannedItemsClaimError(
+  db: Parameters<typeof managerCanWriteCalendarForProperty>[0],
+  user: { id: string; serviceScope?: { propertyIds: string[] } | null },
+  events: PlannedEventValue[],
+  existingById: ReadonlyMap<string, PlannedEventValue>,
+): Promise<{ error: string; status: number } | null> {
+  for (const item of events) {
+    const stored = existingById.get(plannedEventId(item));
+    const propertyId = plannedPropertyId(item);
+    const assigneeId = plannedAssigneeTeamId(item);
+    const houseChanged = !stored || plannedPropertyId(stored) !== propertyId;
+    const assigneeChanged = !stored || plannedAssigneeTeamId(stored) !== assigneeId;
+    if (propertyId && houseChanged && !(await mayWriteBlocksOn(db, user, propertyId))) {
+      return { error: "You need Calendar edit access on this property to plan an event on it.", status: 403 };
+    }
+    if (!assigneeId || assigneeId === user.id || !assigneeChanged) continue;
+    const refusal = { error: "You can only assign a task to someone on this property's team.", status: 403 };
+    if (!propertyId) return refusal;
+    try {
+      const { data, error } = await db.from("manager_property_records").select("id, manager_user_id").eq("id", propertyId);
+      if (error) throw error;
+      const owner = String(((data ?? [])[0] as Record<string, unknown> | undefined)?.manager_user_id ?? "").trim();
+      if (!owner) return refusal;
+      const hosts = await tourHostIdsByHouse(db, new Map([[propertyId, owner]]), {
+        throwOnError: true,
+        managedHouses: new Set(user.serviceScope?.propertyIds ?? []),
+      });
+      if (!hosts.get(propertyId)?.has(assigneeId)) return refusal;
+    } catch {
+      return { error: "Calendar write is unavailable. Refresh and try again.", status: 503 };
+    }
+  }
+  return null;
+}
+
 function isTourPlannedEvent(event: PlannedEventValue): boolean {
   return typeof event.kind === "string" && event.kind.trim() === "tour";
 }
@@ -763,6 +816,11 @@ const route = createJsonRecordRoute({
         return !claimedOwner || claimedOwner === user.id;
       })
       .map((item) => user.role === "admin" ? item : ({ ...item, managerUserId: user.id }));
+
+    if (user.role !== "admin") {
+      const claimError = await plannedItemsClaimError(db, user, events, existingById);
+      if (claimError) return { handled: true, ...claimError };
+    }
 
     const expectedPayloadValue = expectedPayloadKnown && Array.isArray(expectedPayload)
       ? expectedPayload

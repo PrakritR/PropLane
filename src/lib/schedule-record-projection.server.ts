@@ -208,6 +208,20 @@ export async function projectScheduleRecordsForViewer(
       if (writer && owner && writer !== owner) hostCheckHouses.set(propertyId, owner);
     }
   }
+  // A shared planned-events item carries no row column, so its payload `managerUserId` (server-pinned on write)
+  // is the writer; an item naming a house is trusted only when that writer is the house's owner or an eligible host.
+  if (!admin && manager) {
+    for (const record of records) {
+      if (text(record.id) !== PLANNED_EVENTS_RECORD_ID) continue;
+      for (const item of recordPayload(record)) {
+        const propertyId = itemPropertyId(item);
+        const owner = propertyId ? owners.get(propertyId) ?? "" : "";
+        if (propertyId && owner && itemManagerUserId(item) && itemManagerUserId(item) !== owner) {
+          hostCheckHouses.set(propertyId, owner);
+        }
+      }
+    }
+  }
   const hostsByHouse = await tourHostIdsByHouse(db, hostCheckHouses, {
     throwOnError: options.throwOnError === true,
     managedHouses: new Set(user.serviceScope?.propertyIds ?? []),
@@ -243,7 +257,7 @@ export async function projectScheduleRecordsForViewer(
     // theirs to read and answer, whoever the request was filed under. Derived from membership, never the request.
     if (propertyId && staffHouses.has(propertyId)) return trustedProvenance() ? "full" : null;
     const owner = propertyId ? owners.get(propertyId) ?? "" : "";
-    if (owner === user.id) return "full";
+    if (owner === user.id) return trustedProvenance() ? "full" : null;
     if (!propertyId || !owner) return null;
     if (!trustedProvenance()) return null;
     // A pending request is hostless: an eligible host holding Applications at edit on that house is the
@@ -270,7 +284,11 @@ export async function projectScheduleRecordsForViewer(
       if (!admin && !manager) continue;
       const rowData = object(record.row_data) ?? {};
       const payload = recordPayload(record).flatMap((item) => {
-        const access = maySeeItem(item, sharedInquiries && text(item.status).toLowerCase() === "pending");
+        const access = maySeeItem(
+          item,
+          sharedInquiries && text(item.status).toLowerCase() === "pending",
+          sharedPlanned ? { rowManagerUserId: itemManagerUserId(item), columnPropertyId: "" } : null,
+        );
         return access === "full" ? [item] : access === "busy" ? [busyProjection(item)] : [];
       });
       // Both shared containers are authoritative observed snapshots. Keeping
