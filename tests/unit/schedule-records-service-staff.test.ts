@@ -70,7 +70,7 @@ function fakeDb() {
       const rec = { table, ins: {} as Record<string, unknown> };
       calls.push(rec);
       const query: Record<string, unknown> = {};
-      for (const name of ["select", "neq", "order", "limit", "eq", "or"]) query[name] = () => query;
+      for (const name of ["select", "neq", "order", "limit", "eq"]) query[name] = () => query;
       query.in = (column: string, values: unknown) => {
         rec.ins[column] = values;
         return query;
@@ -79,7 +79,12 @@ function fakeDb() {
         rec.ins[`like:${column}`] = pattern;
         return query;
       };
+      query.or = (filter: string) => {
+        rec.ins.orFilter = filter;
+        return query;
+      };
       query.then = (resolve: (value: unknown) => unknown) => {
+        if (table === "manager_property_records") return Promise.resolve({ data: [{ id: HOUSE, manager_user_id: OWNER }], error: null }).then(resolve);
         const houses = (rec.ins.property_id ?? rec.ins["row_data->>propertyId"]) as string[] | undefined;
         const data = rec.ins["like:record_type"]
           ? houses?.includes(ownerTour.property_id) ? [ownerTour] : []
@@ -162,7 +167,33 @@ describe("service staff and the client owner's pending tours", () => {
     expect(tourReads.length).toBe(2);
     for (const call of tourReads) {
       expect(call.ins.property_id ?? call.ins["row_data->>propertyId"]).toEqual([HOUSE]);
+      // Only rows stamped to the house's owner (or no one) are fetched, so a planted row is never read.
+      expect(call.ins.orFilter).toBe(`manager_user_id.is.null,manager_user_id.in.(${OWNER})`);
     }
+  });
+
+  it("an unreadable owner lookup fetches no tour rows", async () => {
+    const db = fakeDb();
+    const from = db.from.bind(db);
+    db.from = (table: string) => {
+      if (table !== "manager_property_records") return from(table);
+      const q: Record<string, unknown> = {};
+      q.select = () => q;
+      q.in = () => Promise.resolve({ data: null, error: { message: "boom" } });
+      return q as never;
+    };
+    await hook("readRecords")({ db, user: staff });
+    expect(db.calls.some((c) => c.ins["like:record_type"])).toBe(false);
+  });
+
+  it("refuses a non-admin upsert of an inquiry naming a house the caller holds no Calendar edit on", async () => {
+    const planted = {
+      id: "planted", record_type: "partner_inquiry_request", property_id: null,
+      row_data: { payload: { kind: "tour", propertyId: HOUSE } },
+    };
+    expect(await hook("authorizeUpsert")({ db: {}, user: stranger, records: [planted] })).toMatchObject({ ok: false, status: 403 });
+    mocks.canWrite.mockResolvedValue(true);
+    expect(await hook("authorizeUpsert")({ db: {}, user: stranger, records: [planted] })).toMatchObject({ ok: true });
   });
 
   it("a non-staff viewer, and staff of a different workspace, read no tour of that house", async () => {

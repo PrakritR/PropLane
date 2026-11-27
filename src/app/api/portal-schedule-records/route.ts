@@ -264,6 +264,26 @@ function serviceScopeIds(user: { serviceScope?: { propertyIds: string[] } | null
   return filterSafeIds(user.serviceScope?.propertyIds ?? []);
 }
 
+/** Owners of the staff houses, read server-side from the property records. Unreadable = none (fail closed). */
+async function staffHouseOwnerIds(
+  db: Parameters<typeof managerCanWriteCalendarForProperty>[0],
+  houseIds: string[],
+): Promise<string[]> {
+  try {
+    const { data, error } = await db.from("manager_property_records").select("id, manager_user_id").in("id", houseIds);
+    if (error) return [];
+    return [
+      ...new Set(
+        ((data ?? []) as Array<Record<string, unknown>>)
+          .map((row) => String(row.manager_user_id ?? "").trim())
+          .filter((id) => /^[A-Za-z0-9_.:-]+$/.test(id)),
+      ),
+    ];
+  } catch {
+    return [];
+  }
+}
+
 function staffMayRunBlocksOn(user: { serviceScope?: { propertyIds: string[] } | null }, propertyId: string): boolean {
   return Boolean(propertyId) && Boolean(user.serviceScope?.propertyIds.includes(propertyId));
 }
@@ -411,26 +431,35 @@ const route = createJsonRecordRoute({
       // managed workspace still client-owned): read directly, so they do not ride on a co-manager seat that
       // may not exist. Read-only; the shared `scope` (which gates edits and deletes) is deliberately unchanged.
       // A legacy row may carry the house only inside row_data. The projection below stays the authority.
-      reads.push(
-        db
-          .from("portal_schedule_records")
-          .select(select)
-          .neq("id", PLANNED_EVENTS_RECORD_ID)
-          .neq("id", PARTNER_INQUIRIES_RECORD_ID)
-          .in("property_id", staffIds)
-          .like("record_type", "%inquir%")
-          .order("updated_at", { ascending: false })
-          .limit(500),
-        db
-          .from("portal_schedule_records")
-          .select(select)
-          .neq("id", PLANNED_EVENTS_RECORD_ID)
-          .neq("id", PARTNER_INQUIRIES_RECORD_ID)
-          .in("row_data->>propertyId", staffIds)
-          .like("record_type", "%inquir%")
-          .order("updated_at", { ascending: false })
-          .limit(500),
-      );
+      // Only rows stamped to a house's owner (or no one) are fetched: any manager can write a standalone
+      // inquiry naming a house they do not hold, and that planted row must not be read as the house's own.
+      // An unreadable owner lookup fetches no tour rows (fail closed).
+      const houseOwners = await staffHouseOwnerIds(db, staffIds);
+      if (houseOwners.length > 0) {
+        const ownerFilter = `manager_user_id.is.null,manager_user_id.in.(${houseOwners.join(",")})`;
+        reads.push(
+          db
+            .from("portal_schedule_records")
+            .select(select)
+            .neq("id", PLANNED_EVENTS_RECORD_ID)
+            .neq("id", PARTNER_INQUIRIES_RECORD_ID)
+            .in("property_id", staffIds)
+            .like("record_type", "%inquir%")
+            .or(ownerFilter)
+            .order("updated_at", { ascending: false })
+            .limit(500),
+          db
+            .from("portal_schedule_records")
+            .select(select)
+            .neq("id", PLANNED_EVENTS_RECORD_ID)
+            .neq("id", PARTNER_INQUIRIES_RECORD_ID)
+            .in("row_data->>propertyId", staffIds)
+            .like("record_type", "%inquir%")
+            .or(ownerFilter)
+            .order("updated_at", { ascending: false })
+            .limit(500),
+        );
+      }
     }
     const results = await Promise.all(reads);
     const records = new Map<string, Record<string, unknown>>();
@@ -767,6 +796,25 @@ const route = createJsonRecordRoute({
         error: "Inquiry records must be changed through their dedicated lifecycle routes.",
         status: 403,
       };
+    }
+    // A standalone inquiry/tour row is free-form: refuse one that names a house the caller neither owns nor
+    // holds Calendar edit on (nor staffs), so a planted request cannot pose as a house's own to its staff.
+    if (!scheduleUserHasRole(user, "admin")) {
+      for (const record of records) {
+        if (!/inquir/i.test(String(record.record_type ?? ""))) continue;
+        const rowData = record.row_data && typeof record.row_data === "object" ? (record.row_data as Record<string, unknown>) : {};
+        const nested = rowData.payload && typeof rowData.payload === "object" ? (rowData.payload as Record<string, unknown>) : {};
+        const claimed = new Set(
+          [record.property_id, rowData.propertyId, rowData.property_id, nested.propertyId, nested.property_id]
+            .map((value) => (typeof value === "string" ? value.trim() : ""))
+            .filter(Boolean),
+        );
+        for (const propertyId of claimed) {
+          if (!(await mayWriteBlocksOn(db, user, propertyId))) {
+            return { ok: false, error: "You need Calendar edit access on this property to file a request on it.", status: 403 };
+          }
+        }
+      }
     }
     // A create/update must land IN the active workspace: a manager-scoped,
     // property-tagged record (a tour, a calendar event, an availability block)

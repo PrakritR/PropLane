@@ -157,18 +157,32 @@ export async function projectScheduleRecordsForViewer(
   ]);
 
   const staffHouses = new Set(user.serviceScope?.propertyIds ?? []);
-  const maySeeItem = (item: ScheduleItem, pendingInquiry = false): "full" | "busy" | null => {
+  const maySeeItem = (
+    item: ScheduleItem,
+    pendingInquiry = false,
+    provenance: { rowManagerUserId: string; columnPropertyId: string } | null = null,
+  ): "full" | "busy" | null => {
     if (admin) return "full";
     if (!manager) return null;
     const managerUserId = itemManagerUserId(item);
     if (managerUserId === user.id) return "full";
     const propertyId = itemPropertyId(item);
+    // A standalone row is a free-form generic upsert any manager can write, so the payload's house is a claim,
+    // not a fact. Show it through the staff / co-manager rules only when the row was written by that house's
+    // owner (or by the server, null) and its column house agrees with the payload. Otherwise drop, never busy.
+    const trustedProvenance = (): boolean => {
+      if (!provenance) return true;
+      if (provenance.columnPropertyId && provenance.columnPropertyId !== propertyId) return false;
+      const houseOwner = propertyId ? owners.get(propertyId) ?? "" : "";
+      return !provenance.rowManagerUserId || provenance.rowManagerUserId === houseOwner;
+    };
     // Service staff run the managed workspace they hold a seat in: a tour request filed on one of its houses is
     // theirs to read and answer, whoever the request was filed under. Derived from membership, never the request.
-    if (propertyId && staffHouses.has(propertyId)) return "full";
+    if (propertyId && staffHouses.has(propertyId)) return trustedProvenance() ? "full" : null;
     const owner = propertyId ? owners.get(propertyId) ?? "" : "";
     if (owner === user.id) return "full";
     if (!propertyId || !owner) return null;
+    if (!trustedProvenance()) return null;
     // A pending request is hostless: an eligible host holding Applications at edit on that house is the
     // person who approves it (`confirmTourInquiry` re-checks the same roster), and that grant already shows
     // them every applicant's contact details on the house — so they read the whole request (captain, round 6
@@ -214,7 +228,10 @@ export async function projectScheduleRecordsForViewer(
       const rowData = object(record.row_data);
       const item = standaloneInquiryItem(record);
       const access = item
-        ? maySeeItem(item, text(item.status).toLowerCase() === "pending")
+        ? maySeeItem(item, text(item.status).toLowerCase() === "pending", {
+            rowManagerUserId: text(record.manager_user_id),
+            columnPropertyId: text(record.property_id),
+          })
         : null;
       if (!access || !item) continue;
       const visibleItem = access === "full" ? item : busyProjection(item);
