@@ -69,6 +69,7 @@ function samePlannedRows(a: PlannedEvent[], b: PlannedEvent[]): boolean {
 }
 
 const scheduleSyncRefresher = createCoalescedRefresher(fetchScheduleRecordsFromServer);
+let scheduleSwitchGeneration = 0;
 
 /** A manager registered as available for tours at a property. */
 export type PropertyManagerEntry = { userId: string; label: string; propertyId?: string };
@@ -439,6 +440,7 @@ async function deleteJsonRecordFromServer(id: string): Promise<boolean> {
 
 async function fetchScheduleRecordsFromServer(): Promise<boolean> {
   const readEpoch = plannedScheduleState.serverEpoch;
+  const switchGeneration = scheduleSwitchGeneration;
   try {
     const res = await fetch(adminOversightUrl("/api/portal-schedule-records"), {
       cache: "no-store",
@@ -448,6 +450,7 @@ async function fetchScheduleRecordsFromServer(): Promise<boolean> {
     notePortalResponse(res.status);
     if (!res.ok) return false;
     const body = (await res.json()) as { rows?: unknown[] };
+    if (switchGeneration !== scheduleSwitchGeneration) return false;
     if (!Array.isArray(body.rows)) return false;
     const standaloneInquiries: PartnerInquiry[] = [];
     const sharedInquiries: PartnerInquiry[] = [];
@@ -828,6 +831,8 @@ export function isActivePlannedEvent(event: PlannedEvent): boolean {
  */
 export function resetScheduleClientCache(): void {
   if (!isBrowser()) return;
+  scheduleSwitchGeneration += 1;
+  scheduleSyncRefresher.reset();
   memoryStore.clear();
   try {
     for (const key of Object.keys(window.sessionStorage)) {

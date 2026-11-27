@@ -14,7 +14,7 @@ vi.mock("@/lib/auth/fetch-with-timeout", async (importOriginal) => ({
   ),
 }));
 
-import { readPartnerInquiries, resetScheduleClientCache } from "@/lib/demo-admin-scheduling";
+import { readPartnerInquiries, resetScheduleClientCache, syncScheduleRecordsFromServer } from "@/lib/demo-admin-scheduling";
 import { clearWorkspaceScopedClientCaches } from "@/lib/workspaces/clear-client-caches";
 import { openServiceWorkspace, switchToPropertyPortal } from "@/lib/service/open-service-workspace";
 import { readManagerWorkOrderRows, syncManagerWorkOrdersFromServer } from "@/lib/manager-work-orders-storage";
@@ -163,6 +163,32 @@ describe("workspace switch resets in-memory store mirrors", () => {
     const next = rowsFetch([{ id: "new-b" }]);
     vi.stubGlobal("fetch", next);
     expect((await sync()).map((r) => (r as { id: string }).id)).toEqual(["new-b"]);
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it("schedule: a GET in flight across the switch leaves no rows, no inquiries and no TTL stamp", async () => {
+    let release: (res: Response) => void = () => undefined;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { release = resolve; })));
+    const pending = syncScheduleRecordsFromServer({ force: true });
+    await Promise.resolve();
+    clearWorkspaceScopedClientCaches();
+    release(
+      new Response(
+        JSON.stringify({
+          rows: [
+            { id: "axis_admin_partner_inquiries_v1", payload: [ambikaInquiry] },
+            { id: "block-a", recordType: "room_date_block", payload: { id: "block-a", propertyId: "house-a" } },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    expect(await pending).toBe(false);
+    expect(readPartnerInquiries()).toEqual([]);
+    expect(Object.keys(window.sessionStorage).filter((key) => key.startsWith("axis_sched_cache_v1:"))).toEqual([]);
+    const next = vi.fn(async () => new Response(JSON.stringify({ rows: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", next);
+    expect(await syncScheduleRecordsFromServer()).toBe(true);
     expect(next).toHaveBeenCalledTimes(1);
   });
 });
