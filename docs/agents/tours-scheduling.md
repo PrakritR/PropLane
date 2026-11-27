@@ -203,7 +203,12 @@ A standalone request row is a free-form upsert, so its house is a claim: staff a
 written by that house's owner, one of its eligible tour hosts (`tourHostIdsByHouse`: roster plus the managed house's operator)
 or the server (no `manager_user_id`), and its column house agrees; otherwise it is dropped, never busy. Who wrote it is the
 server-pinned `manager_user_id` column, never the payload's `managerUserId`, and an insert into another user's per-user id
-space is refused (`scheduleRecordIdInForeignReservedSpace`). The schedule GET is a
+space is refused (`scheduleRecordIdInForeignReservedSpace`). An item of the shared planned-events container that names a house
+or a team assignee is the same kind of claim: `plannedHouseWritersByHouse` (the owner, a seat with Calendar or Services at
+edit on that house, and on a managed house the operator and staff whose seat reaches it) is the one writer set both the write
+and the read judge it by. A new or changed item failing it is left out on its own (a changed one keeps its stored version), never
+the whole snapshot, and other viewers drop it on read; the house owner always reads every row on their own house in full.
+Coverage: `tests/unit/planned-events-task-spoof.test.ts`. The schedule GET is a
 strict read: an unreadable staff scope, co-manager scope or host lookup answers an error (the client keeps its cache), never a
 200 missing tours. Coverage: `tests/unit/schedule-projection-planted-inquiry.test.ts`.
 With open slots, only those slots are offered, exactly as before.
