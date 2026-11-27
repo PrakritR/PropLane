@@ -95,6 +95,27 @@ const money = (amount: number | string | null | undefined): string => {
   return Number.isFinite(amount) ? `$${Number.isInteger(amount) ? amount.toLocaleString("en-US") : amount.toFixed(2)}` : "";
 };
 
+// ---- the text of a notice -------------------------------------------------------------------
+
+const flatLine = (text: string): string => text.replace(/\s+/g, " ").trim().toLowerCase();
+
+/**
+ * The SMS of a notice: its subject on the first line and its text below, with an optional "PropLane: " prefix.
+ * A text whose first line already says the subject (a stay reminder's headline is both) does not repeat it, so the
+ * line reads once. A first line cut short with "..." to fit the text still counts as the subject.
+ */
+export function noticeSmsText(input: { subject: string; text: string; prefix?: string }): string {
+  const subject = (input.subject ?? "").trim();
+  const text = (input.text ?? "").replace(/^\s+/, "");
+  const firstLine = text.split("\n", 1)[0] ?? "";
+  const head = flatLine(subject);
+  const first = flatLine(firstLine);
+  const clipped = first.endsWith("...") ? first.slice(0, -3).trimEnd() : "";
+  const repeats = Boolean(head) && (first === head || (clipped.length >= 20 && head.startsWith(clipped)));
+  const lines = repeats || !subject ? [text] : [subject, text];
+  return `${input.prefix ?? ""}${lines.filter((line) => line.trim()).join("\n")}`;
+}
+
 // ---- bookings -------------------------------------------------------------------------------
 
 export type BookingNoticeFacts = {
