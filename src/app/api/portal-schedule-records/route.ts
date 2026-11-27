@@ -309,6 +309,9 @@ function scheduleUserHasRole(user: { role: string; roles?: string[] }, role: str
 const route = createJsonRecordRoute({
   table: "portal_schedule_records",
   resolveServiceScope: true,
+  // The client treats this snapshot as authoritative and replaces its tour/inquiry cache with it, so a failed
+  // staff-scope lookup must be an error (it keeps the cache), never a 200 with the staff's houses missing.
+  strictServiceScopeOnRead: true,
   // An admin in their own manager portal reads and writes like any manager; the all-owners schedule
   // read is admin oversight (`?oversight=admin`, sent by admin pages).
   explicitAdminOversight: true,
@@ -345,10 +348,18 @@ const route = createJsonRecordRoute({
     const isManagerViewer = !scheduleUserHasRole(user, "admin") && !scheduleUserHasRole(user, "vendor");
     const workspaceScope = isManagerViewer ? await activeWorkspacePropertyScope(db, user.id) : null;
     if (isManagerViewer && scheduleUserHasRole(user, "manager")) {
-      const [calendar, applications] = await Promise.all([
-        linkedOwnerScopeForModule(db, user.id, "calendar", "read"),
-        linkedOwnerScopeForModule(db, user.id, "applications", "edit"),
-      ]);
+      let calendar: Awaited<ReturnType<typeof linkedOwnerScopeForModule>>;
+      let applications: Awaited<ReturnType<typeof linkedOwnerScopeForModule>>;
+      try {
+        // Fail loud: an unreadable seat lookup is an error, not "no co-manager seats" (an empty 200 blanked Pending tours).
+        [calendar, applications] = await Promise.all([
+          linkedOwnerScopeForModule(db, user.id, "calendar", "read", { throwOnError: true }),
+          linkedOwnerScopeForModule(db, user.id, "applications", "edit", { throwOnError: true }),
+        ]);
+      } catch (error) {
+        console.error("[portal-schedule-records] co-manager scope unreadable", error);
+        return { data: null, error: { message: "Could not load your schedule right now. Try again." } };
+      }
       let linkedPropertyIds = [...new Set([...calendar.propertyIds, ...applications.propertyIds])];
       // Real SQL narrowing (not post-fetch): intersect the co-manager grant
       // with the active workspace scope before it ever becomes an `.in(...)`.
@@ -396,6 +407,30 @@ const route = createJsonRecordRoute({
           .order("updated_at", { ascending: false })
           .limit(500),
       );
+      // Tour requests filed on the workspace's houses, whoever they were filed under (the client owner, for a
+      // managed workspace still client-owned): read directly, so they do not ride on a co-manager seat that
+      // may not exist. Read-only; the shared `scope` (which gates edits and deletes) is deliberately unchanged.
+      // A legacy row may carry the house only inside row_data. The projection below stays the authority.
+      reads.push(
+        db
+          .from("portal_schedule_records")
+          .select(select)
+          .neq("id", PLANNED_EVENTS_RECORD_ID)
+          .neq("id", PARTNER_INQUIRIES_RECORD_ID)
+          .in("property_id", staffIds)
+          .like("record_type", "%inquir%")
+          .order("updated_at", { ascending: false })
+          .limit(500),
+        db
+          .from("portal_schedule_records")
+          .select(select)
+          .neq("id", PLANNED_EVENTS_RECORD_ID)
+          .neq("id", PARTNER_INQUIRIES_RECORD_ID)
+          .in("row_data->>propertyId", staffIds)
+          .like("record_type", "%inquir%")
+          .order("updated_at", { ascending: false })
+          .limit(500),
+      );
     }
     const results = await Promise.all(reads);
     const records = new Map<string, Record<string, unknown>>();
@@ -434,7 +469,7 @@ const route = createJsonRecordRoute({
     };
   },
   projectRead: async ({ db, user, records }) => {
-    const projected = await projectScheduleRecordsForViewer(db, user, records);
+    const projected = await projectScheduleRecordsForViewer(db, user, records, { throwOnError: true });
     // Service staff also see the open workspace's room blocks (the projection above keeps only rows the
     // viewer wrote or may see through a grant). Only room-block rows of the workspace's own houses, only staff.
     const staffHouses = new Set(serviceScopeIds(user));

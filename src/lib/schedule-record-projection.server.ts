@@ -96,7 +96,7 @@ function busyProjection(item: ScheduleItem): ScheduleItem {
   return projected;
 }
 
-async function propertyOwners(db: Db, propertyIds: Set<string>): Promise<Map<string, string>> {
+async function propertyOwners(db: Db, propertyIds: Set<string>, throwOnError = false): Promise<Map<string, string>> {
   const owners = new Map<string, string>();
   if (propertyIds.size === 0) return owners;
   try {
@@ -104,14 +104,18 @@ async function propertyOwners(db: Db, propertyIds: Set<string>): Promise<Map<str
       .from("manager_property_records")
       .select("id, manager_user_id")
       .in("id", [...propertyIds]);
-    if (error) return owners;
+    if (error) {
+      if (throwOnError) throw error;
+      return owners;
+    }
     for (const row of data ?? []) {
       const id = text((row as ScheduleRecord).id);
       const owner = text((row as ScheduleRecord).manager_user_id);
       if (id && owner) owners.set(id, owner);
     }
-  } catch {
-    // Missing ownership data must narrow shared-record access, never widen it.
+  } catch (error) {
+    // Missing ownership data must narrow shared-record access, never widen it; a strict read says so instead.
+    if (throwOnError) throw error;
   }
   return owners;
 }
@@ -126,6 +130,7 @@ export async function projectScheduleRecordsForViewer(
   db: Db,
   user: ScheduleRecordUser,
   records: ScheduleRecord[],
+  options: { throwOnError?: boolean } = {},
 ): Promise<ScheduleRecord[]> {
   const admin = hasRole(user, "admin");
   const manager = hasRole(user, "manager");
@@ -142,12 +147,12 @@ export async function projectScheduleRecordsForViewer(
   }
 
   const [owners, linked, applicationHosts] = await Promise.all([
-    propertyOwners(db, propertyIds),
+    propertyOwners(db, propertyIds, options.throwOnError === true),
     manager && !admin
-      ? linkedOwnerScopeForModule(db, user.id, "calendar", "read")
+      ? linkedOwnerScopeForModule(db, user.id, "calendar", "read", options)
       : Promise.resolve(null),
     manager && !admin
-      ? linkedOwnerScopeForModule(db, user.id, "applications", "edit")
+      ? linkedOwnerScopeForModule(db, user.id, "applications", "edit", options)
       : Promise.resolve(null),
   ]);
 

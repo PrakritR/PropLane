@@ -8,6 +8,7 @@ import { serviceStaffScope } from "@/lib/service/service-mode";
 import type { PortalWorkspace } from "@/lib/workspaces/types";
 
 const mocks = vi.hoisted(() => ({
+  linked: vi.fn(),
   config: null as null | Record<string, unknown>,
   canWrite: vi.fn(),
   projected: [] as Record<string, unknown>[],
@@ -23,7 +24,7 @@ vi.mock("@/lib/planned-schedule-persistence.server", () => ({ replaceManagerPlan
 vi.mock("@/lib/auth/manager-lease-scope", () => ({ managerCanWriteCalendarForProperty: mocks.canWrite }));
 vi.mock("@/lib/workspaces/scope.server", () => ({ activeWorkspacePropertyScope: vi.fn().mockResolvedValue(null) }));
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({
-  linkedOwnerScopeForModule: vi.fn().mockResolvedValue({ ownerIds: new Set(), propertyIds: new Set(), propertyIdsByOwner: new Map() }),
+  linkedOwnerScopeForModule: mocks.linked,
 }));
 vi.mock("@/lib/schedule-record-projection.server", () => ({
   PARTNER_INQUIRIES_RECORD_ID: "axis_admin_partner_inquiries_v1",
@@ -51,6 +52,15 @@ const ownerBlock = {
 const staff = { id: "staff-1", role: "manager", roles: ["manager"], serviceScope: { workspaceId: "ws-1", propertyIds: [HOUSE] } };
 const stranger = { id: "stranger-1", role: "manager", roles: ["manager"], serviceScope: null };
 
+// A tour request the workspace's CLIENT owner holds on a managed house; the viewer has no co-manager seat.
+const ownerTour = {
+  id: "partner_inquiry_request_t1",
+  manager_user_id: OWNER,
+  property_id: HOUSE,
+  record_type: "partner_inquiry_request",
+  row_data: { id: "t1", recordType: "partner_inquiry_request", payload: { id: "t1", kind: "tour", status: "pending", propertyId: HOUSE } },
+};
+
 /** A thenable query that records its filters; the staff read (a record_type filter) answers with the owner's block. */
 function fakeDb() {
   const calls: Array<{ table: string; ins: Record<string, unknown> }> = [];
@@ -65,14 +75,24 @@ function fakeDb() {
         rec.ins[column] = values;
         return query;
       };
-      query.then = (resolve: (value: unknown) => unknown) =>
-        Promise.resolve({ data: rec.ins.record_type ? [ownerBlock] : [], error: null }).then(resolve);
+      query.like = (column: string, pattern: string) => {
+        rec.ins[`like:${column}`] = pattern;
+        return query;
+      };
+      query.then = (resolve: (value: unknown) => unknown) => {
+        const houses = (rec.ins.property_id ?? rec.ins["row_data->>propertyId"]) as string[] | undefined;
+        const data = rec.ins["like:record_type"]
+          ? houses?.includes(ownerTour.property_id) ? [ownerTour] : []
+          : rec.ins.record_type ? [ownerBlock] : [];
+        return Promise.resolve({ data, error: null }).then(resolve);
+      };
       return query;
     },
   };
 }
 
 beforeEach(() => {
+  mocks.linked.mockReset().mockResolvedValue({ ownerIds: new Set(), propertyIds: new Set(), propertyIdsByOwner: new Map() });
   mocks.canWrite.mockReset().mockResolvedValue(false);
 });
 
@@ -128,5 +148,57 @@ describe("service staff and the owner's hand-typed bookings", () => {
     expect(await hook("authorizeDelete")({ db: {}, user: staff, records: [elsewhere] })).toMatchObject({ ok: false, status: 403 });
     const rows = await hook("projectRead")({ db: {}, user: staff, records: [elsewhere] });
     expect(rows).toEqual([]);
+  });
+});
+
+describe("service staff and the client owner's pending tours", () => {
+  // The projection is mocked above to "rows the viewer wrote"; for these cases use the real rule for staff houses.
+  it("staff with NO co-manager seat read the client-owned pending tour on a managed house", async () => {
+    const db = fakeDb();
+    const read = await hook("readRecords")({ db, user: staff });
+    expect(read.error).toBeNull();
+    expect((read.data as Record<string, unknown>[]).map((r) => r.id)).toContain(ownerTour.id);
+    const tourReads = db.calls.filter((c) => c.ins["like:record_type"]);
+    expect(tourReads.length).toBe(2);
+    for (const call of tourReads) {
+      expect(call.ins.property_id ?? call.ins["row_data->>propertyId"]).toEqual([HOUSE]);
+    }
+  });
+
+  it("a non-staff viewer, and staff of a different workspace, read no tour of that house", async () => {
+    const db = fakeDb();
+    const read = await hook("readRecords")({ db, user: stranger });
+    expect(db.calls.some((c) => c.ins["like:record_type"])).toBe(false);
+    expect((read.data as Record<string, unknown>[]).map((r) => r.id)).not.toContain(ownerTour.id);
+
+    const otherStaff = { ...staff, id: "staff-2", serviceScope: { workspaceId: "ws-2", propertyIds: ["house-other"] } };
+    const otherDb = fakeDb();
+    const otherRead = await hook("readRecords")({ db: otherDb, user: otherStaff });
+    expect((otherRead.data as Record<string, unknown>[]).map((r) => r.id)).not.toContain(ownerTour.id);
+    for (const call of otherDb.calls.filter((c) => c.ins["like:record_type"])) {
+      expect(JSON.stringify(call.ins)).not.toContain(HOUSE);
+    }
+  });
+
+  it("the edit/delete visibility scope is not widened to tour requests", () => {
+    const filters: string[] = [];
+    const q = { or: (f: string) => (filters.push(f), q) };
+    (mocks.config!.scope as (q: unknown, u: unknown) => unknown)(q, staff);
+    expect(filters[0]).not.toContain("record_type.like");
+  });
+
+  it("an unreadable co-manager lookup is an error, never {data: []}", async () => {
+    mocks.linked.mockRejectedValue(new Error("PGRST002"));
+    const read = await hook("readRecords")({ db: fakeDb(), user: staff });
+    expect(read.data).toBeNull();
+    expect(read.error).toMatchObject({ message: expect.any(String) });
+    expect(mocks.linked).toHaveBeenCalledWith(expect.anything(), staff.id, "calendar", "read", { throwOnError: true });
+  });
+
+  it("the route asks for the strict staff-scope read and the strict projection", async () => {
+    expect(mocks.config!.strictServiceScopeOnRead).toBe(true);
+    const projection = await import("@/lib/schedule-record-projection.server");
+    await hook("projectRead")({ db: {}, user: staff, records: [] });
+    expect(projection.projectScheduleRecordsForViewer).toHaveBeenLastCalledWith({}, staff, [], { throwOnError: true });
   });
 });

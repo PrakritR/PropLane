@@ -30,6 +30,11 @@ vi.mock("next/server", async (importOriginal) => {
   return { ...actual, after: (task: () => unknown) => void task() };
 });
 vi.mock("@/lib/auth/portal-access", () => ({ getPortalAccessContext: async () => state.portal }));
+// The fake db models no service-workspace tables; these viewers are not service staff.
+vi.mock("@/lib/service/service-mode.server", () => ({
+  loadServiceStaffScope: async () => null,
+  loadServiceStaffScopeOrThrow: async () => null,
+}));
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: async () => state.admin }));
 vi.mock("@/lib/planned-schedule-persistence.server", () => ({
   replaceManagerPlannedScheduleSlice: vi.fn(async () => ({ available: true, ok: true, idempotent: false })),

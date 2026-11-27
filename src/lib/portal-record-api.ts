@@ -6,7 +6,7 @@ import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { preserveStoredSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
-import { loadServiceStaffScope } from "@/lib/service/service-mode.server";
+import { loadServiceStaffScope, loadServiceStaffScopeOrThrow } from "@/lib/service/service-mode.server";
 import type { ServiceStaffScope } from "@/lib/service/service-mode";
 
 type RecordUser = {
@@ -33,6 +33,8 @@ type RecordConfig = {
    * decides what the scope may reach; the record API only derives it, from membership, never from a request.
    */
   resolveServiceScope?: boolean;
+  /** GET only: an unreadable service scope fails the read (500) instead of reading as "not staff". */
+  strictServiceScopeOnRead?: boolean;
   select?: string;
   orderColumn?: string;
   /**
@@ -135,7 +137,12 @@ type RecordConfig = {
   }) => Promise<AtomicWriteResult>;
 };
 
-async function getUserContext(req?: Request, explicitAdminOversight = false, resolveServiceScope = false) {
+async function getUserContext(
+  req?: Request,
+  explicitAdminOversight = false,
+  resolveServiceScope = false,
+  strictServiceScope = false,
+) {
   const portalCtx = await getPortalAccessContext();
   if (!portalCtx.user) return null;
   const db = createSupabaseServiceRoleClient();
@@ -156,7 +163,11 @@ async function getUserContext(req?: Request, explicitAdminOversight = false, res
 
   }
   const serviceScope =
-    resolveServiceScope && !asAdmin && role === "manager" ? await loadServiceStaffScope(db, portalCtx.user.id) : null;
+    resolveServiceScope && !asAdmin && role === "manager"
+      ? strictServiceScope
+        ? await loadServiceStaffScopeOrThrow(db, portalCtx.user.id)
+        : await loadServiceStaffScope(db, portalCtx.user.id)
+      : null;
   return {
     db,
     user: {
@@ -173,7 +184,12 @@ export function createJsonRecordRoute(config: RecordConfig) {
   return {
     GET: async (req?: Request) => {
       try {
-        const ctx = await getUserContext(req, config.explicitAdminOversight, config.resolveServiceScope);
+        const ctx = await getUserContext(
+          req,
+          config.explicitAdminOversight,
+          config.resolveServiceScope,
+          config.strictServiceScopeOnRead,
+        );
         if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
         let data: Record<string, unknown>[] | null;
         let error: { message: string } | null;
