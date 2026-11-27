@@ -1,4 +1,4 @@
-import { AXIS_VENDOR_CATALOG, type AxisCatalogVendor } from "@/lib/axis-vendor-catalog";
+import { curatedVendorCatalog, type AxisCatalogVendor } from "@/lib/axis-vendor-catalog";
 import { isVendorCategorySettingsRow, type ManagerVendorRow } from "@/lib/manager-vendors-storage";
 
 function sameCatalogIdentity(a: Pick<AxisCatalogVendor, "catalogId" | "name" | "trade">, b: Pick<AxisCatalogVendor, "catalogId" | "name" | "trade">): boolean {
@@ -22,9 +22,12 @@ function rosterToCatalogRow(row: ManagerVendorRow): AxisCatalogVendor {
   };
 }
 
-/** Curated PropLane catalog plus this manager’s vendors marked Share on PropLane. */
-export function listManagerCatalogVendors(roster: readonly ManagerVendorRow[]): AxisCatalogVendor[] {
-  const out = [...AXIS_VENDOR_CATALOG];
+/** Curated PropLane catalog (demo only) plus this manager’s vendors marked Share on PropLane. */
+export function listManagerCatalogVendors(
+  roster: readonly ManagerVendorRow[],
+  catalog: readonly AxisCatalogVendor[] = curatedVendorCatalog(),
+): AxisCatalogVendor[] {
+  const out = [...catalog];
   for (const row of roster) {
     if (row.shareOnProplane !== true || isVendorCategorySettingsRow(row)) continue;
     const mapped = rosterToCatalogRow(row);

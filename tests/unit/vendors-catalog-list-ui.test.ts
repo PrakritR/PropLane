@@ -24,7 +24,7 @@ describe("listManagerCatalogVendors", () => {
     const rows = listManagerCatalogVendors([
       roster({ id: "v-shared", name: "Apex Local", shareOnProplane: true }),
       roster({ id: "v-private", name: "Keep Private", shareOnProplane: false }),
-    ]);
+    ], AXIS_VENDOR_CATALOG);
     expect(rows.some((row) => row.name === "Northwest Plumbing Co")).toBe(true);
     expect(rows.some((row) => row.catalogId === "shared-v-shared")).toBe(true);
     expect(rows.some((row) => row.name === "Keep Private")).toBe(false);
@@ -39,8 +39,15 @@ describe("listManagerCatalogVendors", () => {
         catalogId: "axis-catalog-plumbing-nw",
         shareOnProplane: true,
       }),
-    ]);
+    ], AXIS_VENDOR_CATALOG);
     expect(rows.filter((row) => row.name === "Northwest Plumbing Co")).toHaveLength(1);
+  });
+});
+
+describe("listManagerCatalogVendors outside the demo", () => {
+  it("lists only vendors managers shared, never the placeholder catalog", () => {
+    const rows = listManagerCatalogVendors([roster({ id: "v-shared", name: "Apex Local", shareOnProplane: true })]);
+    expect(rows.map((row) => row.catalogId)).toEqual(["shared-v-shared"]);
   });
 });
 
