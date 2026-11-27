@@ -512,10 +512,12 @@ export async function reconcilePendingManagerNumberOperations(
   db: SupabaseClient,
   limit = 5,
 ): Promise<ProvisioningReconciliationResult> {
+  let result: ProvisioningReconciliationResult | null = null;
   try {
-    return await reconcilePendingManagerNumberOperationsOnce(db, limit);
+    result = await reconcilePendingManagerNumberOperationsOnce(db, limit);
+    return result;
   } finally {
-    invalidateManagerFactCaches();
+    if (!result || result.recovered + result.safelyReset + result.attachmentDrifted > 0) invalidateManagerFactCaches();
   }
 }
 

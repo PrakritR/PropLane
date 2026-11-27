@@ -1,4 +1,4 @@
-import { invalidateManagerFactCaches, invalidateManagerPlanFacts } from "@/lib/manager-fact-caches";
+import { invalidateManagerPlanFacts } from "@/lib/manager-fact-caches";
 
 /**
  * Cross-request memo of a COMPLETED tier sync, per user.
@@ -28,9 +28,9 @@ export function managerTierCacheEnabled(): boolean {
 
 /** Drops the cached sync (and detaches any in-flight run) for one user, or for everyone. */
 export function invalidateManagerTierCache(userId?: string): void {
-  // The same writers change the purchase row the plan facts are read from (`manager-fact-caches.ts`).
+  // One account's write also changes the purchase row its plan facts are read from (`manager-fact-caches.ts`). The
+  // everyone form only forgets the reconcile memo: each purchase-row writer drops the facts it changed itself.
   if (userId === undefined) {
-    invalidateManagerFactCaches();
     managerTierSyncedAt.clear();
     managerTierSyncInFlight.clear();
     return;

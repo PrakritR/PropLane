@@ -32,6 +32,16 @@ class Uncached<T> {
 
 const purchaseRows = createTtlCache<unknown>(MANAGER_FACT_TTL_MS, Date.now, { maxEntries: MAX_PURCHASE_ROWS });
 const dedicatedWorkspaces = createTtlCache<unknown>(MANAGER_FACT_TTL_MS);
+/** Owners of a working number in the stored dedicated set: only their plan can change it. Null = unknown. */
+let dedicatedNumberOwners: ReadonlySet<string> | null = null;
+let dedicatedEpoch = 0;
+let dedicatedLoadsInFlight = 0;
+
+function clearDedicatedWorkspaces(): void {
+  dedicatedEpoch += 1;
+  dedicatedNumberOwners = null;
+  dedicatedWorkspaces.clear();
+}
 
 async function remember<T>(
   cache: { get(key: string, load: () => Promise<unknown>): Promise<unknown> },
@@ -59,15 +69,25 @@ export function rememberManagerPurchaseRow<T>(
   return remember<T>(purchaseRows, userId, load);
 }
 
+/** What the dedicated-set load found: the workspaces, and every owner of a working number it judged by plan. */
+export type DedicatedWorkspaceSnapshot = { workspaceIds: string[]; numberOwnerIds: string[] };
+
 /** The workspaces that text from a working, PAID number of their own (global; the same for every caller). */
-export function rememberDedicatedWorkspaceIds(
-  load: () => Promise<string[] | null>,
+export async function rememberDedicatedWorkspaceIds(
+  load: () => Promise<DedicatedWorkspaceSnapshot | null>,
 ): Promise<string[] | null> {
-  if (!managerFactCachesEnabled()) return load();
+  if (!managerFactCachesEnabled()) return (await load())?.workspaceIds ?? null;
   // `null` is "could not read": handed back, never stored.
   return remember<string[] | null>(dedicatedWorkspaces, "all", async () => {
-    const value = await load();
-    return { value, cacheable: value !== null };
+    const epoch = dedicatedEpoch;
+    dedicatedLoadsInFlight += 1;
+    try {
+      const snapshot = await load();
+      if (snapshot && epoch === dedicatedEpoch) dedicatedNumberOwners = new Set(snapshot.numberOwnerIds);
+      return { value: snapshot?.workspaceIds ?? null, cacheable: snapshot !== null };
+    } finally {
+      dedicatedLoadsInFlight -= 1;
+    }
   });
 }
 
@@ -78,16 +98,19 @@ export function invalidateManagerPurchaseRow(userId: string): void {
 }
 
 /**
- * A change to one account's plan: its row, and the global "who texts from a paid number of their own" snapshot,
- * which is derived from every number owner's plan.
+ * A change to one account's plan: its row, and the global "who texts from a paid number of their own" snapshot
+ * when that account owns a working number in it (or the snapshot's owners are not known yet).
  */
 export function invalidateManagerPlanFacts(userId: string): void {
-  invalidateManagerPurchaseRow(userId);
-  dedicatedWorkspaces.clear();
+  const id = userId.trim();
+  invalidateManagerPurchaseRow(id);
+  if (dedicatedLoadsInFlight > 0 || dedicatedNumberOwners === null || dedicatedNumberOwners.has(id)) {
+    clearDedicatedWorkspaces();
+  }
 }
 
 /** Drops every cached manager fact (and detaches in-flight loads). Writers call this after the write lands. */
 export function invalidateManagerFactCaches(): void {
   purchaseRows.clear();
-  dedicatedWorkspaces.clear();
+  clearDedicatedWorkspaces();
 }

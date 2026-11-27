@@ -123,9 +123,9 @@ describe("an applied registration event drops the cached plan facts", () => {
     process.env.MANAGER_FACT_CACHE_IN_TEST = "1";
     try {
       invalidateManagerFactCaches();
-      await rememberDedicatedWorkspaceIds(async () => ["ws-before"]);
+      await rememberDedicatedWorkspaceIds(async () => ({ workspaceIds: ["ws-before"], numberOwnerIds: [] }));
       await write();
-      return await rememberDedicatedWorkspaceIds(async () => ["ws-after"]);
+      return await rememberDedicatedWorkspaceIds(async () => ({ workspaceIds: ["ws-after"], numberOwnerIds: [] }));
     } finally {
       delete process.env.MANAGER_FACT_CACHE_IN_TEST;
       invalidateManagerFactCaches();

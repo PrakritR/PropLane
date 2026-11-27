@@ -278,9 +278,9 @@ describe("number state writers drop the cached plan facts", () => {
     process.env.MANAGER_FACT_CACHE_IN_TEST = "1";
     try {
       invalidateManagerFactCaches();
-      await rememberDedicatedWorkspaceIds(async () => ["ws-before"]);
+      await rememberDedicatedWorkspaceIds(async () => ({ workspaceIds: ["ws-before"], numberOwnerIds: [] }));
       await write();
-      return await rememberDedicatedWorkspaceIds(async () => ["ws-after"]);
+      return await rememberDedicatedWorkspaceIds(async () => ({ workspaceIds: ["ws-after"], numberOwnerIds: [] }));
     } finally {
       delete process.env.MANAGER_FACT_CACHE_IN_TEST;
       invalidateManagerFactCaches();
@@ -299,10 +299,21 @@ describe("number state writers drop the cached plan facts", () => {
     expect(await snapshotAfter(() => provisionManagerNumber(db, MGR))).toEqual(["ws-after"]);
   });
 
-  it("a reconcile pass is seen at once", async () => {
+  it("a reconcile pass that changes nothing keeps the snapshot", async () => {
     process.env.SMS_PROVISIONING_ENABLED = "1";
-    listAttachedMock.mockResolvedValue({ ok: true, numbers: [] });
+    listAttachedMock.mockResolvedValue({ ok: true, phoneNumbers: new Set<string>() });
     const db = seed() as never;
+    expect(await snapshotAfter(() => reconcilePendingManagerNumberOperations(db))).toEqual(["ws-before"]);
+  });
+
+  it("a reconcile pass that finds a number detached from the sender pool is seen at once", async () => {
+    process.env.SMS_PROVISIONING_ENABLED = "1";
+    listAttachedMock.mockResolvedValue({ ok: true, phoneNumbers: new Set<string>() });
+    const db = createMemoryDb({
+      manager_sms_numbers: [
+        { manager_user_id: MGR, phone_number: "+12065550123", provision_state: "active", attachment_state: "attached", provider_reconciled_at: null },
+      ],
+    }) as never;
     expect(await snapshotAfter(() => reconcilePendingManagerNumberOperations(db))).toEqual(["ws-after"]);
   });
 
