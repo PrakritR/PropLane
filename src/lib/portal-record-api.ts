@@ -227,8 +227,8 @@ export function createJsonRecordRoute(config: RecordConfig) {
         });
         return NextResponse.json({ rows });
       } catch (e) {
-        const message = e instanceof Error ? e.message : "Failed to load records.";
-        return NextResponse.json({ error: message }, { status: 500 });
+        console.error("[portal-record-api] GET failed", e);
+        return NextResponse.json({ error: "Failed to load records." }, { status: 500 });
       }
     },
     POST: async (req: Request) => {

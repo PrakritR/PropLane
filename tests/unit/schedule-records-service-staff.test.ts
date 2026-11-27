@@ -30,6 +30,9 @@ vi.mock("@/lib/auth/co-manager-module-scope", () => ({
 vi.mock("@/lib/schedule-record-projection.server", () => ({
   PARTNER_INQUIRIES_RECORD_ID: "axis_admin_partner_inquiries_v1",
   PLANNED_EVENTS_RECORD_ID: "axis_admin_planned_events_v1",
+  isStandaloneInquiry: (record: { record_type?: unknown; row_data?: Record<string, unknown> }) =>
+    String(record.record_type ?? "").toLowerCase().includes("inquir") ||
+    (String(record.row_data?.kind ?? "").toLowerCase() === "tour" && Boolean(record.row_data?.propertyId)),
   // The ordinary projection keeps only rows the viewer wrote: what the owner's block never was.
   projectScheduleRecordsForViewer: vi.fn(async (_db: unknown, user: { id: string }, records: Record<string, unknown>[]) =>
     records.filter((record) => record.manager_user_id === user.id),
@@ -216,6 +219,18 @@ describe("service staff and the client owner's pending tours", () => {
     expect(await hook("authorizeUpsert")({ db: {}, user: stranger, records: [planted] })).toMatchObject({ ok: false, status: 403 });
     mocks.canWrite.mockResolvedValue(true);
     expect(await hook("authorizeUpsert")({ db: {}, user: stranger, records: [planted] })).toMatchObject({ ok: true });
+  });
+
+  it("refuses the planted kind:tour row under another user's reserved id prefix, at authorize and at insert", async () => {
+    const spoof = {
+      id: "axis_mgr_avail_slots_v2_staff-1_x", record_type: "event", property_id: null,
+      row_data: { kind: "tour", propertyId: HOUSE, managerUserId: "staff-1", status: "pending" },
+    };
+    expect(await hook("authorizeUpsert")({ db: {}, user: stranger, records: [spoof] })).toMatchObject({ ok: false, status: 403 });
+    expect(await hook("authorizeUpsert")({ db: {}, user: stranger, records: [{ ...spoof, id: "free-id" }] })).toMatchObject({ ok: false, status: 403 });
+    const insert = mocks.config!.assertInsertAllowed as (r: unknown, u: unknown) => string | null;
+    expect(insert(spoof, stranger)).toBeTruthy();
+    expect(insert({ ...spoof, id: `axis_mgr_avail_slots_v2_${stranger.id}_x`, record_type: "event" }, stranger)).toBeNull();
   });
 
   it("a non-staff viewer, and staff of a different workspace, read no tour of that house", async () => {

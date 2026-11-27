@@ -97,6 +97,24 @@ beforeEach(() => {
   }));
 });
 
+describe("planted standalone inquiries: the body managerUserId is never trusted", () => {
+  const spoof = (id: string, writer: string, viewer: string) => ({
+    id,
+    manager_user_id: writer,
+    property_id: null,
+    record_type: "event",
+    row_data: { id, kind: "tour", propertyId: HOUSE, managerUserId: viewer, status: "pending", name: "Fake prospect" },
+  });
+  it("staff and a co-manager do not see a spoof that claims their own id in the body", async () => {
+    expect(await ids(STAFF, [spoof("axis_mgr_avail_slots_v2_staff-1_x", ATTACKER, STAFF.id)])).toEqual([]);
+    expect(await ids(COMANAGER, [spoof("axis_mgr_avail_slots_v2_co-1_x", ATTACKER, COMANAGER.id)])).toEqual([]);
+  });
+  it("a genuine row by the owner still shows, and the writer still sees their own row", async () => {
+    expect(await ids(STAFF, [spoof("g", OWNER, OWNER)])).toEqual(["g"]);
+    expect(await ids({ id: ATTACKER, role: "manager" }, [spoof("mine", ATTACKER, ATTACKER)])).toEqual(["mine"]);
+  });
+});
+
 describe("planted standalone inquiries", () => {
   it("staff do not see a row an unrelated manager planted on a staff house", async () => {
     expect(await ids(STAFF, [row("planted", ATTACKER, HOUSE)])).toEqual([]);

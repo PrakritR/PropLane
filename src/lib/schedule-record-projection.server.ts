@@ -49,7 +49,7 @@ function itemManagerUserId(item: ScheduleItem): string {
   return text(item.managerUserId ?? item.manager_user_id);
 }
 
-function isStandaloneInquiry(record: ScheduleRecord): boolean {
+export function isStandaloneInquiry(record: ScheduleRecord): boolean {
   const type = text(record.record_type).toLowerCase();
   if (type.includes("inquir")) return true;
   const rowData = object(record.row_data);
@@ -221,8 +221,11 @@ export async function projectScheduleRecordsForViewer(
   ): "full" | "busy" | null => {
     if (admin) return "full";
     if (!manager) return null;
-    const managerUserId = itemManagerUserId(item);
-    if (managerUserId === user.id) return "full";
+    // A standalone row's payload `managerUserId` is a body claim any manager can plant; only the row's
+    // server-pinned `manager_user_id` column says who wrote it. Shared-container items have no such column.
+    if (provenance) {
+      if (provenance.rowManagerUserId === user.id) return "full";
+    } else if (itemManagerUserId(item) === user.id) return "full";
     const propertyId = itemPropertyId(item);
     // A standalone row is a free-form generic upsert any manager can write, so the payload's house is a claim,
     // not a fact. Show it through the staff / co-manager rules only when the row was written by that house's

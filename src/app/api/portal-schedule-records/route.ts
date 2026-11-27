@@ -17,6 +17,7 @@ import {
   CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE,
   isDedicatedBookingsRecordType,
   roomDateBlockRecordIdPrefix,
+  scheduleRecordIdInForeignReservedSpace,
 } from "@/lib/portal-schedule-record-scope";
 import { carryGuestStayFields } from "@/lib/short-stay/guest-stays";
 import { syncManagerAvailabilityToGoogleCalendar } from "@/lib/google-calendar/sync.server";
@@ -28,6 +29,7 @@ import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
 import {
   PARTNER_INQUIRIES_RECORD_ID,
   PLANNED_EVENTS_RECORD_ID,
+  isStandaloneInquiry,
   projectScheduleRecordsForViewer,
   tourHostIdsByHouse,
 } from "@/lib/schedule-record-projection.server";
@@ -805,11 +807,20 @@ const route = createJsonRecordRoute({
         status: 403,
       };
     }
+    // Another user's per-user id space (availability, shares, room blocks, tasks) is never writable, whatever the
+    // record type: the owner's read fetches it by id and would trust it.
+    if (!scheduleUserHasRole(user, "admin")) {
+      for (const record of records) {
+        if (scheduleRecordIdInForeignReservedSpace(String(record.id ?? ""), user.id)) {
+          return { ok: false, error: "Record id must belong to the authenticated user.", status: 403 };
+        }
+      }
+    }
     // A standalone inquiry/tour row is free-form: refuse one that names a house the caller neither owns nor
     // holds Calendar edit on (nor staffs), so a planted request cannot pose as a house's own to its staff.
     if (!scheduleUserHasRole(user, "admin")) {
       for (const record of records) {
-        if (!/inquir/i.test(String(record.record_type ?? ""))) continue;
+        if (!isStandaloneInquiry(record)) continue;
         const rowData = record.row_data && typeof record.row_data === "object" ? (record.row_data as Record<string, unknown>) : {};
         const nested = rowData.payload && typeof rowData.payload === "object" ? (rowData.payload as Record<string, unknown>) : {};
         const claimed = new Set(
@@ -905,6 +916,9 @@ const route = createJsonRecordRoute({
   },
   assertInsertAllowed: (record, user) => {
     if (user.role === "admin") return null;
+    if (scheduleRecordIdInForeignReservedSpace(String(record.id ?? ""), user.id)) {
+      return "Record id must belong to the authenticated user.";
+    }
     const recordType = String(record.record_type ?? "");
     if (user.role === "vendor") {
       if (!vendorScheduleRecordTypes().includes(recordType as "vendor_availability" | "vendor_flexible_preferences")) {
