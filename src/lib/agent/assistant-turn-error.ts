@@ -70,6 +70,10 @@ export function formatSmsAgentTurnError(error: unknown): string {
   if (isAssistantBillingFailure(error)) {
     return "Sorry, I couldn't reply just now. Please try again in a minute.";
   }
+  const lower = error instanceof Error ? error.message.toLowerCase() : "";
+  if (lower.includes("time budget") || lower.includes("timed out") || lower.includes("timeout")) {
+    return "Sorry, that's taking me longer than it should. Please text it again in a minute.";
+  }
   return formatAgentChatUserError(error).message;
 }
 

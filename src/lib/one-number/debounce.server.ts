@@ -32,6 +32,11 @@ type Entry = { sid: string; body: string; rev: number };
 
 const noSettle = async () => {};
 
+/** True when the text ends in a question mark (trailing spaces and closing quotes or brackets ignored). */
+export function endsWithQuestion(body: string): boolean {
+  return /\?[\s"')\]]*$/.test(body);
+}
+
 export function debounceScopeKey(args: { ownerUserId: string; role: DebounceRole; phone: string }): string {
   return `${args.ownerUserId}:${args.role}:${args.phone.replace(/\D/g, "")}`;
 }
@@ -73,7 +78,9 @@ export async function debounceInbound(
     return own();
   }
   let waitedMs = 0;
-  if (!args.immediate) {
+  // A text that ends in a question mark is almost always a finished thought: answer it without the quiet window
+  // (still registered and merged with anything already waiting, so an earlier "hey" rides along).
+  if (!args.immediate && !endsWithQuestion(args.body)) {
     await sleep(args.waitMs);
     waitedMs = args.waitMs;
   }

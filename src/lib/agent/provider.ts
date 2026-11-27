@@ -150,7 +150,9 @@ async function completeAnthropic(args: {
   toolChoice?: ProviderToolChoice;
 }): Promise<ProviderCompletion> {
   const started = performance.now();
-  const client = new Anthropic(args.timeoutMs ? { timeout: args.timeoutMs } : undefined);
+  // One SDK retry at most: the default of two (each with its own full timeout) can triple a slow call and push an
+  // SMS turn past its delivery window.
+  const client = new Anthropic({ maxRetries: 1, ...(args.timeoutMs ? { timeout: args.timeoutMs } : {}) });
   const cached = withPromptCaching({ system: args.system, tools: args.tools });
   const response = await client.messages.create({
     model: args.model,

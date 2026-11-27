@@ -23,6 +23,16 @@ import { guardLunaFailedLookupClaim, guardLunaReplyLinks, linkTargets, unsupport
 import { withPropertyResearchBudget } from "@/lib/property-research-budget.server";
 
 const MAX_ITERATIONS = 8;
+/** A link-repair redo is skipped (deterministic summary instead) when less than this much turn budget is left. */
+const REDO_MIN_REMAINING_MS = 5_000;
+
+/** Thrown when an agent turn runs out of its wall-clock budget before another model call can start. */
+export class AgentTurnBudgetExceededError extends Error {
+  constructor() {
+    super("Agent turn timed out: exceeded its time budget.");
+    this.name = "AgentTurnBudgetExceededError";
+  }
+}
 
 /** Public so health reports / tests can assert against the same cap. */
 export { MAX_ITERATIONS };
@@ -205,7 +215,18 @@ async function runAgentTurnWithinBudget<Ctx = AgentContext>(opts: {
   let continuationState: import("./provider").OpenAIResponsesContinuation | undefined;
   // Leave room for tool execution, persistence, and SSE completion inside the
   // portal routes' 120-second platform ceiling.
-  const lunaDeadline = selection.route === "luna_primary" ? performance.now() + (selection.turnBudgetMs ?? 100_000) : undefined;
+  // Every route honors an explicit turn budget (SMS sets one), so a slow provider can never outlive the
+  // platform ceiling and leave the texter with silence. Luna keeps its historical 100s default.
+  const turnDeadline = selection.turnBudgetMs !== undefined
+    ? performance.now() + selection.turnBudgetMs
+    : selection.route === "luna_primary" ? performance.now() + 100_000 : undefined;
+  /** Remaining wall-clock for this turn, or undefined when the turn is unbudgeted. */
+  const remainingTurnMs = () => (turnDeadline === undefined ? undefined : Math.floor(turnDeadline - performance.now()));
+  /** A per-call timeout clipped to the remaining turn budget. */
+  const clippedTimeout = (preferred: number) => {
+    const remaining = remainingTurnMs();
+    return remaining === undefined ? preferred : Math.min(preferred, remaining);
+  };
   const usage: TurnUsage = { inputTokens: 0, outputTokens: 0 };
 
   /** Links earlier assistant messages (already guarded when they went out) and the system prompt may repeat. */
@@ -239,10 +260,10 @@ async function runAgentTurnWithinBudget<Ctx = AgentContext>(opts: {
     if (text && recovery.relink) {
       // The reply wanted a link the model never looked up. Look the home's real links up here and let it answer again with them.
       try {
-        const found = await recovery.relink(text);
+        const found = (remainingTurnMs() ?? Infinity) < REDO_MIN_REMAINING_MS ? null : await recovery.relink(text);
         if (found && found.urls.length > 0) {
           const redo = await completeAgentModel({
-            selection: { ...selection, timeoutMs: Math.min(selection.timeoutMs ?? 20_000, 20_000) },
+            selection: { ...selection, timeoutMs: clippedTimeout(Math.min(selection.timeoutMs ?? 20_000, 20_000)) },
             system,
             tools: [],
             messages: [
@@ -259,11 +280,11 @@ async function runAgentTurnWithinBudget<Ctx = AgentContext>(opts: {
         }
       } catch { /* fall through to the no-links retry */ }
     }
-    if (text) {
+    if (text && (remainingTurnMs() ?? Infinity) >= REDO_MIN_REMAINING_MS) {
       // One retry with no tools and an explicit no-links instruction.
       try {
         const redo = await completeAgentModel({
-          selection: { ...selection, timeoutMs: Math.min(selection.timeoutMs ?? 20_000, 20_000) },
+          selection: { ...selection, timeoutMs: clippedTimeout(Math.min(selection.timeoutMs ?? 20_000, 20_000)) },
           system,
           tools: [],
           messages: [
@@ -283,6 +304,30 @@ async function runAgentTurnWithinBudget<Ctx = AgentContext>(opts: {
   };
 
   const observer = opts.observer;
+  /**
+   * Identical read lookups inside one turn reuse the first answer instead of hitting the database again (models
+   * sometimes repeat a lookup across iterations). Any inline write clears the cache so later reads see its effect.
+   */
+  const readResults = new Map<string, Promise<Anthropic.ToolResultBlockParam>>();
+  const runTool = async (use: Anthropic.ToolUseBlock, iteration: number): Promise<Anthropic.ToolResultBlockParam> => {
+    const run = () => runInlineTool(opts.registry, opts.ctx, use, iteration, toolTrace, toolEvidence, allowWrite, observer, opts.authorizeInlineWrite, opts.releaseInlineWrite);
+    if (opts.registry.get(use.name)?.kind !== "read") {
+      try {
+        return await run();
+      } finally {
+        readResults.clear();
+      }
+    }
+    const key = `${use.name}:${stableJson(use.input ?? {})}`;
+    const prior = readResults.get(key);
+    if (prior) {
+      const earlier = await prior;
+      if (!earlier.is_error) return { ...earlier, tool_use_id: use.id };
+    }
+    const pending = run();
+    readResults.set(key, pending);
+    return pending;
+  };
   let lastStopReason: string | null = null;
   notify(
     observer?.onStart &&
@@ -294,8 +339,8 @@ async function runAgentTurnWithinBudget<Ctx = AgentContext>(opts: {
     // trace records the exact prompt for replay.
     const callInput = [...messages];
     await opts.beforeModelCall?.({ iteration: i, system, tools, messages: callInput, model });
-    const remainingMs = lunaDeadline === undefined ? undefined : Math.floor(lunaDeadline - performance.now());
-    if (remainingMs !== undefined && remainingMs < 1_000) throw new Error("Luna turn exceeded its time budget.");
+    const remainingMs = remainingTurnMs();
+    if (remainingMs !== undefined && remainingMs < 1_000) throw new AgentTurnBudgetExceededError();
     const callSelection = remainingMs === undefined ? selection : { ...selection, timeoutMs: Math.min(selection.timeoutMs ?? 45_000, remainingMs) };
     const response = await completeAgentModel({ selection: callSelection, system, tools, messages, continuationState });
     continuationState = response.continuationState;
@@ -505,7 +550,7 @@ async function runAgentTurnWithinBudget<Ctx = AgentContext>(opts: {
           });
           continue;
         }
-        const result = await runInlineTool(opts.registry, opts.ctx, use, i, toolTrace, toolEvidence, allowWrite, observer, opts.authorizeInlineWrite, opts.releaseInlineWrite);
+        const result = await runTool(use, i);
         results.push(result);
       }
       messages.push({ role: "user", content: results });
@@ -515,7 +560,7 @@ async function runAgentTurnWithinBudget<Ctx = AgentContext>(opts: {
     messages.push({ role: "assistant", content: response.content });
 
     const results = await Promise.all(
-      toolUses.map((use) => runInlineTool(opts.registry, opts.ctx, use, i, toolTrace, toolEvidence, allowWrite, observer, opts.authorizeInlineWrite, opts.releaseInlineWrite)),
+      toolUses.map((use) => runTool(use, i)),
     );
     messages.push({ role: "user", content: results });
   }
@@ -605,6 +650,15 @@ async function runInlineTool<Ctx>(
     content: ok ? JSON.stringify(output) : String(output),
     is_error: !ok,
   };
+}
+
+/** JSON with object keys sorted, so `{a,b}` and `{b,a}` produce the same cache key. */
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value as Record<string, unknown>).sort().map((k) => `${JSON.stringify(k)}:${stableJson((value as Record<string, unknown>)[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }
 
 /** A new search budget starts for each turn, independent of tracing. */
