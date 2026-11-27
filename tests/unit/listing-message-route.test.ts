@@ -246,14 +246,14 @@ describe("GET ?propertyId= (the Text us entry code)", () => {
     const { textCode } = (await first.json()) as { textCode: string };
     expect(textCode).toMatch(/^[A-Z0-9]{3,16}$/);
     const second = await (await get("prop-1")).json();
-    expect(second).toEqual({ textCode });
+    expect(second).toEqual({ textCode, phone: null });
     expect(fake.rows.sms_entry_codes).toHaveLength(1);
     expect(fake.rows.sms_entry_codes![0]).toMatchObject({ workspace_id: WS, property_id: "prop-1", owner_user_id: "owner-1" });
   });
 
   it("prefers a code the manager already holds", async () => {
     fake.rows.sms_entry_codes = [{ code: "BROOKLYN", workspace_id: WS, property_id: "prop-1", active: true, label: "x", created_at: "2026-01-01" }];
-    expect(await (await get("prop-1")).json()).toEqual({ textCode: "BROOKLYN" });
+    expect(await (await get("prop-1")).json()).toEqual({ textCode: "BROOKLYN", phone: null });
     expect(fake.rows.sms_entry_codes).toHaveLength(1);
   });
 
@@ -261,7 +261,7 @@ describe("GET ?propertyId= (the Text us entry code)", () => {
     texting.phone = null;
     expect(await (await get("prop-1")).json()).toEqual({ textCode: null });
     texting.phone = "+12066781909";
-    expect(await (await get("nope")).json()).toEqual({ textCode: null });
+    expect(await (await get("nope")).json()).toEqual({ textCode: null, phone: null });
     expect(fake.rows.sms_entry_codes ?? []).toHaveLength(0);
   });
 });

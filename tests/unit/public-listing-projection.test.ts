@@ -141,6 +141,13 @@ function allKeys(value: unknown, out = new Set<string>()): Set<string> {
 }
 
 describe("publicListingProjection", () => {
+  it("publishes the fixed Long-term lengths the apply step's dropdown offers", () => {
+    const listing = storedListing();
+    (listing.listingSubmission as unknown as { longTermLengthsOffered: number[] }).longTermLengthsOffered = [9, 10, 11, 12];
+    const projected = publicListingProjection(listing);
+    expect((projected.listingSubmission as unknown as { longTermLengthsOffered?: number[] }).longTermLengthsOffered).toEqual([9, 10, 11, 12]);
+  });
+
   it("never leaks a door code, Wi-Fi password or house link into the public payload", () => {
     // A key-name check alone would pass if `houseInfo` were ever flattened into
     // the submission. These are the actual secrets, matched by value.

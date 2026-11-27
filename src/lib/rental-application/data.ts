@@ -1,7 +1,7 @@
 import { explainRoomDateConflict } from "@/lib/rental-application/room-conflict-explanation";
 import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import { nextDayKey, occupiedBedSpans, type RoomBedSpan } from "@/lib/room-occupancy-rule";
-import { freeingRoomStatus } from "@/lib/room-availability";
+import { formatOpeningDate, freeingRoomStatus } from "@/lib/room-availability";
 import { classifyRoomOpening } from "@/lib/room-availability-style";
 import { composePropertyTitle } from "@/lib/property-title";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -679,7 +679,13 @@ export function listingRoomAvailabilityLabel(roomChoiceValue: string): string | 
   const prop = getPropertyById(parsed.propertyId);
   if (!prop?.listingSubmission || prop.listingSubmission.v !== 1) return null;
   const room = normalizeManagerListingSubmissionV1(prop.listingSubmission).rooms.find((r) => r.id === parsed.listingRoomId);
-  return room ? listingRoomPick(prop.id, room).label : null;
+  if (!room) return null;
+  // No read landed: the listing's own static answer is not a checked one, so it is not printed at all.
+  if (listingRoomAvailabilityUnknown(prop.id)) return null;
+  const pick = listingRoomPick(prop.id, room);
+  // An open room with a booking ahead says so ("Open now until Nov 30"), so the picker and the date check
+  // that follows it name the same free window.
+  return pick.openUntil ? `${pick.label} until ${formatOpeningDate(pick.openUntil, pacificTodayKey())}` : pick.label;
 }
 
 /**

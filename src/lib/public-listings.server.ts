@@ -200,6 +200,9 @@ const PUBLIC_SUBMISSION_KEYS = [
   // The method alone; the per-day RATES stay internal.
   "entireHomeProrateMethod",
   "allowedLeaseTerms",
+  // The fixed Long-term lengths (months) the apply step's Lease length dropdown offers. Without it a public
+  // reader sees none, and Long-term collapses to a "Custom dates" choice that never shows a date field.
+  "longTermLengthsOffered",
   "leaseTermsBody",
   "shortTermRentalsAllowed",
   "shortTermRequirements",

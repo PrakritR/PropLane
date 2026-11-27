@@ -446,3 +446,18 @@ export function listingOtherFeesPreviewLines(sub: ManagerListingSubmissionV1): s
   }
   return lines;
 }
+
+/**
+ * The date of the first payment after signing: the 1st of the month after the move-in month, when the first
+ * month is a part month the quote prorates. Null when the first month is whole (no calendar boundary to name).
+ * "Dec 1" for a Nov 27 move-in.
+ */
+export function quoteNextPaymentLabel(quote: Pick<ListingQuote, "proration" | "isStay"> | null | undefined, leaseStart: string | null | undefined): string | null {
+  if (!quote || quote.isStay || !quote.proration?.firstMonth) return null;
+  const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(String(leaseStart ?? "").trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const next = new Date(Date.UTC(month === 12 ? year + 1 : year, month % 12, 1, 12));
+  return next.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}

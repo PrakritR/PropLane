@@ -46,33 +46,41 @@ const phoneLooksComplete = (value: string) => value.replace(/\D/g, "").length >=
 // Text us
 // ---------------------------------------------------------------------------------------------
 
-const codeCache = new Map<string, Promise<string | null>>();
+type TextUsFacts = { code: string | null; phone: string | null };
+const textUsCache = new Map<string, Promise<TextUsFacts>>();
 
-/** The home's entry code for the Text us body. One request per home per page load; a failure just means no code. */
-export function useListingTextUsCode(propertyId: string, enabled: boolean): string | null {
-  const [code, setCode] = useState<string | null>(null);
+/**
+ * The home's entry code for the Text us body, and the number only a PropLane-managed workspace overrides (its own
+ * registered number; null keeps the page's PropLane line). One request per home per page load; a failure just means
+ * no code and the PropLane line.
+ */
+export function useListingTextUs(propertyId: string, enabled: boolean): TextUsFacts {
+  const [facts, setFacts] = useState<TextUsFacts>({ code: null, phone: null });
   useEffect(() => {
     if (!enabled || !propertyId) return;
     let cancelled = false;
-    let pending = codeCache.get(propertyId);
+    let pending = textUsCache.get(propertyId);
     if (!pending) {
       pending = fetch(`${ENDPOINT}?propertyId=${encodeURIComponent(propertyId)}`, { credentials: "omit" })
-        .then((res) => (res.ok ? res.json() : { textCode: null }))
-        .then((data: { textCode?: unknown }) => (typeof data.textCode === "string" ? data.textCode : null))
+        .then((res) => (res.ok ? res.json() : {}))
+        .then((data: { textCode?: unknown; phone?: unknown }): TextUsFacts => ({
+          code: typeof data.textCode === "string" ? data.textCode : null,
+          phone: typeof data.phone === "string" && data.phone.trim() ? data.phone.trim() : null,
+        }))
         .catch(() => {
-          codeCache.delete(propertyId);
-          return null;
+          textUsCache.delete(propertyId);
+          return { code: null, phone: null };
         });
-      codeCache.set(propertyId, pending);
+      textUsCache.set(propertyId, pending);
     }
     void pending.then((value) => {
-      if (!cancelled) setCode(value);
+      if (!cancelled) setFacts(value);
     });
     return () => {
       cancelled = true;
     };
   }, [propertyId, enabled]);
-  return code;
+  return facts;
 }
 
 /**
@@ -94,8 +102,10 @@ export function ListingTextUsLink({
   dataAttr?: string;
   children?: ReactNode;
 }) {
-  const { phone } = usePublicTexting();
-  const code = useListingTextUsCode(propertyId, Boolean(phone));
+  const { phone: publicPhone } = usePublicTexting();
+  const { code, phone: listingPhone } = useListingTextUs(propertyId, Boolean(publicPhone));
+  // A managed house texts its own registered number; everything else keeps the configured PropLane line.
+  const phone = listingPhone ?? publicPhone;
   const href = useMemo(() => (phone ? textUsHref(phone, textUsBody({ label, roomLabel, code })) : ""), [phone, label, roomLabel, code]);
   if (!href) return null;
   return (

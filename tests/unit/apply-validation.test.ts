@@ -22,7 +22,8 @@ describe("apply-validation", () => {
   });
 
   it("validates SSN and phone", () => {
-    expect(validateSsn("123-45-6789").ok).toBe(true);
+    expect(validateSsn("536-22-4189").ok).toBe(true);
+    expect(validateSsn("123-45-6789").ok).toBe(false);
     expect(validateSsn("123").ok).toBe(false);
     expect(validatePhone10("(206) 555-0142").ok).toBe(true);
     expect(validatePhone10("+12065550142").ok).toBe(true);

@@ -7,6 +7,7 @@
  * Pure and client-safe.
  */
 import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
+import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { findPublicRoomOccupancy } from "@/lib/public-listing-available-count";
 import {
   PUBLIC_SOON_WINDOW_DAYS,
@@ -27,6 +28,8 @@ export type PublicRoomPick = {
   status: PublicRoomStatus;
   /** The listing's own wording: "Open now", "Opens Jan 1", "Leased until ...", "Not available". */
   label: string;
+  /** For an open-now room: the last free day before its next booking (end-exclusive stays), else null. */
+  openUntil: string | null;
   /** First day the room can be moved into (today for an open room); null for a leased or closed room. */
   availableFrom: string | null;
   /** A renter can apply for it: open now or opening on a date (any distance out). */
@@ -34,6 +37,17 @@ export type PublicRoomPick = {
   /** A renter can tour it: open now, or opening within the listing's own "soon" window. */
   tourable: boolean;
 };
+
+function previousDay(day: string): string {
+  return new Date(Date.parse(`${day}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+}
+
+/** The last free day before the next span that fills the room (spans' `end` is the last occupied day). */
+function lastFreeDayBeforeNextBooking(spans: PublicRoomOccupancy["spans"], capacity: unknown, today: string): string | null {
+  const cap = normalizeRoomOccupancyCapacity(capacity);
+  const starts = spans.filter((span) => span.start > today && span.count >= cap).map((span) => span.start).sort();
+  return starts.length ? previousDay(starts[0]!) : null;
+}
 
 function daysBetween(from: string, to: string): number {
   return Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
@@ -60,6 +74,7 @@ export function publicRoomPick(
   return {
     status,
     label,
+    openUntil: status.kind === "now" ? lastFreeDayBeforeNextBooking(spans, room.occupancyCapacity, today) : null,
     availableFrom,
     applicable: open,
     tourable: status.kind === "now" || (status.kind === "soon" && Boolean(status.date) && daysBetween(today, status.date!) <= PUBLIC_SOON_WINDOW_DAYS),

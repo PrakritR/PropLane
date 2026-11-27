@@ -38,3 +38,10 @@ export function publicRoomOccupancyRead(propertyId: string): boolean {
   const until = Math.max(readExpiresAt, propertyReadExpiresAt.get(propertyId) ?? 0);
   return Date.now() < until;
 }
+/** Every unexpired room row of the landed read, for a reader that stamps live labels over a whole catalog. */
+export function readAllPublicRoomOccupancy(): PublicRoomOccupancy[] {
+  const now = Date.now();
+  const rows: PublicRoomOccupancy[] = [];
+  for (const [roomChoice, entry] of snapshot) if (now < entry.expiresAt) rows.push({ roomChoice, spans: entry.spans });
+  return rows;
+}

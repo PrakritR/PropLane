@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createEntryCode, listEntryCodes } from "@/lib/one-number/entry-codes.server";
+import { isServiceWorkspace, resolveServiceLine } from "@/lib/one-number/service-line.server";
 import { loadMessageListing } from "./listing.server";
 
 /**
@@ -22,4 +23,23 @@ export async function resolveListingTextUsCode(db: SupabaseClient, propertyId: s
     propertyId: listing.propertyId,
   }).catch(() => null);
   return created && created.ok ? created.record.code : null;
+}
+
+/**
+ * The number a listing's "Text us" opens, when it is NOT the PropLane line: a PropLane-managed (`is_service`)
+ * workspace's own registered number, decided by the same `resolveServiceLine` the SMS side sends from. Null for
+ * everything else (a self-serve house, an unreadable workspace, a managed workspace with no number of its own), so the
+ * page keeps the configured PropLane line (`getPublicTextingConfig`). Never throws.
+ */
+export async function resolveManagedListingTextPhone(db: SupabaseClient, propertyId: string): Promise<string | null> {
+  try {
+    const loaded = await loadMessageListing(db, { propertyId, roomId: null });
+    if (!loaded.ok) return null;
+    const { workspaceId } = loaded.listing;
+    if ((await isServiceWorkspace(db, workspaceId)) !== true) return null;
+    const line = await resolveServiceLine(db, "phone_number", workspaceId);
+    return line.ok && line.kind === "owner_number" && line.source === "workspace" ? line.phoneNumber : null;
+  } catch {
+    return null;
+  }
 }

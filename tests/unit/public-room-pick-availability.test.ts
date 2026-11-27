@@ -105,3 +105,24 @@ describe("prospectContactMayPrefill", () => {
     expect(prospectContactMayPrefill([])).toBe(true);
   });
 });
+
+describe("publicRoomPick openUntil (Apply and the listing name the same free window)", () => {
+  const room = { id: "r3", availability: "Available now" };
+  it("an open room with a booking ahead is free through the day before it (end-exclusive checkout)", () => {
+    const spans = [
+      { start: "2026-11-20", end: "2026-11-26", count: 1 }, // checkout today: free today
+      { start: "2026-12-01", end: "2026-12-01", count: 1 },
+    ];
+    const pick = publicRoomPick(room, spans, "2026-11-27");
+    expect(pick.label).toBe("Open now");
+    expect(pick.openUntil).toBe("2026-11-30");
+  });
+  it("a stay whose last night is yesterday does not hold today", () => {
+    const pick = publicRoomPick(room, [{ start: "2026-11-20", end: "2026-11-26", count: 1 }], "2026-11-27");
+    expect(pick.applicable).toBe(true);
+    expect(pick.openUntil).toBeNull();
+  });
+  it("is null for a room that is not open now", () => {
+    expect(publicRoomPick(room, [{ start: "2026-11-01", end: "2027-03-01", count: 1 }], "2026-11-27").openUntil).toBeNull();
+  });
+});

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { readPhoneIdentity } from "@/lib/auth/phone-auth.server";
 import { sendListingMessageCode, verifyAndSendListingMessage, type SessionPhone } from "@/lib/listing-message/send.server";
 import { parseListingMessageRequest } from "@/lib/listing-message/model";
-import { resolveListingTextUsCode } from "@/lib/listing-message/text-us-code.server";
+import { resolveListingTextUsCode, resolveManagedListingTextPhone } from "@/lib/listing-message/text-us-code.server";
 import { getPublicTextingConfig } from "@/lib/marketing/public-texting.server";
 import { publicBindPhoneKey } from "@/lib/one-number/public-bind.server";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
@@ -85,7 +85,7 @@ export async function POST(req: Request) {
 }
 
 /**
- * `GET ?propertyId=` → `{ textCode }`: the entry code the listing's "Text us" body carries. A public read about a public
+ * `GET ?propertyId=` → `{ textCode, phone }`: the entry code the listing's "Text us" body carries. A public read about a public
  * listing that is identical for everyone, so it is CDN-cacheable; only the PropLane line's configured number gates it.
  */
 export async function GET(req: Request) {
@@ -97,9 +97,14 @@ export async function GET(req: Request) {
   if (!limited.ok) return NextResponse.json(TOO_MANY, { status: 429, headers: NO_STORE });
   const config = await getPublicTextingConfig().catch(() => null);
   if (!config?.phone) return NextResponse.json({ textCode: null }, { headers: NO_STORE });
-  const textCode = await resolveListingTextUsCode(createSupabaseServiceRoleClient(), propertyId).catch(() => null);
+  const db = createSupabaseServiceRoleClient();
+  const [textCode, phone] = await Promise.all([
+    resolveListingTextUsCode(db, propertyId).catch(() => null),
+    resolveManagedListingTextPhone(db, propertyId).catch(() => null),
+  ]);
   return NextResponse.json(
-    { textCode },
+    // `phone` is only ever a PropLane-managed workspace's own number; absent, the page's PropLane line stands.
+    { textCode, phone },
     { headers: { "Cache-Control": textCode ? "public, s-maxage=300, stale-while-revalidate=600" : "public, s-maxage=30" } },
   );
 }

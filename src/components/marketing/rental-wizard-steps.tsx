@@ -72,6 +72,7 @@ import {
   applicantListingQuote,
   formatQuoteMoney,
   paymentAtSigningPriceLabel,
+  quoteNextPaymentLabel,
   utilitiesListingEstimateLabel,
 } from "@/lib/rental-application/listing-fees-display";
 import type { ListingQuote } from "@/lib/listing-quote";
@@ -161,10 +162,6 @@ function OrderedConfiguredQuestions({
     const control = key ? controls.get(key) : null;
     return control ? <div key={field.id} data-application-question-id={field.id}>{control}</div> : null;
   })}</>;
-}
-
-function StepIntro({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <p className={`text-sm leading-relaxed text-muted ${className}`}>{children}</p>;
 }
 
 export type WizardStepsProps = {
@@ -565,7 +562,7 @@ function LeaseTypeAndDates(props: LeaseTypeAndDatesProps) {
                 className={errors.leaseEnd && !needsMoveOut ? "border-red-400 ring-2 ring-red-100" : ""}
                 data-attr="rental-wizard-lease-length"
               >
-                <option value="">{fixedLengthOptions.length > 0 ? "Pick a length…" : "Long-term (set a move-out date)"}</option>
+                <option value="">Pick a length…</option>
                 {fixedLengthOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
@@ -2223,7 +2220,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
                     <>
                       <ReviewRow k="Security deposit" v={displayOrDash(prop.listingSubmission.securityDeposit)} />
                       <ReviewRow k="Move-in fee" v={displayOrDash(prop.listingSubmission.moveInFee)} />
-                      <ReviewRow k="Payment due at signing" v={displayOrDash(paymentAtSigningPriceLabel(prop.listingSubmission))} />
+                      <ReviewRow k="Due at lease signing" v={displayOrDash(paymentAtSigningPriceLabel(prop.listingSubmission))} />
                       <ReviewRow k="Utilities (estimate, by room)" v={displayOrDash(utilitiesListingEstimateLabel(prop.listingSubmission))} />
                     </>
                   );
@@ -2233,7 +2230,10 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
                     {reviewQuote.signingLines.filter((line) => line.dueAtSigning).map((line) => (
                       <ReviewRow key={line.key} k={line.label} v={formatQuoteMoney(line.amount)} />
                     ))}
-                    <ReviewRow k="Payment due at signing" v={formatQuoteMoney(reviewQuote.signingTotal)} />
+                    <ReviewRow k="Due at lease signing" v={formatQuoteMoney(reviewQuote.signingTotal)} />
+                    {quoteNextPaymentLabel(reviewQuote, form.leaseStart) ? (
+                      <ReviewRow k="Next payment" v={quoteNextPaymentLabel(reviewQuote, form.leaseStart)} />
+                    ) : null}
                     {reviewQuote.signingLines.filter((line) => !line.dueAtSigning).map((line) => (
                       <ReviewRow key={line.key} k={`${line.label} (${line.dueLabel?.toLowerCase() ?? "due later"})`} v={formatQuoteMoney(line.amount)} />
                     ))}
@@ -2402,13 +2402,6 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
         : null;
     return (
       <div className="space-y-6">
-        <div>
-          <StepIntro>
-            The application fee is the only payment collected here — any deposit is billed later, under Payments, after
-            you&apos;re approved.
-          </StepIntro>
-        </div>
-
         {applicationFeeGate.listingUnavailable ? (
           <div className="rounded-2xl border px-4 py-4 text-sm portal-banner-pending">
             This listing is no longer available. Go back and choose another property, or contact the manager for help.

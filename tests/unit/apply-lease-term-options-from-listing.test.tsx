@@ -319,6 +319,21 @@ describe("Your lease: a pick writes the existing stored term", () => {
   });
 });
 
+describe("apply wizard — Long-term with Custom dates and fixed lengths (5259)", () => {
+  const STORED = ["Long-term", "Month-to-Month", "Custom", "Short-Term Stay"];
+  it("lists the fixed lengths beside Custom dates and Month-to-month once the public listing carries them", () => {
+    renderLeaseTermStep(STORED, "Long-term", false, () => {}, { leaseStart: "2099-01-01" }, [9, 10, 11, 12]);
+    expect(openLengthMenu()).toEqual(["9 months", "10 months", "11 months", "12 months", "Custom dates", "Month-to-month"]);
+  });
+  it("never words the empty pick as a move-out date it does not show", () => {
+    renderLeaseTermStep(STORED, "Long-term", false, () => {}, { leaseStart: "2099-01-01" });
+    expect(lengthTrigger()?.textContent ?? "").toMatch(/Pick a length/);
+    expect(document.body.textContent).not.toMatch(/set a move-out date/i);
+    // The move-out date field appears once Custom dates is picked.
+    expect(document.getElementById("leaseEnd")).toBeNull();
+  });
+});
+
 describe("apply wizard — step labels", () => {
   it("offers ONE room choice (captain's order), in sentence case, and required fields carry no asterisk", () => {
     rentByRoom = true;

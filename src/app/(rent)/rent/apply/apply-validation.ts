@@ -36,7 +36,25 @@ export function validateStateAbbrev(st: string): { ok: true } | { ok: false; mes
 export function validateSsn(ssn: string): { ok: true } | { ok: false; message: string } {
   const d = digitsOnly(ssn);
   if (d.length !== 9) return { ok: false, message: "Social Security number must be exactly 9 digits." };
+  if (!isPlausibleSsn(d)) return { ok: false, message: "Enter a valid Social Security number." };
   return { ok: true };
+}
+
+const OBVIOUS_FAKE_SSNS = new Set(["123456789", "987654321", "123121234", "111223333", "078051120", "219099999", "457555462"]);
+
+/**
+ * Format rules the SSA has never issued: area 000, 666 or 9xx; group 00; serial 0000. Also the well-known
+ * placeholders (123-45-6789, 987-65-4321, the Woolworth wallet number) and any run of one repeated digit.
+ * Format only: it never says a number is real, and nothing here stores it.
+ */
+export function isPlausibleSsn(nineDigits: string): boolean {
+  if (!/^\d{9}$/.test(nineDigits)) return false;
+  const area = nineDigits.slice(0, 3);
+  if (area === "000" || area === "666" || area.startsWith("9")) return false;
+  if (nineDigits.slice(3, 5) === "00" || nineDigits.slice(5) === "0000") return false;
+  if (/^(\d)\1{8}$/.test(nineDigits)) return false;
+  if (OBVIOUS_FAKE_SSNS.has(nineDigits)) return false;
+  return true;
 }
 
 export function validatePhone10(phone: string): { ok: true } | { ok: false; message: string } {

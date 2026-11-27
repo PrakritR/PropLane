@@ -84,7 +84,8 @@ describe("the Apply room picker and the public occupancy read", () => {
     expect(staticPick("c", "Not available").applicable).toBe(false);
     expect(staticPick("b", "Available now").applicable).toBe(true);
     expect(offered()).toEqual(["Room A", "Room B"]);
-    expect(listingRoomAvailabilityLabel(roomChoiceValue(HOUSE, "b"))).toBe("Open now");
+    // No read landed: the unchecked "Open now" is not printed (a picker never shows every room open before the check).
+    expect(listingRoomAvailabilityLabel(roomChoiceValue(HOUSE, "b"))).toBeNull();
   });
 
   it("offers exactly the rooms the loaded snapshot verifies once the read lands", () => {

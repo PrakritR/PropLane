@@ -17,6 +17,8 @@ import {
 import { browseStateFromChatFilters, type HousingChatAppliedFilters } from "@/lib/housing-chat-filters";
 import { LEASE_TYPES, type LeaseTypeId } from "@/lib/rental-application/lease-terms";
 import { usePublicListings } from "@/hooks/use-public-listings";
+import { applyLiveRoomAvailability } from "@/lib/public-room-live-label";
+import { readAllPublicRoomOccupancy } from "@/lib/public-room-occupancy-client";
 import {
   buildPropertyBrowseCards,
   demoOnlyBrowseCardPlaceholderImage,
@@ -507,9 +509,16 @@ export function ResidentHousingBrowse({
    * throws reading its rent, which blanked the whole page. Only a row that carries a rent label
    * is browsable.
    */
-  const listings = useMemo(
+  const browsableListings = useMemo(
     () => loadedListings.filter((p) => typeof p.rentLabel === "string"),
     [loadedListings],
+  );
+  // The card's "N available" reads the same live occupancy the listing page counts from: once the read has
+  // landed, every room's label is re-derived from its spans (`applyLiveRoomAvailability`), so a catalog served
+  // from a cache or a saved "Available now" string can never say 9 where the listing says 4.
+  const listings = useMemo(
+    () => (occupancyReady ? applyLiveRoomAvailability(browsableListings, readAllPublicRoomOccupancy()) : browsableListings),
+    [browsableListings, occupancyReady],
   );
   const scopedIds = useMemo(
     () => (propertyIds && propertyIds.length > 0 ? propertyIds : null),
