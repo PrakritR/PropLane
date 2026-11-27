@@ -272,7 +272,7 @@ describe("resident Inspections moved into My home", () => {
     expect(await redirectTargetFor("inspections")).toBe("/resident/move-in/inspections");
     // ...and the stage guard holds Inspections back: an approved resident gets Forms alone.
     Object.assign(residentAccess, { applicationApproved: true });
-    expect(await lockedNoticeFor("move-in", ["inspections"])).toBe("My home unlocks after your lease is fully signed.");
+    expect(await lockedNoticeFor("move-in", ["inspections"])).toBe("My home unlocks after your lease is signed.");
   });
 
   it("renders the Inspections tab inside My home once the lease is signed", async () => {

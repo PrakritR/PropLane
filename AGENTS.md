@@ -384,9 +384,10 @@ Link builders must assert the path **resolves** against `src/app`
 `STAGE_UNLOCKED_SECTIONS` and `RESIDENT_BOTTOM_NAV_PRIMARY` must agree.
 Approved application unlocks Lease + Payments + Documents + **Forms** (its own
 resident section, never a My home tab). Before approval, a sent form opens by
-its OWN `/resident/forms/<id>` link only — the list stays shut and the nav row
-inert (stage `application_submitted_forms`). My home stays locked until the
-lease is signed, with the row visible. Native bottom-nav constants are
+its OWN `/resident/forms/<id>` link only (stage `application_submitted_forms`).
+My home stays locked until the lease is signed, with the row visible. A
+stage-locked row is a live `notice` link to a locked page naming what unlocks
+the section (`residentStageLockCopy`), never inert and never a redirect home. Native bottom-nav constants are
 **derived**, not copied. `applicationApproved` scopes on the bound Auth subject
 (`row_data->>residentUserId`); where an address is still compared it is the
 `resident_email` **column**, never `row_data.email`.

@@ -79,7 +79,7 @@ and `E2E_*_EMAIL` / `E2E_*_PASSWORD` in `.env.test` override both.
 | --- | --- |
 | Sign in as the **correct role** per section | Manager tools 401 on resident routes and vice versa |
 | Prefer `/portal` and `/resident`, not `/demo` | Demo is sandbox; production-like flows use real auth + seed |
-| Locked resident nav = **inert** (no navigation) | Clicking a padlocked tab must not redirect home |
+| Locked resident nav opens a **locked page** naming what unlocks it | Clicking a padlocked tab must not redirect home or do nothing |
 | Communication has **no folder tabs** | Only `active` / `archived` segments + thread deep links |
 | One header action per control on mobile | Split `titleAside` + `md:hidden` row duplicates break strict locators and PostHog |
 | Cross-check money on **lease doc, listing, charges** | `resolveStayPricing` / `computeLeasePaymentAtSigning` must agree |
@@ -275,7 +275,7 @@ Sign in as **resident@test.proplane.local**. Nav **varies by stage** — see `sr
 `STAGE_UNLOCKED_SECTIONS` and `RESIDENT_BOTTOM_NAV_PRIMARY` in
 `src/lib/resident-portal-nav.ts` are the one list of stages and what each one
 unlocks — read them there rather than from a copy, and check the portal against
-them. A locked row is visible and inert, never a dead link.
+them. A locked row is visible and opens a locked page naming what unlocks it, never a dead link.
 
 **Regression:** Manager+resident same account must not show empty lease while Applications says Approved.
 
@@ -354,7 +354,7 @@ Contract: `docs/agents/bookings.md` § Guest portal stays.
 ### 2.12 Resident — global chrome
 
 - [ ] Bottom nav primary tabs match unlocked stage (`tests/unit/resident-portal-nav.test.ts`)
-- [ ] Locked nav rows are inert, not dead links
+- [ ] Locked nav rows open the locked page naming what unlocks them, not dead links
 - [ ] Native parity paths in `src/lib/platform/parity.ts` unchanged unless intentional
 
 ---
