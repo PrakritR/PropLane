@@ -12,6 +12,8 @@ const db = new Pool({ connectionString: url, max: 8 });
 const migration = readFileSync("supabase/migrations/20261004230000_resident_checkout_attempt_claims.sql", "utf8");
 // Replaces the reservation function body to bound the recipient net by the principal, not the payer total.
 const netBound = readFileSync("supabase/migrations/20261005130000_resident_attempt_net_principal_bound.sql", "utf8");
+// Replaces it again: a payer with no resident account (an imported resident's rent link) may reserve.
+const accountless = readFileSync("supabase/migrations/20261127200000_resident_checkout_accountless_payer.sql", "utf8");
 
 async function household(count: number) {
   const manager = randomUUID(), resident = randomUUID();
@@ -69,6 +71,37 @@ suite("resident checkout cart arbitration on local PostgreSQL", () => {
     await db.query(migration);
     await db.query(netBound);
     await db.query(netBound); // replaces a function body only: safe to re-apply
+    await db.query(accountless);
+    await db.query(accountless);
+  });
+
+  it("lets a payer with no account reserve only charges that have no account (20261127200000)", async () => {
+    const home = await household(1);
+    // A login-less resident's charge: no resident_user_id, an imported address.
+    const email = `imported-${randomUUID()}@import.proplane.local`;
+    const loose = `hc_${randomUUID()}`;
+    await db.query(`insert into portal_household_charge_records
+      (id,manager_user_id,resident_user_id,resident_email,property_id,kind,status,row_data)
+      values($1,$2,null,$3,$4,'rent','pending',$5)`,
+    [loose, home.manager, email, home.property, { id: loose, managerUserId: home.manager, residentEmail: email,
+      propertyId: home.property, kind: "rent", status: "pending", amountLabel: "$10.00", balanceLabel: "$10.00" }]);
+    const reserveAs = (resident: string | null, residentEmail: string, ids: string[]) => {
+      const token = randomUUID();
+      const terms = { residentEmail, paymentMethod: "card", lineItems: ids.map((id) => ({ id, amountCents: 1000 })),
+        metadata: { resident_attempt_token: token, manager_user_id: home.manager, charge_ids: ids.join(","), resident_account: "none" } };
+      return db.query(`select * from reserve_resident_checkout_attempt(
+        $1,$2,$3,$4,$5::text[],$6::integer[],$7,$8,$9,'card',$10::jsonb)`,
+      [token, resident, residentEmail, home.manager, ids, ids.map(() => 1000), 1000 * ids.length, 1000 * ids.length,
+        1000 * ids.length, JSON.stringify(terms)]);
+    };
+    // A null payer can never take a charge that names an account, nor one for another address.
+    await expect(reserveAs(null, home.email, home.ids)).rejects.toThrow();
+    await expect(reserveAs(null, `other-${randomUUID()}@import.proplane.local`, [loose])).rejects.toThrow();
+    const ok = await reserveAs(null, email, [loose]);
+    expect(ok.rows[0]).toMatchObject({ status: "pending", resident_user_id: null, resident_email: email });
+    // Reserving the same cart again returns the same attempt (null = null), never a second claim.
+    const again = await reserveAs(null, email, [loose]);
+    expect(again.rows[0].id).toBe(ok.rows[0].id);
   });
 
   it("bounds the recipient net by the principal at reservation, not by the payer total (20261005130000)", async () => {

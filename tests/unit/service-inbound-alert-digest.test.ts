@@ -112,9 +112,15 @@ describe("alertOpsOfInboundText", () => {
 describe("the 7 AM digest for managed workspaces", () => {
   it("one text per person: check-ins and check-outs, new leads (count, first names, house) and the reminder count, paid by the platform", async () => {
     const out = await runCheckinCheckoutDigest(seed(), { now: SEVEN });
-    expect(out.serviceTexts).toBe(1);
+    // The admin's listed phone AND the owner of record's verified phone.
+    expect(out.serviceTexts).toBe(2);
     expect(alertPhones).not.toHaveBeenCalled(); // the managed house is not texted per house any more
-    const [, call] = sendFromService.mock.calls[0]! as [unknown, { toPhone: string; text: string; dedupeKey: string; sendClass: string }];
+    const calls = sendFromService.mock.calls.map((c) => c[1] as { toPhone: string; text: string; dedupeKey: string; sendClass: string; recipientUserId: string | null });
+    const call = calls.find((c) => c.toPhone === CAPTAIN)!;
+    const owner = calls.find((c) => c.toPhone === "+15105791976")!;
+    expect(owner.recipientUserId).toBe("amb");
+    expect(owner.text).toContain("check-in Room 4 (Anthony");
+    expect(owner.text).not.toContain("New leads"); // leads and the reminder count are PropLane's own operations
     expect(call.toPhone).toBe(CAPTAIN);
     expect(call.sendClass).toBe("transactional");
     expect(call.text).toMatch(/^PropLane today:/);
@@ -128,10 +134,10 @@ describe("the 7 AM digest for managed workspaces", () => {
     // idempotent per day: a re-run keys the same text the same way
     sendFromService.mockClear();
     await runCheckinCheckoutDigest(seed(), { now: SEVEN });
-    expect((sendFromService.mock.calls[0]![1] as { dedupeKey: string }).dedupeKey).toBe(call.dedupeKey);
+    expect(sendFromService.mock.calls.map((c) => (c[1] as { dedupeKey: string }).dedupeKey).sort()).toEqual(calls.map((c) => c.dedupeKey).sort());
   });
 
-  it("a seat on this workspace gets the digest routine-class; a seat on another workspace gets nothing", async () => {
+  it("a seat on this workspace gets the digest (transactional: an automated text at 7 AM is inside quiet hours); a seat on another workspace gets nothing", async () => {
     const db = createFakeDb({
       portal_workspaces: [
         { id: "ws-amb", name: "1. Ambika", owner_user_id: "amb", is_service: true, is_default: true },
@@ -153,7 +159,7 @@ describe("the 7 AM digest for managed workspaces", () => {
     await runCheckinCheckoutDigest(db, { now: SEVEN });
     const calls = sendFromService.mock.calls.map((c) => c[1] as { toPhone: string; sendClass: string });
     expect(calls.map((c) => c.toPhone)).toEqual(["+12065550122"]);
-    expect(calls[0]!.sendClass).toBe("automated");
+    expect(calls[0]!.sendClass).toBe("transactional");
   });
 
   it("composes nothing when there is nothing to say, splits a long digest on line boundaries, and shows +N more leads", () => {
