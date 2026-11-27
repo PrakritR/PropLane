@@ -20,6 +20,14 @@ process.env.COMMS_CREDIT_POOL_ENABLED ??= "0";
 
 vi.mock("server-only", () => ({}));
 
+// Client workspace filters are CLOSED until a selection loads (issue #103). Most suites render a component with no
+// WorkspaceProvider, so they start from the loaded-selection-with-no-workspace state (nothing to narrow by). A suite
+// about the pending state calls `setWorkspaceSelection(null)` itself.
+{
+  const { setWorkspaceSelection } = await import("@/lib/workspaces/selection");
+  setWorkspaceSelection({ workspaces: [], activeWorkspaceId: null } as never);
+}
+
 // Node 24+ ships its own `localStorage` global, which is `undefined` unless the
 // process was started with `--experimental-webstorage --localstorage-file=…`.
 // Vitest's jsdom environment copies Node's globals onto the jsdom window, so on

@@ -3,6 +3,9 @@
 // Holding fee is an inline checkbox on the application detail when the listing
 // has a holding deposit configured — not a header modal.
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { setWorkspaceSelection } from "@/lib/workspaces/selection";
+// A loaded selection with no workspace has nothing to narrow by; an unloaded one is closed (issue #103).
+setWorkspaceSelection({ workspaces: [], activeWorkspaceId: null } as never);
 import { cleanup, render } from "@testing-library/react";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 

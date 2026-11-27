@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadWorkspaces } from "./server";
 import { WORKSPACE_COOKIE } from "./types";
+import { WorkspaceScopeUnavailableError } from "./scope-unavailable";
 
 /**
  * PostgREST's `in.()` for an empty list is not portable, so a scope that
@@ -31,8 +32,8 @@ export type WorkspaceRowScope = {
  * `activeWorkspacePropertyScope` (`@/lib/workspaces/scope.server`), resolved
  * in one workspace load that ALSO reports whether the active workspace is
  * the viewer's own default — the extra signal an account-level (no-property)
- * row needs. Read-only: never creates a workspace, and any resolution
- * failure narrows nothing (never widens what the viewer could already read).
+ * row needs. Read-only: never creates a workspace, and a failed
+ * workspace load throws `WorkspaceScopeUnavailableError` (fail closed).
  */
 export async function resolveActiveWorkspaceRowScope(
   db: SupabaseClient,
@@ -42,7 +43,8 @@ export async function resolveActiveWorkspaceRowScope(
   try {
     workspaces = await loadWorkspaces(db, viewerUserId);
   } catch {
-    return { propertyIds: null, includeUntagged: true };
+    // Fail closed: an unresolvable scope is never "do not narrow".
+    throw new WorkspaceScopeUnavailableError();
   }
   if (workspaces.length === 0) return { propertyIds: null, includeUntagged: true };
   let selected: string | undefined;

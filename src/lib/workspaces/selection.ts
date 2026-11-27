@@ -7,6 +7,19 @@ export function setWorkspaceSelection(next: WorkspacePayload | null) {
   if (typeof window !== "undefined") window.dispatchEvent(new Event(WORKSPACE_SELECTION_EVENT));
 }
 
+/**
+ * The selection has not answered yet (`GET /api/workspaces` in flight, or it failed). Every row filter below is CLOSED
+ * in this state: drawing the whole account until the selection loads showed one workspace's cached rows under another's
+ * name. A loaded selection with no workspace at all (a brand-new account) has nothing to narrow and passes everything.
+ */
+export function workspaceSelectionPending(): boolean {
+  return selection === null;
+}
+
+function noWorkspaceToNarrowBy(): boolean {
+  return selection !== null && selection.workspaces.length === 0;
+}
+
 function activeWorkspace() {
   if (!selection || !selection.activeWorkspaceId) return null;
   return selection.workspaces.find((w) => w.id === selection!.activeWorkspaceId) ?? null;
@@ -44,12 +57,14 @@ function accountIsPartitioned(): boolean {
  * workspace that owns that number, not to "whichever workspace is the default".
  */
 export function isActiveWorkspaceId(workspaceId: string | null | undefined): boolean {
-  if (!selection || !selection.activeWorkspaceId) return true;
+  if (noWorkspaceToNarrowBy()) return true;
+  if (!selection || !selection.activeWorkspaceId) return false;
   return selection.activeWorkspaceId === workspaceId;
 }
 
 export function workspaceContainsProperty(propertyId: string | null | undefined): boolean {
-  if (!selection || !selection.activeWorkspaceId) return true;
+  if (noWorkspaceToNarrowBy()) return true;
+  if (!selection || !selection.activeWorkspaceId) return false;
   const active = activeWorkspace();
   if (!active) return false;
   // A row with no house at all is account-level; the owned default workspace is
@@ -79,7 +94,7 @@ export function rowInActiveWorkspace(ids: ReadonlyArray<string | null | undefine
   if (named.length === 0) {
     // Same answer the server gives (`untaggedOwnedVisible`): a service naming no house lives in the
     // viewer's own default workspace, however many workspaces the account has.
-    if (!selection || !selection.activeWorkspaceId) return true;
+    if (noWorkspaceToNarrowBy()) return true;
     const active = activeWorkspace();
     return Boolean(active && active.owned && active.isDefault);
   }
@@ -104,14 +119,16 @@ export function filterRowsInActiveWorkspace<T>(
 
 /**
  * The houses the active workspace holds, as a scope every list can pass down.
- * `null` means "not narrowing" — the selection has not loaded yet. An EMPTY
- * ARRAY means the workspace genuinely holds no houses, which is not the same
- * thing: a caller that treats it as "no filter" shows the whole account in an
- * empty workspace.
+ * `null` means "not narrowing" — the account has no workspace at all. An EMPTY
+ * ARRAY means the workspace holds no houses OR the selection has not loaded yet
+ * (see `workspaceSelectionPending`): a caller that treats it as "no filter" shows
+ * the whole account in an empty workspace.
  */
 export function activeWorkspacePropertyIds(): string[] | null {
+  if (noWorkspaceToNarrowBy()) return null;
   const active = activeWorkspace();
-  if (!active) return null;
+  // Selection not loaded yet: closed (no houses), never "not narrowing".
+  if (!active) return [];
   return active.propertyIds.map((id) => id.trim()).filter(Boolean);
 }
 
@@ -122,8 +139,9 @@ export function activeWorkspacePropertyIds(): string[] | null {
  * while `livePropertyCount` counts only the houses whose status is live.
  */
 export function activeWorkspaceNonDraftPropertyIds(): string[] | null {
+  if (noWorkspaceToNarrowBy()) return null;
   const active = activeWorkspace();
-  if (!active) return null;
+  if (!active) return [];
   const bookable = active.nonDraftPropertyIds ? new Set(active.nonDraftPropertyIds.map((id) => id.trim())) : null;
   return active.propertyIds.map((id) => id.trim()).filter((id) => id && (!bookable || bookable.has(id)));
 }

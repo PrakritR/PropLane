@@ -23,7 +23,8 @@ describe("Bookings property ids", () => {
     expect(activeWorkspaceNonDraftPropertyIds()).toEqual(["a", "draft", "b"]);
   });
 
-  it("is null before a workspace is selected", () => {
-    expect(activeWorkspaceNonDraftPropertyIds()).toBeNull();
+  it("is empty (closed) before a workspace is selected", () => {
+    setWorkspaceSelection(null);
+    expect(activeWorkspaceNonDraftPropertyIds()).toEqual([]);
   });
 });

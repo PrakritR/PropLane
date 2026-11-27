@@ -23,6 +23,7 @@ const state = vi.hoisted(() => ({
   admin: false,
   scheduleRows: [] as Row[],
   workspaceScope: null as string[] | null,
+  scopeUnavailable: false,
 }));
 
 vi.mock("next/server", async (importOriginal) => {
@@ -48,7 +49,13 @@ vi.mock("@/lib/auth/co-manager-module-scope", () => ({
 // The one thing under test: whether the route now CONSULTS this, not whether
 // it resolves correctly (that is `co-manager-workspace-scope-leak.test.ts`'s job).
 vi.mock("@/lib/workspaces/scope.server", () => ({
-  activeWorkspacePropertyScope: vi.fn(async () => state.workspaceScope),
+  activeWorkspacePropertyScope: vi.fn(async () => {
+    if (state.scopeUnavailable) {
+      const { WorkspaceScopeUnavailableError } = await import("@/lib/workspaces/scope-unavailable");
+      throw new WorkspaceScopeUnavailableError();
+    }
+    return state.workspaceScope;
+  }),
 }));
 
 type Query = Record<string, unknown> & PromiseLike<{ data: Row[]; error: null }>;
@@ -167,6 +174,7 @@ beforeEach(() => {
   portal("owner-a");
   state.scheduleRows = [];
   state.workspaceScope = null;
+  state.scopeUnavailable = false;
 });
 
 describe("GET /api/portal-schedule-records — narrows to the active workspace", () => {
@@ -213,6 +221,73 @@ describe("GET /api/portal-schedule-records — narrows to the active workspace",
     const res = await GET();
     const body = (await res.json()) as { rows: { id: string }[] };
     expect(body.rows.map((r) => r.id)).toEqual(["cache-row"]);
+  });
+});
+
+// Issue #103: the shared inquiry / planned-events singletons hold EVERY workspace's items in one row, whose
+// `property_id` column is just the house of whoever wrote last. Keeping or dropping the whole row by that column hid
+// one workspace's requests (and, for a staff viewer, leaked another's). They are narrowed item by item instead.
+describe("GET /api/portal-schedule-records — shared singletons narrow by item, not by their last-writer column", () => {
+  const singleton = (id: string, columnHouse: string | null, items: Record<string, unknown>[]) => ({
+    id,
+    manager_user_id: null,
+    property_id: columnHouse,
+    record_type: id,
+    row_data: { id, recordType: id, managerUserId: null, propertyId: null, payload: items },
+    updated_at: "2026-01-01T00:00:00.000Z",
+  });
+  const inquiry = (id: string, propertyId: string) => ({ id, propertyId, status: "pending", managerUserId: "owner-a" });
+  const itemIds = async (): Promise<string[]> => {
+    const { GET } = await import("@/app/api/portal-schedule-records/route");
+    const res = await GET();
+    const body = (await res.json()) as { rows: { id: string; payload?: { id: string }[] }[] };
+    return body.rows.filter((r) => r.id === "axis_admin_partner_inquiries_v1").flatMap((r) => (r.payload ?? []).map((i) => i.id));
+  };
+
+  it("with B active and the singleton stamped to a B house, shows none of A's requests", async () => {
+    state.scheduleRows = [
+      singleton("axis_admin_partner_inquiries_v1", "house-b1", [inquiry("req-a1", "house-a1"), inquiry("req-a2", "house-a2")]),
+    ];
+    state.workspaceScope = ["house-b1", "house-b2"];
+    expect(await itemIds()).toEqual([]);
+  });
+
+  it("with A active and the singleton stamped to a B house, still shows all of A's requests", async () => {
+    state.scheduleRows = [
+      singleton("axis_admin_partner_inquiries_v1", "house-b1", [inquiry("req-a1", "house-a1"), inquiry("req-a2", "house-a2"), inquiry("req-b1", "house-b1")]),
+    ];
+    state.workspaceScope = ["house-a1", "house-a2"];
+    expect((await itemIds()).sort()).toEqual(["req-a1", "req-a2"]);
+  });
+
+  it("shows B's own request under B even though the column names an A house", async () => {
+    state.scheduleRows = [
+      singleton("axis_admin_partner_inquiries_v1", "house-a1", [inquiry("req-a1", "house-a1"), inquiry("req-b1", "house-b1")]),
+    ];
+    state.workspaceScope = ["house-b1"];
+    expect(await itemIds()).toEqual(["req-b1"]);
+  });
+
+  it("narrows the planned-events container the same way", async () => {
+    state.scheduleRows = [
+      singleton("axis_admin_planned_events_v1", "house-b1", [
+        { id: "pl-a", propertyId: "house-a1", managerUserId: "owner-a" },
+        { id: "pl-b", propertyId: "house-b1", managerUserId: "owner-a" },
+      ]),
+    ];
+    state.workspaceScope = ["house-b1"];
+    const { GET } = await import("@/app/api/portal-schedule-records/route");
+    const body = (await (await GET()).json()) as { rows: { id: string; payload?: { id: string }[] }[] };
+    const planned = body.rows.find((r) => r.id === "axis_admin_planned_events_v1");
+    expect((planned?.payload ?? []).map((i) => i.id)).toEqual(["pl-b"]);
+  });
+
+  it("answers 503 (never an unfiltered 200) when the workspace cannot be resolved", async () => {
+    state.scheduleRows = [event("ev-a", "house-a"), event("ev-b", "house-b")];
+    state.scopeUnavailable = true;
+    const { GET } = await import("@/app/api/portal-schedule-records/route");
+    const res = await GET();
+    expect(res.status).not.toBe(200);
   });
 });
 

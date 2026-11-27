@@ -11,7 +11,10 @@ import {
   linkedOwnerForProperty,
   linkedOwnerScopeForModule,
   linkedPropertyIdsForModule,
+  resolveManagerWorkspaceRowScope,
+  rowInWorkspaceScope,
 } from "@/lib/auth/co-manager-module-scope";
+import { isWorkspaceScopeUnavailable } from "@/lib/workspaces/scope-unavailable";
 import { assertManagerPromotionCoManagerAccess } from "@/lib/auth/co-manager-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -122,8 +125,17 @@ export async function GET(req: Request) {
       }
     }
 
-    return NextResponse.json({ rows: [...byId.values()] });
+    let rows = [...byId.values()];
+    // The page used to narrow to the open workspace in the browser, which shows everything until the selection
+    // loads. The server answers for the ACTIVE workspace only (a house outside it, or an account-level row
+    // outside the owned default workspace, never leaves). Admin oversight is the all-owners read.
+    if (!oversight) {
+      const scope = await resolveManagerWorkspaceRowScope(db, user.id);
+      rows = rows.filter((row) => rowInWorkspaceScope(row.propertyId, scope));
+    }
+    return NextResponse.json({ rows });
   } catch (e) {
+    if (isWorkspaceScopeUnavailable(e)) return NextResponse.json({ error: e.message }, { status: 503 });
     const message = e instanceof Error ? e.message : "Failed to load promotions.";
     return NextResponse.json({ error: message }, { status: 500 });
   }

@@ -30,10 +30,11 @@ describe("active workspace scope", () => {
     expect(workspaceContainsProperty("p1")).toBe(false);
   });
 
-  it("reads the whole account before a selection exists", () => {
+  it("shows nothing before a selection exists (closed, never the whole account)", () => {
+    setWorkspaceSelection(null);
     expect(activeWorkspaceScope()).toBeNull();
     expect(propertiesOutsideActiveWorkspace()).toBe(0);
-    expect(workspaceContainsProperty("p1")).toBe(true);
+    expect(workspaceContainsProperty("p1")).toBe(false);
   });
 
   it("is quiet in the default workspace that holds the homes", () => {

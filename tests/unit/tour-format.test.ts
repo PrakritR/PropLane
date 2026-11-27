@@ -11,6 +11,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const originalTz = process.env.TZ;
 
+vi.mock("@/lib/workspaces/scope.server", () => ({
+  // The in-memory db cannot answer `loadWorkspaces`; a failed load now fails closed, so state the scope directly.
+  activeWorkspacePropertyScope: async () => null,
+  assertPropertyInActiveWorkspace: async () => true,
+}));
 vi.mock("@/lib/sms-consent", () => ({ recordOptIn: async () => undefined }));
 vi.mock("@/lib/public-tour-booking-guard", () => ({
   adminHasPublishedSlot: async () => true,

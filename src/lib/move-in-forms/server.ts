@@ -10,6 +10,7 @@ import { getManagerPortalNavSubscriptionTier } from "@/lib/manager-access-server
 import { managerOwnedPropertyIdSet } from "@/lib/auth/manager-application-access";
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
+import { isWorkspaceScopeUnavailable } from "@/lib/workspaces/scope-unavailable";
 import { writeAuditLog, updateAuditResult } from "@/lib/tools/audit";
 import { track } from "@/lib/analytics/posthog";
 import { rateLimit } from "@/lib/rate-limit";
@@ -129,9 +130,11 @@ async function resolveScope(actor: MoveInFormActor, level: "read" | "edit"): Pro
   const [owned, linked, workspaceIds] = await Promise.all([
     managerOwnedPropertyIdSet(db, userId),
     linkedOwnerScopeForModule(db, userId, "residents", level),
-    // A failed read becomes `null`, which means "no workspace narrowing" (the project-wide convention in
-    // workspaces/scope.server.ts), not "no access": ownership/grants above remain the authorization.
-    activeWorkspacePropertyScope(db, userId).catch(() => null),
+    // A failed workspace read fails closed (503), never "no narrowing".
+    activeWorkspacePropertyScope(db, userId).catch((error) => {
+      if (isWorkspaceScopeUnavailable(error)) throw new MoveInFormError(error.message, 503);
+      throw error;
+    }),
   ]);
   return {
     owners: new Set([userId]),

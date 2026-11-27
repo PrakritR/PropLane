@@ -30,6 +30,11 @@ vi.mock("@/lib/auth/portal-access", () => ({
     profile: { email: "co@example.com", role: "manager" },
   }),
 }));
+vi.mock("@/lib/workspaces/scope.server", () => ({
+  // The in-memory db cannot answer `loadWorkspaces`; a failed load now fails closed, so state the scope directly.
+  activeWorkspacePropertyScope: async () => null,
+  assertPropertyInActiveWorkspace: async () => true,
+}));
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: async () => false }));
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({

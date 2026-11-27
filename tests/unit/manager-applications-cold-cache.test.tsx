@@ -11,6 +11,9 @@
 // Set APPLICATIONS_COLD_CACHE_HTML_DIR to dump each rendered surface's HTML so
 // it can be screenshotted with the app's real stylesheet.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setWorkspaceSelection } from "@/lib/workspaces/selection";
+// A loaded selection with no workspace has nothing to narrow by; an unloaded one is closed (issue #103).
+setWorkspaceSelection({ workspaces: [], activeWorkspaceId: null } as never);
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import fs from "node:fs";
 import path from "node:path";

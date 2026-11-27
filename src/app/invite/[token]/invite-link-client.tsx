@@ -1,5 +1,6 @@
 "use client";
 
+import { clearWorkspaceScopedClientCaches } from "@/lib/workspaces/clear-client-caches";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthCard } from "@/components/auth/auth-card";
@@ -143,6 +144,7 @@ export default function InviteLinkClient({ token }: { token: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "select", id }),
       });
+      clearWorkspaceScopedClientCaches();
     } catch {
       /* Selection is best-effort — membership already landed. */
     }

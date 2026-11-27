@@ -5,6 +5,7 @@
  * each thread on one of them ("Unassigned" when none yet). The Filter popover's Workspace field reads that list from
  * here, so the inbox needs no second request for it.
  */
+import { clearWorkspaceScopedClientCaches } from "@/lib/workspaces/clear-client-caches";
 import { useSyncExternalStore } from "react";
 
 export type AdminSmsWorkspace = { id: string; name: string };
@@ -85,6 +86,7 @@ export async function openAdminWorkspaceThread(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role: "manager", keepWorkspace: true }),
     }).catch(() => undefined);
+    clearWorkspaceScopedClientCaches();
     const href = adminWorkspaceThreadHref(args.conversationKey);
     (deps.navigate ?? ((to: string) => window.location.assign(to)))(href);
     return { ok: true, href };

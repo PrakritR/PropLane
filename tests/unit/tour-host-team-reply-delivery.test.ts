@@ -1,4 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// The in-memory db does not model the PostgREST `not`/`or` filters `loadWorkspaces` issues, and a failed load now
+// closes the communication scope (issue #103) instead of silently reading as "do not narrow". The workspace list this
+// scenario is about is stated directly: the owner's workspace holds the house; the co-host holds their own default
+// workspace and the owner's one through the invite.
+// The co-host has the owner's workspace open (the cookie), the situation a host-team reply is sent from.
+vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => ({ value: "ws-owner" }) }) }));
+vi.mock("@/lib/workspaces/server", () => ({
+  loadWorkspaces: async (_db: unknown, userId: string) =>
+    userId === "casey"
+      ? [
+          { id: "ws-casey", propertyIds: [], owned: true, isDefault: true },
+          { id: "ws-owner", propertyIds: ["prop-1"], owned: false, isDefault: false },
+        ]
+      : [{ id: "ws-owner", propertyIds: ["prop-1"], owned: true, isDefault: true }],
+}));
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   coHostDisplayName,

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { managerHasCalendarAccessForProperty } from "@/lib/auth/manager-lease-scope";
+import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
+import { isWorkspaceScopeUnavailable } from "@/lib/workspaces/scope-unavailable";
 import { occupancySnapshotForManager } from "@/lib/occupancy/snapshot.server";
 
 export const runtime = "nodejs";
@@ -50,8 +52,13 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "days must be YYYY-MM-DD keys inside from..to." }, { status: 400 });
     }
 
+    // The house list is the client's claim. The server answers for the ACTIVE workspace's houses only, so a
+    // stale list (or a forged one) from another workspace never reads. `null` = no workspace to narrow by.
+    const workspaceScope = await activeWorkspacePropertyScope(actor.db, actor.userId);
+    const inWorkspace = workspaceScope === null ? null : new Set(workspaceScope);
     const allowed: string[] = [];
     for (const propertyId of propertyIds) {
+      if (inWorkspace && !inWorkspace.has(propertyId)) continue;
       if (await managerHasCalendarAccessForProperty(actor.db, actor.userId, propertyId)) allowed.push(propertyId);
     }
     const snapshot = await occupancySnapshotForManager(actor.db, actor.userId, {
@@ -63,6 +70,7 @@ export async function GET(req: Request) {
     });
     return NextResponse.json(snapshot, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
+    if (isWorkspaceScopeUnavailable(e)) return NextResponse.json({ error: e.message }, { status: 503 });
     return NextResponse.json({ error: e instanceof Error ? e.message : "Failed." }, { status: 500 });
   }
 }

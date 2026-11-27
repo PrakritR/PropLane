@@ -6,6 +6,9 @@
 // `syncManagerApplicationsFromServer` union-merges against `memoryRows`, so the
 // row was resurrected on the 20s poll / focus sync ("application glitches").
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setWorkspaceSelection } from "@/lib/workspaces/selection";
+// A loaded selection with no workspace has nothing to narrow by; an unloaded one is closed (issue #103).
+setWorkspaceSelection({ workspaces: [], activeWorkspaceId: null } as never);
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import type { MockProperty } from "@/data/types";

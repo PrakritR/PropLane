@@ -1,4 +1,10 @@
 import { beforeEach, expect, it, vi } from "vitest";
+// The in-memory db cannot answer `loadWorkspaces`, and a failed load now fails closed (issue #103). This suite is not
+// about workspace scoping, so it states "no workspaces" (nothing to narrow by) directly.
+vi.mock("@/lib/workspaces/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/workspaces/server")>()),
+  loadWorkspaces: async () => [],
+}));
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), fetch: vi.fn(), scope: vi.fn(), ownership: vi.fn(),
   tags: vi.fn(), access: vi.fn(), replace: vi.fn(), rpc: vi.fn() }));
 vi.mock("@/lib/auth/portal-access", () => ({ getPortalAccessContext: mocks.auth,

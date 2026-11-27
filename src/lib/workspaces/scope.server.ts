@@ -3,13 +3,14 @@ import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadWorkspaces } from "./server";
 import { WORKSPACE_COOKIE } from "./types";
+import { WorkspaceScopeUnavailableError } from "./scope-unavailable";
 
 /**
  * The houses the viewer's active workspace holds, resolved on the SERVER from
  * the selection cookie rather than from anything the client sends.
  *
- * `null` means "not narrowing": the workspace load failed, or the viewer has
- * no workspace at all. A single workspace is NOT the account when co-manager
+ * `null` means "not narrowing": the viewer has no workspace at all. A FAILED
+ * workspace load throws `WorkspaceScopeUnavailableError` (fail closed). A single workspace is NOT the account when co-manager
  * grants exist — the account still reaches another owner's houses through the
  * grant, so a resolved single workspace narrows exactly like several would. An
  * EMPTY ARRAY means the workspace genuinely holds no houses — a caller that
@@ -27,9 +28,10 @@ export async function activeWorkspacePropertyScope(
   try {
     workspaces = await loadWorkspaces(db, viewerUserId);
   } catch {
-    // A scope we cannot resolve must not silently widen the read. The caller
-    // keeps its own property filter and the page reports the failure normally.
-    return null;
+    // A scope we cannot resolve must never read as "do not narrow": the account may reach
+    // several workspaces (staff seats, grants, two owned) and "all of them" is not the
+    // active one. Fail closed; the route answers 503.
+    throw new WorkspaceScopeUnavailableError();
   }
   if (workspaces.length === 0) return null;
   const selected = (await cookies()).get(WORKSPACE_COOKIE)?.value;
@@ -50,9 +52,8 @@ export function narrowWorkspaceScope(
 
 /**
  * Refuse a manager write whose property lies outside the caller's ACTIVE
- * workspace. `null` scope (no workspaces, or the load failed) never narrows,
- * the same "never narrow on a failure" contract `activeWorkspacePropertyScope`
- * itself follows. A blank `propertyId` always passes — a property-less write
+ * workspace. `null` scope (no workspaces at all) never narrows; a failed load
+ * throws `WorkspaceScopeUnavailableError`, never a pass. A blank `propertyId` always passes — a property-less write
  * has no house to leak into another workspace.
  *
  * This is beside module/ownership authorization, never instead of it: callers

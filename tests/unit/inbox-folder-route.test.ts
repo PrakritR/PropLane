@@ -2,6 +2,12 @@ vi.mock("@/lib/property-owner/access.server", () => ({
   ownerAccessStateFor: async () => ({ hasOwnerAccess: false, ownerOnly: false, messagesOn: false }),
 }));
 import { beforeEach, expect, it, vi } from "vitest";
+// The in-memory db cannot answer `loadWorkspaces`, and a failed load now fails closed (issue #103). This suite is not
+// about workspace scoping, so it states "no workspaces" (nothing to narrow by) directly.
+vi.mock("@/lib/workspaces/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/workspaces/server")>()),
+  loadWorkspaces: async () => [],
+}));
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn() }));
 vi.mock("@/lib/portal-inbox-thread-scope", () => ({
   ADMIN_INBOX_SCOPE: "admin", MANAGER_INBOX_SCOPE: "manager", RESIDENT_INBOX_SCOPE: "resident",

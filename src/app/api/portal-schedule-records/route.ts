@@ -40,6 +40,7 @@ import {
   handleTestWorkspaceSchedulePost,
 } from "@/lib/test-workspaces/schedule-route.server";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
+import { isWorkspaceScopeUnavailable } from "@/lib/workspaces/scope-unavailable";
 import { managerCanWriteCalendarForProperty } from "@/lib/auth/manager-lease-scope";
 
 export const runtime = "nodejs";
@@ -441,12 +442,22 @@ const route = createJsonRecordRoute({
     const reads = [singletonQuery, ordinaryQuery];
     // The viewer's active workspace, server-resolved from their own selection
     // cookie. `null` = not narrowing (no workspace / a resolution failure —
-    // never widens); a non-null array (possibly empty) is the exact set of
+    // fails closed); a non-null array (possibly empty) is the exact set of
     // houses to show. Admin/vendor turns are unaffected — workspace selection
     // is a per-manager-viewer concept, not something an admin's cross-tenant
     // read or a vendor's own scope was ever narrowed by.
     const isManagerViewer = !scheduleUserHasRole(user, "admin") && !scheduleUserHasRole(user, "vendor");
-    const workspaceScope = isManagerViewer ? await activeWorkspacePropertyScope(db, user.id) : null;
+    let workspaceScope: string[] | null = null;
+    if (isManagerViewer) {
+      try {
+        workspaceScope = await activeWorkspacePropertyScope(db, user.id);
+      } catch (error) {
+        // Fail closed: a workspace we cannot resolve is an error (the client keeps its cache), never "show everything".
+        if (!isWorkspaceScopeUnavailable(error)) throw error;
+        console.error("[portal-schedule-records] active workspace unreadable", error);
+        return { data: null, error: { message: error.message } };
+      }
+    }
     if (isManagerViewer && scheduleUserHasRole(user, "manager")) {
       let calendar: Awaited<ReturnType<typeof linkedOwnerScopeForModule>>;
       let applications: Awaited<ReturnType<typeof linkedOwnerScopeForModule>>;
@@ -570,9 +581,15 @@ const route = createJsonRecordRoute({
     // property (the real tours/bookings/calendar/availability rows) narrows
     // exactly the surface this scoping is about while leaving every
     // account-level row exempt, matching this file's account-level-row rule.
+    // The two shared singleton containers are exempt: their `property_id` column is whichever house the LAST writer
+    // happened to file, so it says nothing about what the container holds. Keeping or dropping the whole row by it
+    // hid one workspace's items when another workspace's request was filed last. They are always fetched for an
+    // eligible viewer and narrowed item by item in the projection (`projectRead`, `workspaceScope`).
     if (workspaceScope !== null) {
       const allowed = new Set(workspaceScope);
       values = values.filter((record) => {
+        const id = String(record.id ?? "").trim();
+        if (id === PLANNED_EVENTS_RECORD_ID || id === PARTNER_INQUIRIES_RECORD_ID) return true;
         const propertyId = String(record.property_id ?? "").trim();
         if (!propertyId) return true;
         return allowed.has(propertyId);
@@ -584,7 +601,9 @@ const route = createJsonRecordRoute({
     };
   },
   projectRead: async ({ db, user, records }) => {
-    const projected = await projectScheduleRecordsForViewer(db, user, records, { throwOnError: true });
+    const isManagerViewer = !scheduleUserHasRole(user, "admin") && !scheduleUserHasRole(user, "vendor");
+    const workspaceScope = isManagerViewer ? await activeWorkspacePropertyScope(db, user.id) : null;
+    const projected = await projectScheduleRecordsForViewer(db, user, records, { throwOnError: true, workspaceScope });
     // Service staff also see the open workspace's room blocks (the projection above keeps only rows the
     // viewer wrote or may see through a grant). Only room-block rows of the workspace's own houses, only staff.
     const staffHouses = new Set(serviceScopeIds(user));

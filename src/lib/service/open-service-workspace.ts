@@ -1,4 +1,5 @@
 import { fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
+import { clearWorkspaceScopedClientCaches } from "@/lib/workspaces/clear-client-caches";
 
 const TIMEOUT_MS = 25_000;
 
@@ -39,6 +40,7 @@ export async function openServiceWorkspace(
       },
       TIMEOUT_MS,
     ).catch(() => undefined);
+    clearWorkspaceScopedClientCaches();
     navigate(json.href);
     return null;
   } catch {
@@ -69,6 +71,7 @@ async function selectWorkspaceAndGo(id: string, navigate: (href: string) => void
       },
       TIMEOUT_MS,
     ).catch(() => undefined);
+    clearWorkspaceScopedClientCaches();
     navigate("/portal/dashboard");
     return null;
   } catch {
@@ -107,6 +110,7 @@ export async function switchToPropertyPortal(
       },
       TIMEOUT_MS,
     ).catch(() => undefined);
+    clearWorkspaceScopedClientCaches();
     navigate("/portal/dashboard");
     return null;
   } catch {

@@ -6,6 +6,12 @@
  * ("Bank account & payouts") grant at `edit`.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
+// The in-memory db cannot answer `loadWorkspaces`, and a failed load now fails closed (issue #103). This suite is not
+// about workspace scoping, so it states "no workspaces" (nothing to narrow by) directly.
+vi.mock("@/lib/workspaces/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/workspaces/server")>()),
+  loadWorkspaces: async () => [],
+}));
 
 const getUser = vi.fn();
 const refundsCreate = vi.fn();

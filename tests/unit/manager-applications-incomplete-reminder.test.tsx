@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { setWorkspaceSelection } from "@/lib/workspaces/selection";
+// A loaded selection with no workspace has nothing to narrow by; an unloaded one is closed (issue #103).
+setWorkspaceSelection({ workspaces: [], activeWorkspaceId: null } as never);
 import { cleanup, render, screen } from "@testing-library/react";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 

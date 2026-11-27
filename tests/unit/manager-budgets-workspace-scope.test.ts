@@ -84,11 +84,10 @@ describe("listManagerBudgets — active-workspace scoping", () => {
     expect(await listManagerBudgets(db2 as never, MANAGER)).toEqual([]);
   });
 
-  it("resolution failure (loadWorkspaces throws) never narrows — behaves exactly as today", async () => {
+  it("resolution failure (loadWorkspaces throws) fails closed instead of listing every budget", async () => {
     mocks.loadWorkspaces.mockRejectedValue(new Error("db down"));
     const db = fakeSupabaseClient({ manager_budgets: [budgetRow("b-a", "p1"), budgetRow("b-portfolio", null)] });
-    const budgets = await listManagerBudgets(db as never, MANAGER);
-    expect(budgets.map((b) => b.id).sort()).toEqual(["b-a", "b-portfolio"]);
+    await expect(listManagerBudgets(db as never, MANAGER)).rejects.toThrow(/workspace/i);
   });
 });
 

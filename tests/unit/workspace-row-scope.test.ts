@@ -50,10 +50,9 @@ describe("resolveActiveWorkspaceRowScope", () => {
     expect(scope).toEqual({ propertyIds: null, includeUntagged: true });
   });
 
-  it("does not narrow when the workspace load fails (never widen on a resolution failure)", async () => {
+  it("fails closed when the workspace load fails (never read as 'do not narrow')", async () => {
     mocks.loadWorkspaces.mockRejectedValue(new Error("db down"));
-    const scope = await resolveActiveWorkspaceRowScope({} as never, "mgr-1");
-    expect(scope).toEqual({ propertyIds: null, includeUntagged: true });
+    await expect(resolveActiveWorkspaceRowScope({} as never, "mgr-1")).rejects.toThrow(/workspace/i);
   });
 
   it("a single owned-default workspace narrows to its own houses and is untagged-visible", async () => {

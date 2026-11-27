@@ -1,5 +1,6 @@
 "use client";
 
+import { clearWorkspaceScopedClientCaches } from "@/lib/workspaces/clear-client-caches";
 import { Fragment, createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -183,6 +184,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
   const select = useCallback(async (id: string, opts?: { href?: string | false }) => {
     await mutate({ action: "select", id });
+    // The caches below are not keyed by workspace: wipe them before the next workspace paints.
+    clearWorkspaceScopedClientCaches();
     if (opts?.href === false) {
       router.refresh();
       return;

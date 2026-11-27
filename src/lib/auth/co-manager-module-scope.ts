@@ -14,6 +14,7 @@ import { intersectPropertyScopes } from "@/lib/reports/workspace-scope";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { loadWorkspaces } from "@/lib/workspaces/server";
 import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
+import { WorkspaceScopeUnavailableError } from "@/lib/workspaces/scope-unavailable";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { loadServiceOwnerSeats } from "@/lib/property-owner/service-owner-seat.server";
 
@@ -244,9 +245,9 @@ export async function resolveManagerWorkspaceRowScope(
   try {
     workspaces = await loadWorkspaces(db, viewerUserId);
   } catch {
-    // A scope we cannot resolve must not silently narrow the read — same
-    // fail-open-to-"don't narrow" contract as activeWorkspacePropertyScope.
-    return { propertyIds: null, untaggedOwnedVisible: true };
+    // A scope we cannot resolve must never read as "do not narrow" (the account may reach
+    // several workspaces): fail closed, the route answers 503.
+    throw new WorkspaceScopeUnavailableError();
   }
   if (workspaces.length === 0) return { propertyIds: null, untaggedOwnedVisible: true };
   const selected = (await cookies()).get(WORKSPACE_COOKIE)?.value;

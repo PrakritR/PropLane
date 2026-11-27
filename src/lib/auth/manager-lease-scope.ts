@@ -10,6 +10,7 @@ import {
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
+import { WorkspaceScopeUnavailableError } from "@/lib/workspaces/scope-unavailable";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { loadServiceOwnerSeats } from "@/lib/property-owner/service-owner-seat.server";
 
@@ -22,25 +23,31 @@ type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
  * (`src/lib/communication/conversation-visibility.server.ts`,
  * `untaggedOwnedVisible`): resolved locally rather than through
  * `activeWorkspacePropertyScope` because that helper only returns property
- * ids, not whether the active workspace is owned and default. A resolution
- * failure or "no workspaces at all" never narrows, so this defaults `true` —
- * the same "never narrow on a failure" contract `activeWorkspacePropertyScope`
- * follows by returning `null` in those same cases.
+ * ids, not whether the active workspace is owned and default. "No workspaces
+ * at all" never narrows, so this is `true`; a FAILED load throws
+ * `WorkspaceScopeUnavailableError` (fail closed), like `activeWorkspacePropertyScope`.
  */
 async function activeWorkspaceIsOwnDefault(db: ServiceClient, userId: string): Promise<boolean> {
+  const { loadWorkspaces } = await import("@/lib/workspaces/server");
+  let workspaces;
   try {
-    const { loadWorkspaces } = await import("@/lib/workspaces/server");
-    const workspaces = await loadWorkspaces(db, userId);
-    if (workspaces.length === 0) return true;
+    workspaces = await loadWorkspaces(db, userId);
+  } catch {
+    // Fail closed: an unresolvable workspace is never "the viewer's own default".
+    throw new WorkspaceScopeUnavailableError();
+  }
+  if (workspaces.length === 0) return true;
+  let selected: string | undefined;
+  try {
     const { cookies } = await import("next/headers");
     const { WORKSPACE_COOKIE } = await import("@/lib/workspaces/types");
-    const selected = (await cookies()).get(WORKSPACE_COOKIE)?.value;
-    const active = workspaces.find((w) => w.id === selected) ?? workspaces[0];
-    if (!active) return true;
-    return Boolean(active.owned && active.isDefault);
+    selected = (await cookies()).get(WORKSPACE_COOKIE)?.value;
   } catch {
-    return true;
+    selected = undefined; // outside a request: the first workspace wins below
   }
+  const active = workspaces.find((w) => w.id === selected) ?? workspaces[0];
+  if (!active) return true;
+  return Boolean(active.owned && active.isDefault);
 }
 
 /**

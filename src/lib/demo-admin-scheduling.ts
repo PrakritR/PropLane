@@ -820,6 +820,26 @@ export function isActivePlannedEvent(event: PlannedEvent): boolean {
   return !String(event.canceledAt ?? "").trim();
 }
 
+/**
+ * Drop every cached schedule record (tours, inquiries, planned events, room blocks) held in memory and in this tab's
+ * sessionStorage. The cache is NOT keyed by workspace, so a switch must wipe it or the next workspace's first paint
+ * draws the previous one's rows (issue #103). The next sync refetches from the server, which scopes to the open workspace.
+ */
+export function resetScheduleClientCache(): void {
+  if (!isBrowser()) return;
+  memoryStore.clear();
+  try {
+    for (const key of Object.keys(window.sessionStorage)) {
+      if (key.startsWith(SESSION_CACHE_PREFIX)) window.sessionStorage.removeItem(key);
+    }
+  } catch {
+    /* storage unavailable: memory is already clear */
+  }
+  plannedScheduleState.observedKnown = false;
+  plannedScheduleState.observedRows = [];
+  plannedScheduleState.serverEpoch += 1;
+}
+
 export function readPartnerInquiries(): PartnerInquiry[] {
   const rows = readJson<PartnerInquiry[] | null>(INQ_KEY, null);
   return Array.isArray(rows) ? rows : [];

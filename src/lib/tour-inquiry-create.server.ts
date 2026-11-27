@@ -582,7 +582,9 @@ export async function createTourInquiry(
     {
       id: INQUIRIES_RECORD_ID,
       manager_user_id: null,
-      property_id: propertyId,
+      // A shared singleton holds every workspace's requests: it names no house (a last-writer house would
+      // make the schedule read treat it as one workspace's row). Readers narrow its ITEMS instead.
+      property_id: null,
       record_type: INQUIRIES_RECORD_ID,
       starts_at: proposedStart,
       ends_at: proposedEnd,

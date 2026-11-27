@@ -286,9 +286,23 @@ export async function projectScheduleRecordsForViewer(
   db: Db,
   user: ScheduleRecordUser,
   records: ScheduleRecord[],
-  options: { throwOnError?: boolean } = {},
+  options: {
+    throwOnError?: boolean;
+    /**
+     * The viewer's ACTIVE workspace houses (`activeWorkspacePropertyScope`). `null`/absent = not narrowing. The shared
+     * singleton containers hold every workspace's items under one row, so an item naming a house outside this set is
+     * dropped here, whatever the viewer's grants or seats would otherwise show.
+     */
+    workspaceScope?: readonly string[] | null;
+  } = {},
 ): Promise<ScheduleRecord[]> {
   const admin = hasRole(user, "admin");
+  const workspaceHouses = options.workspaceScope ? new Set(options.workspaceScope) : null;
+  const outsideWorkspace = (item: ScheduleItem): boolean => {
+    if (!workspaceHouses) return false;
+    const house = itemPropertyId(item);
+    return Boolean(house) && !workspaceHouses.has(house);
+  };
   const manager = hasRole(user, "manager");
   const propertyIds = new Set<string>();
   for (const record of records) {
@@ -403,6 +417,7 @@ export async function projectScheduleRecordsForViewer(
       if (!admin && !manager) continue;
       const rowData = object(record.row_data) ?? {};
       const payload = recordPayload(record).flatMap((item) => {
+        if (outsideWorkspace(item)) return [];
         const access = maySeeItem(
           item,
           sharedInquiries && text(item.status).toLowerCase() === "pending",
@@ -427,6 +442,7 @@ export async function projectScheduleRecordsForViewer(
     if (isStandaloneInquiry(record)) {
       const rowData = object(record.row_data);
       const item = standaloneInquiryItem(record);
+      if (item && outsideWorkspace(item)) continue;
       const access = item
         ? maySeeItem(item, text(item.status).toLowerCase() === "pending", {
             rowManagerUserId: text(record.manager_user_id),

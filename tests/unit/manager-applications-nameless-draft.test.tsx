@@ -6,6 +6,9 @@
 // which does identify the person. The manager Applications tab did not, so a
 // draft rendered as a blank row and a blank detail header.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setWorkspaceSelection } from "@/lib/workspaces/selection";
+// A loaded selection with no workspace has nothing to narrow by; an unloaded one is closed (issue #103).
+setWorkspaceSelection({ workspaces: [], activeWorkspaceId: null } as never);
 import { cleanup, render, screen } from "@testing-library/react";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import type { MockProperty } from "@/data/types";

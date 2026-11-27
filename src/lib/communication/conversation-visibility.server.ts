@@ -341,7 +341,7 @@ export async function resolveCommunicationScope(
   // whether or not they hold a house. A failure shares no chat.
   await loadTeamChatMemberships(db, scope);
 
-  // Workspace: a failure narrows nothing (the grant above is still the authority).
+  // Workspace: a failed load closes the scope (see the catch below).
   if (options.selectedWorkspaceId === null) return scope;
   try {
     const { loadWorkspaces } = await import("@/lib/workspaces/server");
@@ -398,10 +398,11 @@ export async function resolveCommunicationScope(
       }
     }
   } catch {
-    if (options.strictWorkspace) return closedCommunicationScope(viewerId, level);
-    scope.workspaceHouseIds = null;
-    scope.untaggedOwnedVisible = true;
-    scope.activeWorkspaceId = null;
+    // A workspace we cannot resolve must never read as "do not narrow": a viewer who reaches
+    // several workspaces would see every Assistant thread and every stamped conversation.
+    // Fail closed (an empty inbox until the read succeeds), strict surface or not. Once the active workspace HAS
+    // resolved, a later failure (the line-holder reads below) keeps the narrowed scope with no lines: never wider.
+    if (!scope.activeWorkspaceId) return closedCommunicationScope(viewerId, level);
     scope.workspaceByLine = new Map();
   }
   return scope;

@@ -30,6 +30,12 @@
  *   EVIDENCE_DIR=<dir> npx playwright test --config tests/browser/promote-production-1009.config.ts
  */
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// The in-memory db cannot answer `loadWorkspaces`, and a failed load now fails closed (issue #103). This suite is not
+// about workspace scoping, so it states "no workspaces" (nothing to narrow by) directly.
+vi.mock("@/lib/workspaces/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/workspaces/server")>()),
+  loadWorkspaces: async () => [],
+}));
 import { act, cleanup, render } from "@testing-library/react";
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";

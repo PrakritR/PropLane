@@ -8,6 +8,7 @@ import { preserveStoredSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 import { loadServiceStaffScope, loadServiceStaffScopeOrThrow } from "@/lib/service/service-mode.server";
 import type { ServiceStaffScope } from "@/lib/service/service-mode";
+import { isWorkspaceScopeUnavailable } from "@/lib/workspaces/scope-unavailable";
 
 type RecordUser = {
   id: string;
@@ -227,6 +228,7 @@ export function createJsonRecordRoute(config: RecordConfig) {
         });
         return NextResponse.json({ rows });
       } catch (e) {
+        if (isWorkspaceScopeUnavailable(e)) return NextResponse.json({ error: e.message }, { status: 503 });
         console.error("[portal-record-api] GET failed", e);
         return NextResponse.json({ error: "Failed to load records." }, { status: 500 });
       }

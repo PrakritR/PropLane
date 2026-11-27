@@ -5,6 +5,7 @@ import sharp from "sharp";
 import { managerOwnedPropertyIdSet } from "@/lib/auth/manager-application-access";
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
+import { isWorkspaceScopeUnavailable } from "@/lib/workspaces/scope-unavailable";
 import { writeAuditLog, updateAuditResult } from "@/lib/tools/audit";
 import { track } from "@/lib/analytics/posthog";
 import { smsTestProvenanceColumns } from "@/lib/sms/sms-test-provenance.server";
@@ -70,9 +71,11 @@ async function resolveScope(actor: InspectionActor, level: "read" | "edit"): Pro
   const [owned, linked, workspaceIds] = await Promise.all([
     managerOwnedPropertyIdSet(db, userId),
     linkedOwnerScopeForModule(db, userId, "residents", level),
-    // A failure here must not widen what `owners`/`properties` already scope —
-    // never let a broken workspace read grant more, only ever less.
-    activeWorkspacePropertyScope(db, userId).catch(() => null),
+    // A failed workspace read fails closed (503), never "no narrowing".
+    activeWorkspacePropertyScope(db, userId).catch((error) => {
+      if (isWorkspaceScopeUnavailable(error)) throw new InspectionError(error.message, 503);
+      throw error;
+    }),
   ]);
   return {
     owners: new Set([userId]),
