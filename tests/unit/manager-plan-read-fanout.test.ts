@@ -13,17 +13,26 @@ const OWNERS = [
   "00000000-0000-4000-8000-0000000000a3",
 ];
 
-const { counts, bump, noRowFor, failFor } = vi.hoisted(() => {
+const { counts, bump, noRowFor, failFor, waiverFor, policy } = vi.hoisted(() => {
   const counts: Record<string, number> = {};
   return {
     counts,
     bump: (key: string) => { counts[key] = (counts[key] ?? 0) + 1; },
     noRowFor: new Set<string>(),
     failFor: new Set<string>(),
+    waiverFor: new Set<string>(),
+    policy: { fail: false, expiresAt: null as string | null },
   };
 });
 
 function purchaseRow(userId: string) {
+  if (waiverFor.has(userId)) {
+    return {
+      id: `row-${userId}`, user_id: userId, tier: "pro", billing: "monthly", manager_id: `MGR-${userId.slice(-2)}`,
+      stripe_customer_id: null, stripe_subscription_id: null, stripe_checkout_session_id: null,
+      promo_code: "FREE100", apple_original_transaction_id: null, paid_at: "2026-10-01T00:00:00Z", promo_ends_at: null, email: null,
+    };
+  }
   return {
     id: `row-${userId}`, user_id: userId, tier: "business", billing: "monthly", manager_id: `MGR-${userId.slice(-2)}`,
     stripe_customer_id: "cus_1", stripe_subscription_id: "sub_1", stripe_checkout_session_id: "cs_1",
@@ -40,7 +49,9 @@ function fakeFrom(table: string) {
         if (prop === "then") {
           return (resolve: (v: unknown) => void, reject?: (e: unknown) => void) => {
             bump(`db:${table}`);
-            const failing = table === "manager_purchases" && failFor.has(String(filters.user_id));
+            const failing =
+              (table === "manager_purchases" && failFor.has(String(filters.user_id))) ||
+              (table === "manager_promo_code_policies" && policy.fail);
             Promise.resolve(failing ? { data: null, error: { message: "boom" } } : { data: rowsFor(), error: null }).then(resolve, reject);
           };
         }
@@ -56,6 +67,8 @@ function fakeFrom(table: string) {
   };
   if (table === "manager_purchases") {
     rowsFor = () => (typeof filters.user_id === "string" && !noRowFor.has(String(filters.user_id)) ? [purchaseRow(String(filters.user_id))] : []);
+  } else if (table === "manager_promo_code_policies") {
+    rowsFor = () => (policy.expiresAt ? [{ code: "FREE100", expires_at: policy.expiresAt }] : []);
   } else if (table === "account_link_invites") {
     rowsFor = () => OWNERS.map((owner) => ({ inviter_user_id: owner, team_role: "co_manager" }));
   }
@@ -114,6 +127,9 @@ beforeEach(() => {
   process.env.MANAGER_FACT_CACHE_IN_TEST = "1";
   noRowFor.clear();
   failFor.clear();
+  waiverFor.clear();
+  policy.fail = false;
+  policy.expiresAt = null;
   invalidateManagerFactCaches();
 });
 
@@ -168,5 +184,34 @@ describe("manager plan read fan-out (staff viewer, three linked owners)", () => 
     expect(a.readFailed).toBe(false);
     expect(b.readFailed).toBe(false);
     expect(reads("auth.admin.getUserById")).toBe(1);
+  });
+
+  describe("a waiver-only grant (FREE100)", () => {
+    const holder = "00000000-0000-4000-8000-0000000000dd";
+    beforeEach(() => { waiverFor.add(holder); });
+
+    it("keeps the view when the code's policy was read and no end is near", async () => {
+      await getManagerPurchaseSku(holder);
+      await getManagerPurchaseSku(holder);
+      expect(reads("auth.admin.getUserById")).toBe(1);
+    });
+
+    it("never keeps the fail-safe answer of an unreadable policy", async () => {
+      policy.fail = true;
+      const first = await getManagerPurchaseSku(holder);
+      expect(first.tier).toBe("pro");
+      policy.fail = false;
+      policy.expiresAt = new Date(Date.now() - 60_000).toISOString();
+      const second = await getManagerPurchaseSku(holder);
+      expect(second.tier).toBe("free");
+      expect(reads("auth.admin.getUserById")).toBe(2);
+    });
+
+    it("never keeps a grant that ends inside the cache window", async () => {
+      policy.expiresAt = new Date(Date.now() + 5_000).toISOString();
+      await getManagerPurchaseSku(holder);
+      await getManagerPurchaseSku(holder);
+      expect(reads("auth.admin.getUserById")).toBe(2);
+    });
   });
 });

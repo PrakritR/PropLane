@@ -34,6 +34,7 @@ vi.mock("@/lib/manager-tier-sync-cache", () => ({ invalidateManagerTierCache: vi
 import { PATCH } from "@/app/api/admin/promo-codes/route";
 import { POST as endPromo } from "@/app/api/admin/accounts/[id]/billing/end-promo/route";
 import { clearPromoCodePolicyCache } from "@/lib/promo-code-policy.server";
+import { invalidateManagerFactCaches, rememberManagerPurchaseRow } from "@/lib/manager-fact-caches";
 
 const ADMIN = "00000000-0000-4000-8000-0000000000ad";
 const ACCOUNT = "00000000-0000-4000-8000-0000000000a1";
@@ -223,5 +224,21 @@ describe("POST /api/admin/accounts/[id]/billing/end-promo", () => {
     mocks.db.__tables.manager_purchases!.push(row({ stripe_subscription_id: "sub_1", stripe_checkout_session_id: "cs_1" }));
     const res = await endPromo(endReq({ endsAt: "now", reason: "x" }), ctx());
     expect(await res.json()).toMatchObject({ ok: true, accessEnded: false, appliesTo: "recorded_only" });
+  });
+});
+
+describe("expiring a waiver code drops every cached plan view", () => {
+  it("an account holding the code is re-read at once", async () => {
+    process.env.MANAGER_FACT_CACHE_IN_TEST = "1";
+    try {
+      invalidateManagerFactCaches();
+      await rememberManagerPurchaseRow("u1", async () => ({ value: "pro", cacheable: true }));
+      const res = await PATCH(patch({ verb: "expire", code: "FREE100", expiresAt: "now", reason: "Ending the launch comp" }));
+      expect(res.status).toBe(200);
+      expect(await rememberManagerPurchaseRow("u1", async () => ({ value: "free", cacheable: true }))).toBe("free");
+    } finally {
+      delete process.env.MANAGER_FACT_CACHE_IN_TEST;
+      invalidateManagerFactCaches();
+    }
   });
 });

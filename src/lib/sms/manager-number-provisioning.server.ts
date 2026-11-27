@@ -202,6 +202,18 @@ export async function provisionManagerNumber(
   managerUserId: string,
   opts?: { areaCode?: string; workspaceId?: string | null },
 ): Promise<ProvisionResult> {
+  try {
+    return await provisionManagerNumberOnce(db, managerUserId, opts);
+  } finally {
+    invalidateManagerFactCaches();
+  }
+}
+
+async function provisionManagerNumberOnce(
+  db: SupabaseClient,
+  managerUserId: string,
+  opts?: { areaCode?: string; workspaceId?: string | null },
+): Promise<ProvisionResult> {
   const id = managerUserId.trim();
   if (!id) return { ok: false, error: "Missing manager id.", state: "failed" };
   if ((await captureTestWorkspaceEffectForUser({
@@ -464,7 +476,6 @@ export async function provisionManagerNumber(
   }
 
   await db.from("sms_provisioning_operations").update({ state: "persisted", updated_at: nowIso() }).eq("request_id", requestId);
-  invalidateManagerFactCaches();
 
   return { ok: true, number: purchase.number, state: "provisioning", alreadyProvisioned: false };
 }
@@ -500,6 +511,17 @@ export type ProvisioningReconciliationResult = {
 export async function reconcilePendingManagerNumberOperations(
   db: SupabaseClient,
   limit = 5,
+): Promise<ProvisioningReconciliationResult> {
+  try {
+    return await reconcilePendingManagerNumberOperationsOnce(db, limit);
+  } finally {
+    invalidateManagerFactCaches();
+  }
+}
+
+async function reconcilePendingManagerNumberOperationsOnce(
+  db: SupabaseClient,
+  limit: number,
 ): Promise<ProvisioningReconciliationResult> {
   const result: ProvisioningReconciliationResult = {
     considered: 0,
@@ -759,6 +781,7 @@ export async function setManagerRegistrationState(
     updated_at: nowIso(),
   };
   await db.from(TABLE).update(patch).eq("manager_user_id", id).then(() => undefined, () => undefined);
+  invalidateManagerFactCaches();
 }
 
 /**

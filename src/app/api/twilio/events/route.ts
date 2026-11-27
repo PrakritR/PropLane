@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import twilio from "twilio";
+import { invalidateManagerFactCaches } from "@/lib/manager-fact-caches";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { twilioWebhookAuthToken } from "@/lib/twilio-client.server";
 
@@ -159,6 +160,7 @@ export async function POST(req: Request) {
     );
     if (applyError) return NextResponse.json({ error: "Event apply unavailable." }, { status: 503 });
     if (appliedManagerId) {
+      invalidateManagerFactCaches();
       const { error: appliedError } = await db
         .from("sms_provider_events")
         .update({ applied: true, rejection_reason: null })

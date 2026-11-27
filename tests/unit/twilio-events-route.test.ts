@@ -57,6 +57,7 @@ vi.mock("@/lib/supabase/service", () => ({
 }));
 
 import { POST } from "@/app/api/twilio/events/route";
+import { invalidateManagerFactCaches, rememberDedicatedWorkspaceIds } from "@/lib/manager-fact-caches";
 
 const EVENT = [{
   id: "EZ-event-1",
@@ -114,4 +115,26 @@ describe("Twilio Event Streams number lifecycle", () => {
 
     expect(response.status).toBe(503);
   });
+});
+
+describe("an applied registration event drops the cached plan facts", () => {
+  /** Primes this instance's "who texts from a paid number" snapshot, then reports what the next read answers. */
+  async function snapshotAfter(write: () => Promise<unknown>): Promise<string[] | null> {
+    process.env.MANAGER_FACT_CACHE_IN_TEST = "1";
+    try {
+      invalidateManagerFactCaches();
+      await rememberDedicatedWorkspaceIds(async () => ["ws-before"]);
+      await write();
+      return await rememberDedicatedWorkspaceIds(async () => ["ws-after"]);
+    } finally {
+      delete process.env.MANAGER_FACT_CACHE_IN_TEST;
+      invalidateManagerFactCaches();
+    }
+  }
+
+  it("the next shared-line routing read sees the newly registered number", async () => {
+    const res = await snapshotAfter(async () => expect((await POST(eventRequest())).status).toBe(200));
+    expect(res).toEqual(["ws-after"]);
+  });
+
 });
