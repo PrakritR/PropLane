@@ -2,7 +2,8 @@
  * The shared planned-events container is one JSON row every manager can read and write. A task that names a house
  * or a teammate is a claim: left out at write (only that item) unless the caller is a trusted writer of the house
  * (owner, a seat with Calendar or Services edit on it, or the managed house's operator / staff whose seat reaches it)
- * and the assignee is on the caller's team or the house; and, if one is planted anyway, never shown to the house's people under the same rule.
+ * and the assignee is on the caller's team or the house. Staff and co-managers are shown one only under the same
+ * rule; the house's owner always sees items on their own house, whoever wrote them.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -136,10 +137,21 @@ beforeEach(() => {
 
 describe("planted planned-events task: projection", () => {
   const planted = task("planted", ATTACKER, { propertyId: HOUSE, assignee: { type: "team", id: COMANAGER.id } });
-  it("is hidden from the owner, staff and a co-manager it names", async () => {
-    expect(await visible(OWNER_USER, [planted])).toEqual([]);
+  it("is hidden from staff and a co-manager it names", async () => {
     expect(await visible(STAFF, [task("planted-m", ATTACKER, { propertyId: MANAGED })])).toEqual([]);
     expect(await visible(COMANAGER, [planted])).toEqual([]);
+  });
+  it("the house owner still sees a tour row hosted by a co-manager who has since left the team", async () => {
+    const tourRow = {
+      id: "tour-row",
+      record_type: "partner_inquiry_request",
+      manager_user_id: "co-left",
+      property_id: HOUSE,
+      row_data: { id: "tour-row", kind: "tour", propertyId: HOUSE, status: "confirmed" },
+    };
+    const out = await projectScheduleRecordsForViewer(db, OWNER_USER as never, [tourRow]);
+    expect(out.map((record) => record.id)).toEqual(["tour-row"]);
+    expect(await projectScheduleRecordsForViewer(db, COMANAGER as never, [tourRow])).toEqual([]);
   });
   it("the writer still sees their own item", async () => {
     expect(await visible({ id: ATTACKER, role: "manager" }, [planted])).toEqual(["planted"]);
@@ -159,15 +171,22 @@ describe("planted planned-events task: projection", () => {
     expect(await visible(STAFF_2, rows)).toEqual(["by-staff"]);
     expect(await visible(CLIENT_USER, rows)).toEqual(["by-staff"]);
   });
-  it("an item by a seat with only an assignment or Calendar read on the house is hidden from its people", async () => {
+  it("an item by a seat with only an assignment or Calendar read on the house is hidden from its co-managers", async () => {
     const rows = [task("by-bare", BARE_CO, { propertyId: HOUSE }), task("by-reader", READ_CO, { propertyId: HOUSE })];
-    expect(await visible(OWNER_USER, rows)).toEqual([]);
     expect(await visible(COMANAGER, rows)).toEqual([]);
   });
-  it("an item by staff whose own seat does not reach the managed house is hidden from its owner and staff", async () => {
+  it("an item by staff whose own seat does not reach the managed house is hidden from the other staff", async () => {
     const rows = [task("by-elsewhere", STAFF_ELSEWHERE.id, { propertyId: MANAGED })];
-    expect(await visible(CLIENT_USER, rows)).toEqual([]);
     expect(await visible(STAFF, rows)).toEqual([]);
+  });
+  it("the house owner keeps seeing items on their own house after the writer's grant is narrowed or the writer leaves", async () => {
+    const rows = [
+      task("by-narrowed", READ_CO, { propertyId: HOUSE }),
+      task("by-departed", "co-left", { propertyId: HOUSE }),
+      task("by-old-staff", STAFF_ELSEWHERE.id, { propertyId: MANAGED }),
+    ];
+    expect(await visible(OWNER_USER, rows)).toEqual(["by-narrowed", "by-departed"]);
+    expect(await visible(CLIENT_USER, rows)).toEqual(["by-old-staff"]);
   });
   it("a house-less item stays private to its writer", async () => {
     const mine = task("personal", ATTACKER);

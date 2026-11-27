@@ -371,9 +371,9 @@ export async function projectScheduleRecordsForViewer(
     };
     // Service staff run the managed workspace they hold a seat in: a tour request filed on one of its houses is
     // theirs to read and answer, whoever the request was filed under. Derived from membership, never the request.
-    if (propertyId && staffHouses.has(propertyId)) return trustedProvenance() ? "full" : null;
     const owner = propertyId ? owners.get(propertyId) ?? "" : "";
-    if (owner === user.id) return trustedProvenance() ? "full" : null;
+    if (owner && owner === user.id) return "full";
+    if (propertyId && staffHouses.has(propertyId)) return trustedProvenance() ? "full" : null;
     if (!propertyId || !owner) return null;
     if (!trustedProvenance()) return null;
     // A pending request is hostless: an eligible host holding Applications at edit on that house is the
