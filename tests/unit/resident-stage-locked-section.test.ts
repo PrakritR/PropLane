@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   isResidentPathAllowedForAccess,
   residentLockedSectionForPath,
@@ -71,8 +71,15 @@ describe("a stage-locked resident section opens its locked-state page, never hom
 });
 
 describe("the Assistant's Open a service chip", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("opens the service-request flow instead of only sending chat text", () => {
+    const assign = vi.fn();
+    vi.stubGlobal("window", { location: { assign } });
     const chip = RESIDENT_ASSISTANT_SUGGESTIONS.find((s) => s.label === "Open a service");
-    expect(chip?.onSelect).toBeTypeOf("function");
+    chip?.onSelect?.();
+    expect(assign).toHaveBeenCalledWith("/resident/services?add=1");
   });
 });

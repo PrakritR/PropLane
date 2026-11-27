@@ -111,9 +111,8 @@ export function filterRowsInActiveWorkspace<T>(
 /**
  * The houses the active workspace holds, as a scope every list can pass down.
  * `null` means "not narrowing" — the account has no workspace at all. An EMPTY
- * ARRAY means the workspace holds no houses OR the selection has not loaded yet
- *: a caller that treats it as "no filter" shows
- * the whole account in an empty workspace.
+ * ARRAY means the workspace holds no houses OR the selection has not loaded yet:
+ * a caller that treats it as "no filter" shows the whole account in an empty workspace.
  */
 export function activeWorkspacePropertyIds(): string[] | null {
   if (noWorkspaceToNarrowBy()) return null;

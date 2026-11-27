@@ -658,8 +658,8 @@ export const APPLY_ROOM_AVAILABILITY_UNKNOWN =
   "Couldn't check live room availability just now. Reload to try again.";
 
 /**
- * True when this listing has rooms and no public occupancy read has landed for it, so the dates beside each
- * room are the listing's own rather than a checked answer.
+ * True when this listing has rooms and no public occupancy read has landed for it, so the rooms carry no
+ * availability label and the picker says the live check could not run.
  */
 export function listingRoomAvailabilityUnknown(propertyId: string): boolean {
   if (isDemoModeActive()) return false;
