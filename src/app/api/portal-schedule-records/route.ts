@@ -31,6 +31,7 @@ import {
   PLANNED_EVENTS_RECORD_ID,
   isStandaloneInquiry,
   projectScheduleRecordsForViewer,
+  plannedHouseWritersByHouse,
   tourHostIdsByHouse,
 } from "@/lib/schedule-record-projection.server";
 import {
@@ -263,43 +264,64 @@ function plannedPropertyId(item: PlannedEventValue): string {
 
 /**
  * The shared planned-events container is one JSON row every manager can read, so a NEW or CHANGED item that names
- * a house or a teammate is a claim the caller must be entitled to make: the house needs Calendar edit (or a staff
- * seat), and a team assignee must be the caller or someone on that house's server-derived roster (owner, hosts with
- * Calendar/Applications edit, the operator of a managed house). Unchanged stored items are not re-judged.
+ * a house or a teammate is a claim the caller must be entitled to make: the caller must be a trusted writer of that
+ * house (`plannedHouseWritersByHouse`, the same set the read trusts), and a team assignee must be the caller, someone
+ * on the caller's own team (an accepted link either way), or a trusted writer of the item's house. An item that fails
+ * is left out on its own (a changed one keeps its stored version), never the whole snapshot. Unchanged stored items
+ * are not re-judged. An unreadable read throws.
  */
-async function plannedItemsClaimError(
-  db: Parameters<typeof managerCanWriteCalendarForProperty>[0],
-  user: { id: string; serviceScope?: { propertyIds: string[] } | null },
+async function plannedItemsWithinClaims(
+  db: Parameters<typeof plannedHouseWritersByHouse>[0],
+  userId: string,
   events: PlannedEventValue[],
   existingById: ReadonlyMap<string, PlannedEventValue>,
-): Promise<{ error: string; status: number } | null> {
-  for (const item of events) {
+): Promise<PlannedEventValue[]> {
+  const judged = events.flatMap((item) => {
     const stored = existingById.get(plannedEventId(item));
     const propertyId = plannedPropertyId(item);
     const assigneeId = plannedAssigneeTeamId(item);
-    const houseChanged = !stored || plannedPropertyId(stored) !== propertyId;
-    const assigneeChanged = !stored || plannedAssigneeTeamId(stored) !== assigneeId;
-    if (propertyId && houseChanged && !(await mayWriteBlocksOn(db, user, propertyId))) {
-      return { error: "You need Calendar edit access on this property to plan an event on it.", status: 403 };
-    }
-    if (!assigneeId || assigneeId === user.id || !assigneeChanged) continue;
-    const refusal = { error: "You can only assign a task to someone on this property's team.", status: 403 };
-    if (!propertyId) return refusal;
-    try {
-      const { data, error } = await db.from("manager_property_records").select("id, manager_user_id").eq("id", propertyId);
-      if (error) throw error;
-      const owner = String(((data ?? [])[0] as Record<string, unknown> | undefined)?.manager_user_id ?? "").trim();
-      if (!owner) return refusal;
-      const hosts = await tourHostIdsByHouse(db, new Map([[propertyId, owner]]), {
-        throwOnError: true,
-        managedHouses: new Set(user.serviceScope?.propertyIds ?? []),
-      });
-      if (!hosts.get(propertyId)?.has(assigneeId)) return refusal;
-    } catch {
-      return { error: "Calendar write is unavailable. Refresh and try again.", status: 503 };
+    const checkHouse = Boolean(propertyId) && (!stored || plannedPropertyId(stored) !== propertyId);
+    const checkAssignee =
+      Boolean(assigneeId) && assigneeId !== userId && (!stored || plannedAssigneeTeamId(stored) !== assigneeId);
+    return checkHouse || checkAssignee ? [{ item, stored, propertyId, assigneeId, checkHouse, checkAssignee }] : [];
+  });
+  if (judged.length === 0) return events;
+  const houses = [...new Set(judged.map((entry) => entry.propertyId).filter(Boolean))];
+  const ownersByHouse = new Map<string, string>();
+  if (houses.length > 0) {
+    const { data, error } = await db.from("manager_property_records").select("id, manager_user_id").in("id", houses);
+    if (error) throw error;
+    for (const row of (data ?? []) as Record<string, unknown>[]) {
+      const id = String(row.id ?? "").trim();
+      const owner = String(row.manager_user_id ?? "").trim();
+      if (id && owner) ownersByHouse.set(id, owner);
     }
   }
-  return null;
+  const team = new Set<string>();
+  if (judged.some((entry) => entry.checkAssignee)) {
+    const [asInviter, asInvitee] = await Promise.all([
+      db.from("account_link_invites").select("invitee_user_id").eq("status", "accepted").eq("inviter_user_id", userId),
+      db.from("account_link_invites").select("inviter_user_id").eq("status", "accepted").eq("invitee_user_id", userId),
+    ]);
+    if (asInviter.error || asInvitee.error) throw new Error("account_link_invites unreadable");
+    for (const row of (asInviter.data ?? []) as Record<string, unknown>[]) team.add(String(row.invitee_user_id ?? "").trim());
+    for (const row of (asInvitee.data ?? []) as Record<string, unknown>[]) team.add(String(row.inviter_user_id ?? "").trim());
+  }
+  const writers = await plannedHouseWritersByHouse(db, ownersByHouse, { throwOnError: true });
+  const verdict = new Map<PlannedEventValue, PlannedEventValue | null>();
+  for (const { item, stored, propertyId, assigneeId, checkHouse, checkAssignee } of judged) {
+    const houseWriters = propertyId && ownersByHouse.has(propertyId) ? writers.get(propertyId) : undefined;
+    const houseOk = !checkHouse || Boolean(houseWriters?.has(userId));
+    const assigneeOk = !checkAssignee || team.has(assigneeId) || Boolean(houseWriters?.has(assigneeId));
+    if (houseOk && assigneeOk) continue;
+    console.warn("[portal-schedule-records] planned item left out: house or assignee claim refused", plannedEventId(item));
+    verdict.set(item, stored ?? null);
+  }
+  return events.flatMap((item) => {
+    if (!verdict.has(item)) return [item];
+    const kept = verdict.get(item);
+    return kept ? [kept] : [];
+  });
 }
 
 function isTourPlannedEvent(event: PlannedEventValue): boolean {
@@ -817,9 +839,13 @@ const route = createJsonRecordRoute({
       })
       .map((item) => user.role === "admin" ? item : ({ ...item, managerUserId: user.id }));
 
+    let claimed = events;
     if (user.role !== "admin") {
-      const claimError = await plannedItemsClaimError(db, user, events, existingById);
-      if (claimError) return { handled: true, ...claimError };
+      try {
+        claimed = await plannedItemsWithinClaims(db, user.id, events, existingById);
+      } catch {
+        return { handled: true, error: "Calendar write is unavailable. Refresh and try again.", status: 503 };
+      }
     }
 
     const expectedPayloadValue = expectedPayloadKnown && Array.isArray(expectedPayload)
@@ -837,7 +863,7 @@ const route = createJsonRecordRoute({
     const result = await replaceManagerPlannedScheduleSlice(db, {
       managerUserId: user.id,
       actorIsAdmin: user.role === "admin",
-      events,
+      events: claimed,
       expectedEvents,
     });
     // A manager's shared snapshot cannot safely fall back to an ordinary

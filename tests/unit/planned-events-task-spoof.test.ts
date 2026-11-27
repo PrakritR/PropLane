@@ -1,8 +1,8 @@
 /**
  * The shared planned-events container is one JSON row every manager can read and write. A task that names a house
- * or a teammate is a claim: refused at write unless the caller may plan on that house and may assign that person,
- * and, if one is planted anyway, never shown to the house's owner, staff or co-managers (the item's server-pinned
- * `managerUserId` must be the owner or an eligible host of that house).
+ * or a teammate is a claim: left out at write (only that item) unless the caller is a trusted writer of the house
+ * (owner, a seat the owner granted on it, or the managed house's operator / staff) and the assignee is on the
+ * caller's team or the house; and, if one is planted anyway, never shown to the house's people under the same rule.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -32,15 +32,27 @@ type Row = Record<string, unknown>;
 const OWNER = "owner-1";
 const ATTACKER = "attacker-1";
 const CO_HOST = "co-host-b";
+const TASK_CO = "co-tasks-only";
 const HOUSE = "house-1";
+const CLIENT = "client-1";
+const OPERATOR = "operator-1";
+const MANAGED = "house-m";
 const PLANNED = "axis_admin_planned_events_v1";
-const STAFF = { id: "staff-1", role: "manager", serviceScope: { propertyIds: [HOUSE] } };
+const STAFF = { id: "staff-1", role: "manager", serviceScope: { propertyIds: [MANAGED] } };
+const STAFF_2 = { id: "staff-2", role: "manager", serviceScope: { propertyIds: [MANAGED] } };
 const COMANAGER = { id: "co-1", role: "manager" };
 const OWNER_USER = { id: OWNER, role: "manager" };
+const CLIENT_USER = { id: CLIENT, role: "manager" };
 
 const tables = (): Record<string, Row[]> => ({
-  manager_property_records: [{ id: HOUSE, manager_user_id: OWNER, workspace_id: "ws-1" }],
-  portal_workspaces: [{ id: "ws-1", owner_user_id: OWNER, is_default: true, is_service: false }],
+  manager_property_records: [
+    { id: HOUSE, manager_user_id: OWNER, workspace_id: "ws-1" },
+    { id: MANAGED, manager_user_id: CLIENT, workspace_id: "ws-m" },
+  ],
+  portal_workspaces: [
+    { id: "ws-1", owner_user_id: OWNER, is_default: true, is_service: false },
+    { id: "ws-m", owner_user_id: OPERATOR, is_default: false, is_service: true },
+  ],
   account_link_invites: [
     {
       inviter_user_id: OWNER,
@@ -49,8 +61,24 @@ const tables = (): Record<string, Row[]> => ({
       assigned_property_ids: [HOUSE],
       property_co_manager_permissions: { [HOUSE]: { calendar: { read: true, edit: true } } },
     },
+    {
+      inviter_user_id: OWNER,
+      invitee_user_id: TASK_CO,
+      status: "accepted",
+      assigned_property_ids: [HOUSE],
+      property_co_manager_permissions: { [HOUSE]: { services: { read: true, edit: true } } },
+    },
+    ...[STAFF.id, STAFF_2.id].map((id) => ({
+      inviter_user_id: OPERATOR,
+      invitee_user_id: id,
+      workspace_id: "ws-m",
+      team_role: "full",
+      is_service_seat: true,
+      status: "accepted",
+      assigned_property_ids: [],
+    })),
   ],
-  platform_service_settings: [{ singleton: true, owner_user_id: "operator-1" }],
+  platform_service_settings: [{ singleton: true, owner_user_id: OPERATOR }],
 });
 
 const db = {
@@ -92,17 +120,26 @@ describe("planted planned-events task: projection", () => {
   const planted = task("planted", ATTACKER, { propertyId: HOUSE, assignee: { type: "team", id: COMANAGER.id } });
   it("is hidden from the owner, staff and a co-manager it names", async () => {
     expect(await visible(OWNER_USER, [planted])).toEqual([]);
-    expect(await visible(STAFF, [planted])).toEqual([]);
+    expect(await visible(STAFF, [task("planted-m", ATTACKER, { propertyId: MANAGED })])).toEqual([]);
     expect(await visible(COMANAGER, [planted])).toEqual([]);
   });
   it("the writer still sees their own item", async () => {
     expect(await visible({ id: ATTACKER, role: "manager" }, [planted])).toEqual(["planted"]);
   });
-  it("tasks by the owner or an eligible host on the house still reach owner, staff and co-managers", async () => {
-    const rows = [task("by-owner", OWNER, { propertyId: HOUSE }), task("by-host", CO_HOST, { propertyId: HOUSE })];
-    expect(await visible(OWNER_USER, rows)).toEqual(["by-owner", "by-host"]);
-    expect(await visible(STAFF, rows)).toEqual(["by-owner", "by-host"]);
-    expect(await visible(COMANAGER, rows)).toEqual(["by-owner", "by-host"]);
+  it("tasks by the owner or a seat on the house reach the owner, whatever module the seat holds", async () => {
+    const rows = [
+      task("by-owner", OWNER, { propertyId: HOUSE }),
+      task("by-host", CO_HOST, { propertyId: HOUSE }),
+      task("by-task-co", TASK_CO, { propertyId: HOUSE, assignee: { type: "team", id: TASK_CO } }),
+    ];
+    expect(await visible(OWNER_USER, rows)).toEqual(["by-owner", "by-host", "by-task-co"]);
+    expect(await visible(COMANAGER, rows)).toEqual(["by-owner", "by-host", "by-task-co"]);
+    expect(await visible({ id: TASK_CO, role: "manager" }, rows)).toEqual(["by-owner", "by-host", "by-task-co"]);
+  });
+  it("a staff member's item on a managed house reaches its owner and the other staff", async () => {
+    const rows = [task("by-staff", STAFF.id, { propertyId: MANAGED })];
+    expect(await visible(STAFF_2, rows)).toEqual(["by-staff"]);
+    expect(await visible(CLIENT_USER, rows)).toEqual(["by-staff"]);
   });
   it("a house-less item stays private to its writer", async () => {
     const mine = task("personal", ATTACKER);
@@ -122,40 +159,67 @@ describe("planned-events task: write", () => {
       expectedPayloadKnown: false,
       expectedPayload: null,
     });
+  const written = () => (mocks.replace.mock.calls.at(-1)?.[1] as { events: Row[] }).events.map((item) => item.id);
 
-  it("refuses a stranger's task naming the victim's house and assignee", async () => {
+  it("leaves out a stranger's task naming the victim's house and assignee", async () => {
     const result = await write({ id: ATTACKER, role: "manager" }, [
       task("x", ATTACKER, { propertyId: HOUSE, assignee: { type: "team", id: OWNER } }),
     ]);
-    expect(result).toMatchObject({ handled: true, status: 403 });
-    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(result).toEqual({ handled: true });
+    expect(written()).toEqual([]);
   });
-  it("refuses a stranger assigning a house-less task to someone else", async () => {
-    const result = await write({ id: ATTACKER, role: "manager" }, [task("x", ATTACKER, { assignee: { type: "team", id: OWNER } })]);
-    expect(result).toMatchObject({ handled: true, status: 403 });
+  it("leaves out a stranger assigning a house-less task to someone off their team", async () => {
+    await write({ id: ATTACKER, role: "manager" }, [task("x", ATTACKER, { assignee: { type: "team", id: OWNER } })]);
+    expect(written()).toEqual([]);
   });
-  it("refuses a co-manager assigning a teammate not on the house's team", async () => {
-    const result = await write({ id: CO_HOST, role: "manager" }, [
+  it("one refused item does not block the rest of the snapshot", async () => {
+    const result = await write({ id: ATTACKER, role: "manager" }, [
+      task("ok", ATTACKER),
+      task("bad", ATTACKER, { propertyId: HOUSE }),
+      task("ok-2", ATTACKER, { assignee: { type: "team", id: ATTACKER } }),
+    ]);
+    expect(result).toEqual({ handled: true });
+    expect(written()).toEqual(["ok", "ok-2"]);
+  });
+  it("a refused change keeps the stored version", async () => {
+    const stored = task("old", ATTACKER, { title: "kept" });
+    await write({ id: ATTACKER, role: "manager" }, [{ ...stored, propertyId: HOUSE }], [stored]);
+    const events = (mocks.replace.mock.calls.at(-1)?.[1] as { events: Row[] }).events;
+    expect(events).toEqual([expect.objectContaining({ id: "old", title: "kept" })]);
+    expect(events[0]).not.toHaveProperty("propertyId");
+  });
+  it("lets the owner assign a house-less task to their co-manager", async () => {
+    await write(OWNER_USER, [task("g", OWNER, { start: "2026-12-01T10:00", assignee: { type: "team", id: CO_HOST } })]);
+    expect(written()).toEqual(["g"]);
+  });
+  it("lets the owner assign a work-order task on the house to a co-manager holding only Services edit", async () => {
+    await write(OWNER_USER, [task("wo", OWNER, { propertyId: HOUSE, assignee: { type: "team", id: TASK_CO } })]);
+    expect(written()).toEqual(["wo"]);
+  });
+  it("lets a co-manager without Calendar edit plan a task on the house they are seated on", async () => {
+    await write({ id: TASK_CO, role: "manager" }, [task("t", TASK_CO, { propertyId: HOUSE, assignee: { type: "team", id: OWNER } })]);
+    expect(written()).toEqual(["t"]);
+  });
+  it("leaves out a co-manager assigning someone off their team and off the house", async () => {
+    await write({ id: CO_HOST, role: "manager" }, [
       task("x", CO_HOST, { propertyId: HOUSE, assignee: { type: "team", id: ATTACKER } }),
     ]);
-    expect(result).toMatchObject({ handled: true, status: 403 });
+    expect(written()).toEqual([]);
   });
-  it("lets the owner and a co-manager with Calendar edit plan on the house and assign teammates", async () => {
-    expect(await write(OWNER_USER, [task("a", OWNER, { propertyId: HOUSE, assignee: { type: "team", id: CO_HOST } })])).toEqual({ handled: true });
-    expect(await write({ id: CO_HOST, role: "manager" }, [task("b", CO_HOST, { propertyId: HOUSE, assignee: { type: "team", id: OWNER } })])).toEqual({ handled: true });
-    expect(mocks.replace).toHaveBeenCalledTimes(2);
-  });
-  it("lets service staff plan on a staffed house", async () => {
-    expect(await write(STAFF, [task("s", STAFF.id, { propertyId: HOUSE, assignee: { type: "team", id: OWNER } })])).toEqual({ handled: true });
+  it("lets service staff plan on a managed house and assign its owner", async () => {
+    await write(STAFF, [task("s", STAFF.id, { propertyId: MANAGED, assignee: { type: "team", id: CLIENT } })]);
+    expect(written()).toEqual(["s"]);
   });
   it("lets a manager keep personal events and self-assigned tasks with no house", async () => {
-    expect(await write({ id: ATTACKER, role: "manager" }, [
+    await write({ id: ATTACKER, role: "manager" }, [
       task("p", ATTACKER),
       task("q", ATTACKER, { assignee: { type: "team", id: ATTACKER } }),
-    ])).toEqual({ handled: true });
+    ]);
+    expect(written()).toEqual(["p", "q"]);
   });
   it("does not re-judge an unchanged stored item", async () => {
     const stored = task("old", ATTACKER, { propertyId: HOUSE, assignee: { type: "team", id: OWNER } });
-    expect(await write({ id: ATTACKER, role: "manager" }, [stored], [stored])).toEqual({ handled: true });
+    await write({ id: ATTACKER, role: "manager" }, [stored], [stored]);
+    expect(written()).toEqual(["old"]);
   });
 });

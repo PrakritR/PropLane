@@ -1,7 +1,10 @@
 import "server-only";
 
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
-import { managedHouseIdsOrThrow } from "@/lib/google-calendar/tour-calendar-owner.server";
+import { asStringArray } from "@/lib/account-link-invite-row";
+import { userHoldsAdminRole } from "@/lib/auth/admin-role";
+import { managedHouseIdsOrThrow, managedHouseWorkspacesOrThrow } from "@/lib/google-calendar/tour-calendar-owner.server";
+import { serviceSeatVerdict } from "@/lib/service/service-mode";
 import { platformServiceOwnerId, readStoredOwner } from "@/lib/service/service-owner.server";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { listTourHostUserIdsByHouseOrThrow } from "@/lib/tour-host-enumeration.server";
@@ -163,6 +166,89 @@ export async function tourHostIdsByHouse(
 }
 
 /**
+ * Everyone trusted to plan an event on each house (house id -> owner id), derived server-side and never from an item:
+ * the owner, every accepted seat the owner granted on that house (any module), and on a PropLane-managed house the
+ * operator and the workspace's service staff. The planned-events write keeps an item naming a house only when its
+ * writer is in this set, and the read shows it to the house's people only under the same answer. Strict: any
+ * unreadable read throws. Otherwise it narrows to the owner.
+ */
+export async function plannedHouseWritersByHouse(
+  db: Db,
+  ownersByHouse: ReadonlyMap<string, string>,
+  options: { throwOnError?: boolean } = {},
+): Promise<Map<string, Set<string>>> {
+  const writers = new Map([...ownersByHouse].map(([house, owner]) => [house, new Set(owner ? [owner] : [])]));
+  if (ownersByHouse.size === 0) return writers;
+  try {
+    const owners = [...new Set([...ownersByHouse.values()].filter(Boolean))];
+    const [links, managed] = await Promise.all([
+      owners.length > 0
+        ? db
+            .from("account_link_invites")
+            .select("inviter_user_id, invitee_user_id, assigned_property_ids")
+            .eq("status", "accepted")
+            .in("inviter_user_id", owners)
+        : Promise.resolve({ data: [], error: null }),
+      managedHouseWorkspacesOrThrow(db, ownersByHouse),
+    ]);
+    if (links.error) throw new Error("account_link_invites unreadable");
+    for (const row of (links.data ?? []) as ScheduleRecord[]) {
+      const invitee = text(row.invitee_user_id);
+      const assigned = asStringArray(row.assigned_property_ids);
+      if (!invitee) continue;
+      for (const [house, owner] of ownersByHouse) {
+        if (owner === text(row.inviter_user_id) && assigned.includes(house)) writers.get(house)?.add(invitee);
+      }
+    }
+    if (managed.size === 0) return writers;
+    const workspaceIds = [...new Set(managed.values())];
+    const [operator, seats, workspaces] = await Promise.all([
+      readStoredOwner(db),
+      db
+        .from("account_link_invites")
+        .select("workspace_id, inviter_user_id, invitee_user_id, team_role, is_service_seat")
+        .eq("status", "accepted")
+        .in("workspace_id", workspaceIds),
+      db.from("portal_workspaces").select("id, owner_user_id").in("id", workspaceIds),
+    ]);
+    if (seats.error) throw new Error("account_link_invites unreadable");
+    if (workspaces.error) throw new Error("portal_workspaces unreadable");
+    const workspaceOwner = new Map(
+      ((workspaces.data ?? []) as ScheduleRecord[]).map((row) => [text(row.id), text(row.owner_user_id)] as const),
+    );
+    const staffByWorkspace = new Map<string, Set<string>>();
+    for (const seat of (seats.data ?? []) as ScheduleRecord[]) {
+      const workspaceId = text(seat.workspace_id);
+      const invitee = text(seat.invitee_user_id);
+      if (!workspaceId || !invitee) continue;
+      const verdict = serviceSeatVerdict(
+        {
+          workspaceId,
+          inviterUserId: text(seat.inviter_user_id),
+          teamRole: typeof seat.team_role === "string" ? seat.team_role : null,
+          isServiceSeat: seat.is_service_seat === true,
+        },
+        { ownerUserId: workspaceOwner.get(workspaceId) ?? "" },
+        operator,
+      );
+      if (verdict === "no") continue;
+      if (verdict === "platform_person_only" && !(await userHoldsAdminRole(db, invitee))) continue;
+      staffByWorkspace.set(workspaceId, (staffByWorkspace.get(workspaceId) ?? new Set()).add(invitee));
+    }
+    for (const [house, workspaceId] of managed) {
+      const ids = writers.get(house);
+      if (!ids) continue;
+      if (operator) ids.add(operator);
+      for (const id of staffByWorkspace.get(workspaceId) ?? []) ids.add(id);
+    }
+    return writers;
+  } catch (error) {
+    if (options.throwOnError === true) throw error;
+    return new Map([...ownersByHouse].map(([house, owner]) => [house, new Set(owner ? [owner] : [])]));
+  }
+}
+
+/**
  * Projects service-role schedule rows before they cross the HTTP boundary.
  * Shared singletons are JSON containers, so their table row cannot be the
  * authorization unit. Property ownership and an explicit calendar-read grant
@@ -209,7 +295,8 @@ export async function projectScheduleRecordsForViewer(
     }
   }
   // A shared planned-events item carries no row column, so its payload `managerUserId` (server-pinned on write)
-  // is the writer; an item naming a house is trusted only when that writer is the house's owner or an eligible host.
+  // is the writer; an item naming a house is trusted only under the same writer set the write enforces.
+  const plannedCheckHouses = new Map<string, string>();
   if (!admin && manager) {
     for (const record of records) {
       if (text(record.id) !== PLANNED_EVENTS_RECORD_ID) continue;
@@ -217,21 +304,24 @@ export async function projectScheduleRecordsForViewer(
         const propertyId = itemPropertyId(item);
         const owner = propertyId ? owners.get(propertyId) ?? "" : "";
         if (propertyId && owner && itemManagerUserId(item) && itemManagerUserId(item) !== owner) {
-          hostCheckHouses.set(propertyId, owner);
+          plannedCheckHouses.set(propertyId, owner);
         }
       }
     }
   }
-  const hostsByHouse = await tourHostIdsByHouse(db, hostCheckHouses, {
-    throwOnError: options.throwOnError === true,
-    managedHouses: new Set(user.serviceScope?.propertyIds ?? []),
-  });
+  const [hostsByHouse, plannedWritersByHouse] = await Promise.all([
+    tourHostIdsByHouse(db, hostCheckHouses, {
+      throwOnError: options.throwOnError === true,
+      managedHouses: new Set(user.serviceScope?.propertyIds ?? []),
+    }),
+    plannedHouseWritersByHouse(db, plannedCheckHouses, { throwOnError: options.throwOnError === true }),
+  ]);
 
   const staffHouses = new Set(user.serviceScope?.propertyIds ?? []);
   const maySeeItem = (
     item: ScheduleItem,
     pendingInquiry = false,
-    provenance: { rowManagerUserId: string; columnPropertyId: string } | null = null,
+    provenance: { rowManagerUserId: string; columnPropertyId: string; planned?: boolean } | null = null,
   ): "full" | "busy" | null => {
     if (admin) return "full";
     if (!manager) return null;
@@ -251,7 +341,8 @@ export async function projectScheduleRecordsForViewer(
       const writer = provenance.rowManagerUserId;
       if (!writer) return true;
       const houseOwner = propertyId ? owners.get(propertyId) ?? "" : "";
-      return writer === houseOwner || Boolean(propertyId && hostsByHouse.get(propertyId)?.has(writer));
+      const trusted = provenance.planned ? plannedWritersByHouse : hostsByHouse;
+      return writer === houseOwner || Boolean(propertyId && trusted.get(propertyId)?.has(writer));
     };
     // Service staff run the managed workspace they hold a seat in: a tour request filed on one of its houses is
     // theirs to read and answer, whoever the request was filed under. Derived from membership, never the request.
@@ -287,7 +378,7 @@ export async function projectScheduleRecordsForViewer(
         const access = maySeeItem(
           item,
           sharedInquiries && text(item.status).toLowerCase() === "pending",
-          sharedPlanned ? { rowManagerUserId: itemManagerUserId(item), columnPropertyId: "" } : null,
+          sharedPlanned ? { rowManagerUserId: itemManagerUserId(item), columnPropertyId: "", planned: true } : null,
         );
         return access === "full" ? [item] : access === "busy" ? [busyProjection(item)] : [];
       });
