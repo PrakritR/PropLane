@@ -15,10 +15,11 @@ import { residentSectionLockedForStage, type ResidentPortalNavStage } from "@/li
  *   the ONLY entry point to that upgrade page anywhere in the product. Rendering
  *   it as a non-navigating `<span>` deletes the upgrade CTA — a revenue path —
  *   which is exactly what shipped in the resident redesign.
- * - `"notice"` — locked, but navigates to a disabled preview explaining that
- *   the resident's property manager must upgrade the workspace.
- * - `"inert"`  — locked and dead because the resident has not reached the
- *   required lifecycle stage yet (for example, before lease signing).
+ * - `"notice"` — locked, but navigates to a locked-state page: for a resident,
+ *   either the stage page naming what unlocks the section (application
+ *   approved, lease signed) or the preview explaining that the property
+ *   manager must upgrade the workspace.
+ * - `"inert"`  — locked and dead: only a deferred section (`DEFERRED_SECTIONS`).
  *
  * Locks apply to managers AND residents — this only decides what a click does.
  *
@@ -61,7 +62,9 @@ export function portalNavLockKind(params: {
   if (DEFERRED_SECTIONS.has(section)) return "inert";
 
   if (kind === "resident") {
-    if (residentNavStage && residentSectionLockedForStage(section, residentNavStage)) return "inert";
+    // A stage lock is a live link to the locked-state page that names what unlocks the section
+    // (the Payments pattern), never a dead row.
+    if (residentNavStage && residentSectionLockedForStage(section, residentNavStage)) return "notice";
     if (subscriptionTier === "free" && residentSectionLockedForManagerTier(section, subscriptionTier)) {
       return "notice";
     }
@@ -88,14 +91,18 @@ export function portalNavLockNavigable(params: Parameters<typeof portalNavLockKi
 /**
  * Whether a section may occupy a slot on the phone's bottom bar.
  *
- * A manager's locked rows leave the bar. A resident's stage-locked rows (`inert`:
- * Lease / Payments before approval, Services before signing) stay, so the bar
+ * A manager's locked rows leave the bar. A resident's stage-locked rows (Lease / Payments before approval, Services before signing) stay, so the bar
  * keeps its lifecycle shape. A row locked by the MANAGER's plan (`notice`) does
  * not: the resident can never use it, so it must not take a slot a working tab
  * could have. The sidebar row and the More sheet keep their lock either way.
  */
 export function portalBottomBarShowsSection(params: Parameters<typeof portalNavLockKind>[0]): boolean {
   const kind = portalNavLockKind(params);
-  if (params.kind === "resident") return kind !== "notice";
+  if (params.kind === "resident") {
+    const stageLocked = Boolean(
+      params.residentNavStage && residentSectionLockedForStage(params.section, params.residentNavStage),
+    );
+    return stageLocked ? true : kind !== "notice";
+  }
   return kind === "none";
 }

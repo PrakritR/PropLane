@@ -53,17 +53,17 @@ describe("portal nav lock kinds", () => {
     }
   });
 
-  describe("resident — stage locks are inert and plan locks explain the next step", () => {
-    it("stage locks are inert", () => {
+  describe("resident — stage locks and plan locks are live links to a locked-state page", () => {
+    it("stage locks are live notice links, never dead rows", () => {
       const params = {
         kind: "resident" as const,
         section: "lease",
         subscriptionTier: "paid" as const,
         residentNavStage: "pre_approval" as const,
       };
-      expect(portalNavLockKind(params)).toBe("inert");
+      expect(portalNavLockKind(params)).toBe("notice");
       expect(portalNavSectionLocked(params)).toBe(true);
-      expect(portalNavLockNavigable(params)).toBe(false);
+      expect(portalNavLockNavigable(params)).toBe(true);
     });
 
     it("keeps a not-yet-reached stage's sections locked", () => {
@@ -78,7 +78,7 @@ describe("portal nav lock kinds", () => {
             subscriptionTier: "paid",
             residentNavStage: "post_approval_pre_lease",
           }),
-        ).toBe("inert");
+        ).toBe("notice");
       }
     });
 
@@ -87,10 +87,10 @@ describe("portal nav lock kinds", () => {
         portalNavLockKind({ kind: "resident", section, subscriptionTier: "paid", residentNavStage });
       expect(lock("forms", "post_approval_pre_lease")).toBe("none");
       expect(lock("forms", "post_lease")).toBe("none");
-      expect(lock("forms", "application_submitted")).toBe("inert");
+      expect(lock("forms", "application_submitted")).toBe("notice");
       // A form waiting before approval is reached by its direct link, so the nav row stays locked.
-      expect(lock("forms", "application_submitted_forms")).toBe("inert");
-      expect(lock("move-in", "post_approval_pre_lease")).toBe("inert");
+      expect(lock("forms", "application_submitted_forms")).toBe("notice");
+      expect(lock("move-in", "post_approval_pre_lease")).toBe("notice");
       expect(lock("move-in", "post_lease")).toBe("none");
     });
 

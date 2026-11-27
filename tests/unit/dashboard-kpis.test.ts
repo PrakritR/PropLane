@@ -1,6 +1,6 @@
 // The dashboard's KPI maths: periods, flows, stocks, and how a change is worded.
 import { describe, expect, it } from "vitest";
-import { ageLabel, bucketSeries, dashboardPeriods, kpiDelta, moneyToNumber, stockSeries, toMs, usdWhole, visibleKpiDelta } from "@/lib/dashboard-kpis";
+import { ageLabel, bucketSeries, dashboardPeriods, openRequestsSeries, kpiDelta, moneyToNumber, stockSeries, toMs, usdWhole, visibleKpiDelta } from "@/lib/dashboard-kpis";
 
 // Fri Sep 11 2026, 19:30 local.
 const NOW = new Date(2026, 8, 11, 19, 30).getTime();
@@ -117,5 +117,31 @@ describe("visibleKpiDelta", () => {
     expect(visibleKpiDelta(kpiDelta([5, 5], String, "last month"))).toBeNull();
     expect(visibleKpiDelta(null)).toBeNull();
     expect(visibleKpiDelta(kpiDelta([5, 7], String, "last month"))?.label).toBe("+2 vs last month");
+  });
+});
+
+describe("openRequestsSeries: the Open requests headline and chart are one list", () => {
+  const periods = dashboardPeriods("month", NOW, 8);
+
+  it("the current period equals the number of open items, dated or not", () => {
+    const items = [
+      { openedAtMs: new Date(2026, 8, 2).getTime() }, // a dated add-on request
+      { openedAtMs: null }, // maintenance carries no date
+      { openedAtMs: NOW + 86_400_000 }, // never dated after now
+    ];
+    const series = openRequestsSeries(items, periods, NOW);
+    expect(series).toHaveLength(8);
+    expect(series[series.length - 1]).toBe(items.length);
+  });
+
+  it("is never all-zero while something is open, and shows history for dated items", () => {
+    const series = openRequestsSeries(
+      [{ openedAtMs: new Date(2026, 6, 15).getTime() }, { openedAtMs: null }],
+      periods,
+      NOW,
+    );
+    // Jul (index 5) onward holds the dated one; only the current period holds the undated one.
+    expect(series.slice(0, 5)).toEqual([0, 0, 0, 0, 0]);
+    expect(series.slice(5)).toEqual([1, 1, 2]);
   });
 });

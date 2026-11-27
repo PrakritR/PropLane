@@ -38,7 +38,11 @@ import { getManagerPortalNavSubscriptionTier, getManagerSubscriptionTierByManage
 import { loadResidentPortalAccessState, residentPortalHomePath } from "@/lib/resident-portal-access";
 import {
   isResidentPathAllowedForAccess,
+  residentLockedSectionForPath,
+  residentStageLockCopy,
+  resolveResidentPortalNavStage,
 } from "@/lib/resident-portal-nav";
+import { ResidentStageLockedSection } from "@/components/portal/resident-stage-locked-section";
 import { findSection, getPortalDefinition } from "@/lib/portals";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import { RESIDENT_PAYMENTS_LEGACY_TABS } from "@/lib/portals/resident-sections";
@@ -496,6 +500,12 @@ export async function renderPortalSectionWith(
       ? `${def.basePath}/${section}/${tabParts.join("/")}`
       : `${def.basePath}/${section}`;
     if (!isResidentPathAllowedForAccess(residentPath, residentAccess)) {
+      // A locked nav section opens its locked-state page (what unlocks it); anything else goes home.
+      const lockedSection = residentLockedSectionForPath(residentPath, residentAccess);
+      const lockCopy = lockedSection
+        ? residentStageLockCopy(lockedSection, resolveResidentPortalNavStage(residentAccess))
+        : null;
+      if (lockCopy) return <ResidentStageLockedSection label={lockCopy.label} message={lockCopy.message} />;
       redirect(residentPortalHomePath(residentAccess));
     }
   }

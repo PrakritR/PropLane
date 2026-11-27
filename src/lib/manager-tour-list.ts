@@ -107,7 +107,16 @@ export function tourRowsFromInquiries(rows: PartnerInquiry[]): ManagerTourRow[] 
     // otherwise infers as mutually incompatible object types rather than one row union.
     .flatMap((row): ManagerTourRow[] => {
       if (row.status === "pending") {
-        return getPartnerInquiryWindows(row).map((window, index) => {
+        const windows = getPartnerInquiryWindows(row);
+        // Derived at read time, never written: a request nobody acted on whose every requested window has
+        // passed leaves Pending for Past as Expired. One window still ahead keeps the whole request Pending.
+        const expired =
+          windows.length > 0 &&
+          windows.every((window) => {
+            const end = Date.parse(window.end);
+            return Number.isFinite(end) && !isUpcomingEnd(end);
+          });
+        return windows.map((window, index) => {
           const startMs = Date.parse(window.start);
           const endMs = Date.parse(window.end);
           if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
@@ -126,10 +135,10 @@ export function tourRowsFromInquiries(rows: PartnerInquiry[]): ManagerTourRow[] 
             endIso: window.end,
             startMs,
             endMs,
-            statusLabel: "Pending",
+            statusLabel: expired ? "Expired" : "Pending",
             notes: row.notes,
             tourFormat: normalizeTourFormat(row.tourFormat),
-            bucket: "pending" as const,
+            bucket: expired ? ("past" as const) : ("pending" as const),
           };
         })
         // A window with an unparseable time yields null above; drop those so this branch has the

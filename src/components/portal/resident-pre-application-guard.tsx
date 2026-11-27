@@ -2,7 +2,11 @@
 
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { ResidentPortalAccessState } from "@/lib/resident-portal-access-types";
-import { isResidentPathAllowedForAccess, residentPortalHomePath } from "@/lib/resident-portal-nav";
+import {
+  isResidentPathAllowedForAccess,
+  residentLockedSectionForPath,
+  residentPortalHomePath,
+} from "@/lib/resident-portal-nav";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 
@@ -34,6 +38,8 @@ export function ResidentPreApplicationGuard({
   useEffect(() => {
     if (isDemoModeActive()) return;
     if (isResidentPathAllowedForAccess(pathname, access)) return;
+    // A locked section renders its own locked-state page (the server does the same); it is not bounced home.
+    if (residentLockedSectionForPath(pathname, access)) return;
     router.replace(residentPortalHomePath(access));
   }, [access, pathname, router]);
 

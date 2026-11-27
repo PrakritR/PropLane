@@ -71,15 +71,17 @@ function desktopNav() {
 
 afterEach(cleanup);
 
-describe("inert locked nav rows expose their reason on hover", () => {
+describe("stage-locked nav rows are live links that expose their reason on hover", () => {
   it("puts the lock reason in the tooltip, not only in aria-label", () => {
     render(<PortalSidebar definition={RESIDENT_DEFINITION} residentNavStage="pre_approval" />);
 
     const reason = "Lease: Available after your application is approved";
     const row = desktopNav().getByRole("link", { name: reason });
-    expect(row.tagName.toLowerCase()).toBe("span");
-    expect(row.getAttribute("aria-disabled")).toBe("true");
-    // Without `title` a sighted resident taps a dead row and learns nothing.
+    // A live link to the locked-state page, not a dead span.
+    expect(row.tagName.toLowerCase()).toBe("a");
+    expect(row.getAttribute("href")).toBe("/resident/lease");
+    expect(row.getAttribute("aria-disabled")).toBeNull();
+    // `title` so a sighted resident hovering the row learns the reason too.
     expect(row.getAttribute("title")).toBe(reason);
   });
 

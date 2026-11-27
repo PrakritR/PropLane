@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildManagerTourRows,
+  tourRowsFromInquiries,
   countManagerTourRowsByBucket,
   filterManagerTourRows,
   sortManagerTourClustersForBucket,
@@ -149,5 +150,57 @@ describe("manager-tour-list", () => {
         ),
       ),
     ).toBeNull();
+  });
+});
+
+describe("a pending tour whose time has passed leaves Pending", () => {
+  const inquiry = (id: string, windows: Array<{ start: string; end: string }>) =>
+    ({
+      id,
+      kind: "tour",
+      status: "pending",
+      name: "Alex Kim",
+      email: "alex@example.com",
+      phone: "",
+      propertyTitle: "Oak House",
+      proposedStart: windows[0]!.start,
+      proposedEnd: windows[0]!.end,
+      requestedWindows: windows,
+    }) as never;
+
+  afterEach(() => vi.useRealTimers());
+
+  it("moves an unanswered, fully elapsed request to Past as Expired; future ones stay Pending", () => {
+    // Nov 27, 2026 9:00 AM Pacific.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-27T17:00:00.000Z"));
+    const rows = tourRowsFromInquiries([
+      inquiry("old", [{ start: "2026-11-21T18:00:00.000Z", end: "2026-11-21T18:30:00.000Z" }]),
+      inquiry("today", [{ start: "2026-11-27T19:00:00.000Z", end: "2026-11-27T19:30:00.000Z" }]),
+      inquiry("mixed", [
+        { start: "2026-11-24T18:00:00.000Z", end: "2026-11-24T18:30:00.000Z" },
+        { start: "2026-11-30T18:00:00.000Z", end: "2026-11-30T18:30:00.000Z" },
+      ]),
+    ]);
+    const byInquiry = (id: string) => rows.filter((r) => r.sourceId === id);
+    expect(byInquiry("old").map((r) => [r.bucket, r.statusLabel])).toEqual([["past", "Expired"]]);
+    expect(byInquiry("today").map((r) => r.bucket)).toEqual(["pending"]);
+    expect(byInquiry("mixed").map((r) => r.bucket)).toEqual(["pending", "pending"]);
+    expect(countManagerTourRowsByBucket(rows)).toEqual({ pending: 3, upcoming: 0, past: 1 });
+  });
+
+  it("keeps a request Pending inside the 30 minute grace after its window ends", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-27T19:40:00.000Z"));
+    const rows = tourRowsFromInquiries([
+      inquiry("just-ended", [{ start: "2026-11-27T19:00:00.000Z", end: "2026-11-27T19:30:00.000Z" }]),
+    ]);
+    expect(rows[0]!.bucket).toBe("pending");
+    vi.setSystemTime(new Date("2026-11-27T20:01:00.000Z"));
+    expect(
+      tourRowsFromInquiries([
+        inquiry("just-ended", [{ start: "2026-11-27T19:00:00.000Z", end: "2026-11-27T19:30:00.000Z" }]),
+      ])[0]!.bucket,
+    ).toBe("past");
   });
 });

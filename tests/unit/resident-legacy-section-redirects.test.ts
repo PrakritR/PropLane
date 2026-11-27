@@ -95,6 +95,14 @@ async function redirectTargetFor(
   throw new Error(`expected a redirect for /resident/${section}`);
 }
 
+/** A stage-locked section renders its locked-state page instead of redirecting; returns the notice shown. */
+async function lockedNoticeFor(section: string, tabParts?: string[]): Promise<string> {
+  const element = (await renderPortalSection("resident", section, tabParts)) as { props?: { message?: string } };
+  const message = element?.props?.message;
+  if (!message) throw new Error(`expected the locked-state page for /resident/${section}`);
+  return message;
+}
+
 describe("resident legacy section redirects resolve before the stage guard", () => {
   beforeEach(() => {
     Object.assign(residentAccess, {
@@ -150,9 +158,11 @@ describe("resident legacy section redirects resolve before the stage guard", () 
 
   it("still guards a real section the resident's stage has not unlocked", async () => {
     // The guard is not weakened — only reordered. `/resident/lease` is not a
-    // legacy alias, so a pre-approval resident is still sent home.
+    // legacy alias, so a pre-approval resident still does not get the Lease: they get its locked-state
+    // page naming what unlocks it, not a silent bounce.
     Object.assign(residentAccess, { hasSubmittedApplication: false, hasCompletedApplicationSubmission: false });
-    expect(await redirectTargetFor("lease")).toBe("/resident/applications/apply");
+    expect(await lockedNoticeFor("lease")).toBe("Lease unlocks after your application is approved.");
+    expect(await redirectTargetFor("not-a-section")).toBe("/resident/applications/apply");
   });
 });
 
@@ -177,7 +187,7 @@ describe("lease first is gone: stale lease-first flags change nothing", () => {
   });
 
   it("Lease stays locked until an application is approved", async () => {
-    expect(await redirectTargetFor("lease")).toBe("/resident/dashboard");
+    expect(await lockedNoticeFor("lease")).toBe("Lease unlocks after your application is approved.");
   });
 
   it("once the lease is signed, Application is the resident's again", async () => {
@@ -193,7 +203,7 @@ describe("lease first is gone: stale lease-first flags change nothing", () => {
     });
     expect(await redirectTargetFor("applications")).toBe("/resident/applications/pending");
     // Lease is still locked until approval.
-    expect(await redirectTargetFor("lease")).toBe("/resident/dashboard");
+    expect(await lockedNoticeFor("lease")).toBe("Lease unlocks after your application is approved.");
   });
 });
 
@@ -262,7 +272,7 @@ describe("resident Inspections moved into My home", () => {
     expect(await redirectTargetFor("inspections")).toBe("/resident/move-in/inspections");
     // ...and the stage guard holds Inspections back: an approved resident gets Forms alone.
     Object.assign(residentAccess, { applicationApproved: true });
-    expect(await redirectTargetFor("move-in", ["inspections"])).toBe("/resident/dashboard");
+    expect(await lockedNoticeFor("move-in", ["inspections"])).toBe("My home unlocks after your lease is fully signed.");
   });
 
   it("renders the Inspections tab inside My home once the lease is signed", async () => {

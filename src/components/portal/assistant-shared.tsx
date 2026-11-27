@@ -262,6 +262,11 @@ export const RESIDENT_ASSISTANT_SUGGESTIONS: AssistantSuggestion[] = [
     prompt: "I need to open a service request.",
     toneClass: "text-[var(--status-pending-fg)]",
     icon: <Wrench className="h-full w-full" strokeWidth={2} />,
+    // Opens the real request flow (`ResidentServicesPanel` reads `?add=1`); an applicant who cannot open
+    // one yet lands on the Services locked-state page that says what unlocks it.
+    onSelect: () => {
+      window.location.assign("/resident/services?add=1");
+    },
   },
   {
     label: "Message my manager",

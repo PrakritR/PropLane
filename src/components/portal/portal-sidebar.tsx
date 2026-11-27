@@ -765,6 +765,7 @@ export function PortalSidebar({
             : undefined
         }
         className={navLinkClass(active, locked, unread)}
+        title={locked ? lockAriaLabel(s.label, locked, s.section) : undefined}
         aria-label={lockAriaLabel(s.label, locked, s.section)}
         aria-current={active ? "page" : undefined}
       >

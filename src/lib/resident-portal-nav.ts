@@ -238,6 +238,55 @@ export function isResidentPathAllowedForAccess(
   return residentSectionUnlockedForStage(section, stage);
 }
 
+/**
+ * Resident nav sections that are real destinations a stage can lock. A stage-locked row is a live link to
+ * a locked-state page (`portalNavLockKind` → `notice`), never a dead click and never a silent bounce home;
+ * `renderPortalSection` renders {@link residentStageLockCopy} for these instead of redirecting.
+ */
+const RESIDENT_STAGE_LOCKABLE_SECTIONS: Record<string, { label: string; plural: boolean }> = {
+  lease: { label: "Lease", plural: false },
+  payments: { label: "Payments", plural: true },
+  services: { label: "Services", plural: true },
+  forms: { label: "Forms", plural: true },
+  "move-in": { label: "My home", plural: false },
+  documents: { label: "Documents", plural: true },
+};
+
+/** The locked nav section a path points at, or null when the path is open (or is not a lockable section). */
+export function residentLockedSectionForPath(
+  pathname: string,
+  access: Pick<
+    ResidentPortalAccessState,
+    "leaseAccessUnlocked" | "applicationApproved" | "hasCompletedApplicationSubmission"
+  > &
+    Partial<Pick<ResidentPortalAccessState, "isBookingResidency" | "hasMoveInForms" | "hasStays">>,
+): string | null {
+  if (isResidentPathAllowedForAccess(pathname, access)) return null;
+  const parts = pathname.split("/").filter(Boolean);
+  const section = parts[1] ?? "";
+  const resolved = section === "move-in" && parts[2] === "forms" ? "forms" : section;
+  return resolved in RESIDENT_STAGE_LOCKABLE_SECTIONS ? resolved : null;
+}
+
+/** The locked-state notice for a stage-locked section: names the section and what unlocks it. */
+export function residentStageLockCopy(
+  section: string,
+  stage: ResidentPortalNavStage,
+): { label: string; message: string } | null {
+  const meta = RESIDENT_STAGE_LOCKABLE_SECTIONS[section];
+  if (!meta) return null;
+  const verb = meta.plural ? "unlock" : "unlocks";
+  let when: string;
+  if (stage === "pre_approval" || stage === "application_submitted" || stage === "application_submitted_forms") {
+    when = "after your application is approved";
+  } else if (stage === "post_approval_pre_lease") {
+    when = "after your lease is fully signed";
+  } else {
+    when = "once you have a lease with your property manager";
+  }
+  return { label: meta.label, message: `${meta.label} ${verb} ${when}.` };
+}
+
 export function residentNavLockReason(
   section: string,
   stage: ResidentPortalNavStage,

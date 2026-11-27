@@ -114,9 +114,9 @@ describe("R4 a section the manager's plan locks takes no tile and no bottom-bar 
     expect(portalBottomBarShowsSection(params)).toBe(false);
     expect(portalBottomBarShowsSection({ ...params, section: "payments" })).toBe(true);
   });
-  it("a stage-locked resident row keeps its slot and its inert lock", () => {
+  it("a stage-locked resident row keeps its slot and its live notice lock", () => {
     const params = { kind: "resident" as const, section: "payments", subscriptionTier: "paid" as const, residentNavStage: "pre_approval" as const };
-    expect(portalNavLockKind(params)).toBe("inert");
+    expect(portalNavLockKind(params)).toBe("notice");
     expect(portalBottomBarShowsSection(params)).toBe(true);
   });
 });

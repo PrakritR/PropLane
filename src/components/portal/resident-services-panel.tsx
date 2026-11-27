@@ -991,6 +991,18 @@ export function ResidentServicesPanel({
     setAddServiceOpen(true);
   };
 
+  // The Assistant's "Open a service" chip lands here with `?add=1` (a chip reachable from any page cannot open
+  // this modal directly): open the request flow once services are unlocked, then drop the flag.
+  useEffect(() => {
+    if (!servicesUnlocked || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("add") !== "1") return;
+    setAddServiceOpen(true);
+    params.delete("add");
+    const query = params.toString();
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+  }, [servicesUnlocked]);
+
   const serviceGroupedItems = useMemo((): ResidentPortalGroupableRow<ResidentServiceListRowData>[] => {
     const showPropertyInMeta = groupMode !== "house";
     return filteredUnifiedRows.flatMap((unified): ResidentPortalGroupableRow<ResidentServiceListRowData>[] => {
