@@ -13,6 +13,7 @@ describe("vendor-issue-search", () => {
       issue: "plumbing",
       propertyZips: ["98105", "98004"],
       roster,
+      catalog: AXIS_VENDOR_CATALOG,
     });
     expect(own.map((h) => h.id)).toEqual(["s"]);
     expect(catalog.some((h) => h.name === "Emerald City Plumbing")).toBe(true);
@@ -29,15 +30,20 @@ describe("vendor-issue-search", () => {
   });
 
   it("online hits are directory facts only — no persist side effect", () => {
-    const hits = onlineDirectoryHits({ issue: "pest", propertyZips: ["98122"] });
+    const hits = onlineDirectoryHits({ issue: "pest", propertyZips: ["98122"], catalog: AXIS_VENDOR_CATALOG });
     expect(hits.length).toBeGreaterThan(0);
     expect(hits.every((h) => h.name && h.trade && !("imageUrl" in h) && !("email" in h))).toBe(true);
     expect(AXIS_VENDOR_CATALOG.find((row) => row.catalogId === hits[0]!.id)).toBeTruthy();
   });
 
   it("empty issue still returns ZIP-near catalog rows", () => {
-    const hits = onlineDirectoryHits({ issue: "", propertyZips: ["98101"] });
+    const hits = onlineDirectoryHits({ issue: "", propertyZips: ["98101"], catalog: AXIS_VENDOR_CATALOG });
     expect(hits.some((h) => h.city.toLowerCase().includes("seattle") || h.id.includes("handyman"))).toBe(true);
+  });
+
+  it("offers a real manager none of the placeholder catalog vendors", () => {
+    expect(filterVendorsForIssue({ issue: "plumbing", propertyZips: ["98105"], roster: [] }).catalog).toEqual([]);
+    expect(onlineDirectoryHits({ issue: "", propertyZips: ["98101"] })).toEqual([]);
   });
 
   it("empty selected property ids means every house ZIP", () => {

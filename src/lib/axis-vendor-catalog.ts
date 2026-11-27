@@ -1,3 +1,5 @@
+import { isDemoModeActive } from "@/lib/demo/demo-session";
+
 /** Curated vendors discoverable in the PropLane catalog (before added to a manager account). */
 export type AxisCatalogVendor = {
   catalogId: string;
@@ -23,6 +25,11 @@ export type AxisCatalogVendor = {
   reviewCount?: number;
 };
 
+/**
+ * Placeholder businesses (555 phone numbers, `.example` mail) that make the `/demo` sandbox look
+ * lived in. They are not real vendors, so a real manager must never be offered them: adding one and
+ * sending it a service request would go nowhere. Read the catalog through `curatedVendorCatalog()`.
+ */
 export const AXIS_VENDOR_CATALOG: AxisCatalogVendor[] = [
   {
     catalogId: "axis-catalog-plumbing-nw",
@@ -216,4 +223,9 @@ export function vendorTradeForExpenseCategory(categoryCode: string): string | nu
     other_expense: "General maintenance",
   };
   return map[categoryCode] ?? null;
+}
+
+/** The curated catalog where it may be shown: the demo sandbox only, never a real portal. */
+export function curatedVendorCatalog(): readonly AxisCatalogVendor[] {
+  return isDemoModeActive() ? AXIS_VENDOR_CATALOG : [];
 }
