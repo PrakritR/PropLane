@@ -8,9 +8,11 @@ import { serviceStaffScope } from "@/lib/service/service-mode";
 import type { PortalWorkspace } from "@/lib/workspaces/types";
 
 const mocks = vi.hoisted(() => ({
+  linked: vi.fn(),
   config: null as null | Record<string, unknown>,
   canWrite: vi.fn(),
   projected: [] as Record<string, unknown>[],
+  hosts: vi.fn(),
 }));
 
 vi.mock("@/lib/portal-record-api", () => ({
@@ -23,15 +25,19 @@ vi.mock("@/lib/planned-schedule-persistence.server", () => ({ replaceManagerPlan
 vi.mock("@/lib/auth/manager-lease-scope", () => ({ managerCanWriteCalendarForProperty: mocks.canWrite }));
 vi.mock("@/lib/workspaces/scope.server", () => ({ activeWorkspacePropertyScope: vi.fn().mockResolvedValue(null) }));
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({
-  linkedOwnerScopeForModule: vi.fn().mockResolvedValue({ ownerIds: new Set(), propertyIds: new Set(), propertyIdsByOwner: new Map() }),
+  linkedOwnerScopeForModule: mocks.linked,
 }));
 vi.mock("@/lib/schedule-record-projection.server", () => ({
   PARTNER_INQUIRIES_RECORD_ID: "axis_admin_partner_inquiries_v1",
   PLANNED_EVENTS_RECORD_ID: "axis_admin_planned_events_v1",
+  isStandaloneInquiry: (record: { record_type?: unknown; row_data?: Record<string, unknown> }) =>
+    String(record.record_type ?? "").toLowerCase().includes("inquir") ||
+    (String(record.row_data?.kind ?? "").toLowerCase() === "tour" && Boolean(record.row_data?.propertyId)),
   // The ordinary projection keeps only rows the viewer wrote: what the owner's block never was.
   projectScheduleRecordsForViewer: vi.fn(async (_db: unknown, user: { id: string }, records: Record<string, unknown>[]) =>
     records.filter((record) => record.manager_user_id === user.id),
   ),
+  tourHostIdsByHouse: mocks.hosts,
 }));
 
 await import("@/app/api/portal-schedule-records/route");
@@ -40,6 +46,8 @@ type Hook = (input: Record<string, unknown>) => Promise<Record<string, unknown>>
 const hook = (name: string) => mocks.config![name] as Hook;
 
 const OWNER = "ambika";
+const CO_HOST = "co-host-b";
+const OPERATOR = "operator-1";
 const HOUSE = "house-5257";
 const ownerBlock = {
   id: `axis_room_block_${OWNER}_hand-1`,
@@ -51,6 +59,15 @@ const ownerBlock = {
 const staff = { id: "staff-1", role: "manager", roles: ["manager"], serviceScope: { workspaceId: "ws-1", propertyIds: [HOUSE] } };
 const stranger = { id: "stranger-1", role: "manager", roles: ["manager"], serviceScope: null };
 
+// A tour request the workspace's CLIENT owner holds on a managed house; the viewer has no co-manager seat.
+const ownerTour = {
+  id: "partner_inquiry_request_t1",
+  manager_user_id: OWNER,
+  property_id: HOUSE,
+  record_type: "partner_inquiry_request",
+  row_data: { id: "t1", recordType: "partner_inquiry_request", payload: { id: "t1", kind: "tour", status: "pending", propertyId: HOUSE } },
+};
+
 /** A thenable query that records its filters; the staff read (a record_type filter) answers with the owner's block. */
 function fakeDb() {
   const calls: Array<{ table: string; ins: Record<string, unknown> }> = [];
@@ -60,20 +77,38 @@ function fakeDb() {
       const rec = { table, ins: {} as Record<string, unknown> };
       calls.push(rec);
       const query: Record<string, unknown> = {};
-      for (const name of ["select", "neq", "order", "limit", "eq", "or"]) query[name] = () => query;
+      for (const name of ["select", "neq", "order", "limit", "eq"]) query[name] = () => query;
       query.in = (column: string, values: unknown) => {
         rec.ins[column] = values;
         return query;
       };
-      query.then = (resolve: (value: unknown) => unknown) =>
-        Promise.resolve({ data: rec.ins.record_type ? [ownerBlock] : [], error: null }).then(resolve);
+      query.like = (column: string, pattern: string) => {
+        rec.ins[`like:${column}`] = pattern;
+        return query;
+      };
+      query.or = (filter: string) => {
+        rec.ins.orFilter = filter;
+        return query;
+      };
+      query.then = (resolve: (value: unknown) => unknown) => {
+        if (table === "manager_property_records") return Promise.resolve({ data: [{ id: HOUSE, manager_user_id: OWNER }], error: null }).then(resolve);
+        const houses = (rec.ins.property_id ?? rec.ins["row_data->>propertyId"]) as string[] | undefined;
+        const data = rec.ins["like:record_type"]
+          ? houses?.includes(ownerTour.property_id) ? [ownerTour] : []
+          : rec.ins.record_type ? [ownerBlock] : [];
+        return Promise.resolve({ data, error: null }).then(resolve);
+      };
       return query;
     },
   };
 }
 
 beforeEach(() => {
+  mocks.linked.mockReset().mockResolvedValue({ ownerIds: new Set(), propertyIds: new Set(), propertyIdsByOwner: new Map() });
   mocks.canWrite.mockReset().mockResolvedValue(false);
+  mocks.hosts.mockReset().mockImplementation(async (_db: unknown, owners: Map<string, string>) =>
+    new Map([...owners.keys()].map((house) => [house, new Set([owners.get(house)!, CO_HOST, OPERATOR])])),
+  );
 });
 
 describe("pure scope", () => {
@@ -128,5 +163,128 @@ describe("service staff and the owner's hand-typed bookings", () => {
     expect(await hook("authorizeDelete")({ db: {}, user: staff, records: [elsewhere] })).toMatchObject({ ok: false, status: 403 });
     const rows = await hook("projectRead")({ db: {}, user: staff, records: [elsewhere] });
     expect(rows).toEqual([]);
+  });
+});
+
+describe("service staff and the client owner's pending tours", () => {
+  // The projection is mocked above to "rows the viewer wrote"; for these cases use the real rule for staff houses.
+  it("staff with NO co-manager seat read the client-owned pending tour on a managed house", async () => {
+    const db = fakeDb();
+    const read = await hook("readRecords")({ db, user: staff });
+    expect(read.error).toBeNull();
+    expect((read.data as Record<string, unknown>[]).map((r) => r.id)).toContain(ownerTour.id);
+    const tourReads = db.calls.filter((c) => c.ins["like:record_type"]);
+    expect(tourReads.length).toBe(2);
+    for (const call of tourReads) {
+      expect(call.ins.property_id ?? call.ins["row_data->>propertyId"]).toEqual([HOUSE]);
+      // Only rows stamped to the house's owner or an eligible host (or no one) are fetched, so a planted row is never read.
+      expect(call.ins.orFilter).toBe(`manager_user_id.is.null,manager_user_id.in.(${OWNER},${CO_HOST},${OPERATOR})`);
+    }
+    expect(mocks.hosts).toHaveBeenCalledWith(db, new Map([[HOUSE, OWNER]]), {
+      throwOnError: true,
+      managedHouses: new Set([HOUSE]),
+    });
+  });
+
+  it("an unreadable host roster is an error and fetches no tour rows", async () => {
+    mocks.hosts.mockRejectedValue(new Error("account_link_invites unreadable"));
+    const db = fakeDb();
+    const read = await hook("readRecords")({ db, user: staff });
+    expect(read.data).toBeNull();
+    expect(read.error).toMatchObject({ message: expect.any(String) });
+    expect(db.calls.some((c) => c.ins["like:record_type"])).toBe(false);
+  });
+
+  it("an unreadable owner lookup is an error and fetches no tour rows", async () => {
+    const db = fakeDb();
+    const from = db.from.bind(db);
+    db.from = (table: string) => {
+      if (table !== "manager_property_records") return from(table);
+      const q: Record<string, unknown> = {};
+      q.select = () => q;
+      q.in = () => Promise.resolve({ data: null, error: { message: "boom" } });
+      return q as never;
+    };
+    const read = await hook("readRecords")({ db, user: staff });
+    expect(read.data).toBeNull();
+    expect(read.error).toMatchObject({ message: expect.any(String) });
+    expect(db.calls.some((c) => c.ins["like:record_type"])).toBe(false);
+  });
+
+  it("refuses a non-admin upsert of an inquiry naming a house the caller holds no Calendar edit on", async () => {
+    const planted = {
+      id: "planted", record_type: "partner_inquiry_request", property_id: null,
+      row_data: { payload: { kind: "tour", propertyId: HOUSE } },
+    };
+    expect(await hook("authorizeUpsert")({ db: {}, user: stranger, records: [planted] })).toMatchObject({ ok: false, status: 403 });
+    mocks.canWrite.mockResolvedValue(true);
+    expect(await hook("authorizeUpsert")({ db: {}, user: stranger, records: [planted] })).toMatchObject({ ok: true });
+  });
+
+  it("refuses the planted kind:tour row: at authorize by its house, and at insert by its reserved id prefix", async () => {
+    const spoof = {
+      id: "axis_mgr_avail_slots_v2_staff-1_x", record_type: "event", property_id: null,
+      row_data: { kind: "tour", propertyId: HOUSE, managerUserId: "staff-1", status: "pending" },
+    };
+    expect(await hook("authorizeUpsert")({ db: {}, user: stranger, records: [spoof] })).toMatchObject({ ok: false, status: 403 });
+    expect(await hook("authorizeUpsert")({ db: {}, user: stranger, records: [{ ...spoof, id: "free-id" }] })).toMatchObject({ ok: false, status: 403 });
+    const insert = mocks.config!.assertInsertAllowed as (r: unknown, u: unknown) => string | null;
+    expect(insert(spoof, stranger)).toBeTruthy();
+    expect(insert({ ...spoof, id: `axis_mgr_avail_slots_v2_${stranger.id}_x`, record_type: "event" }, stranger)).toBeNull();
+  });
+
+  it("authorizes an edit or cancel of a room block whose id carries another writer's prefix", async () => {
+    const coManager = { id: CO_HOST, role: "manager", roles: ["manager"], serviceScope: null };
+    const owner = { id: OWNER, role: "manager", roles: ["manager"], serviceScope: null };
+    const coManagerBlock = { ...ownerBlock, id: `axis_room_block_${CO_HOST}_hand-2`, manager_user_id: OWNER };
+    const cancelled = { ...ownerBlock, record_type: "cancelled_room_date_block" };
+    for (const [user, record] of [
+      [staff, ownerBlock],
+      [staff, cancelled],
+      [coManager, ownerBlock],
+      [coManager, cancelled],
+      [owner, coManagerBlock],
+    ] as const) {
+      expect(await hook("authorizeUpsert")({ db: {}, user, records: [record] })).toEqual({ ok: true });
+    }
+    mocks.canWrite.mockResolvedValue(true);
+    const asCoManager = await hook("atomicWrite")({ db: fakeDb(), user: coManager, record: { ...ownerBlock }, existing: ownerBlock });
+    expect(asCoManager).not.toMatchObject({ status: 403 });
+  });
+
+  it("still refuses inserting a row into another user's reserved id space", () => {
+    const insert = mocks.config!.assertInsertAllowed as (r: unknown, u: unknown) => string | null;
+    expect(insert({ id: `axis_mgr_avail_slots_v2_${OWNER}_x`, record_type: "event", row_data: {} }, stranger)).toBeTruthy();
+    expect(insert({ ...ownerBlock, id: `axis_room_block_${OWNER}_new` }, stranger)).toBeTruthy();
+  });
+
+  it("a non-staff viewer, and staff of a different workspace, read no tour of that house", async () => {
+    const db = fakeDb();
+    const read = await hook("readRecords")({ db, user: stranger });
+    expect(db.calls.some((c) => c.ins["like:record_type"])).toBe(false);
+    expect((read.data as Record<string, unknown>[]).map((r) => r.id)).not.toContain(ownerTour.id);
+
+    const otherStaff = { ...staff, id: "staff-2", serviceScope: { workspaceId: "ws-2", propertyIds: ["house-other"] } };
+    const otherDb = fakeDb();
+    const otherRead = await hook("readRecords")({ db: otherDb, user: otherStaff });
+    expect((otherRead.data as Record<string, unknown>[]).map((r) => r.id)).not.toContain(ownerTour.id);
+    for (const call of otherDb.calls.filter((c) => c.ins["like:record_type"])) {
+      expect(JSON.stringify(call.ins)).not.toContain(HOUSE);
+    }
+  });
+
+  it("the edit/delete visibility scope is not widened to tour requests", () => {
+    const filters: string[] = [];
+    const q = { or: (f: string) => (filters.push(f), q) };
+    (mocks.config!.scope as (q: unknown, u: unknown) => unknown)(q, staff);
+    expect(filters[0]).not.toContain("record_type.like");
+  });
+
+  it("an unreadable co-manager lookup is an error, never {data: []}", async () => {
+    mocks.linked.mockRejectedValue(new Error("PGRST002"));
+    const read = await hook("readRecords")({ db: fakeDb(), user: staff });
+    expect(read.data).toBeNull();
+    expect(read.error).toMatchObject({ message: expect.any(String) });
+    expect(mocks.linked).toHaveBeenCalledWith(expect.anything(), staff.id, "calendar", "read", { throwOnError: true });
   });
 });

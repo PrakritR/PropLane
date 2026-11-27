@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { exchangeGoogleCalendarCode, googleCalendarOAuthReturnTo, verifyOAuthState } from "@/lib/google-calendar/api.server";
 import { debugGoogleCalendarLog } from "@/lib/google-calendar/debug-log.server";
+import { googleConnectFailureCode, googleConnectFailureDetail, googleConnectFailureMessage } from "@/lib/google-calendar/connect-failure";
 import { ensureProplaneCalendarId } from "@/lib/google-calendar/proplane-calendar.server";
 import { exchangeGoogleSheetsCode } from "@/lib/sheet-sync/google-sheets-auth";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -79,10 +80,15 @@ export async function GET(req: Request) {
     });
     return NextResponse.redirect(`${returnTo}?gcal=connected`);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "unknown";
-    debugGoogleCalendarLog("callback/route.ts:GET", "calendar connect failed", {
+    const message = googleConnectFailureMessage(error);
+    // Production had no record of WHY a connect failed (Muse #83: two "unknown" failures, nothing
+    // logged). Log the class, code and message only: never the code, state or any token.
+    console.error("[google-calendar/callback] connect failed", {
+      purpose: oauthState.purpose ?? "calendar",
       managerSuffix: oauthState.userId.slice(-6),
-      message,
+      errorName: error instanceof Error ? error.name : typeof error,
+      code: googleConnectFailureCode(error),
+      message: googleConnectFailureDetail(error).slice(0, 300),
     });
     const reason = encodeURIComponent(message);
     const flag = oauthState.purpose === "sheets" ? "gsheet" : "gcal";

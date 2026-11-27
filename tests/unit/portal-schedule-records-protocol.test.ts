@@ -15,6 +15,7 @@ const state = vi.hoisted(() => ({
   scheduleRows: [] as Row[],
   properties: [] as Row[],
   links: [] as Row[],
+  staffScopeUnreadable: false,
   replace: vi.fn(async () => ({ available: true, ok: true, idempotent: false })),
 }));
 
@@ -23,6 +24,14 @@ vi.mock("next/server", async (importOriginal) => {
   return { ...actual, after: (task: () => unknown) => void task() };
 });
 vi.mock("@/lib/auth/portal-access", () => ({ getPortalAccessContext: async () => state.portal }));
+// The fake db models no service-workspace tables; these viewers are not service staff.
+vi.mock("@/lib/service/service-mode.server", () => ({
+  loadServiceStaffScope: async () => null,
+  loadServiceStaffScopeOrThrow: async () => {
+    if (state.staffScopeUnreadable) throw new Error("portal_workspace_members unreadable");
+    return null;
+  },
+}));
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: async () => state.admin }));
 vi.mock("@/lib/planned-schedule-persistence.server", () => ({
   replaceManagerPlannedScheduleSlice: (...args: unknown[]) => state.replace(...args),
@@ -162,10 +171,26 @@ beforeEach(() => {
     { id: "property-b", manager_user_id: "owner-b" },
   ];
   state.links = [];
+  state.staffScopeUnreadable = false;
   state.replace.mockClear().mockResolvedValue({ available: true, ok: true, idempotent: false });
 });
 
 describe("portal schedule-records protocol", () => {
+  it("an unreadable staff scope fails the GET with no rows, never a 200 the client would take as the whole schedule", async () => {
+    const { GET } = await import("@/app/api/portal-schedule-records/route");
+    state.scheduleRows = [
+      { id: "ordinary-owner-a", manager_user_id: "owner-a", record_type: "event", row_data: { id: "ordinary-owner-a" } },
+    ];
+    state.staffScopeUnreadable = true;
+    const res = await GET();
+    expect(res.status).toBeGreaterThanOrEqual(500);
+    const body = await res.json() as { rows?: Row[] };
+    expect(body.rows ?? []).toEqual([]);
+    state.staffScopeUnreadable = false;
+    const ok = await (await GET()).json() as { rows: Row[] };
+    expect(ok.rows.map((row) => row.id)).toContain("ordinary-owner-a");
+  });
+
   it("prevalidates every deleteIds target in either order and never partially deletes", async () => {
     const { POST } = await import("@/app/api/portal-schedule-records/route");
     for (const protectedId of [plannedId, inquiriesId]) {

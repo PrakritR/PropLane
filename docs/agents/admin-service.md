@@ -100,7 +100,8 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
   `resolveServiceScope`, `loadServiceStaffScope`, pure `serviceStaffScope`) lets staff read, edit, cancel and delete the
   room blocks of the open workspace's houses and nothing else: the scope is re-derived server-side from membership and the
   cookie (never a body id), is null for a stranger, a client owner and staff on their own non-service workspace, and fails
-  closed on a read error. The occupancy, channel and lease reads were already by property grant (the Admin seat carries one).
+  closed on a read error, except the schedule GET, which reads it strictly (`loadServiceStaffScopeOrThrow`) and answers an
+  error rather than a 200 missing the workspace's rows. The occupancy, channel and lease reads were already by property grant (the Admin seat carries one).
   Coverage: `tests/unit/schedule-records-service-staff.test.ts`.
 - **Property portal list**: `GET /api/workspaces` leaves staff service workspaces out of its payload (and re-resolves
   `activeWorkspaceId`) unless the portal is in service mode. `loadWorkspaces` itself is untouched (about ten scope readers

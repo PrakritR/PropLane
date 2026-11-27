@@ -17,6 +17,7 @@ import {
   CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE,
   isDedicatedBookingsRecordType,
   roomDateBlockRecordIdPrefix,
+  scheduleRecordIdInForeignReservedSpace,
 } from "@/lib/portal-schedule-record-scope";
 import { carryGuestStayFields } from "@/lib/short-stay/guest-stays";
 import { syncManagerAvailabilityToGoogleCalendar } from "@/lib/google-calendar/sync.server";
@@ -28,7 +29,9 @@ import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
 import {
   PARTNER_INQUIRIES_RECORD_ID,
   PLANNED_EVENTS_RECORD_ID,
+  isStandaloneInquiry,
   projectScheduleRecordsForViewer,
+  tourHostIdsByHouse,
 } from "@/lib/schedule-record-projection.server";
 import {
   handleTestWorkspaceScheduleGet,
@@ -264,6 +267,27 @@ function serviceScopeIds(user: { serviceScope?: { propertyIds: string[] } | null
   return filterSafeIds(user.serviceScope?.propertyIds ?? []);
 }
 
+/**
+ * Who may have written a genuine tour request on the staff houses: each house's owner and its eligible tour hosts,
+ * read server-side (`tourHostIdsByHouse`). An unreadable lookup throws; the caller answers an error, never a 200.
+ */
+async function staffHouseTourWriterIds(
+  db: Parameters<typeof managerCanWriteCalendarForProperty>[0],
+  houseIds: string[],
+): Promise<string[]> {
+  const { data, error } = await db.from("manager_property_records").select("id, manager_user_id").in("id", houseIds);
+  if (error) throw error;
+  const owners = new Map<string, string>();
+  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+    const id = String(row.id ?? "").trim();
+    const owner = String(row.manager_user_id ?? "").trim();
+    if (id && owner) owners.set(id, owner);
+  }
+  const hosts = await tourHostIdsByHouse(db, owners, { throwOnError: true, managedHouses: new Set(owners.keys()) });
+  const writers = new Set<string>([...owners.values(), ...[...hosts.values()].flatMap((ids) => [...ids])]);
+  return filterSafeIds([...writers]);
+}
+
 function staffMayRunBlocksOn(user: { serviceScope?: { propertyIds: string[] } | null }, propertyId: string): boolean {
   return Boolean(propertyId) && Boolean(user.serviceScope?.propertyIds.includes(propertyId));
 }
@@ -309,6 +333,9 @@ function scheduleUserHasRole(user: { role: string; roles?: string[] }, role: str
 const route = createJsonRecordRoute({
   table: "portal_schedule_records",
   resolveServiceScope: true,
+  // The client treats this snapshot as authoritative and replaces its tour/inquiry cache with it, so a failed
+  // staff-scope lookup must be an error (it keeps the cache), never a 200 with the staff's houses missing.
+  strictServiceScopeOnRead: true,
   // An admin in their own manager portal reads and writes like any manager; the all-owners schedule
   // read is admin oversight (`?oversight=admin`, sent by admin pages).
   explicitAdminOversight: true,
@@ -345,10 +372,18 @@ const route = createJsonRecordRoute({
     const isManagerViewer = !scheduleUserHasRole(user, "admin") && !scheduleUserHasRole(user, "vendor");
     const workspaceScope = isManagerViewer ? await activeWorkspacePropertyScope(db, user.id) : null;
     if (isManagerViewer && scheduleUserHasRole(user, "manager")) {
-      const [calendar, applications] = await Promise.all([
-        linkedOwnerScopeForModule(db, user.id, "calendar", "read"),
-        linkedOwnerScopeForModule(db, user.id, "applications", "edit"),
-      ]);
+      let calendar: Awaited<ReturnType<typeof linkedOwnerScopeForModule>>;
+      let applications: Awaited<ReturnType<typeof linkedOwnerScopeForModule>>;
+      try {
+        // Fail loud: an unreadable seat lookup is an error, not "no co-manager seats" (an empty 200 blanked Pending tours).
+        [calendar, applications] = await Promise.all([
+          linkedOwnerScopeForModule(db, user.id, "calendar", "read", { throwOnError: true }),
+          linkedOwnerScopeForModule(db, user.id, "applications", "edit", { throwOnError: true }),
+        ]);
+      } catch (error) {
+        console.error("[portal-schedule-records] co-manager scope unreadable", error);
+        return { data: null, error: { message: "Could not load your schedule right now. Try again." } };
+      }
       let linkedPropertyIds = [...new Set([...calendar.propertyIds, ...applications.propertyIds])];
       // Real SQL narrowing (not post-fetch): intersect the co-manager grant
       // with the active workspace scope before it ever becomes an `.in(...)`.
@@ -396,6 +431,45 @@ const route = createJsonRecordRoute({
           .order("updated_at", { ascending: false })
           .limit(500),
       );
+      // Tour requests filed on the workspace's houses, whoever they were filed under (the client owner, for a
+      // managed workspace still client-owned): read directly, so they do not ride on a co-manager seat that
+      // may not exist. Read-only; the shared `scope` (which gates edits and deletes) is deliberately unchanged.
+      // A legacy row may carry the house only inside row_data. The projection below stays the authority.
+      // Only rows stamped to a house's owner or eligible tour host (or no one) are fetched: any manager can write a
+      // standalone inquiry naming a house they do not hold, and that planted row must not be read as the house's own.
+      // An unreadable lookup fetches no tour rows and is an error, never a 200 missing them.
+      let tourWriters: string[];
+      try {
+        tourWriters = await staffHouseTourWriterIds(db, staffIds);
+      } catch (error) {
+        console.error("[portal-schedule-records] staff house owners unreadable", error);
+        return { data: null, error: { message: "Could not load your schedule right now. Try again." } };
+      }
+      if (tourWriters.length > 0) {
+        const ownerFilter = `manager_user_id.is.null,manager_user_id.in.(${tourWriters.join(",")})`;
+        reads.push(
+          db
+            .from("portal_schedule_records")
+            .select(select)
+            .neq("id", PLANNED_EVENTS_RECORD_ID)
+            .neq("id", PARTNER_INQUIRIES_RECORD_ID)
+            .in("property_id", staffIds)
+            .like("record_type", "%inquir%")
+            .or(ownerFilter)
+            .order("updated_at", { ascending: false })
+            .limit(500),
+          db
+            .from("portal_schedule_records")
+            .select(select)
+            .neq("id", PLANNED_EVENTS_RECORD_ID)
+            .neq("id", PARTNER_INQUIRIES_RECORD_ID)
+            .in("row_data->>propertyId", staffIds)
+            .like("record_type", "%inquir%")
+            .or(ownerFilter)
+            .order("updated_at", { ascending: false })
+            .limit(500),
+        );
+      }
     }
     const results = await Promise.all(reads);
     const records = new Map<string, Record<string, unknown>>();
@@ -434,7 +508,7 @@ const route = createJsonRecordRoute({
     };
   },
   projectRead: async ({ db, user, records }) => {
-    const projected = await projectScheduleRecordsForViewer(db, user, records);
+    const projected = await projectScheduleRecordsForViewer(db, user, records, { throwOnError: true });
     // Service staff also see the open workspace's room blocks (the projection above keeps only rows the
     // viewer wrote or may see through a grant). Only room-block rows of the workspace's own houses, only staff.
     const staffHouses = new Set(serviceScopeIds(user));
@@ -733,6 +807,25 @@ const route = createJsonRecordRoute({
         status: 403,
       };
     }
+    // A standalone inquiry/tour row is free-form: refuse one that names a house the caller neither owns nor
+    // holds Calendar edit on (nor staffs), so a planted request cannot pose as a house's own to its staff.
+    if (!scheduleUserHasRole(user, "admin")) {
+      for (const record of records) {
+        if (!isStandaloneInquiry(record)) continue;
+        const rowData = record.row_data && typeof record.row_data === "object" ? (record.row_data as Record<string, unknown>) : {};
+        const nested = rowData.payload && typeof rowData.payload === "object" ? (rowData.payload as Record<string, unknown>) : {};
+        const claimed = new Set(
+          [record.property_id, rowData.propertyId, rowData.property_id, nested.propertyId, nested.property_id]
+            .map((value) => (typeof value === "string" ? value.trim() : ""))
+            .filter(Boolean),
+        );
+        for (const propertyId of claimed) {
+          if (!(await mayWriteBlocksOn(db, user, propertyId))) {
+            return { ok: false, error: "You need Calendar edit access on this property to file a request on it.", status: 403 };
+          }
+        }
+      }
+    }
     // A create/update must land IN the active workspace: a manager-scoped,
     // property-tagged record (a tour, a calendar event, an availability block)
     // naming a house outside it is refused before it is ever written, never
@@ -814,6 +907,9 @@ const route = createJsonRecordRoute({
   },
   assertInsertAllowed: (record, user) => {
     if (user.role === "admin") return null;
+    if (scheduleRecordIdInForeignReservedSpace(String(record.id ?? ""), user.id)) {
+      return "Record id must belong to the authenticated user.";
+    }
     const recordType = String(record.record_type ?? "");
     if (user.role === "vendor") {
       if (!vendorScheduleRecordTypes().includes(recordType as "vendor_availability" | "vendor_flexible_preferences")) {

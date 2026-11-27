@@ -113,3 +113,31 @@ export function expectedManagerScheduleRecordIds(userId: string, propertyId: str
     availKey: managerPropertyAvailabilityStorageKey(userId, propertyId),
   };
 }
+
+/**
+ * Per-user id spaces the schedule reads address with `id.like` / `id.eq` (see the route's scope). A row under
+ * one of these belongs to the user whose id follows the prefix, so nobody else may write into it: a planted id
+ * would otherwise be fetched by the owner's read and trusted as theirs.
+ */
+const RESERVED_PER_USER_ID_PREFIXES = [
+  MANAGER_PROPERTY_AVAIL_PREFIX,
+  CALENDAR_SHARE_PREFIX,
+  ROOM_DATE_BLOCK_PREFIX,
+  "axis_manager_tasks_v1_",
+  "axis_vendor_avail_slots_v2_",
+  "axis_vendor_flex_prefs_",
+  "axis_admin_avail_slots_v2_admin_",
+];
+
+/** True when `recordId` sits in a per-user reserved id space that belongs to someone other than `userId`. */
+export function scheduleRecordIdInForeignReservedSpace(recordId: string, userId: string): boolean {
+  const id = recordId.trim();
+  const uid = userId.trim();
+  for (const prefix of RESERVED_PER_USER_ID_PREFIXES) {
+    if (!id.startsWith(prefix)) continue;
+    const rest = id.slice(prefix.length);
+    if (uid && (rest === uid || rest.startsWith(`${uid}_`))) return false;
+    return true;
+  }
+  return false;
+}

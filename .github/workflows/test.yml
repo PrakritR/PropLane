@@ -116,6 +116,30 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      - name: Give the production build swap headroom
+        # The smoke builds the app inside Playwright's webServer; without this the
+        # runner was shut down mid-build twice on Nov 26 (memory). Headroom, not a gate: if this runner will not take a swapfile the
+        # build still runs, and the log above says why it had less room.
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          free -h
+          df -h /
+          avail_gb=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
+          avail_gb=${avail_gb:-0}
+          size_gb=12
+          if [ "$avail_gb" -lt 24 ]; then size_gb=$(( avail_gb / 2 )); fi
+          if [ "$size_gb" -lt 2 ]; then
+            echo "::warning::Only ${avail_gb}G free on /; skipping the build swapfile. An OOM here is reported as a cancelled step."
+            exit 0
+          fi
+          sudo fallocate -l "${size_gb}G" /next-build-swapfile \
+            || sudo dd if=/dev/zero of=/next-build-swapfile bs=1M count=$(( size_gb * 1024 )) status=none
+          sudo chmod 600 /next-build-swapfile
+          sudo mkswap /next-build-swapfile
+          sudo swapon /next-build-swapfile
+          swapon --show
+          free -h
       - run: npm run test:e2e:smoke
         env:
           PROPLANE_TYPECHECK_SEPARATELY: "1"

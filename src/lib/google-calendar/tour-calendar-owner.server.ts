@@ -200,6 +200,56 @@ export async function resolveManagedOperatorForProperty(
   }
 }
 
+/**
+ * Which of these houses (house id -> owner id) sit in a PropLane-managed workspace: the house's own workspace when that
+ * row exists, else the owner's default workspace (the same rule `resolveManagerAssistantWorkspace` applies). A fixed
+ * three reads whatever the house count; any unreadable read throws, never "not managed".
+ */
+export async function managedHouseIdsOrThrow(
+  db: SupabaseClient,
+  ownersByHouse: ReadonlyMap<string, string>,
+): Promise<Set<string>> {
+  const managed = new Set<string>();
+  const houseIds = [...ownersByHouse.keys()].map((id) => id.trim()).filter(Boolean);
+  if (houseIds.length === 0) return managed;
+  const owners = [...new Set([...ownersByHouse.values()].map((id) => id.trim()).filter(Boolean))];
+  const [houses, defaults] = await Promise.all([
+    db.from("manager_property_records").select("id, workspace_id").in("id", houseIds),
+    owners.length > 0
+      ? db.from("portal_workspaces").select("id, owner_user_id").in("owner_user_id", owners).eq("is_default", true)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (houses.error) throw new Error("manager_property_records unreadable");
+  if (defaults.error) throw new Error("portal_workspaces unreadable");
+  const houseWorkspace = new Map<string, string>();
+  for (const row of (houses.data ?? []) as Array<{ id?: unknown; workspace_id?: unknown }>) {
+    const id = text(row.id);
+    const workspaceId = text(row.workspace_id);
+    if (id && workspaceId) houseWorkspace.set(id, workspaceId);
+  }
+  const defaultWorkspace = new Map<string, string>();
+  for (const row of (defaults.data ?? []) as Array<{ id?: unknown; owner_user_id?: unknown }>) {
+    const owner = text(row.owner_user_id);
+    const id = text(row.id);
+    if (owner && id && !defaultWorkspace.has(owner)) defaultWorkspace.set(owner, id);
+  }
+  const workspaceIds = [...new Set([...houseWorkspace.values(), ...defaultWorkspace.values()])];
+  if (workspaceIds.length === 0) return managed;
+  const { data: workspaces, error } = await db.from("portal_workspaces").select("id, is_service").in("id", workspaceIds);
+  if (error) throw new Error("portal_workspaces unreadable");
+  const existing = new Map<string, boolean>();
+  for (const row of (workspaces ?? []) as Array<{ id?: unknown; is_service?: unknown }>) {
+    const id = text(row.id);
+    if (id) existing.set(id, row.is_service === true);
+  }
+  for (const [house, owner] of ownersByHouse) {
+    const own = houseWorkspace.get(house.trim()) ?? "";
+    const workspaceId = own && existing.has(own) ? own : defaultWorkspace.get(owner.trim()) ?? "";
+    if (workspaceId && existing.get(workspaceId)) managed.add(house.trim());
+  }
+  return managed;
+}
+
 /** Kept for callers that only hold the planned event id. */
 export async function resolveManagedTourOperator(
   db: SupabaseClient,

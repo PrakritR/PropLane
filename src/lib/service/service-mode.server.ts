@@ -135,15 +135,24 @@ export async function loadServiceStaffIds(db: SupabaseClient, userId: string): P
  */
 export async function loadServiceStaffScope(db: SupabaseClient, userId: string): Promise<ServiceStaffScope | null> {
   try {
-    const staff = await loadServiceStaffWorkspaces(db, userId);
-    if (staff.length === 0) return null;
-    const workspaces = await loadWorkspaces(db, userId);
-    const cookieId = (await cookies()).get(WORKSPACE_COOKIE)?.value;
-    return serviceStaffScope(workspaces, new Set(staff.map((w) => w.id)), cookieId);
+    return await loadServiceStaffScopeOrThrow(db, userId);
   } catch (error) {
     console.error("[service-mode] staff scope unreadable", error);
     return null;
   }
+}
+
+/**
+ * Same scope, but a read failure THROWS instead of reading as "not staff". For a read route whose answer the client
+ * treats as authoritative (the schedule snapshot): "could not tell" must be an error the client keeps its cache on,
+ * never a successful response with a staff viewer's houses silently missing.
+ */
+export async function loadServiceStaffScopeOrThrow(db: SupabaseClient, userId: string): Promise<ServiceStaffScope | null> {
+  const staff = await loadServiceStaffWorkspaces(db, userId);
+  if (staff.length === 0) return null;
+  const workspaces = await loadWorkspaces(db, userId);
+  const cookieId = (await cookies()).get(WORKSPACE_COOKIE)?.value;
+  return serviceStaffScope(workspaces, new Set(staff.map((w) => w.id)), cookieId);
 }
 
 export type PortalServiceShell =

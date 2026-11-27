@@ -62,19 +62,57 @@ export async function listPropertyTourHostUserIdsOrThrow(
   if (error) throw new Error("account_link_invites unreadable");
 
   for (const row of links ?? []) {
-    const inviteeUserId = text((row as { invitee_user_id?: unknown }).invitee_user_id);
-    if (!inviteeUserId) continue;
-    if (!asStringArray((row as { assigned_property_ids?: unknown }).assigned_property_ids).includes(propertyId)) {
-      continue;
-    }
-    const permissions = readPropertyPermissionsFromRow(
-      row as Parameters<typeof readPropertyPermissionsFromRow>[0],
-    );
-    const mayAct =
-      hasCoManagerPermissionLevelForProperty(permissions, propertyId, "calendar", "edit") ||
-      hasCoManagerPermissionLevelForProperty(permissions, propertyId, "applications", "edit");
-    if (mayAct) hosts.add(inviteeUserId);
+    const inviteeUserId = linkHostForProperty(row, propertyId);
+    if (inviteeUserId) hosts.add(inviteeUserId);
   }
 
   return [...hosts];
+}
+
+/** The invitee of an accepted link row when it lets them host a tour on `propertyId`, else "". */
+function linkHostForProperty(row: unknown, propertyId: string): string {
+  const inviteeUserId = text((row as { invitee_user_id?: unknown }).invitee_user_id);
+  if (!inviteeUserId) return "";
+  if (!asStringArray((row as { assigned_property_ids?: unknown }).assigned_property_ids).includes(propertyId)) return "";
+  const permissions = readPropertyPermissionsFromRow(row as Parameters<typeof readPropertyPermissionsFromRow>[0]);
+  const mayAct =
+    hasCoManagerPermissionLevelForProperty(permissions, propertyId, "calendar", "edit") ||
+    hasCoManagerPermissionLevelForProperty(permissions, propertyId, "applications", "edit");
+  return mayAct ? inviteeUserId : "";
+}
+
+/**
+ * The same roster for many houses (house id -> owner id) in ONE link-table read across their owners. An unreadable
+ * link table throws.
+ */
+export async function listTourHostUserIdsByHouseOrThrow(
+  db: SupabaseClient,
+  ownersByHouse: ReadonlyMap<string, string>,
+): Promise<Map<string, Set<string>>> {
+  const roster = new Map<string, { ownerUserId: string; hosts: Set<string> }>();
+  for (const [house, owner] of ownersByHouse) {
+    const propertyId = house.trim();
+    const ownerUserId = owner.trim();
+    if (!propertyId) continue;
+    roster.set(propertyId, { ownerUserId, hosts: new Set(ownerUserId ? [ownerUserId] : []) });
+  }
+  const owners = [...new Set([...roster.values()].map((entry) => entry.ownerUserId).filter(Boolean))];
+  if (owners.length > 0) {
+    const { data: links, error } = await db
+      .from("account_link_invites")
+      .select(`inviter_user_id, invitee_user_id, ${INVITE_PERMISSION_COLUMNS}`)
+      .eq("status", "accepted")
+      .in("inviter_user_id", owners);
+    if (error) throw new Error("account_link_invites unreadable");
+    for (const row of links ?? []) {
+      const inviter = text((row as { inviter_user_id?: unknown }).inviter_user_id);
+      if (!inviter) continue;
+      for (const [propertyId, entry] of roster) {
+        if (entry.ownerUserId !== inviter) continue;
+        const host = linkHostForProperty(row, propertyId);
+        if (host) entry.hosts.add(host);
+      }
+    }
+  }
+  return new Map([...roster].map(([propertyId, entry]) => [propertyId, entry.hosts]));
 }

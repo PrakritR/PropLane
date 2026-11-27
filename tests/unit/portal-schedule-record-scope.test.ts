@@ -110,3 +110,24 @@ describe("portal-schedule-record-scope", () => {
     });
   });
 });
+
+import { scheduleRecordIdInForeignReservedSpace as foreignSpace } from "@/lib/portal-schedule-record-scope";
+
+describe("reserved per-user id spaces", () => {
+  it("refuses another user's prefix for every reserved space and allows your own", () => {
+    for (const prefix of [
+      "axis_mgr_avail_slots_v2_",
+      "axis_calendar_share_avail_",
+      "axis_room_block_",
+      "axis_manager_tasks_v1_",
+      "axis_vendor_avail_slots_v2_",
+      "axis_vendor_flex_prefs_",
+      "axis_admin_avail_slots_v2_admin_",
+    ]) {
+      expect(foreignSpace(`${prefix}staff-1_x`, "me-1")).toBe(true);
+      expect(foreignSpace(`${prefix}me-1_x`, "me-1")).toBe(false);
+      expect(foreignSpace(`${prefix}me-1`, "me-1")).toBe(false);
+    }
+    expect(foreignSpace("some-random-id", "me-1")).toBe(false);
+  });
+});
