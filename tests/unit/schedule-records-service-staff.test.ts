@@ -221,7 +221,7 @@ describe("service staff and the client owner's pending tours", () => {
     expect(await hook("authorizeUpsert")({ db: {}, user: stranger, records: [planted] })).toMatchObject({ ok: true });
   });
 
-  it("refuses the planted kind:tour row under another user's reserved id prefix, at authorize and at insert", async () => {
+  it("refuses the planted kind:tour row: at authorize by its house, and at insert by its reserved id prefix", async () => {
     const spoof = {
       id: "axis_mgr_avail_slots_v2_staff-1_x", record_type: "event", property_id: null,
       row_data: { kind: "tour", propertyId: HOUSE, managerUserId: "staff-1", status: "pending" },
@@ -231,6 +231,31 @@ describe("service staff and the client owner's pending tours", () => {
     const insert = mocks.config!.assertInsertAllowed as (r: unknown, u: unknown) => string | null;
     expect(insert(spoof, stranger)).toBeTruthy();
     expect(insert({ ...spoof, id: `axis_mgr_avail_slots_v2_${stranger.id}_x`, record_type: "event" }, stranger)).toBeNull();
+  });
+
+  it("authorizes an edit or cancel of a room block whose id carries another writer's prefix", async () => {
+    const coManager = { id: CO_HOST, role: "manager", roles: ["manager"], serviceScope: null };
+    const owner = { id: OWNER, role: "manager", roles: ["manager"], serviceScope: null };
+    const coManagerBlock = { ...ownerBlock, id: `axis_room_block_${CO_HOST}_hand-2`, manager_user_id: OWNER };
+    const cancelled = { ...ownerBlock, record_type: "cancelled_room_date_block" };
+    for (const [user, record] of [
+      [staff, ownerBlock],
+      [staff, cancelled],
+      [coManager, ownerBlock],
+      [coManager, cancelled],
+      [owner, coManagerBlock],
+    ] as const) {
+      expect(await hook("authorizeUpsert")({ db: {}, user, records: [record] })).toEqual({ ok: true });
+    }
+    mocks.canWrite.mockResolvedValue(true);
+    const asCoManager = await hook("atomicWrite")({ db: fakeDb(), user: coManager, record: { ...ownerBlock }, existing: ownerBlock });
+    expect(asCoManager).not.toMatchObject({ status: 403 });
+  });
+
+  it("still refuses inserting a row into another user's reserved id space", () => {
+    const insert = mocks.config!.assertInsertAllowed as (r: unknown, u: unknown) => string | null;
+    expect(insert({ id: `axis_mgr_avail_slots_v2_${OWNER}_x`, record_type: "event", row_data: {} }, stranger)).toBeTruthy();
+    expect(insert({ ...ownerBlock, id: `axis_room_block_${OWNER}_new` }, stranger)).toBeTruthy();
   });
 
   it("a non-staff viewer, and staff of a different workspace, read no tour of that house", async () => {

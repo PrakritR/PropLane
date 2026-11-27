@@ -807,15 +807,6 @@ const route = createJsonRecordRoute({
         status: 403,
       };
     }
-    // Another user's per-user id space (availability, shares, room blocks, tasks) is never writable, whatever the
-    // record type: the owner's read fetches it by id and would trust it.
-    if (!scheduleUserHasRole(user, "admin")) {
-      for (const record of records) {
-        if (scheduleRecordIdInForeignReservedSpace(String(record.id ?? ""), user.id)) {
-          return { ok: false, error: "Record id must belong to the authenticated user.", status: 403 };
-        }
-      }
-    }
     // A standalone inquiry/tour row is free-form: refuse one that names a house the caller neither owns nor
     // holds Calendar edit on (nor staffs), so a planted request cannot pose as a house's own to its staff.
     if (!scheduleUserHasRole(user, "admin")) {
