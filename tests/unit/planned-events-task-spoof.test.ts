@@ -1,8 +1,8 @@
 /**
  * The shared planned-events container is one JSON row every manager can read and write. A task that names a house
  * or a teammate is a claim: left out at write (only that item) unless the caller is a trusted writer of the house
- * (owner, a seat the owner granted on it, or the managed house's operator / staff) and the assignee is on the
- * caller's team or the house; and, if one is planted anyway, never shown to the house's people under the same rule.
+ * (owner, a seat with Calendar or Services edit on it, or the managed house's operator / staff whose seat reaches it)
+ * and the assignee is on the caller's team or the house; and, if one is planted anyway, never shown to the house's people under the same rule.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -33,6 +33,8 @@ const OWNER = "owner-1";
 const ATTACKER = "attacker-1";
 const CO_HOST = "co-host-b";
 const TASK_CO = "co-tasks-only";
+const BARE_CO = "co-assigned-only";
+const READ_CO = "co-calendar-read";
 const HOUSE = "house-1";
 const CLIENT = "client-1";
 const OPERATOR = "operator-1";
@@ -40,6 +42,7 @@ const MANAGED = "house-m";
 const PLANNED = "axis_admin_planned_events_v1";
 const STAFF = { id: "staff-1", role: "manager", serviceScope: { propertyIds: [MANAGED] } };
 const STAFF_2 = { id: "staff-2", role: "manager", serviceScope: { propertyIds: [MANAGED] } };
+const STAFF_ELSEWHERE = { id: "staff-3", role: "manager", serviceScope: { propertyIds: ["house-other"] } };
 const COMANAGER = { id: "co-1", role: "manager" };
 const OWNER_USER = { id: OWNER, role: "manager" };
 const CLIENT_USER = { id: CLIENT, role: "manager" };
@@ -68,14 +71,29 @@ const tables = (): Record<string, Row[]> => ({
       assigned_property_ids: [HOUSE],
       property_co_manager_permissions: { [HOUSE]: { services: { read: true, edit: true } } },
     },
-    ...[STAFF.id, STAFF_2.id].map((id) => ({
+    {
+      inviter_user_id: OWNER,
+      invitee_user_id: BARE_CO,
+      status: "accepted",
+      assigned_property_ids: [HOUSE],
+      property_co_manager_permissions: { [HOUSE]: {} },
+    },
+    {
+      inviter_user_id: OWNER,
+      invitee_user_id: READ_CO,
+      status: "accepted",
+      assigned_property_ids: [HOUSE],
+      property_co_manager_permissions: { [HOUSE]: { calendar: { read: true } } },
+    },
+    ...[STAFF, STAFF_2, STAFF_ELSEWHERE].map((user) => ({
       inviter_user_id: OPERATOR,
-      invitee_user_id: id,
+      invitee_user_id: user.id,
       workspace_id: "ws-m",
       team_role: "full",
       is_service_seat: true,
       status: "accepted",
-      assigned_property_ids: [],
+      house_scope: "selected",
+      assigned_property_ids: user.serviceScope.propertyIds,
     })),
   ],
   platform_service_settings: [{ singleton: true, owner_user_id: OPERATOR }],
@@ -126,7 +144,7 @@ describe("planted planned-events task: projection", () => {
   it("the writer still sees their own item", async () => {
     expect(await visible({ id: ATTACKER, role: "manager" }, [planted])).toEqual(["planted"]);
   });
-  it("tasks by the owner or a seat on the house reach the owner, whatever module the seat holds", async () => {
+  it("tasks by the owner or a seat with Calendar or Services edit on the house reach its people", async () => {
     const rows = [
       task("by-owner", OWNER, { propertyId: HOUSE }),
       task("by-host", CO_HOST, { propertyId: HOUSE }),
@@ -140,6 +158,16 @@ describe("planted planned-events task: projection", () => {
     const rows = [task("by-staff", STAFF.id, { propertyId: MANAGED })];
     expect(await visible(STAFF_2, rows)).toEqual(["by-staff"]);
     expect(await visible(CLIENT_USER, rows)).toEqual(["by-staff"]);
+  });
+  it("an item by a seat with only an assignment or Calendar read on the house is hidden from its people", async () => {
+    const rows = [task("by-bare", BARE_CO, { propertyId: HOUSE }), task("by-reader", READ_CO, { propertyId: HOUSE })];
+    expect(await visible(OWNER_USER, rows)).toEqual([]);
+    expect(await visible(COMANAGER, rows)).toEqual([]);
+  });
+  it("an item by staff whose own seat does not reach the managed house is hidden from its owner and staff", async () => {
+    const rows = [task("by-elsewhere", STAFF_ELSEWHERE.id, { propertyId: MANAGED })];
+    expect(await visible(CLIENT_USER, rows)).toEqual([]);
+    expect(await visible(STAFF, rows)).toEqual([]);
   });
   it("a house-less item stays private to its writer", async () => {
     const mine = task("personal", ATTACKER);
@@ -196,9 +224,19 @@ describe("planned-events task: write", () => {
     await write(OWNER_USER, [task("wo", OWNER, { propertyId: HOUSE, assignee: { type: "team", id: TASK_CO } })]);
     expect(written()).toEqual(["wo"]);
   });
-  it("lets a co-manager without Calendar edit plan a task on the house they are seated on", async () => {
+  it("lets a co-manager holding Services edit (no Calendar edit) plan a task on the house", async () => {
     await write({ id: TASK_CO, role: "manager" }, [task("t", TASK_CO, { propertyId: HOUSE, assignee: { type: "team", id: OWNER } })]);
     expect(written()).toEqual(["t"]);
+  });
+  it("leaves out a seat holding only an assignment or Calendar read on the house", async () => {
+    await write({ id: BARE_CO, role: "manager" }, [task("b", BARE_CO, { propertyId: HOUSE, assignee: { type: "team", id: OWNER } })]);
+    expect(written()).toEqual([]);
+    await write({ id: READ_CO, role: "manager" }, [task("r", READ_CO, { propertyId: HOUSE })]);
+    expect(written()).toEqual([]);
+  });
+  it("leaves out staff planning on a managed house their own seat does not reach", async () => {
+    await write(STAFF_ELSEWHERE, [task("e", STAFF_ELSEWHERE.id, { propertyId: MANAGED })]);
+    expect(written()).toEqual([]);
   });
   it("leaves out a co-manager assigning someone off their team and off the house", async () => {
     await write({ id: CO_HOST, role: "manager" }, [

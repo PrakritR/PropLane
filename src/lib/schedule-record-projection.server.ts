@@ -1,8 +1,13 @@
 import "server-only";
 
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
-import { asStringArray } from "@/lib/account-link-invite-row";
-import { userHoldsAdminRole } from "@/lib/auth/admin-role";
+import {
+  asStringArray,
+  INVITE_PERMISSION_COLUMNS,
+  readHouseScopeFromRow,
+  readPropertyPermissionsFromRow,
+} from "@/lib/account-link-invite-row";
+import { hasCoManagerPermissionLevelForProperty } from "@/lib/co-manager-permissions";
 import { managedHouseIdsOrThrow, managedHouseWorkspacesOrThrow } from "@/lib/google-calendar/tour-calendar-owner.server";
 import { serviceSeatVerdict } from "@/lib/service/service-mode";
 import { platformServiceOwnerId, readStoredOwner } from "@/lib/service/service-owner.server";
@@ -167,8 +172,9 @@ export async function tourHostIdsByHouse(
 
 /**
  * Everyone trusted to plan an event on each house (house id -> owner id), derived server-side and never from an item:
- * the owner, every accepted seat the owner granted on that house (any module), and on a PropLane-managed house the
- * operator and the workspace's service staff. The planned-events write keeps an item naming a house only when its
+ * the owner, every accepted seat the owner granted on that house with Calendar or Services at edit (an assignment or
+ * a read grant is not a grant), and on a PropLane-managed house the operator and the service staff whose own seat
+ * reaches that house. The planned-events write keeps an item naming a house only when its
  * writer is in this set, and the read shows it to the house's people only under the same answer. Strict: any
  * unreadable read throws. Otherwise it narrows to the owner.
  */
@@ -185,7 +191,7 @@ export async function plannedHouseWritersByHouse(
       owners.length > 0
         ? db
             .from("account_link_invites")
-            .select("inviter_user_id, invitee_user_id, assigned_property_ids")
+            .select(`inviter_user_id, invitee_user_id, ${INVITE_PERMISSION_COLUMNS}`)
             .eq("status", "accepted")
             .in("inviter_user_id", owners)
         : Promise.resolve({ data: [], error: null }),
@@ -196,8 +202,13 @@ export async function plannedHouseWritersByHouse(
       const invitee = text(row.invitee_user_id);
       const assigned = asStringArray(row.assigned_property_ids);
       if (!invitee) continue;
+      const permissions = readPropertyPermissionsFromRow(row as Parameters<typeof readPropertyPermissionsFromRow>[0]);
       for (const [house, owner] of ownersByHouse) {
-        if (owner === text(row.inviter_user_id) && assigned.includes(house)) writers.get(house)?.add(invitee);
+        if (owner !== text(row.inviter_user_id) || !assigned.includes(house)) continue;
+        if (
+          hasCoManagerPermissionLevelForProperty(permissions, house, "calendar", "edit") ||
+          hasCoManagerPermissionLevelForProperty(permissions, house, "services", "edit")
+        ) writers.get(house)?.add(invitee);
       }
     }
     if (managed.size === 0) return writers;
@@ -206,7 +217,7 @@ export async function plannedHouseWritersByHouse(
       readStoredOwner(db),
       db
         .from("account_link_invites")
-        .select("workspace_id, inviter_user_id, invitee_user_id, team_role, is_service_seat")
+        .select("workspace_id, inviter_user_id, invitee_user_id, team_role, is_service_seat, house_scope, assigned_property_ids")
         .eq("status", "accepted")
         .in("workspace_id", workspaceIds),
       db.from("portal_workspaces").select("id, owner_user_id").in("id", workspaceIds),
@@ -216,7 +227,8 @@ export async function plannedHouseWritersByHouse(
     const workspaceOwner = new Map(
       ((workspaces.data ?? []) as ScheduleRecord[]).map((row) => [text(row.id), text(row.owner_user_id)] as const),
     );
-    const staffByWorkspace = new Map<string, Set<string>>();
+    const staffSeats: Array<{ seat: ScheduleRecord; workspaceId: string; invitee: string }> = [];
+    const adminCandidates = new Set<string>();
     for (const seat of (seats.data ?? []) as ScheduleRecord[]) {
       const workspaceId = text(seat.workspace_id);
       const invitee = text(seat.invitee_user_id);
@@ -232,14 +244,27 @@ export async function plannedHouseWritersByHouse(
         operator,
       );
       if (verdict === "no") continue;
-      if (verdict === "platform_person_only" && !(await userHoldsAdminRole(db, invitee))) continue;
-      staffByWorkspace.set(workspaceId, (staffByWorkspace.get(workspaceId) ?? new Set()).add(invitee));
+      if (verdict === "platform_person_only") adminCandidates.add(invitee);
+      staffSeats.push({ seat, workspaceId, invitee: verdict === "staff" ? invitee : "" });
+    }
+    const admins = new Set<string>();
+    if (adminCandidates.size > 0) {
+      const { data, error } = await db.from("profile_roles").select("user_id").eq("role", "admin").in("user_id", [...adminCandidates]);
+      if (error) throw new Error("profile_roles unreadable");
+      for (const row of (data ?? []) as ScheduleRecord[]) admins.add(text(row.user_id));
     }
     for (const [house, workspaceId] of managed) {
       const ids = writers.get(house);
       if (!ids) continue;
       if (operator) ids.add(operator);
-      for (const id of staffByWorkspace.get(workspaceId) ?? []) ids.add(id);
+      for (const { seat, workspaceId: seatWorkspace, invitee } of staffSeats) {
+        const holder = invitee || (admins.has(text(seat.invitee_user_id)) ? text(seat.invitee_user_id) : "");
+        if (!holder || seatWorkspace !== workspaceId) continue;
+        const reaches =
+          readHouseScopeFromRow(seat as Parameters<typeof readHouseScopeFromRow>[0]) === "all" ||
+          asStringArray(seat.assigned_property_ids).includes(house);
+        if (reaches) ids.add(holder);
+      }
     }
     return writers;
   } catch (error) {
