@@ -199,6 +199,11 @@ on one of the houses the viewer's seat covers (`ScheduleRecordUser.serviceScope`
 never from the request) is theirs whoever it was filed under — a managed house's tours are filed under the workspace owner, so
 the manager dashboard's upcoming-tours count reads the same rule (a tour on a house of the ACTIVE workspace counts; one naming
 no house stays the viewer's own) instead of matching the filer and reading 0 while the Tours page listed them.
+A standalone request row is a free-form upsert, so its house is a claim: staff and co-managers see it only when the row was
+written by that house's owner, one of its eligible tour hosts (`tourHostIdsByHouse`: roster plus the managed house's operator)
+or the server (no `manager_user_id`), and its column house agrees; otherwise it is dropped, never busy. The schedule GET is a
+strict read: an unreadable staff scope, co-manager scope or host lookup answers an error (the client keeps its cache), never a
+200 missing tours. Coverage: `tests/unit/schedule-projection-planted-inquiry.test.ts`.
 With open slots, only those slots are offered, exactly as before.
 
 ## What a prospect is offered = published − busy − booked
