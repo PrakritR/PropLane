@@ -161,7 +161,7 @@ export async function reconcileManagerPurchaseWithStripe(userId: string): Promis
 
   const { data: purchase } = await supabase
     .from("manager_purchases")
-    .select("stripe_subscription_id, stripe_checkout_session_id")
+    .select("*")
     .eq("user_id", userId)
     .maybeSingle();
 
@@ -181,6 +181,7 @@ export async function reconcileManagerPurchaseWithStripe(userId: string): Promis
       await writeManagerPurchasePatch(
         { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null, first_paid_at: null },
         (patch) => supabase.from("manager_purchases").update(patch).eq("user_id", userId),
+        userId,
       );
     }
     return;
@@ -190,6 +191,7 @@ export async function reconcileManagerPurchaseWithStripe(userId: string): Promis
     await writeManagerPurchasePatch(
       { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null, first_paid_at: null },
       (patch) => supabase.from("manager_purchases").update(patch).eq("user_id", userId),
+      userId,
     );
     return;
   }
@@ -200,6 +202,7 @@ export async function reconcileManagerPurchaseWithStripe(userId: string): Promis
     await writeManagerPurchasePatch(
       { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null, first_paid_at: null },
       (patch) => supabase.from("manager_purchases").update(patch).eq("user_id", userId),
+      userId,
     );
     return;
   }
@@ -211,17 +214,25 @@ export async function reconcileManagerPurchaseWithStripe(userId: string): Promis
 
   if (!paidTier || !billing) return;
 
-  await writeManagerPurchasePatch(
-    {
-      tier: paidTier,
-      billing,
-      stripe_subscription_id: sub.id,
-      // The managed view-only lock reads this: a subscription id alone is satisfied by a card-on-file TRIAL that has
-      // paid nothing, so only `active` / `past_due` counts as self-paid (hasSelfPaidPlan + the SQL mirror).
-      subscription_status: sub.status,
-    },
-    (patch) => supabase.from("manager_purchases").update(patch).eq("user_id", userId),
-  );
+  const unchanged =
+    purchase?.tier === paidTier &&
+    purchase?.billing === billing &&
+    purchase?.stripe_subscription_id === sub.id &&
+    purchase?.subscription_status === sub.status;
+  if (!unchanged) {
+    await writeManagerPurchasePatch(
+      {
+        tier: paidTier,
+        billing,
+        stripe_subscription_id: sub.id,
+        // The managed view-only lock reads this: a subscription id alone is satisfied by a card-on-file TRIAL that has
+        // paid nothing, so only `active` / `past_due` counts as self-paid (hasSelfPaidPlan + the SQL mirror).
+        subscription_status: sub.status,
+      },
+      (patch) => supabase.from("manager_purchases").update(patch).eq("user_id", userId),
+      userId,
+    );
+  }
 
   if (sub.status === "active" || sub.status === "past_due") {
     await stampFirstPaidFromInvoices(supabase, stripe, userId, sub.id);

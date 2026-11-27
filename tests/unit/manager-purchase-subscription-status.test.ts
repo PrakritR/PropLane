@@ -32,7 +32,7 @@ describe("writeManagerPurchasePatch", () => {
 
   it("writes once when the column is there", async () => {
     const run = vi.fn(async () => ({ error: null }));
-    expect(await writeManagerPurchasePatch(patch, run)).toEqual({ error: null });
+    expect(await writeManagerPurchasePatch(patch, run, null)).toEqual({ error: null });
     expect(run).toHaveBeenCalledTimes(1);
     expect(run).toHaveBeenCalledWith(patch);
   });
@@ -40,7 +40,7 @@ describe("writeManagerPurchasePatch", () => {
   it("retries without the status column, loudly, and the rest of the patch still lands", async () => {
     const run = vi.fn(async (p: Record<string, unknown>) => ("subscription_status" in p ? { error: missing } : { error: null }));
     const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    expect(await writeManagerPurchasePatch(patch, run)).toEqual({ error: null });
+    expect(await writeManagerPurchasePatch(patch, run, null)).toEqual({ error: null });
     expect(run).toHaveBeenCalledTimes(2);
     expect(run.mock.calls[1]![0]).toEqual({ tier: "free", billing: "free", stripe_subscription_id: null });
     expect(logged).toHaveBeenCalled();
@@ -49,19 +49,19 @@ describe("writeManagerPurchasePatch", () => {
 
   it("never retries another error, and never hides the second failure", async () => {
     const other = vi.fn(async () => ({ error: { code: "42501", message: "permission denied" } }));
-    expect(await writeManagerPurchasePatch(patch, other)).toEqual({ error: { code: "42501", message: "permission denied" } });
+    expect(await writeManagerPurchasePatch(patch, other, null)).toEqual({ error: { code: "42501", message: "permission denied" } });
     expect(other).toHaveBeenCalledTimes(1);
 
     const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const stillBroken = vi.fn(async () => ({ error: missing }));
-    expect(await writeManagerPurchasePatch(patch, stillBroken)).toEqual({ error: missing });
+    expect(await writeManagerPurchasePatch(patch, stillBroken, null)).toEqual({ error: missing });
     expect(stillBroken).toHaveBeenCalledTimes(2);
     logged.mockRestore();
   });
 
   it("does not retry a patch that never carried the status", async () => {
     const run = vi.fn(async () => ({ error: missing }));
-    await writeManagerPurchasePatch({ tier: "pro" }, run);
+    await writeManagerPurchasePatch({ tier: "pro" }, run, null);
     expect(run).toHaveBeenCalledTimes(1);
   });
 });
@@ -73,13 +73,13 @@ describe("first_paid_at is an optional column too (migration 20261020140000)", (
     const patch = { tier: "free", subscription_status: null, first_paid_at: null };
     const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const one = vi.fn(async (p: Record<string, unknown>) => ("first_paid_at" in p ? { error: missingPaid } : { error: null }));
-    expect(await writeManagerPurchasePatch(patch, one)).toEqual({ error: null });
+    expect(await writeManagerPurchasePatch(patch, one, null)).toEqual({ error: null });
     expect(one.mock.calls[1]![0]).toEqual({ tier: "free", subscription_status: null });
 
     const both = vi.fn(async (p: Record<string, unknown>) =>
       "first_paid_at" in p ? { error: missingPaid } : "subscription_status" in p ? { error: missing } : { error: null },
     );
-    expect(await writeManagerPurchasePatch(patch, both)).toEqual({ error: null });
+    expect(await writeManagerPurchasePatch(patch, both, null)).toEqual({ error: null });
     expect(both.mock.calls.at(-1)![0]).toEqual({ tier: "free" });
     logged.mockRestore();
   });

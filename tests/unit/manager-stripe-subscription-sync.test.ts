@@ -19,6 +19,7 @@ import {
   reconcileManagerPurchaseWithStripe,
 } from "@/lib/manager-stripe-subscription-sync";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { invalidateManagerFactCaches, rememberManagerPurchaseRow } from "@/lib/manager-fact-caches";
 
 describe("isDefinitiveStripeSubscriptionMissingError", () => {
   it("treats resource_missing as definitive", () => {
@@ -47,7 +48,13 @@ describe("isDefinitiveStripeSubscriptionMissingError", () => {
   });
 });
 
-type PurchaseRow = { stripe_subscription_id: string | null; stripe_checkout_session_id: string | null };
+type PurchaseRow = {
+  stripe_subscription_id: string | null;
+  stripe_checkout_session_id: string | null;
+  tier?: string | null;
+  billing?: string | null;
+  subscription_status?: string | null;
+};
 
 /**
  * Fake service-role client whose SELECT resolves to `purchase` and whose UPDATE is
@@ -123,6 +130,52 @@ describe("reconcileManagerPurchaseWithStripe downgrade flow", () => {
       });
     }
     vi.unstubAllEnvs();
+  });
+
+  describe("cached plan facts (manager-fact-caches.ts)", () => {
+    const liveSub = { id: "sub_123", status: "trialing", items: { data: [{ price: { id: "price_pro_monthly" } }] } };
+
+    async function cachedViewsAfterReconcile(stored: PurchaseRow) {
+      vi.stubEnv("STRIPE_PRICE_PRO_MONTHLY", "price_pro_monthly");
+      vi.stubEnv("MANAGER_FACT_CACHE_IN_TEST", "1");
+      try {
+        invalidateManagerFactCaches();
+        await rememberManagerPurchaseRow("user-1", async () => ({ value: "before", cacheable: true }));
+        await rememberManagerPurchaseRow("user-2", async () => ({ value: "before", cacheable: true }));
+        const { update } = fakeClient(stored);
+        subscriptionsRetrieve.mockResolvedValueOnce(liveSub);
+        await reconcileManagerPurchaseWithStripe("user-1");
+        const reread = async (id: string) => rememberManagerPurchaseRow(id, async () => ({ value: "after", cacheable: true }));
+        return { update, own: await reread("user-1"), other: await reread("user-2") };
+      } finally {
+        invalidateManagerFactCaches();
+        vi.unstubAllEnvs();
+      }
+    }
+
+    it("a reconcile that finds the row already matching Stripe writes nothing and keeps every cached view", async () => {
+      const res = await cachedViewsAfterReconcile({
+        stripe_subscription_id: "sub_123",
+        stripe_checkout_session_id: "cs_normal",
+        tier: "pro",
+        billing: "monthly",
+        subscription_status: "trialing",
+      });
+      expect(res.update).not.toHaveBeenCalled();
+      expect(res).toMatchObject({ own: "before", other: "before" });
+    });
+
+    it("a reconcile that changes the row drops that account's view only", async () => {
+      const res = await cachedViewsAfterReconcile({
+        stripe_subscription_id: "sub_123",
+        stripe_checkout_session_id: "cs_normal",
+        tier: "business",
+        billing: "monthly",
+        subscription_status: "trialing",
+      });
+      expect(res.update).toHaveBeenCalled();
+      expect(res).toMatchObject({ own: "after", other: "before" });
+    });
   });
 
   describe("first payment (the lock's proof that money moved)", () => {

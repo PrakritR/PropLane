@@ -266,6 +266,7 @@ export async function recordPaidManagerCheckoutSession(session: Stripe.Checkout.
   const verifiedUpdate = await writeManagerPurchasePatch(
     { ...patch, manager_id: stored.managerId || managerId },
     (next) => supabase.from("manager_purchases").update(next).eq("id", stored.id).eq("stripe_checkout_session_id", stored.sourceSessionId).select("id").maybeSingle(),
+    stored.userId || null,
   );
   if (verifiedUpdate.error) throw new Error(verifiedUpdate.error.message);
   if (!verifiedUpdate.data) throw new Error("Manager checkout reservation changed; reconciliation required.");

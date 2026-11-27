@@ -1,5 +1,5 @@
 import { ensureManagerBillingCustomer } from "@/lib/manager-stripe-customer.server";
-import { invalidateManagerFactCaches } from "@/lib/manager-fact-caches";
+import { invalidateManagerPlanFacts } from "@/lib/manager-fact-caches";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { NextResponse } from "next/server";
 import { resolveAppOrigin } from "@/lib/app-url";
@@ -228,7 +228,7 @@ export async function POST(req: Request) {
           }).select("id").maybeSingle();
       }
       const { data, error } = result;
-      invalidateManagerFactCaches();
+      invalidateManagerPlanFacts(user.id);
       if (error) {
         await stripe.checkout.sessions.expire(sessionId).catch(() => undefined);
         throw new Error("Could not reserve manager checkout ownership.");
