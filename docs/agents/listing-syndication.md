@@ -171,7 +171,9 @@ fact cards; Listings is one row per listing; Post is the copy-ready ad; Leads re
 `GET /api/manager/listing-channels/leads?channel=` (workspace-scoped, tours and applications with
 that `source_channel`, each linking to its own record page). A lead opens the ROW it really is:
 the read stamps `rowId` and the bucket from the record's own status — never from the tour's date —
-so a pending request opens its window row and a declined one its Past row. A confirmed tour's row is
+so a pending request opens its window row and a declined one its Past row. A pending request's bucket
+is the one the Tours list files its row in (`tourRowsFromInquiries`): once every requested window has
+passed, that row is Past ("Expired"), and so is the lead. A confirmed tour's row is
 the planned event the request no longer names, so that lead has no `rowId` and opens the Tours list
 for its bucket instead of a detail page that would not resolve. Both the list and the count are scoped
 by `leadReadablePropertyIds` — the workspace's own houses narrowed to those whose applicant
