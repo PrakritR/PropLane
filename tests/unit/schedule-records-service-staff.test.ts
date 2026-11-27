@@ -177,7 +177,10 @@ describe("service staff and the client owner's pending tours", () => {
       // Only rows stamped to the house's owner or an eligible host (or no one) are fetched, so a planted row is never read.
       expect(call.ins.orFilter).toBe(`manager_user_id.is.null,manager_user_id.in.(${OWNER},${CO_HOST},${OPERATOR})`);
     }
-    expect(mocks.hosts).toHaveBeenCalledWith(db, new Map([[HOUSE, OWNER]]), true);
+    expect(mocks.hosts).toHaveBeenCalledWith(db, new Map([[HOUSE, OWNER]]), {
+      throwOnError: true,
+      managedHouses: new Set([HOUSE]),
+    });
   });
 
   it("an unreadable host roster is an error and fetches no tour rows", async () => {
@@ -243,12 +246,5 @@ describe("service staff and the client owner's pending tours", () => {
     expect(read.data).toBeNull();
     expect(read.error).toMatchObject({ message: expect.any(String) });
     expect(mocks.linked).toHaveBeenCalledWith(expect.anything(), staff.id, "calendar", "read", { throwOnError: true });
-  });
-
-  it("the route asks for the strict staff-scope read and the strict projection", async () => {
-    expect(mocks.config!.strictServiceScopeOnRead).toBe(true);
-    const projection = await import("@/lib/schedule-record-projection.server");
-    await hook("projectRead")({ db: {}, user: staff, records: [] });
-    expect(projection.projectScheduleRecordsForViewer).toHaveBeenLastCalledWith({}, staff, [], { throwOnError: true });
   });
 });

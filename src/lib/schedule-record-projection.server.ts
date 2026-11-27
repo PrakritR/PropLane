@@ -1,9 +1,10 @@
 import "server-only";
 
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
-import { resolveManagedOperatorForProperty } from "@/lib/google-calendar/tour-calendar-owner.server";
+import { managedHouseIdsOrThrow } from "@/lib/google-calendar/tour-calendar-owner.server";
+import { platformServiceOwnerId, readStoredOwner } from "@/lib/service/service-owner.server";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { listPropertyTourHostUserIds, listPropertyTourHostUserIdsOrThrow } from "@/lib/tour-host-enumeration.server";
+import { listTourHostUserIdsByHouseOrThrow } from "@/lib/tour-host-enumeration.server";
 
 export const PLANNED_EVENTS_RECORD_ID = "axis_admin_planned_events_v1";
 export const PARTNER_INQUIRIES_RECORD_ID = "axis_admin_partner_inquiries_v1";
@@ -126,25 +127,39 @@ async function propertyOwners(db: Db, propertyIds: Set<string>, throwOnError = f
  * Everyone who may host a tour on each house, derived server-side and never from a row: the owner, the owner's
  * co-managers who may host there (`listPropertyTourHostUserIds`), and the platform operator of a PropLane-managed
  * house. `createTourInquiry` stamps a standalone request with its host, so these are the trusted writers of one.
+ * A fixed number of reads whatever the house count. `managedHouses` are already known to be managed (a staff scope);
+ * the rest are checked. Strict: any unreadable read throws. Otherwise it narrows (owner only, no operator).
  */
 export async function tourHostIdsByHouse(
   db: Db,
   ownersByHouse: ReadonlyMap<string, string>,
-  throwOnError = false,
+  options: { throwOnError?: boolean; managedHouses?: ReadonlySet<string> } = {},
 ): Promise<Map<string, Set<string>>> {
-  const entries = await Promise.all(
-    [...ownersByHouse].map(async ([propertyId, ownerUserId]) => {
-      const input = { propertyId, ownerUserId };
-      const [hosts, operator] = await Promise.all([
-        throwOnError ? listPropertyTourHostUserIdsOrThrow(db, input) : listPropertyTourHostUserIds(db, input),
-        resolveManagedOperatorForProperty(db, input),
-      ]);
-      const ids = new Set(hosts);
-      if (operator) ids.add(operator);
-      return [propertyId, ids] as const;
+  if (ownersByHouse.size === 0) return new Map();
+  const strict = options.throwOnError === true;
+  const known = options.managedHouses ?? new Set<string>();
+  const unchecked = new Map([...ownersByHouse].filter(([house]) => !known.has(house)));
+  const [roster, checked] = await Promise.all([
+    listTourHostUserIdsByHouseOrThrow(db, ownersByHouse).catch((error: unknown) => {
+      if (strict) throw error;
+      return new Map([...ownersByHouse].map(([house, owner]) => [house, new Set(owner ? [owner] : [])]));
     }),
-  );
-  return new Map(entries);
+    unchecked.size > 0
+      ? managedHouseIdsOrThrow(db, unchecked).catch((error: unknown) => {
+          if (strict) throw error;
+          return new Set<string>();
+        })
+      : Promise.resolve(new Set<string>()),
+  ]);
+  const anyManaged = [...ownersByHouse.keys()].some((house) => known.has(house) || checked.has(house));
+  const operator = anyManaged ? (strict ? await readStoredOwner(db) : await platformServiceOwnerId(db)) : null;
+  const hosts = new Map<string, Set<string>>();
+  for (const [house, owner] of ownersByHouse) {
+    const ids = new Set(roster.get(house) ?? (owner ? [owner] : []));
+    if (operator && (known.has(house) || checked.has(house))) ids.add(operator);
+    hosts.set(house, ids);
+  }
+  return hosts;
 }
 
 /**
@@ -193,7 +208,10 @@ export async function projectScheduleRecordsForViewer(
       if (writer && owner && writer !== owner) hostCheckHouses.set(propertyId, owner);
     }
   }
-  const hostsByHouse = await tourHostIdsByHouse(db, hostCheckHouses, options.throwOnError === true);
+  const hostsByHouse = await tourHostIdsByHouse(db, hostCheckHouses, {
+    throwOnError: options.throwOnError === true,
+    managedHouses: new Set(user.serviceScope?.propertyIds ?? []),
+  });
 
   const staffHouses = new Set(user.serviceScope?.propertyIds ?? []);
   const maySeeItem = (

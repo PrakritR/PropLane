@@ -281,7 +281,7 @@ async function staffHouseTourWriterIds(
     const owner = String(row.manager_user_id ?? "").trim();
     if (id && owner) owners.set(id, owner);
   }
-  const hosts = await tourHostIdsByHouse(db, owners, true);
+  const hosts = await tourHostIdsByHouse(db, owners, { throwOnError: true, managedHouses: new Set(owners.keys()) });
   const writers = new Set<string>([...owners.values(), ...[...hosts.values()].flatMap((ids) => [...ids])]);
   return filterSafeIds([...writers]);
 }
