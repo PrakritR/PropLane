@@ -51,7 +51,7 @@ export function ResidentOnboardingForm({ token, prefill }: { token: string; pref
             <input className="ps-input" value={fullName} onChange={(e) => setFullName(e.target.value)} autoComplete="name" data-attr="onboarding-name" />
           </label>
           <label className="ps-field">
-            <span className="ps-label">Email (optional)</span>
+            <span className="ps-label">Email</span>
             <input className="ps-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" data-attr="onboarding-email" />
           </label>
           {!hasRules ? (
