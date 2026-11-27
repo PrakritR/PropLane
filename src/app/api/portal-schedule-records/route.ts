@@ -29,6 +29,7 @@ import {
   PARTNER_INQUIRIES_RECORD_ID,
   PLANNED_EVENTS_RECORD_ID,
   projectScheduleRecordsForViewer,
+  tourHostIdsByHouse,
 } from "@/lib/schedule-record-projection.server";
 import {
   handleTestWorkspaceScheduleGet,
@@ -264,24 +265,25 @@ function serviceScopeIds(user: { serviceScope?: { propertyIds: string[] } | null
   return filterSafeIds(user.serviceScope?.propertyIds ?? []);
 }
 
-/** Owners of the staff houses, read server-side from the property records. Unreadable = none (fail closed). */
-async function staffHouseOwnerIds(
+/**
+ * Who may have written a genuine tour request on the staff houses: each house's owner and its eligible tour hosts,
+ * read server-side (`tourHostIdsByHouse`). An unreadable lookup throws; the caller answers an error, never a 200.
+ */
+async function staffHouseTourWriterIds(
   db: Parameters<typeof managerCanWriteCalendarForProperty>[0],
   houseIds: string[],
 ): Promise<string[]> {
-  try {
-    const { data, error } = await db.from("manager_property_records").select("id, manager_user_id").in("id", houseIds);
-    if (error) return [];
-    return [
-      ...new Set(
-        ((data ?? []) as Array<Record<string, unknown>>)
-          .map((row) => String(row.manager_user_id ?? "").trim())
-          .filter((id) => /^[A-Za-z0-9_.:-]+$/.test(id)),
-      ),
-    ];
-  } catch {
-    return [];
+  const { data, error } = await db.from("manager_property_records").select("id, manager_user_id").in("id", houseIds);
+  if (error) throw error;
+  const owners = new Map<string, string>();
+  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+    const id = String(row.id ?? "").trim();
+    const owner = String(row.manager_user_id ?? "").trim();
+    if (id && owner) owners.set(id, owner);
   }
+  const hosts = await tourHostIdsByHouse(db, owners, true);
+  const writers = new Set<string>([...owners.values(), ...[...hosts.values()].flatMap((ids) => [...ids])]);
+  return filterSafeIds([...writers]);
 }
 
 function staffMayRunBlocksOn(user: { serviceScope?: { propertyIds: string[] } | null }, propertyId: string): boolean {
@@ -431,12 +433,18 @@ const route = createJsonRecordRoute({
       // managed workspace still client-owned): read directly, so they do not ride on a co-manager seat that
       // may not exist. Read-only; the shared `scope` (which gates edits and deletes) is deliberately unchanged.
       // A legacy row may carry the house only inside row_data. The projection below stays the authority.
-      // Only rows stamped to a house's owner (or no one) are fetched: any manager can write a standalone
-      // inquiry naming a house they do not hold, and that planted row must not be read as the house's own.
-      // An unreadable owner lookup fetches no tour rows (fail closed).
-      const houseOwners = await staffHouseOwnerIds(db, staffIds);
-      if (houseOwners.length > 0) {
-        const ownerFilter = `manager_user_id.is.null,manager_user_id.in.(${houseOwners.join(",")})`;
+      // Only rows stamped to a house's owner or eligible tour host (or no one) are fetched: any manager can write a
+      // standalone inquiry naming a house they do not hold, and that planted row must not be read as the house's own.
+      // An unreadable lookup fetches no tour rows and is an error, never a 200 missing them.
+      let tourWriters: string[];
+      try {
+        tourWriters = await staffHouseTourWriterIds(db, staffIds);
+      } catch (error) {
+        console.error("[portal-schedule-records] staff house owners unreadable", error);
+        return { data: null, error: { message: "Could not load your schedule right now. Try again." } };
+      }
+      if (tourWriters.length > 0) {
+        const ownerFilter = `manager_user_id.is.null,manager_user_id.in.(${tourWriters.join(",")})`;
         reads.push(
           db
             .from("portal_schedule_records")

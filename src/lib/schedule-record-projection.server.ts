@@ -1,7 +1,9 @@
 import "server-only";
 
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
+import { resolveManagedOperatorForProperty } from "@/lib/google-calendar/tour-calendar-owner.server";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { listPropertyTourHostUserIds, listPropertyTourHostUserIdsOrThrow } from "@/lib/tour-host-enumeration.server";
 
 export const PLANNED_EVENTS_RECORD_ID = "axis_admin_planned_events_v1";
 export const PARTNER_INQUIRIES_RECORD_ID = "axis_admin_partner_inquiries_v1";
@@ -121,6 +123,31 @@ async function propertyOwners(db: Db, propertyIds: Set<string>, throwOnError = f
 }
 
 /**
+ * Everyone who may host a tour on each house, derived server-side and never from a row: the owner, the owner's
+ * co-managers who may host there (`listPropertyTourHostUserIds`), and the platform operator of a PropLane-managed
+ * house. `createTourInquiry` stamps a standalone request with its host, so these are the trusted writers of one.
+ */
+export async function tourHostIdsByHouse(
+  db: Db,
+  ownersByHouse: ReadonlyMap<string, string>,
+  throwOnError = false,
+): Promise<Map<string, Set<string>>> {
+  const entries = await Promise.all(
+    [...ownersByHouse].map(async ([propertyId, ownerUserId]) => {
+      const input = { propertyId, ownerUserId };
+      const [hosts, operator] = await Promise.all([
+        throwOnError ? listPropertyTourHostUserIdsOrThrow(db, input) : listPropertyTourHostUserIds(db, input),
+        resolveManagedOperatorForProperty(db, input),
+      ]);
+      const ids = new Set(hosts);
+      if (operator) ids.add(operator);
+      return [propertyId, ids] as const;
+    }),
+  );
+  return new Map(entries);
+}
+
+/**
  * Projects service-role schedule rows before they cross the HTTP boundary.
  * Shared singletons are JSON containers, so their table row cannot be the
  * authorization unit. Property ownership and an explicit calendar-read grant
@@ -156,6 +183,18 @@ export async function projectScheduleRecordsForViewer(
       : Promise.resolve(null),
   ]);
 
+  const hostCheckHouses = new Map<string, string>();
+  if (!admin && manager) {
+    for (const record of records) {
+      if (!isStandaloneInquiry(record)) continue;
+      const writer = text(record.manager_user_id);
+      const propertyId = itemPropertyId(standaloneInquiryItem(record) ?? {});
+      const owner = propertyId ? owners.get(propertyId) ?? "" : "";
+      if (writer && owner && writer !== owner) hostCheckHouses.set(propertyId, owner);
+    }
+  }
+  const hostsByHouse = await tourHostIdsByHouse(db, hostCheckHouses, options.throwOnError === true);
+
   const staffHouses = new Set(user.serviceScope?.propertyIds ?? []);
   const maySeeItem = (
     item: ScheduleItem,
@@ -169,12 +208,15 @@ export async function projectScheduleRecordsForViewer(
     const propertyId = itemPropertyId(item);
     // A standalone row is a free-form generic upsert any manager can write, so the payload's house is a claim,
     // not a fact. Show it through the staff / co-manager rules only when the row was written by that house's
-    // owner (or by the server, null) and its column house agrees with the payload. Otherwise drop, never busy.
+    // owner, by an eligible tour host of that house (`tourHostIdsByHouse`), or by the server (null), and its
+    // column house agrees with the payload. Otherwise drop, never busy.
     const trustedProvenance = (): boolean => {
       if (!provenance) return true;
       if (provenance.columnPropertyId && provenance.columnPropertyId !== propertyId) return false;
+      const writer = provenance.rowManagerUserId;
+      if (!writer) return true;
       const houseOwner = propertyId ? owners.get(propertyId) ?? "" : "";
-      return !provenance.rowManagerUserId || provenance.rowManagerUserId === houseOwner;
+      return writer === houseOwner || Boolean(propertyId && hostsByHouse.get(propertyId)?.has(writer));
     };
     // Service staff run the managed workspace they hold a seat in: a tour request filed on one of its houses is
     // theirs to read and answer, whoever the request was filed under. Derived from membership, never the request.

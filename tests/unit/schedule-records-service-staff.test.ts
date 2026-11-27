@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   config: null as null | Record<string, unknown>,
   canWrite: vi.fn(),
   projected: [] as Record<string, unknown>[],
+  hosts: vi.fn(),
 }));
 
 vi.mock("@/lib/portal-record-api", () => ({
@@ -33,6 +34,7 @@ vi.mock("@/lib/schedule-record-projection.server", () => ({
   projectScheduleRecordsForViewer: vi.fn(async (_db: unknown, user: { id: string }, records: Record<string, unknown>[]) =>
     records.filter((record) => record.manager_user_id === user.id),
   ),
+  tourHostIdsByHouse: mocks.hosts,
 }));
 
 await import("@/app/api/portal-schedule-records/route");
@@ -41,6 +43,8 @@ type Hook = (input: Record<string, unknown>) => Promise<Record<string, unknown>>
 const hook = (name: string) => mocks.config![name] as Hook;
 
 const OWNER = "ambika";
+const CO_HOST = "co-host-b";
+const OPERATOR = "operator-1";
 const HOUSE = "house-5257";
 const ownerBlock = {
   id: `axis_room_block_${OWNER}_hand-1`,
@@ -99,6 +103,9 @@ function fakeDb() {
 beforeEach(() => {
   mocks.linked.mockReset().mockResolvedValue({ ownerIds: new Set(), propertyIds: new Set(), propertyIdsByOwner: new Map() });
   mocks.canWrite.mockReset().mockResolvedValue(false);
+  mocks.hosts.mockReset().mockImplementation(async (_db: unknown, owners: Map<string, string>) =>
+    new Map([...owners.keys()].map((house) => [house, new Set([owners.get(house)!, CO_HOST, OPERATOR])])),
+  );
 });
 
 describe("pure scope", () => {
@@ -167,12 +174,22 @@ describe("service staff and the client owner's pending tours", () => {
     expect(tourReads.length).toBe(2);
     for (const call of tourReads) {
       expect(call.ins.property_id ?? call.ins["row_data->>propertyId"]).toEqual([HOUSE]);
-      // Only rows stamped to the house's owner (or no one) are fetched, so a planted row is never read.
-      expect(call.ins.orFilter).toBe(`manager_user_id.is.null,manager_user_id.in.(${OWNER})`);
+      // Only rows stamped to the house's owner or an eligible host (or no one) are fetched, so a planted row is never read.
+      expect(call.ins.orFilter).toBe(`manager_user_id.is.null,manager_user_id.in.(${OWNER},${CO_HOST},${OPERATOR})`);
     }
+    expect(mocks.hosts).toHaveBeenCalledWith(db, new Map([[HOUSE, OWNER]]), true);
   });
 
-  it("an unreadable owner lookup fetches no tour rows", async () => {
+  it("an unreadable host roster is an error and fetches no tour rows", async () => {
+    mocks.hosts.mockRejectedValue(new Error("account_link_invites unreadable"));
+    const db = fakeDb();
+    const read = await hook("readRecords")({ db, user: staff });
+    expect(read.data).toBeNull();
+    expect(read.error).toMatchObject({ message: expect.any(String) });
+    expect(db.calls.some((c) => c.ins["like:record_type"])).toBe(false);
+  });
+
+  it("an unreadable owner lookup is an error and fetches no tour rows", async () => {
     const db = fakeDb();
     const from = db.from.bind(db);
     db.from = (table: string) => {
@@ -182,7 +199,9 @@ describe("service staff and the client owner's pending tours", () => {
       q.in = () => Promise.resolve({ data: null, error: { message: "boom" } });
       return q as never;
     };
-    await hook("readRecords")({ db, user: staff });
+    const read = await hook("readRecords")({ db, user: staff });
+    expect(read.data).toBeNull();
+    expect(read.error).toMatchObject({ message: expect.any(String) });
     expect(db.calls.some((c) => c.ins["like:record_type"])).toBe(false);
   });
 

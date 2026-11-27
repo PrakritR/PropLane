@@ -6,8 +6,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
-const scope = vi.hoisted(() => ({ fn: vi.fn() }));
+const scope = vi.hoisted(() => ({ fn: vi.fn(), hosts: vi.fn(), operator: vi.fn() }));
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({ linkedOwnerScopeForModule: scope.fn }));
+vi.mock("@/lib/tour-host-enumeration.server", () => ({
+  listPropertyTourHostUserIds: scope.hosts,
+  listPropertyTourHostUserIdsOrThrow: scope.hosts,
+}));
+vi.mock("@/lib/google-calendar/tour-calendar-owner.server", () => ({ resolveManagedOperatorForProperty: scope.operator }));
 
 import { projectScheduleRecordsForViewer } from "@/lib/schedule-record-projection.server";
 
@@ -15,6 +20,8 @@ const OWNER = "owner-1";
 const ATTACKER = "attacker-1";
 const STAFF = { id: "staff-1", role: "manager", serviceScope: { propertyIds: ["house-1"] } };
 const COMANAGER = { id: "co-1", role: "manager" };
+const CO_HOST = "co-host-b";
+const OPERATOR = "operator-1";
 const HOUSE = "house-1";
 
 const db = {
@@ -38,6 +45,9 @@ beforeEach(() => {
     propertyIds: new Set(),
     propertyIdsByOwner: new Map([[OWNER, new Set([HOUSE])]]),
   }));
+  // The house's roster as the server derives it: the owner and co-manager B; the house is PropLane-managed.
+  scope.hosts.mockReset().mockImplementation(async (_db: unknown, input: { ownerUserId: string }) => [input.ownerUserId, CO_HOST]);
+  scope.operator.mockReset().mockResolvedValue(OPERATOR);
 });
 
 describe("planted standalone inquiries", () => {
@@ -50,6 +60,21 @@ describe("planted standalone inquiries", () => {
   it("a genuine row written by the house owner (or the server) still reaches staff and the co-manager", async () => {
     expect(await ids(STAFF, [row("own", OWNER, HOUSE), row("server", null, HOUSE)])).toEqual(["own", "server"]);
     expect(await ids(COMANAGER, [row("own", OWNER, HOUSE)])).toEqual(["own"]);
+  });
+  it("a slot tour hosted by co-manager B or the managed-workspace operator reaches staff and other co-managers", async () => {
+    const rows = [row("by-co-host", CO_HOST, HOUSE), row("by-operator", OPERATOR, HOUSE)];
+    expect(await ids(STAFF, rows)).toEqual(["by-co-host", "by-operator"]);
+    expect(await ids(COMANAGER, rows)).toEqual(["by-co-host", "by-operator"]);
+    expect(scope.hosts).toHaveBeenCalledWith(db, { propertyId: HOUSE, ownerUserId: OWNER });
+  });
+  it("a writer outside the roster stays dropped on a self-serve house", async () => {
+    scope.operator.mockResolvedValue(null);
+    expect(await ids(STAFF, [row("by-operator", OPERATOR, HOUSE), row("planted", ATTACKER, HOUSE)])).toEqual([]);
+  });
+  it("a strict read fails loud when the host roster is unreadable", async () => {
+    scope.hosts.mockRejectedValue(new Error("account_link_invites unreadable"));
+    await expect(projectScheduleRecordsForViewer(db, STAFF as never, [row("by-co-host", CO_HOST, HOUSE)], { throwOnError: true }))
+      .rejects.toThrow();
   });
   it("drops a row whose column property differs from the payload house", async () => {
     expect(await ids(STAFF, [row("mismatch", OWNER, "other-house")])).toEqual([]);
