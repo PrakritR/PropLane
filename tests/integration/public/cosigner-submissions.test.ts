@@ -43,7 +43,7 @@ const baseSubmission = {
   phone: "2065550100",
   dob: "1990-01-01",
   dlNumber: "DL123",
-  ssn: "123-45-6789",
+  ssn: "234-56-7891",
   address: "1 Main St",
   city: "Seattle",
   state: "WA",

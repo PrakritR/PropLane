@@ -2,6 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { jsonRequest, parseJsonResponse } from "../../helpers/api-request";
 import { profileRolesBuilder } from "../../helpers/profile-roles-fake";
 
+// The route resolves the active workspace's row scope; a failed load now fails closed (503).
+// This file's minimal DB mock cannot serve that load, so the viewer has no workspaces
+// (scope does not narrow) — workspace narrowing is covered by its own tests.
+vi.mock("@/lib/workspaces/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/workspaces/server")>()),
+  loadWorkspaces: vi.fn().mockResolvedValue([]),
+}));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: vi.fn() }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: vi.fn().mockResolvedValue(false) }));

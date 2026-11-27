@@ -4,6 +4,13 @@ import { jsonRequest, parseJsonResponse } from "../../helpers/api-request";
 // The document routes gate on getReportsAuthContext + assertManagerFinancialsAccess.
 // We mock the auth layer directly so the tests exercise the routes' own
 // ownership/validation logic rather than the auth internals.
+// The route resolves the active workspace's row scope; a failed load now fails closed (503).
+// This file's minimal DB mock cannot serve that load, so the viewer has no workspaces
+// (scope does not narrow) — workspace narrowing is covered by its own tests.
+vi.mock("@/lib/workspaces/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/workspaces/server")>()),
+  loadWorkspaces: vi.fn().mockResolvedValue([]),
+}));
 vi.mock("@/lib/reports/auth", () => ({
   getReportsAuthContext: vi.fn(),
   assertManagerFinancialsAccess: vi.fn(),
