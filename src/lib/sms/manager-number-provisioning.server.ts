@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { invalidateManagerFactCaches } from "@/lib/manager-fact-caches";
 import { randomUUID } from "node:crypto";
 import {
   isClawSharedLineBridgeEnabled,
@@ -463,6 +464,7 @@ export async function provisionManagerNumber(
   }
 
   await db.from("sms_provisioning_operations").update({ state: "persisted", updated_at: nowIso() }).eq("request_id", requestId);
+  invalidateManagerFactCaches();
 
   return { ok: true, number: purchase.number, state: "provisioning", alreadyProvisioned: false };
 }
@@ -774,6 +776,7 @@ export async function releaseManagerNumber(db: SupabaseClient, managerUserId: st
     .eq("manager_user_id", id);
   if (workspaceId?.trim()) q = q.eq("workspace_id", workspaceId.trim());
   await q.then(() => undefined, () => undefined);
+  invalidateManagerFactCaches();
 }
 
 /** Restore a previously released number (reverse of {@link releaseManagerNumber}). */
@@ -787,6 +790,7 @@ export async function restoreManagerNumber(db: SupabaseClient, managerUserId: st
     .eq("provision_state", "released");
   if (workspaceId?.trim()) q = q.eq("workspace_id", workspaceId.trim());
   await q.then(() => undefined, () => undefined);
+  invalidateManagerFactCaches();
 }
 
 /**

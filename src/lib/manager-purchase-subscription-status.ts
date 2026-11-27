@@ -10,6 +10,8 @@ proof that money actually moved) is handled the same way.
  * would silently stop recording tiers and cancellations. So one retry drops the status and writes the rest, loudly.
  */
 
+import { invalidateManagerFactCaches } from "@/lib/manager-fact-caches";
+
 const MISSING_COLUMN_CODES = new Set(["PGRST204", "42703"]);
 const STATUS_COLUMN = "subscription_status";
 /** Columns newer than the code that writes them: dropped from a patch (one at a time) when the database lacks them. */
@@ -46,6 +48,18 @@ export function isMissingFirstPaidColumn(error: unknown): boolean {
  * filters.
  */
 export async function writeManagerPurchasePatch<T extends { error: WriteError }>(
+  patch: Record<string, unknown>,
+  run: (patch: Record<string, unknown>) => PromiseLike<T>,
+): Promise<T> {
+  try {
+    return await writeWithOptionalColumnFallback(patch, run);
+  } finally {
+    // The plan facts read from this row are cached per instance (`manager-fact-caches.ts`).
+    invalidateManagerFactCaches();
+  }
+}
+
+async function writeWithOptionalColumnFallback<T extends { error: WriteError }>(
   patch: Record<string, unknown>,
   run: (patch: Record<string, unknown>) => PromiseLike<T>,
 ): Promise<T> {

@@ -21,6 +21,22 @@ describe("createTtlCache", () => {
     expect(load).toHaveBeenCalledTimes(2);
   });
 
+  it("delete(key) drops one key, and a load that started before it never writes its answer back", async () => {
+    const cache = createTtlCache<string>(60_000);
+    await cache.get("a", async () => "a1");
+    await cache.get("b", async () => "b1");
+    cache.delete("a");
+    expect(await cache.get("a", async () => "a2")).toBe("a2");
+    expect(await cache.get("b", async () => "b2")).toBe("b1");
+
+    let release!: (value: string) => void;
+    const slow = cache.get("c", () => new Promise<string>((resolve) => { release = resolve; }));
+    cache.delete("c");
+    release("stale");
+    expect(await slow).toBe("stale");
+    expect(await cache.get("c", async () => "fresh")).toBe("fresh");
+  });
+
   it("never caches a failure", async () => {
     const cache = createTtlCache<string>(60_000);
     const load = vi.fn<() => Promise<string>>().mockRejectedValueOnce(new Error("db down")).mockResolvedValueOnce("ok");

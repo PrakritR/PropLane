@@ -18,6 +18,7 @@ import {
   type ManagerPurchaseRowRecord,
 } from "@/lib/manager-access";
 import { isAppleBilledManagerPurchase } from "@/lib/manager-apple-purchase";
+import { invalidateManagerPlanFacts, rememberManagerPurchaseRow } from "@/lib/manager-fact-caches";
 import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-settings";
 import { resolveServiceFeePayerFor, type ServiceFeePayer } from "@/lib/payment-policy";
 import { track } from "@/lib/analytics/posthog";
@@ -63,7 +64,7 @@ async function loadManagerPurchaseRowsForUser(userId: string): Promise<ManagerPu
   return (await loadManagerPurchaseRowsResult(userId)).rows;
 }
 
-const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
+type ManagerPurchaseRowView = {
   hasPurchaseRow: boolean;
   tier: string | null;
   billing: string | null;
@@ -78,7 +79,22 @@ const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
   waiverEndedCode: string | null;
   /** A Stripe subscription or an Apple grant backs the stored plan: the only BILLABLE sources. */
   billableSource: boolean;
-}> => {
+};
+
+/**
+ * The row view is a fact about ONE account (its own purchase row, its confirmed Auth mailbox, its waiver policy), the same
+ * for every viewer, yet a portal request resolves it for the viewer and for every linked owner through a dozen helpers.
+ * It is kept per instance for `MANAGER_FACT_TTL_MS` (`manager-fact-caches.ts`): shared in-flight, never a failed read,
+ * never an account with no row yet, and dropped by every writer (`invalidateManagerFactCaches`).
+ */
+const getManagerPurchaseRowByUserId = cache((userId: string): Promise<ManagerPurchaseRowView> =>
+  rememberManagerPurchaseRow(userId, async () => {
+    const view = await readManagerPurchaseRowView(userId);
+    return { value: view, cacheable: !view.readFailed && view.hasPurchaseRow };
+  }),
+);
+
+async function readManagerPurchaseRowView(userId: string): Promise<ManagerPurchaseRowView> {
   const db = createSupabaseServiceRoleClient();
   const { rows, readFailed } = await loadManagerPurchaseRowsResult(userId, db);
   const best = pickBestManagerPurchaseRow(rows, userId);
@@ -158,7 +174,7 @@ const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
     };
   }
   return view;
-});
+}
 
 /**
  * Reconciliation is authoritative, but several plan views can resolve during one
@@ -516,6 +532,19 @@ export async function getEffectiveManagerSkuTier(userId: string): Promise<Manage
  * tier-sync treats the paid tier as authorized comp access without a Stripe subscription.
  */
 export async function setManagerPurchaseTier(
+  userId: string,
+  tier: ManagerSkuTier,
+  opts?: { adminOverride?: boolean; waiver?: { promoCode: string; billing: "monthly" | "annual" } },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    return await writeManagerPurchaseTier(userId, tier, opts);
+  } finally {
+    // The write may have landed even when a later step failed: drop the cached plan facts either way.
+    invalidateManagerPlanFacts(userId);
+  }
+}
+
+async function writeManagerPurchaseTier(
   userId: string,
   tier: ManagerSkuTier,
   opts?: { adminOverride?: boolean; waiver?: { promoCode: string; billing: "monthly" | "annual" } },

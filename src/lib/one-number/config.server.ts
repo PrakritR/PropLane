@@ -3,6 +3,8 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SharedLineConfig, SharedLineMode } from "@/lib/one-number/contracts";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { isServiceRoleClient } from "@/lib/supabase/service-client-tag";
+import { rememberDedicatedWorkspaceIds } from "@/lib/manager-fact-caches";
 import { managerCanSendFromOwnNumber, normalizeProvisionState, normalizeRegistrationState } from "@/lib/sms/number-registration-policy";
 
 /** The state every caller gets when the line is off or unreadable: today's per-workspace numbers. */
@@ -98,6 +100,14 @@ function usableNumber(row: Record<string, unknown>): boolean {
  * owner's entitlement) cannot be read.
  */
 async function loadDedicatedWorkspaceIds(db: SupabaseClient): Promise<string[] | null> {
+  // Global and identical for every caller, but it walks EVERY number owner (a plan read and an Auth lookup each), so
+  // it is kept for a short while per instance. Only a service-role read sees every row; any other client reads live.
+  if (!isServiceRoleClient(db)) return readDedicatedWorkspaceIds(db);
+  const ids = await rememberDedicatedWorkspaceIds(() => readDedicatedWorkspaceIds(db));
+  return ids ? [...ids] : ids;
+}
+
+async function readDedicatedWorkspaceIds(db: SupabaseClient): Promise<string[] | null> {
   const numbers = await db
     .from("manager_sms_numbers")
     .select("id, manager_user_id, workspace_id, phone_number, provision_state, registration_state, registration_ref, released_at")
