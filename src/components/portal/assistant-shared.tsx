@@ -374,9 +374,8 @@ export function AssistantPendingActionCard({
 /**
  * M013 — task-step resolution morph on assistant action cards.
  *
- * "The system narrates its work" (interior.dev's Task Steps, ported — see
- * ~/proplane-mock-kit/review-0927/interior-dev-research.md §2's "Task Steps"
- * row): today {@link AssistantPendingActionCard} resolving just unmounts —
+ * "The system narrates its work" (interior.dev's Task Steps):
+ * {@link AssistantPendingActionCard} resolving just unmounts —
  * the row below it (the assistant's own reply, "Done." or the tool's real
  * result) appears with no transition at all. This renders in the SAME slot
  * for one brief beat right after a genuine successful or denied resolution —

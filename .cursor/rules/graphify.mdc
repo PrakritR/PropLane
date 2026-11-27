@@ -1,13 +1,9 @@
 ---
-description: graphify knowledge graph context
-alwaysApply: true
+description: Optional code navigation with a current Graphify index
+alwaysApply: false
 ---
 
-This project has a graphify knowledge graph at .graphify/.
-
-- For codebase or architecture questions, when `.graphify/graph.json` exists, first run `graphify query "<question>"` (or `graphify path "<A>" "<B>"` / `graphify explain "<concept>"`); these return a scoped subgraph, usually much smaller than `GRAPH_REPORT.md` or raw grep output
-- If .graphify/wiki/index.md exists, navigate it instead of reading raw files
-- If .graphify/graph.json is missing but graphify-out/graph.json exists, run `graphify migrate-state --dry-run` first; if tracked legacy artifacts are reported, ask before using the recommended `git mv -f graphify-out .graphify` and commit message
-- If .graphify/needs_update exists or .graphify/branch.json has stale=true, warn before relying on semantic results and run /graphify . --update when appropriate
-- Read `.graphify/GRAPH_REPORT.md` only for broad architecture review or when `query` / `path` / `explain` do not surface enough context
-- After modifying code files in this session, run `npx graphify hook-rebuild` to keep the graph current
+Read feature contracts and current source first. Graphify is optional when a
+current index helps; check `.graphify/branch.json` and `needs_update` before
+relying on results. Never treat stale results as source evidence. No automatic
+rebuild is required. Keep machine paths, caches and worktree metadata untracked.

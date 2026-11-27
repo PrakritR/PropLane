@@ -1,15 +1,11 @@
 #!/usr/bin/env node
 /**
- * Export a Linear issue to a shareable Markdown file (for captain / friends).
- *
- *   npm run linear:export -- --ticket PRP-180
- *   npm run linear:export -- --ticket PRP-180 --out .lavish/plans/PRP-180-prefill/ticket.md
- *
- * Default: `.lavish/tickets/<PRP-###>.md`
+ * Export an explicitly requested Linear issue to a chosen Markdown path.
+ * npm run linear:export -- --ticket PRP-180 --out /tmp/PRP-180.md
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { linearGraphql } from "./linear/graphql.mjs";
 
@@ -17,13 +13,16 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..");
 
 function parseArgs(argv) {
+  if (argv.includes("--help") || argv.includes("-h")) return { help: true };
   const out = {};
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    const next = () => argv[++i];
-    if (a === "--ticket") out.ticket = next();
-    else if (a === "--out") out.out = next();
-    else if (a === "--help" || a === "-h") out.help = true;
+    const flag = argv[i];
+    if (flag !== "--ticket" && flag !== "--out") {
+      throw new Error(`Unknown argument ${flag}. Use --ticket <PRP-id> --out <path>.`);
+    }
+    const value = argv[++i];
+    if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value.`);
+    out[flag.slice(2)] = value;
   }
   return out;
 }
@@ -60,7 +59,7 @@ async function fetchIssue(ref) {
 
 const PRIORITY = ["None", "Urgent", "High", "Medium", "Low"];
 
-function buildMarkdown(issue, { planPath }) {
+function buildMarkdown(issue) {
   const labels = issue.labels.nodes.map((l) => l.name).join(", ") || "_none_";
   const lines = [
     `# ${issue.identifier}: ${issue.title}`,
@@ -77,9 +76,6 @@ function buildMarkdown(issue, { planPath }) {
     `| **Parent** | ${issue.parent ? `${issue.parent.identifier} — ${issue.parent.title}` : "_none_"} |`,
     `| **Updated** | ${issue.updatedAt} |`,
   ];
-  if (planPath) {
-    lines.push(`| **Lavish plan** | \`${planPath}\` |`);
-  }
   lines.push(
     "",
     "---",
@@ -93,18 +89,9 @@ function buildMarkdown(issue, { planPath }) {
     "## Review checklist (captain)",
     "",
     "- [ ] Scope matches the problem",
-    "- [ ] Lavish plan reviewed (`plan.html`)",
     "- [ ] Out of scope is explicit",
     "- [ ] Test plan is realistic",
-    "- [ ] **Approved — build** (or feedback queued in Lavish)",
-    "",
-    "## Share",
-    "",
-    "Send this file + Lavish plan link to a reviewer:",
-    "",
-    "```bash",
-    "npx -y lavish-axi share .lavish/plans/<folder>/plan.html",
-    "```",
+    "- [ ] Verification evidence and remaining limitations recorded",
     "",
     "_Exported from PropLane `npm run linear:export`._",
     "",
@@ -112,33 +99,35 @@ function buildMarkdown(issue, { planPath }) {
   return lines.join("\n");
 }
 
-function defaultOutPath(ticket) {
-  const id = ticket.toUpperCase().replace(/^PRP-/, "PRP-");
-  return join(REPO_ROOT, ".lavish", "tickets", `${id}.md`);
-}
-
 function printHelp() {
   console.log(`linear:export — write a shareable Markdown snapshot of a Linear issue
 
-  npm run linear:export -- --ticket PRP-180
-  npm run linear:export -- --ticket PRP-180 --out .lavish/plans/PRP-180-slug/ticket.md
+  npm run linear:export -- --ticket PRP-180 --out /tmp/PRP-180.md
+  npm run linear:export -- --ticket PRP-180 --out ./ticket.md
 
+Both --ticket and --out are required. Relative paths resolve from the repo root.
 Requires LINEAR_API_KEY in .env.local`);
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
-  if (args.help || !args.ticket) {
+  let args;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (error) {
+    console.error(`error: ${error.message}`);
+    process.exitCode = 2;
+    return;
+  }
+  if (args.help || !args.ticket || !args.out) {
     printHelp();
-    process.exit(args.help ? 0 : 1);
+    process.exit(args.help ? 0 : 2);
   }
 
   const issue = await fetchIssue(args.ticket);
-  const outPath = args.out ? join(REPO_ROOT, args.out) : defaultOutPath(issue.identifier);
+  const outPath = resolve(REPO_ROOT, args.out);
   mkdirSync(dirname(outPath), { recursive: true });
 
-  const relPlan = `.lavish/plans/${issue.identifier.toLowerCase()}-*/plan.html`;
-  const md = buildMarkdown(issue, { planPath: relPlan });
+  const md = buildMarkdown(issue);
   writeFileSync(outPath, md, "utf8");
 
   console.log(outPath);

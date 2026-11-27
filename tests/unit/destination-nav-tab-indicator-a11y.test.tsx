@@ -2,11 +2,8 @@
 //
 // M005/M014 — the header-card tabs' new traveling underline indicator and
 // value-flash count pill must never surface as an extra tab, break keyboard
-// navigation, or double up an accessible name. This is the "tabs a11y" check
-// the motion pass is required to add (see the M005 change in
-// ~/proplane-mock-kit/studio/changes.json: "one hook in core.js's shared
-// .plp-htabs/.plp-segtabs markup" — the real equivalent here is
-// `DestinationNav`/`LocalDestinationNav`'s `appearance="command"` mode).
+// navigation, or double up an accessible name. Covers DestinationNav and
+// LocalDestinationNav in appearance="command" mode.
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { DestinationNav, LocalDestinationNav } from "@/components/ui/destination-nav";

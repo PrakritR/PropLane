@@ -431,8 +431,8 @@ reject a request that does. Owner of what each funding model means for a
 household payment: [`resident-payments.md`](resident-payments.md) § Historical
 household funding models.
 
-**Compliance note (see `.lavish/night/research.md` § Recommended money
-architecture):** as long as this ledger stays a strict mirror of real Stripe
+**Compliance note (architecture: [owner management](owner-management.md)):**
+as long as this ledger stays a strict mirror of real Stripe
 Connect objects, PropLane stays out of unlicensed-money-transmitter territory
 (Stripe remains the licensed money transmitter for every dollar). Separate
 charges and transfers puts negative-balance/refund/dispute liability on

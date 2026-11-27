@@ -6,12 +6,7 @@
  * Technique ported from interior.dev's Hold to Confirm (MIT license,
  * github.com/ddoemonn/interior, © ozzy) — the hold duration, the tolerance
  * that cancels a hold on pointer drift, and the "refuse a plain click" gate
- * are its own documented behaviour (see
- * ~/proplane-mock-kit/review-0927/interior-dev-research.md §2's "Hold to
- * Confirm" row and the approved studio drawing at
- * ~/proplane-mock-kit/proto/motion-0927.js's own M008 section), reimplemented
- * here as a real React component instead of the studio's DOM-delegation
- * version.
+ * are its own documented behaviour, reimplemented here as a React component.
  *
  * Wired into {@link PortalDialog}'s danger-tone footer action, for the callers
  * that ask for it with `confirmGuard: "hold"`. It is NOT every destructive
@@ -19,7 +14,7 @@
  * plain-click red button, because the hold was undiscoverable and read as a
  * dead Delete. Today's one caller is `service-remove-dialog.tsx`.
  *
- * Unlike the studio prototype, this component does NOT shorten the hold
+ * This component does NOT shorten the hold
  * under reduced motion: the press duration is the actual confirmation gate,
  * not decoration, and shortening it to a single tap would turn a safety
  * rail into a hair-trigger for exactly the operators who asked their system

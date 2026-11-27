@@ -1,7 +1,7 @@
 // @vitest-environment node
 //
 // Regression fixture: the real extracted text of
-// "Ida Cares Homes_Intake Form.pdf" (proplane-mock-kit/studio/assets/ida-cares),
+// "Ida Cares Homes_Intake Form.pdf" (original source retained in the local evidence archive),
 // captured verbatim as the four pages' text lines (one PDF.js text-content
 // line per block, exactly as `pdf-source.server.ts` emits them). The
 // importer previously reduced this real 4-page, ~40-prompt intake form down

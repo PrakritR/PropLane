@@ -10,20 +10,27 @@ production without following it (unless the user explicitly waives a named step)
 
 ## When pushing / promoting to production
 
-1. **`main` is developer Preview (dev/test DB).** **`staging` is QA Preview
+1. **`main` is localhost consolidation (dev/test DB), not a Vercel deployment.** **`staging` is QA Preview
    (staging Supabase `xwszcafaontidfgznlxd`).** Only **`git push origin production`** updates
-   the live site (`prop-lane.space`). Pushes to agent branches are skipped.
+   the live site (`proplane.ai`). Pushes to agent branches are skipped.
 2. Promote only via fast-forward. Prakrit's ladder is agent keepers →
    `prakrit` (captain integrate) → `main`; an explicit Akhil ship request
    authorizes agents working for him to promote only his keeper → `main`,
    without writing `prakrit`. Both then require developer verification →
    `npm run ship:staging` → dedicated QA → `npm run ship:production`.
-   Never ff `main` straight onto `production`.
+   Prakrit uses only the captain-typed `/promote` commands in
+   `docs/agents/AGENTS-prakrit.md`. Only Akhil's explicitly authorized standing
+   exception (`docs/agents/temporary-direct-production-policy.json`) can skip
+   staging; all other gates remain.
 3. That **production** push must update **web (Vercel)** and **iOS (TestFlight)**:
    - Workflow: `.github/workflows/ios-testflight.yml` (runs on `push` to `production`).
    - After push, watch the **iOS TestFlight** GitHub Action until success (or report
      missing `ASC_KEY_ID` / `ASC_ISSUER_ID` / `ASC_KEY_P8` secrets).
-4. Run `npm run ship:preflight` before promote when the script is available.
+   - Verify distribution to testers and App Store submission/review status;
+     an upload alone is not a ship (`docs/mobile-app.md`).
+4. Run `npm run ship:preflight` on the staged candidate before production.
+   Confirm database targets; back up, apply and verify required migrations
+   before the corresponding deploy. Keep protected-push authorization guards.
 5. Never treat “Vercel production is live” as done without confirming TestFlight
    (or documenting why the job skipped).
 

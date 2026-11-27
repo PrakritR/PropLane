@@ -1,9 +1,7 @@
 /*
  * Shared motion tokens (M001) — durations/easings ported verbatim from
- * interior.dev's own source (registry.json + component files), the same
- * numbers documented in ~/proplane-mock-kit/review-0927/interior-dev-research.md
- * §2/§4 and already proven in the approved studio drawing
- * (~/proplane-mock-kit/proto/motion-0927.css). CSS cannot express a literal
+ * interior.dev's own source (registry.json + component files).
+ * CSS cannot express a literal
  * spring, so every "spring" token below is the cubic-bezier closest to it in
  * feel; the two literal eases (EASE_IN/EASE_OUT) are interior.dev's own,
  * unchanged.
@@ -304,9 +302,7 @@
  * ============================================================================
  * b18-motion-features — M008, M010, M011, M012, M013, M016, M017.
  * Technique ported from interior.dev (github.com/ddoemonn/interior, MIT
- * license, © ozzy) — see ~/proplane-mock-kit/review-0927/interior-dev-research.md
- * and the approved studio drawing (studio/changes.json M008–M017) for the
- * exact timing values these classes carry forward. Every rule here reads the
+ * license, © ozzy), retaining the source's timing values. Every rule reads the
  * SAME `--motion-*` tokens above; nothing here introduces a new timing scale.
  * ============================================================================
  */
@@ -315,7 +311,7 @@
 /* The press duration is the actual confirmation gate (not decoration), so it
  * is never shortened under reduced motion — only the smooth animated fill is
  * swapped for a plain, non-animated bar (see HoldToConfirmButton's own note
- * for why this deliberately does NOT match the studio prototype's instant-arm
+ * for why reduced motion must preserve the confirmation duration rather than instant-arm
  * shortcut under reduced motion). */
 .motion-hold-fill {
   position: absolute;

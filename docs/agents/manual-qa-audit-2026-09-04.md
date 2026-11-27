@@ -1,3 +1,5 @@
+> Historical QA findings, not an active workflow. Follow `AGENTS-prakrit.md`; ticket creation is explicit-request only.
+
 # Manual QA audit — fresh dev, no seed (2026-09-04)
 
 **Branch:** `cursor-2` · **URL:** http://localhost:3011  
@@ -16,7 +18,7 @@
 
 1. **No production writes** — refuse even if captain asks (`no-production-data-writes.mdc`).
 2. **No seed scripts** — manual browser only on your port.
-3. Every friction → `npm run linear:ticket` + `npm run lavish:plan` → log row below.
+3. Record friction in the audit below; use the current developer workflow for follow-up.
 4. Check this file + Linear before filing duplicates.
 5. Comment on **PRP-171** when you start/finish a workstream.
 
@@ -60,5 +62,5 @@ _Pick up after PRP-171 — resident apply → lease → payments on **3010**._
 | # | Issue | PRP | Status |
 | --- | --- | --- | --- |
 | 1 | Vendor multi-manager invoicing + decline | PRP-254 | **On prakrit** (`1eb0db93`) — sync :3012 |
-| 2 | Admin schedule soft-404 | PRP-184 #11 | **Next** — workflow:plan then build |
+| 2 | Admin schedule soft-404 | PRP-184 #11 | Historical pending item — verify current behavior before follow-up |
 

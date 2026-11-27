@@ -1,8 +1,9 @@
 #!/usr/bin/env npx tsx
 /**
  * Seed the Ida Cares Homes (Marc) lease-first scenario on the DEV/TEST
- * Supabase project ONLY (studio brief:
- * ~/proplane-mock-kit/studio/assets/ida-cares/BRIEF.md § Scenario data).
+ * Supabase project ONLY. Original source: Ida Cares Homes BRIEF.md,
+ * Scenario data; retain the original with the local evidence archive.
+ * This script preserves the scenario and license text used by the fixture.
  *
  *   npx tsx scripts/seed-ida-cares-dev.ts
  *

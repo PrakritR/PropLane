@@ -2,8 +2,8 @@
 
 Read this before designing or changing any page, in any portal (manager, resident, vendor,
 admin, public). It is the anatomy; the detailed rules live in the tier-1 docs it points to
-(`ui-change-checklist.md`). For a plan, start from the whole-product mock kit
-([`ui-mock-kit.md`](ui-mock-kit.md)) and change only the pages the plan touches.
+(`ui-change-checklist.md`). Start from the real reference implementations below
+and change only the pages in the requested scope.
 
 **Redesign means the same features.** Keep every real tab, action, field and flow, only
 clearer and working. Anything new that wasn't asked for goes to the captain as a question

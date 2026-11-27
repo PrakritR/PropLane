@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # File captain-requested Linear tickets (cursor-1 session, 2026-09-03).
-# Lavish plans come AFTER this batch — do not run lavish:plan until all PRP ids exist.
+# Historical one-shot ticket batch; execute only when explicitly requested.
 #
 # Requires LINEAR_API_KEY in .env.local
 #
@@ -62,7 +62,7 @@ Manager listing wizard → Pricing step (`/portal` add/edit listing).
 - [ ] Manual walkthrough on localhost:3010
 
 ## Source
-Captain chat + Lavish DRAFT plan assets (lease-lengths screenshot). **Lavish plan after ticket filed.**
+Captain chat + Lavish DRAFT plan assets (lease-lengths screenshot).
 EOF
 )"
 
@@ -93,7 +93,7 @@ Manager listing wizard → Pricing; charge creation on approve/sign.
 - [ ] Manual: approve application with only Application fee checked
 
 ## Source
-Captain screenshot (OTHER FEES checkboxes). **Lavish plan after ticket filed.**
+Captain screenshot (OTHER FEES checkboxes).
 EOF
 )"
 
@@ -125,7 +125,7 @@ Manager listing wizard → Pricing.
 - [ ] Unit tests updated
 
 ## Source
-Captain Lavish feedback (Sep 3, 2026). **Lavish plan after ticket filed.**
+Captain Lavish feedback (Sep 3, 2026).
 EOF
 )"
 
@@ -160,7 +160,7 @@ Land on cursor-1 branch; verify before close.
 - [ ] Unit tests pass (`listing-wizard-step-redesign`, bathroom layout)
 
 ## Source
-Captain screenshot + chat. **Lavish plan after ticket filed.**
+Captain screenshot + chat.
 EOF
 )"
 
@@ -192,7 +192,7 @@ Land on cursor-1 branch; verify before close.
 - [ ] `listing-wizard-step-redesign.test.ts` updated
 
 ## Source
-Captain screenshots (Shared spaces step). **Lavish plan after ticket filed.**
+Captain screenshots (Shared spaces step).
 EOF
 )"
 
@@ -203,5 +203,5 @@ else
   echo "Batch complete. Next:"
   echo "  1. Paste PRP ids into docs/linear/manifests/cursor-1-sep3-2026-tickets.md"
   echo "  2. Captain reviews tickets in Linear"
-  echo "  3. THEN: npm run lavish:plan per ticket (not before)"
+  echo "  3. Follow docs/agents/AGENTS-prakrit.md for lane implementation and captain promotion."
 fi

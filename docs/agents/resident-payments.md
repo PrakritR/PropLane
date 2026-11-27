@@ -521,8 +521,9 @@ platform hold, or the flagged `platform_ledger` path introduced for night and
 vendor pay. Their original provider routing and payment evidence must remain
 attached to those receipts. New `source_arbitration_v=1` household captures
 always use the central source allocator described above, independently of
-`PROPLANE_BALANCE_ENABLED`; the fee math remains the same. See
-`.lavish/night/build-vendor-pay.md` for the older funding model's context.
+`PROPLANE_BALANCE_ENABLED`; the fee math remains the same. The retained
+`src/lib/proplane-balance/` implementation and [financials](financials.md)
+describe the historical funding path.
 
 **Marked household captures have no Connect destination** (`destinationAccountId`
 is null, claim terms reject one); the platform captures and the central source

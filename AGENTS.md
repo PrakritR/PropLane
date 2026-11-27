@@ -20,30 +20,31 @@ developer file before you do any work.** Do not apply both. Do not skip this.
 
 | If the user is… | Read next | Do not |
 | --- | --- | --- |
-| **Akhil** | [`docs/agents/AGENTS-akhil.md`](docs/agents/AGENTS-akhil.md) | File Linear tickets, open a studio plan, or run no-mistakes unless he asks |
+| **Akhil** | [`docs/agents/AGENTS-akhil.md`](docs/agents/AGENTS-akhil.md) | File Linear tickets or run no-mistakes unless he asks |
 | **Prakrit** (captain) | [`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md) | Use Akhil's "skip ticket / skip no-mistakes" process |
 
 **How to tell:**
 
 - User says they are Akhil or Prakrit, or the message is clearly from one of them.
 - Home / workspace path contains `akhil` → Akhil. Path or host context that is
-  Prakrit's (lane worktree, captain integration through `/promote`, the studio
-  plan as the default pipeline) → Prakrit.
-- They talk like the captain (ticket, plan, promote, studio) → Prakrit.
+  Prakrit's (lane worktree, captain integration through `/promote`, the
+  standing-lane workflow) → Prakrit.
+- They talk like the captain (lane, integrate, promote) → Prakrit.
 - Still unclear → ask "Akhil or Prakrit?" and wait. Do not guess a process.
 
-Captain default: **every message becomes a studio lane plan before code, and
-issues do not get Linear tickets unless he asks** —
-[`docs/agents/lavish-plan-standard.md`](docs/agents/lavish-plan-standard.md).
+Captain default: implement and verify on the assigned standing lane, then hand
+off for captain-only promotion. No separate planning service is required.
+No Linear ticket unless explicitly requested. Workflow authority:
+[`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md).
 
 Shared safety in this file always wins (production lock, staging ladder, RLS,
 tool layer). The developer file only adds **how to work with that person**.
 
 ## How to find things
 
-1. `graphify query "<question>"` (or `path` / `explain`) when `.graphify/graph.json` exists
-2. Else `docs/agents/<area>.md` (table below)
-3. Only then raw search
+1. Read `docs/agents/<area>.md` (table below).
+2. Use `rg` / `rg --files`, or optionally query a current Graphify index.
+3. Verify findings against current source; stale generated indexes are not authority.
 
 Skills, plugins, and MCP servers are additive. They never override this file
 or `docs/agents/*`. Do not invent a second source of truth for the same concern.
@@ -475,7 +476,6 @@ answer. Fail closed to `true`.
 | Service mode | `docs/agents/admin-service.md` § Service mode | The Property portal is only for managers who bought the software; PropLane-managed (`is_service`) workspaces are the ADMIN's (owner = platform service owner = primary admin) and open in the admin-style shell under `/portal` (rail: PropLane logo, the service workspaces, +) for staff only, never in the admin's own self-serve Property portal (`GET /api/workspaces` omits a staff service workspace, and on a failed staff read keeps only view-only ones); the client is a Property owner seat, view-only, in the Property portal; a managed house, seat or resident never counts against, is limited by or is billed to the admin's own plan or communication gate (`managed-plan-isolation.server.ts`) |
 | Admin Accounts | `docs/agents/admin-accounts.md` | Disabling or enabling an account goes through `setAdminAccountActive` only, refuses without a reason before the flag moves, and writes one `admin_account_active` audit row; the insert is best-effort, so `auditRecorded: false` is reported, never hidden |
 | View as | `docs/agents/view-as.md` | Read-only, 30 minutes, reason required, allowlisted operators only; audit row BEFORE the cookie; the cookie is signed and bound to the signed-in operator; the middleware refuses every non-read request; a GET that heals on read checks `isViewAsSessionOpen()` |
-| Studio Live mode | `docs/agents/studio-live.md` | Frame-ancestors relaxation and `/api/dev/studio-sign-in` are dev-only (`NODE_ENV==="development"` + localhost + dev/test project); production/preview headers stay byte-identical |
 | Co-manager access | `docs/agents/co-manager-access.md` | Empty permissions = no access; assigning a property is not a grant |
 | Property owner | `docs/agents/co-manager-access.md` § Property owner | A team role, not a portal: four owner keys, no module key; on a managed workspace the owner of record IS the client's seat and the payee is `resolveManagedPayee`, a second notice recipient for payments, financials and urgent only, by owner keys; statement and tax-package headers name them; owner rows are filtered out of every teammate-style reader (`withoutOwnerLinks`); the numbers are an allowlist projection of the manager's own reports, never names; the house and manager come from the membership, never the request |
 | Owner management | `docs/agents/owner-management.md` | A PropLane-managed workspace's money sits in PropLane's platform Stripe balance and is allocated in the append-only party ledger (owner payable, PropLane fee, vendor payable, deposits) - never a manager hold; fee rounds down, owner gets the remainder; every journal is idempotent on its Stripe/source id and balanced; withdrawals reserve under a per-party lock then Transfer to the person's own Express account; vendor bills on a managed workspace charge the Property owner (the payee seat, never the admin who owns the workspace); a self-serve workspace keeps its own Connect flow; a payout split (docs/agents/owner-management.md § Payouts and splits) divides only the OWNER's share by the rules in force on the payment date, in integer cents with the owner keeping the remainder, as one idempotent balanced `split_allocation` journal; a person sees only their own balance (`/api/earnings` derives whose from the session); staff may hold a party's withdrawals, never take balance, and every staff payout action writes its audit row first; holding owner rent needs counsel (RCW 18.85, WAC 308-124E) |

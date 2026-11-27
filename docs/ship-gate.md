@@ -298,7 +298,7 @@ provide the review gate. See the [reconciliation evidence](security/2026-09-05-r
 Never open a GitHub PR unless the matching developer explicitly asks. Never
 push `fm/*` branches.
 
-Scripts restart dev servers and open the browser via `bin/fm-proplane-open-localhost.sh`.
+Open the assigned lane with `npm run sandbox:open -- </route>`; Prakrit promotion uses the captain-only commands in [AGENTS-prakrit.md](agents/AGENTS-prakrit.md).
 
 ## Promote main → staging (QA)
 
@@ -358,3 +358,12 @@ permissions: TestFlight upload is required; App Store review may be required
 for permission/string changes. Run `npm run cap:prod` locally before archiving
 if building from Xcode by hand (`scripts/verify-cap-prod-config.sh` guards
 Release builds).
+
+## Schema evidence before data changes
+
+List the tables/columns read and written and the committed migration that creates
+each. Verify them against dev/test using read-only inspection before building a
+new data path; mark unverified columns explicitly. Confirm the actual project ref
+before every database command; a branch/worktree name does not establish its link.
+Keep environment separation, backups, fail-closed migration application and
+post-apply verification under [database environments](database-environments.md).

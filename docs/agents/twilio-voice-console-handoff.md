@@ -134,7 +134,7 @@ Reply with:
 - Voice (planned): `src/app/api/twilio/voice/inbound`, `.../turn`
 - Number purchase: `src/lib/twilio-provisioning.ts` (`resolveInboundWebhookUrl` — voice twin TBD)
 - Identity (reuse): `src/lib/sms/manager-sms-access.server.ts`
-- Product plan: `.lavish/plans/PRP-voice-manager-tours/plan.html`
+- Product requirements and acceptance checks: this handoff document (historical scope; verify current implementation).
 
 ---
 

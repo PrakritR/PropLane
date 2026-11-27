@@ -137,10 +137,7 @@ export function useInertOutsideModalRef<T extends Element>(outerRef: Ref<T> | un
  * timer) — which means Radix's own `data-[state=closed]:animate-out` classes
  * never get a chance to run: the whole `<Dialog.Root>` is gone from the React
  * tree in the SAME commit the state flips, before Radix's Presence can stage
- * an exit. The approved studio drawing hit this exact bug (see
- * `~/proplane-mock-kit/review-0927/studio-motion.md` "A real bug found and
- * fixed during verification") and fixed it the same way this does: the REAL
- * close always happens first, synchronously, exactly as it already did —
+ * an exit. The real close always happens first, synchronously —
  * this only clones the panel's current DOM (read via `getBoundingClientRect`
  * BEFORE the close call, so layout is still live) into a disabled, `inert`,
  * `pointer-events:none` copy positioned exactly where the original was, fades
