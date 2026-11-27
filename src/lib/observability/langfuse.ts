@@ -614,12 +614,23 @@ async function flushTelemetry(lf: LangfuseHandle, trace?: OtelTrace | null): Pro
   } catch {
     /* observability must never fail a turn */
   }
+  // Bounded: a slow telemetry endpoint must not hold an SMS reply hostage. The flush keeps running past the cap
+  // while the invocation is still alive (delivery follows), it just no longer blocks the caller.
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await lf.flushAsync();
+    await Promise.race([
+      lf.flushAsync().catch(() => undefined),
+      new Promise<void>((resolve) => { timer = setTimeout(resolve, TELEMETRY_FLUSH_CAP_MS); }),
+    ]);
   } catch {
     /* observability must never fail a turn */
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
+
+/** Longest a turn waits on the telemetry flush before returning. */
+const TELEMETRY_FLUSH_CAP_MS = 1_000;
 
 /**
  * Wrap an agent turn in a Langfuse trace. The trace records the input, the final

@@ -1,4 +1,4 @@
-import { smsTaskModel } from "@/lib/agent/runtime-model";
+import { smsTaskModel, withSmsTurnBudget } from "@/lib/agent/runtime-model";
 import { hasAgentModelCredential, selectModel } from "@/lib/agent/model";
 import { visionPinnedModel } from "@/lib/agent/assistant-vision-turn";
 import { attachImagesToLastUserMessage } from "@/lib/agent/images";
@@ -69,6 +69,8 @@ import {
 type Db = SupabaseClient;
 
 const SESSION_COLUMNS = "id, landlord_id, kind, vendor_phone_e164, status, user_id, workspace_id";
+/** History window (messages) used to pick the legacy model tier for a texted turn. */
+const SMS_TIER_WINDOW_MESSAGES = 9;
 const HISTORY_LIMIT = 24;
 const MAX_INBOUND_PER_HOUR = 30;
 /** Texts are read on a phone; keep replies inside a couple of segments. */
@@ -785,11 +787,13 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     history.push({ role: "user", content: text });
   }
 
-  let model = smsTaskModel(ctx.userId, messageChannel, { ...selectModel(history), provider: "anthropic", route: "anthropic" });
+  // Tier from the recent exchange only: on the legacy route a long SMS thread otherwise trips the "deep conversation"
+  // rule (10+ messages) and every later text runs on the slowest, priciest tier. Content signals still apply.
+  let model = smsTaskModel(ctx.userId, messageChannel, { ...selectModel(history.slice(-SMS_TIER_WINDOW_MESSAGES)), provider: "anthropic", route: "anthropic" });
   // MMS photos ride the LAST user message only and need a vision-capable model; the trace keeps the text history.
   const withImages = attachImagesToLastUserMessage(history as Anthropic.MessageParam[], args.inboundImages ?? []);
   const turnMessages = withImages.messages;
-  if (withImages.attached) model = visionPinnedModel();
+  if (withImages.attached) model = withSmsTurnBudget(visionPinnedModel(), messageChannel);
   if (!hasAgentModelCredential(model)) return null;
 
   let traceId: string | null = null;

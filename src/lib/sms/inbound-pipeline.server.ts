@@ -840,10 +840,11 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
   // shared line and OFF for a work number, so a per-workspace line behaves exactly as before.
   const onSharedLine = Boolean(saved?.sharedLine || input.sharedLine);
   const feel = await loadFeelSettings(db, { workspaceId, sharedLine: onSharedLine });
-  // The intent label is for the log only. Started lazily (the Haiku call, when the rules cannot
-  // tell) so a text that never reaches an agent costs nothing.
+  // The intent label is for the log only, so it comes from the free deterministic rules alone ("other" when they
+  // cannot tell). It used to fall back to a Haiku call on the shared line: one extra model call per turn, awaited
+  // before the turn was recorded, for a label nothing routes on.
   let intentPromise: Promise<IntentResult> | null = null;
-  const intentOf = (text?: string) => (intentPromise ??= classifySmsIntent(text ?? body, { useModel: onSharedLine }));
+  const intentOf = (text?: string) => (intentPromise ??= classifySmsIntent(text ?? body, { useModel: false }));
   /** Log one answered turn: intent, lane, model, latency, draft vs sent. Never throws. */
   const recordAnswered = async (a: {
     role: string;

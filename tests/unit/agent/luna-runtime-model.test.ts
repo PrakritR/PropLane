@@ -24,7 +24,16 @@ describe("all-surface Luna policy at runtime boundaries", () => {
     vi.stubEnv("AXIS_AI_LUNA_ENABLED", master);
     const legacy = { model: "claude-opus-4-8", tier: "complex" as const, provider: "anthropic" as const, route: "anthropic" as const };
     expect(runtimeTaskModel({}, legacy)).toEqual(legacy);
-    expect(smsTaskModel("manager", "sms", legacy)).toEqual(legacy);
+    expect(smsTaskModel("manager", "sms", legacy)).toEqual({ ...legacy, timeoutMs: 30000, turnBudgetMs: 45000 });
+  });
+
+  it("bounds every legacy SMS turn so a slow provider cannot outlive the inbound window", () => {
+    vi.stubEnv("AXIS_AI_LUNA_ENABLED", "false");
+    expect(smsTaskModel("manager")).toMatchObject({ provider: "anthropic", timeoutMs: 30000, turnBudgetMs: 45000 });
+    expect(smsTaskModel("manager", "voice")).toMatchObject({ provider: "anthropic", timeoutMs: 15000, turnBudgetMs: 15000 });
+    vi.stubEnv("AXIS_AI_LUNA_ENABLED", "true");
+    vi.stubEnv("OPENAI_API_KEY", "openai-test");
+    expect(smsTaskModel("manager")).toMatchObject({ provider: "openai", turnBudgetMs: 40000 });
   });
 
   it("forces legacy rollback even when old rollout is fully enabled", () => {

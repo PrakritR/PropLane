@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { debounceInbound, debounceScopeKey } from "@/lib/one-number/debounce.server";
+import { debounceInbound, debounceScopeKey, endsWithQuestion } from "@/lib/one-number/debounce.server";
 
 type Entry = { sid: string; body: string; rev: number };
 
@@ -56,9 +56,30 @@ describe("debounceInbound", () => {
   it("waits the quiet window, then answers a lone text", async () => {
     const { db } = fakeDb();
     const sleeps: number[] = [];
-    const out = await debounceInbound(db, { ...base, messageSid: "SM1", body: "wifi?", sleep: async (ms) => { sleeps.push(ms); } });
+    const out = await debounceInbound(db, { ...base, messageSid: "SM1", body: "is the wifi down", sleep: async (ms) => { sleeps.push(ms); } });
     expect(sleeps).toEqual([1500]);
-    expect(out).toMatchObject({ proceed: true, body: "wifi?", mergedCount: 1, waitedMs: 1500 });
+    expect(out).toMatchObject({ proceed: true, body: "is the wifi down", mergedCount: 1, waitedMs: 1500 });
+  });
+
+  it("answers a finished question at once, still merging what was already waiting", async () => {
+    const { db } = fakeDb();
+    const sleeps: number[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const first = debounceInbound(db, { ...base, messageSid: "SM1", body: "hey", sleep: () => gate });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const question = await debounceInbound(db, { ...base, messageSid: "SM2", body: "what's the wifi password? ", sleep: async (ms) => { sleeps.push(ms); } });
+    expect(sleeps).toEqual([]);
+    expect(question).toMatchObject({ proceed: true, body: "hey\nwhat's the wifi password?", mergedCount: 2, waitedMs: 0 });
+    release();
+    expect(await first).toEqual({ proceed: false });
+  });
+
+  it("recognizes a finished question", () => {
+    expect(endsWithQuestion("wifi?")).toBe(true);
+    expect(endsWithQuestion("is it \"room 3?\" ")).toBe(true);
+    expect(endsWithQuestion("hey")).toBe(false);
+    expect(endsWithQuestion("? is the code")).toBe(false);
   });
 
   it("the newest of a burst answers all of them, oldest first; older invocations yield", async () => {

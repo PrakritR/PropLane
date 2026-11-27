@@ -64,7 +64,7 @@ export function resolveRoomByName(property: Pick<ScopedProperty, "title" | "room
 export const listVacantRoomsTool = defineTool({
   name: "list_vacant_rooms",
   description:
-    "List the rooms that are vacant right now, and the rooms that open soon, for one house (name its address or title) or for every house the manager can see. Use for 'what's vacant at 5259 Brooklyn' and 'any vacancies'. Rooms and dates come from the same calendar the public listing uses.",
+    "List the rooms that are vacant right now, and the rooms that open soon, for one house (name its address or title) or for every house the manager can see. Use for 'what's vacant at 5259 Brooklyn' and 'any vacancies'. To cover several houses, call it once with no house (it returns every house in one answer) instead of once per house. Rooms and dates come from the same calendar the public listing uses.",
   kind: "read",
   inputSchema: z
     .object({

@@ -50,6 +50,12 @@ describe("formatAgentChatUserError", () => {
     );
   });
 
+  it("tells a texter plainly when a turn ran out of time", () => {
+    expect(formatSmsAgentTurnError(new Error("Agent turn timed out: exceeded its time budget."))).toBe(
+      "Sorry, that's taking me longer than it should. Please text it again in a minute.",
+    );
+  });
+
   it("does not blame an attachment for unrelated 400s", () => {
     const unrelated = [
       '400 {"type":"error","error":{"type":"invalid_request_error","message":"tools.0.custom.input_schema: unexpected keyword"}}',
