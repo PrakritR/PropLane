@@ -1,8 +1,7 @@
 /**
- * Captain, Nov 24: the managed operator's registered number ((814) 679-3694) is the line for PropLane-managed homes and the
- * admin portal; the 206 stays the default for everyone else and tells a text about a managed home to use the 814.
- *   - a 206 text about a managed home that has its own number gets one redirect, built from the resolved number, and the
- *     inbound is still recorded in that workspace's conversation;
+ * Owner, Nov 27: the registered (814) 679-3694 is the ADMIN line only; every manager workspace, PropLane-managed ones
+ * included, texts on the main 206. (Nov 24 to Nov 27 the 814 was also the line for managed homes.)
+ *   - a 206 text about a managed home is answered on the 206: no "text the 814 instead" redirect;
  *   - the operator and invited staff texting the 814 are recognised as the service manager (the PropLane line's rule);
  *   - a self-serve manager's number is never the admin line.
  */
@@ -67,15 +66,15 @@ beforeEach(() => {
   process.env.TWILIO_MESSAGING_SERVICE_SID = "MGdefault";
 });
 
-describe("a 206 text about a managed home with its own number", () => {
+describe("a 206 text about a managed home", () => {
   const candidate = { workspaceId: "ws-ambika", ownerUserId: AMBIKA, role: "prospect" as const, reason: "named" as never, propertyId: "h-5257", label: "5257 Brooklyn" };
 
-  it("gets one redirect to the resolved 814 and the inbound is still recorded in the workspace's conversation", async () => {
+  it("gets no redirect to the 814 (the managed workspace's line is the 206), so the text is handled on the 206", async () => {
     const reply = await answerFromDedicatedWorkspace(world() as never, { candidate, fromPhone: "+14255550123", body: "is 5257 still open?", messageSid: "SM1", sharedNumber: LINE_206 });
-    expect(reply).toBe("For 5257 Brooklyn, text us at (814) 679-3694 - that's the line for this home.");
-    expect(reply).toBe(buildManagedHomeRedirectReply("5257 Brooklyn", OWN_814));
-    expect(logged.map((l) => l.direction)).toEqual(["inbound", "outbound"]);
-    expect(logged[0]).toMatchObject({ workspaceId: "ws-ambika", managerUserId: AMBIKA, body: "is 5257 still open?", toPhone: LINE_206 });
+    expect(reply).toBeNull();
+    expect(logged).toEqual([]);
+    // The reply text the redirect would build is unchanged for any workspace that is still dedicated.
+    expect(buildManagedHomeRedirectReply("5257 Brooklyn", OWN_814)).toBe("For 5257 Brooklyn, text us at (814) 679-3694 - that's the line for this home.");
   });
 
   it("says nothing when the workspace's own number cannot be named (the text is then handled as before)", async () => {

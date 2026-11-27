@@ -551,18 +551,45 @@ export async function providerDestinationFor(
   }
 }
 
+/**
+ * The stable id an outbound text is recorded under when the provider never returned a Message SID (an account Twilio
+ * suspended answers every send with error 20003). It is not a Twilio SID, so no status callback can ever match it and
+ * nothing treats it as carrier-accepted; it only keeps the text in Communication exactly once per outbox row.
+ */
+export function unsentOutboxMessageId(outboxId: string): string {
+  return `outbox:${outboxId}`;
+}
+
+/**
+ * Record a queued text in Communication. `messageSid` is the provider's SID once the carrier accepted it, or null for a text
+ * the provider refused or never answered (`status: unknown`): that text is still the outbound message the automation or the
+ * manager meant to send, so it is recorded under `unsentOutboxMessageId` and stays readable in the thread. Nothing here ever
+ * resends.
+ */
 async function persistSubmittedConversationLog(
   db: SupabaseClient,
   row: ClaimedOutboxRow,
   fromNumber: string,
-  messageSid: string,
+  messageSid: string | null,
   priorAttempts = 0,
   claim: { status: "pending" | "failed"; dueAt: string },
 ): Promise<"persisted" | "failed" | "stale" | "invalid"> {
+  const providerSid = messageSid?.trim() || null;
+  const logMessageId = providerSid ?? unsentOutboxMessageId(row.id);
+  // Every marker write is fenced on this claim and on the row still carrying the SID this record was made for (none, for
+  // an unsent text), so a late repair never overwrites a newer marker.
+  const writeMarker = async (marker: Record<string, unknown>) => {
+    let q = db.from("sms_outbox").update(marker).eq("id", row.id);
+    q = providerSid ? q.eq("provider_message_sid", providerSid) : q.is("provider_message_sid", null);
+    return q.eq("conversation_log_status", claim.status)
+      .eq("conversation_log_next_attempt_at", claim.dueAt)
+      .select("id").maybeSingle();
+  };
   // A text the work number sent to the manager's OWN phone also belongs in
-  // their one PropLane Assistant thread (marked SMS). Written only here, after
-  // the carrier accepted it, and idempotent on the outbox id, so a repair-queue
-  // retry never duplicates it. A failed append retries through the same queue.
+  // their one PropLane Assistant thread (marked SMS). Written only here, once
+  // the provider call is over (accepted, or refused with no SID), and idempotent
+  // on the outbox id, so a repair-queue retry never duplicates it. A failed
+  // append retries through the same queue.
   const assistantMirror = await mirrorManagerOwnOutboxToAssistantThread(db, row, fromNumber)
     .catch(() => "failed" as const);
   // Mirror deliveries already have a canonical transcript elsewhere. Keep the
@@ -571,42 +598,33 @@ async function persistSubmittedConversationLog(
   if (row.suppress_conversation_log === true) {
     const now = new Date();
     if (assistantMirror === "failed") {
-      const { data, error } = await db.from("sms_outbox").update({
+      const { data, error } = await writeMarker({
         conversation_log_status: "failed",
         conversation_log_attempts: priorAttempts + 1,
         conversation_log_next_attempt_at: new Date(now.getTime() + Math.min(60 * 60_000, 5 * 60_000 * 2 ** Math.min(priorAttempts, 3))).toISOString(),
         conversation_log_last_error: "assistant_thread_mirror_unavailable",
         updated_at: now.toISOString(),
-      }).eq("id", row.id).eq("provider_message_sid", messageSid)
-        .eq("conversation_log_status", claim.status)
-        .eq("conversation_log_next_attempt_at", claim.dueAt)
-        .select("id").maybeSingle();
+      });
       return error ? "failed" : data ? "failed" : "stale";
     }
-    const { data, error } = await db.from("sms_outbox").update({
+    const { data, error } = await writeMarker({
       conversation_log_status: "persisted",
       conversation_log_attempts: priorAttempts + 1,
       conversation_log_next_attempt_at: null,
       conversation_log_last_error: null,
       updated_at: now.toISOString(),
-    }).eq("id", row.id).eq("provider_message_sid", messageSid)
-      .eq("conversation_log_status", claim.status)
-      .eq("conversation_log_next_attempt_at", claim.dueAt)
-      .select("id").maybeSingle();
+    });
     return error ? "failed" : data ? "persisted" : "stale";
   }
   const key = resolveOutboxConversationKey(row);
   const now = new Date();
   if (key.kind === "invalid") {
-    const { data, error } = await db.from("sms_outbox").update({
+    const { data, error } = await writeMarker({
       conversation_log_status: "blocked",
       conversation_log_last_error: "invalid_conversation_key",
       conversation_log_next_attempt_at: null,
       updated_at: now.toISOString(),
-    }).eq("id", row.id).eq("provider_message_sid", messageSid)
-      .eq("conversation_log_status", claim.status)
-      .eq("conversation_log_next_attempt_at", claim.dueAt)
-      .select("id").maybeSingle();
+    });
     return error ? "failed" : data ? "invalid" : "stale";
   }
   // Legacy rows without an explicit key may only use logger derivation from
@@ -633,7 +651,7 @@ async function persistSubmittedConversationLog(
     body: row.body,
     fromPhone: fromNumber,
     toPhone: row.recipient_phone,
-    messageSid,
+    messageSid: logMessageId,
     source: row.send_class === "automated" ? "automated" : "work_number",
     counterpartyRole: isSmsCounterpartyRole(row.counterparty_role) ? row.counterparty_role : undefined,
     conversationKey: key.conversationKey ?? undefined,
@@ -650,14 +668,11 @@ async function persistSubmittedConversationLog(
     }
   }
   const persisted = logged && followUpReady && assistantMirror !== "failed";
-  const { data, error } = await db.from("sms_outbox").update(
+  const { data, error } = await writeMarker(
     persisted
       ? { conversation_log_status: "persisted", conversation_log_attempts: priorAttempts + 1, conversation_log_next_attempt_at: null, conversation_log_last_error: null, updated_at: now.toISOString() }
       : { conversation_log_status: "failed", conversation_log_attempts: priorAttempts + 1, conversation_log_next_attempt_at: new Date(now.getTime() + Math.min(60 * 60_000, 5 * 60_000 * 2 ** Math.min(priorAttempts, 3))).toISOString(), conversation_log_last_error: "manager_sms_log_unavailable", updated_at: now.toISOString() },
-  ).eq("id", row.id).eq("provider_message_sid", messageSid)
-    .eq("conversation_log_status", claim.status)
-    .eq("conversation_log_next_attempt_at", claim.dueAt)
-    .select("id").maybeSingle();
+  );
   if (error) return "failed";
   if (!data) return "stale";
   return persisted ? "persisted" : "failed";
@@ -1214,22 +1229,39 @@ export async function dispatchOwnerSmsOutbox(
     }
     if (!sent.sent || !sent.sid) {
       const providerErrorCode = sent.error?.match(/\b\d{5}\b/)?.[0] ?? null;
-      await db
+      // The text is still the outbound message it was meant to be (an account the provider suspended refuses every
+      // send): record it in Communication like any other, under the outbox id, through the same repairable marker.
+      const unsentLogDueAt = new Date().toISOString();
+      const { data: unknownRow } = await db
         .from("sms_outbox")
         .update({
           status: "unknown",
           blocked_reason: "provider_submission_outcome_unknown",
           provider_error_code: providerErrorCode,
+          conversation_log_status: "pending",
+          conversation_log_attempts: 0,
+          conversation_log_next_attempt_at: unsentLogDueAt,
+          conversation_log_last_error: null,
           lease_owner: null,
           lease_expires_at: null,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", row.id);
+        .eq("id", row.id)
+        .select("id")
+        .maybeSingle();
       await db
         .from("sms_delivery_attempts")
         .update({ state: "unknown", provider_error_code: providerErrorCode, finished_at: new Date().toISOString() })
         .eq("id", attempt.id);
       result.unknown += 1;
+      if (unknownRow) {
+        const projection = await persistSubmittedConversationLog(db, row, policy.fromNumber, null, 0, {
+          status: "pending",
+          dueAt: unsentLogDueAt,
+        });
+        if (projection === "failed") recordInfrastructureError("conversation_log_persistence_unavailable");
+        else if (projection === "invalid") recordInfrastructureError("conversation_log_projection_invalid_identity");
+      }
       continue;
     }
 
@@ -1318,7 +1350,8 @@ export type UnknownSmsInventory =
   | { ok: false; error: string };
 
 type ConversationLogRepairRow = ClaimedOutboxRow & {
-  provider_message_sid: string;
+  /** Null for a text the provider refused with no SID (recorded under its outbox id). */
+  provider_message_sid: string | null;
   provider_from_phone: string | null;
   conversation_log_attempts: number;
   conversation_log_next_attempt_at: string;
@@ -1326,7 +1359,8 @@ type ConversationLogRepairRow = ClaimedOutboxRow & {
 };
 
 /**
- * Repair only the Communication projection of a carrier-accepted SMS. This
+ * Repair only the Communication projection of a carrier-accepted SMS, or of a
+ * text the provider refused with no SID (recorded under its outbox id). This
  * never calls Twilio or changes `sms_outbox.status`; `message_sid` makes a
  * retry idempotent even if a process dies after the insert succeeds.
  */
@@ -1350,17 +1384,32 @@ export async function reconcileSubmittedSmsConversationLogs(
     .lte("conversation_log_next_attempt_at", now.toISOString())
     .order("conversation_log_next_attempt_at", { ascending: true })
     .limit(Math.max(1, Math.min(limit, 100)));
+  // A text the provider refused with no SID (`unknown`) is recorded under its outbox id; the sender it was meant to leave
+  // from is the row's own `provider_from_phone` snapshot, never a current lookup.
+  const readUnsentInventory = (columns: string) => db.from("sms_outbox")
+    .select(columns)
+    .eq("status", "unknown")
+    .eq("blocked_reason", "provider_submission_outcome_unknown")
+    .in("conversation_log_status", ["pending", "failed"])
+    .is("provider_message_sid", null)
+    .not("provider_from_phone", "is", null)
+    .lte("conversation_log_next_attempt_at", now.toISOString())
+    .order("conversation_log_next_attempt_at", { ascending: true })
+    .limit(Math.max(1, Math.min(limit, 100)));
   let inventory = await readRepairInventory(`${repairColumns},workspace_id`);
   // `workspace_id` is additive: before its migration the read degrades to the old shape.
   if (inventory.error && isMissingWorkspaceColumn(inventory.error)) inventory = await readRepairInventory(repairColumns);
-  const { data, error: inventoryError } = inventory;
-  if (inventoryError) return { ok: false, error: "inventory_unavailable", attempted: 0, persisted: 0, failed: 0 };
+  let unsent = await readUnsentInventory(`${repairColumns},workspace_id`);
+  if (unsent.error && isMissingWorkspaceColumn(unsent.error)) unsent = await readUnsentInventory(repairColumns);
+  const { error: inventoryError } = inventory;
+  if (inventoryError || unsent.error) return { ok: false, error: "inventory_unavailable", attempted: 0, persisted: 0, failed: 0 };
+  const data = [...((inventory.data ?? []) as unknown[]), ...((unsent.data ?? []) as unknown[])];
   let attempted = 0;
   let persisted = 0;
   let failed = 0;
-  for (const candidate of (data ?? []) as unknown as ConversationLogRepairRow[]) {
+  for (const candidate of data as unknown as ConversationLogRepairRow[]) {
     const due = String(candidate.conversation_log_next_attempt_at ?? "");
-    if (!candidate.provider_message_sid || !candidate.provider_from_phone || !due) continue;
+    if (!candidate.provider_from_phone || !due) continue;
     const claimUntil = new Date(now.getTime() + 5 * 60_000).toISOString();
     const { data: claim, error: claimError } = await db.from("sms_outbox")
       .update({ conversation_log_next_attempt_at: claimUntil, updated_at: now.toISOString() })

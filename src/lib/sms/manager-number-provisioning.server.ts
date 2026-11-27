@@ -819,8 +819,8 @@ export async function restoreManagerNumber(db: SupabaseClient, managerUserId: st
 }
 
 /**
- * The line a PropLane-MANAGED workspace (`is_service`) sends on: its OWN active, registered number when it has one, else the
- * PropLane line (captain, Nov 24; `resolveServiceLine` is the one decision). `managed: false` = an ordinary workspace; the caller resolves its own number. `managed:
+ * The line a PropLane-MANAGED workspace (`is_service`) sends on: always the PropLane line (owner, Nov 27: only the admin uses
+ * the 814; `resolveServiceLine` is the one decision). `managed: false` = an ordinary workspace; the caller resolves its own number. `managed:
  * true, line: null` = managed but the line cannot be resolved or read, so nothing sends (never the old number).
  */
 export async function resolveManagedSendLine(

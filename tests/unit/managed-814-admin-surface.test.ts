@@ -3,9 +3,9 @@
  *   - an admin-initiated send (the operator or staff acting in a managed workspace, PropLane's alerts to its people, an admin's
  *     reply to an Unassigned lead) leaves on the admin line via `resolveAdminLine`, even for a managed workspace with no number
  *     of its own; an automated reply to someone who texted the 206 answers on the line they texted;
- *   - the 206's managed-home redirect is sent once per 30 days per phone; repeats are logged and get a short answer;
- *   - Settings reports a managed workspace on its own 814 as onSharedLine false with the 814 shown;
  *   - the remaining direct from-number pickers go through the one decision.
+ * Owner, Nov 27: ONLY the admin uses the 814. Every manager workspace (managed ones included, like "1. Ambika", whose record
+ * holds the 814) texts on the main 206, so the 206 no longer redirects a managed home's texters to the 814.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryDb } from "./support/memory-supabase";
@@ -52,7 +52,11 @@ const row = (over: Record<string, unknown>) => ({
 });
 
 function world() {
-  return createMemoryDb({
+  return createMemoryDb(worldTables());
+}
+
+function worldTables() {
+  return {
     sms_runtime_config: [{ singleton: true, mode: "automatic", pilot_manager_user_ids: [], line_mode: "per_workspace", shared_number_e164: LINE_206, shared_messaging_service_sid: "MGshared", shared_pilot_workspace_ids: [] }],
     platform_service_settings: [{ singleton: true, owner_user_id: SO }],
     profile_roles: [{ user_id: SO, role: "admin" }, { user_id: "admin-2", role: "admin" }],
@@ -73,7 +77,7 @@ function world() {
     sms_manager_entitlements: [],
     account_link_invites: [],
     sms_managed_home_redirects: [],
-  });
+  } as Record<string, Array<Record<string, unknown>>>;
 }
 
 beforeEach(() => {
@@ -117,6 +121,21 @@ describe("admin-surface sends leave on the 814", () => {
     const result = await ready(world(), VINOD, { workspaceId: "ws-vinod" });
     expect(result.canSend && result.numberRow.phone_number).toBe(LINE_206);
     expect(result.canSend && result.adminLine).toBeFalsy();
+  });
+
+  it("Ambika's own texts (a manager workspace that holds the 814 record) leave from the 206, never the 814", async () => {
+    const result = await ready(world(), AMBIKA, { workspaceId: "ws-ambika" });
+    expect(result.canSend && result.numberRow.phone_number).toBe(LINE_206);
+    expect(result.canSend && result.adminLine).toBeFalsy();
+    const shared = createMemoryDb({ ...worldTables(), sms_runtime_config: [{ singleton: true, mode: "automatic", pilot_manager_user_ids: [], line_mode: "shared", shared_number_e164: LINE_206, shared_messaging_service_sid: "MGshared", shared_pilot_workspace_ids: [] }] });
+    const onShared = await ready(shared, AMBIKA, { workspaceId: "ws-ambika" });
+    expect(onShared).toMatchObject({ canSend: true, viaSharedLine: true });
+    expect(onShared.canSend && onShared.numberRow.phone_number).toBe(LINE_206);
+  });
+
+  it("an admin acting in Ambika's workspace still leaves from the 814", async () => {
+    const result = await ready(world(), AMBIKA, { workspaceId: "ws-ambika", adminSurface: true });
+    expect(result.canSend && result.numberRow.phone_number).toBe(OWN_814);
   });
 
   it("PropLane's alert from the service owner's account leaves from the 814", async () => {
@@ -180,7 +199,7 @@ describe("an admin's reply to an Unassigned lead", () => {
   });
 });
 
-describe("the 206's managed-home redirect is sent once per 30 days", () => {
+describe("the 206 no longer redirects a managed home to the 814", () => {
   const candidate = { workspaceId: "ws-ambika", ownerUserId: AMBIKA, role: "prospect" as const, reason: "named" as never, propertyId: null, label: "5257 Brooklyn" };
   const keyed = () => {
     const db = world();
@@ -207,24 +226,19 @@ describe("the 206's managed-home redirect is sent once per 30 days", () => {
   const ask = (db: unknown, sid: string) =>
     answerFromDedicatedWorkspace(db as never, { candidate, fromPhone: "+14255550123", body: "still open?", messageSid: sid, sharedNumber: LINE_206 });
 
-  it("the first text gets the redirect; a repeat inside 30 days is logged and gets a short answer, not the redirect again", async () => {
+  it("a text about Ambika's home on the 206 gets no redirect (the workspace's line is the 206 itself)", async () => {
     const db = keyed();
-    const first = await ask(db, "SM1");
-    expect(first).toBe("For 5257 Brooklyn, text us at (814) 679-3694 - that's the line for this home.");
-    const again = await ask(db, "SM2");
-    expect(again).not.toBe(first);
-    expect(again).toContain("(814) 679-3694");
-    expect(again).toContain("we have your message");
-    expect(logged.filter((l) => l.direction === "inbound")).toHaveLength(2);
-    expect(logged.filter((l) => l.direction === "inbound").every((l) => l.workspaceId === "ws-ambika")).toBe(true);
+    expect(await ask(db, "SM1")).toBeNull();
+    expect(await ask(db, "SM2")).toBeNull();
+    expect(logged).toEqual([]);
   });
 });
 
 describe("remaining from-number pickers follow the one decision", () => {
-  it("a managed workspace's reminder/invite from-number is its line (own, else the PropLane line); a self-serve one keeps its lookup", async () => {
+  it("a managed workspace's reminder/invite from-number is the PropLane line, even one holding the 814; a self-serve one keeps its lookup", async () => {
     const db = world() as never;
     const lookup = async () => "+19995550000";
-    expect(await resolveManagedAwareFromNumber(db, AMBIKA, lookup, "ws-ambika")).toBe(OWN_814);
+    expect(await resolveManagedAwareFromNumber(db, AMBIKA, lookup, "ws-ambika")).toBe(LINE_206);
     expect(await resolveManagedAwareFromNumber(db, VINOD, lookup, "ws-vinod")).toBe(LINE_206);
     expect(await resolveManagedAwareFromNumber(db, SELF, lookup, "ws-self")).toBe("+19995550000");
   });

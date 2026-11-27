@@ -92,14 +92,16 @@ describe("resolveHouseSmsLine: the line is the HOUSE's workspace's, never the ow
     expect(other).toMatchObject({ ok: true, fromNumber: OWN_A, selectedWorkLineId: "n-a" });
   });
 
-  it("a PropLane-managed (is_service) workspace with its own registered number texts from it (Nov 24)", async () => {
+  it("a PropLane-managed (is_service) workspace texts from the PropLane line (206), never its own old number (Nov 27)", async () => {
     const line = await resolveHouseSmsLine(world("per_workspace") as never, target("h-client", "ws-client", CLIENT));
-    expect(line).toMatchObject({ ok: true, fromNumber: CLIENT_OLD });
+    expect(line).toMatchObject({ ok: true });
+    expect((line as { fromNumber?: string | null }).fromNumber).toBe(LINE_206);
   });
 
-  it("shared line mode: the managed workspace with its own number still leaves from it", async () => {
+  it("shared line mode: the managed workspace leaves from the shared line, not its own old number", async () => {
     const line = await resolveHouseSmsLine(world("shared") as never, target("h-client", "ws-client", CLIENT));
-    expect(line).toMatchObject({ ok: true, fromNumber: CLIENT_OLD });
+    // The shared line is chosen by the shared sender, so no own number is named.
+    expect(line).toMatchObject({ ok: true, fromNumber: null });
   });
 
   it("shared line mode: a self-serve workspace with a paid number of its own still sends from it", async () => {
@@ -107,9 +109,9 @@ describe("resolveHouseSmsLine: the line is the HOUSE's workspace's, never the ow
     expect(line).toMatchObject({ ok: true, fromNumber: OWN_B, selectedWorkLineId: "n-b" });
   });
 
-  it("a managed workspace keeps its own number when the PropLane line cannot be resolved", async () => {
+  it("a managed workspace never falls back to its own old number when the PropLane line cannot be resolved", async () => {
     const line = await resolveHouseSmsLine(world("per_workspace", { noServiceOwner: true }) as never, target("h-client", "ws-client", CLIENT));
-    expect(line).toMatchObject({ ok: true, fromNumber: CLIENT_OLD });
+    expect(line).toMatchObject({ ok: false });
   });
 
   it("a workspace with no work number refuses; it does not borrow the owner's other workspace's number", async () => {

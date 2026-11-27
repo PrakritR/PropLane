@@ -216,7 +216,7 @@ describe("the Service list", () => {
     expect(asB.ok && asB.payload.workspaces[0]).toMatchObject({ viewerRole: null, canManage: false });
   });
 
-  it("shows the workspace's own registered line, else the PropLane line (206), and never provisions", async () => {
+  it("shows the PropLane line (206) even when the workspace holds a registered number of its own, and never provisions", async () => {
     const created = (await svc.createServiceWorkspace(client(), ADMIN_A, { name: "PropLane Seattle", city: null })) as { id: string };
     const list = async () => {
       const r = await svc.listServiceWorkspaces(client(), ADMIN_A);
@@ -239,8 +239,8 @@ describe("the Service list", () => {
       requested_at: "2026-10-01T00:00:00.000Z",
     });
     paid.owners.add(OWNER);
-    // Active and registered, so it is the workspace's own line (Nov 24).
-    expect(await list()).toBe("+12065550199|own");
+    // Active and registered, but a managed workspace still sends on the PropLane line (Nov 27: only admin uses its own).
+    expect(await list()).toBe("+12065550111|shared");
     // A released one is history.
     db.tables.manager_sms_numbers[0]!.released_at = "2026-10-02";
     expect(await list()).toBe("+12065550111|shared");
